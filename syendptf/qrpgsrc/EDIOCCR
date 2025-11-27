@@ -1,0 +1,194 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 SEND EPOST TIL SYSTEMA UKJENT FIL
+10030 * 02 CB  PTF10 Hent IFS bane slik at navn kan valideres
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 03 YBC PTF11 KONVERTER XML (KVITTERING TIL EHF-FAKTURA)
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX * 04 YBC PTF12 VIS BIBLIOTEK I FEILMELDING
+12XXX * 05 YBC PTF12 Ikke send feilmelding ved første post er UNA:+.?
+********************************************************************
+      **************************************************************
+      * IDENTIFISER FLATFIL "MELDINGSTYPER" - LAGE LOGGELEMENT
+      **************************************************************
+      * "PRIVATE" TYPER UTOVER REMITERING OG BBS-OCR MÅ IDENTIDIFISERES
+      * FORTRINNSVIS VIA EN ELLER ANNEN UNIK STRENG I FØRSTE RECORD....
+      * SØK ETTER "SYSTE" I POS. 1-5. AKTIVER/ENDRE STATEMENTENE
+      * MERK MED KUNDESPESIFIK POS 1-5. I STEDET FOR "SYSTE"
+      * OBS! MED DAGENS LOGIKK MÅ ALLE TYPER "GODKJENNES" OGSÅ I EDI85R
+      *     (MEN KANSKJE BURDE DEN UANSETT DA SLIPPES IGJENNOM OG SÅ
+      *      LOGGES SOM UKJENT HER???????)
+N04  FFIRM      IF   E           K DISK
+     FEDIRE     IF   E           K DISK
+     FEDIS      O  A E             DISK
+N02  FEDISX     IF   E           K DISK
+     D                 DS
+     D  RDATA                  1     80
+     D  RTYP1                  1      1
+     D  RTYP2                  1      2
+     D  AH100                  1      5
+     D  RTYREM                41     48
+     D  REMKID                49     59
+     D  OCRBKT                25     35
+     D  IFATYP                 1      4
+     D  IFAFRA                 6     40
+     D  IFATIL                41     75
+     D                 DS
+     D  WMBR                   1     10
+     D  WMBRA                  1      1
+     D  WMBRB                  2     10S 0
+N03  D TSTXML          C                   CONST('<?xml version=')
+SYSTEI*                                      ??  ?? PRIV01
+     C     *ENTRY        PLIST
+     C                   PARM                    WTYP              3
+     C                   PARM                    WFRREM
+     C                   PARM                    WFROCR
+     C                   PARM                    S0010
+     C                   PARM                    SLIB
+     C                   PARM                    SFILE
+     C                   PARM                    SMBR
+
+     C     *LIKE         DEFINE    S0004         WFRREM
+     C     *LIKE         DEFINE    S0004         WFROCR
+N04  C     *LOVAL        SETLL     FIRM
+N04  C                   READ      FIRM                                   33
+N02
+N02   * Hent IFS katalog og filnavn
+N02   * Har nå variabel: SXIFSOBJ som inneholder katalogbane + filnavn
+N02   * hvis en vill teste på filnavn isteden for innehold.
+N02  C     SMBR          CHAIN     EDISX
+      * HVIS NIT / RJE : FØRSTE RECORD=3 (VED ORIGINAL)
+      * DA ER FØRSTE KARAKTER 'ø' I LINJE 1 (LINJE 2 ER BLANK)
+      * VED RETRANSMITT FÅR VI IKKE INN "RUSK I LINJE" 1 OG 2
+     C     SMBR          SETLL     EDIRE
+     C     SMBR          READE     EDIRE                                  21
+     C   21              GOTO      SLUTT
+     C     RTYP1         IFEQ      'ø'
+     C     1             DO        2
+     C     SMBR          READE     EDIRE                                  21
+     C   21              GOTO      SLUTT
+     C                   END
+     C                   END
+N03  C     TSTXML        SCAN      RDATA                                  53
+N03  C                   IF        *IN53
+N03  C                   MOVE      'XML'         WTYP
+N03  C                   GOTO      SLUTT
+N03  C                   ENDIF
+SYSTEC* PRIVATE MELDINGSTYPER LEGGES INN HER.........
+SYSTEC* DISSE BLIR SOMREGEL UMIDDELBART BEARBEIDET AV ET PROG. SST->"C"
+SYSTEC*          XXXTYP    IFEQ 'YYYYY'
+SYSTEC*                    MOVE 'XXX'     WTYP
+SYSTEC*                    MOVEL'ZZZZZZZZ'S0004            ID-AVSENDER
+SYSTEC*                    MOVE 'C'       SST              Status sendi
+SYSTEC*                    GOTO OK
+SYSTEC*                    ENDIF
+      * INTERN FAKTURA
+     C     IFATYP        IFEQ      '*IN#'
+     C                   MOVE      'IFA'         WTYP                           INTERN FAKT.
+     C                   MOVE      IFAFRA        S0004
+     C                   MOVE      IFATIL        S0010
+     C                   MOVE      'C'           SST                            Status sendi
+     C                   GOTO      OK
+     C                   END
+      * BBS/OCR-INNBET STARTER ALLTID MED RECORD MED 'NY' I POS 2-3
+     C     RTYP2         IFEQ      'NY'
+     C                   MOVE      'OCR'         WTYP                           *BBS INNBET.
+     C                   MOVE      WFROCR        S0004
+     C                   MOVE      'A'           SST                            Status sendi
+SYSTEC*          OCRBKT    IFEQ '61290517'
+SYSTEC*                    MOVEL'XXXXXXXX'S0004
+SYSTEC*                    MOVEL'YYYYYYYY'S0010
+SYSTEC*                    ENDIF
+     C                   GOTO      OK
+     C                   END
+      * REMITERING TYPE "BETFOR"
+     C     RTYREM        IFEQ      'BETFOR00'
+     C                   MOVE      'REM'         WTYP                           *REMIT.DATA
+     C     AH100         IFEQ      'AH102'
+     C     AH100         OREQ      'AH202'
+     C                   MOVE      'A'           SST                            Status sendi
+     C                   ELSE
+     C                   MOVE      'C'           SST
+     C                   END
+     C                   MOVE      WFRREM        S0004
+SYSTEC*          REMKID    IFEQ '00913360'
+SYSTEC*                    MOVEL'XXXXXXXX'S0004
+SYSTEC*                    MOVEL'YYYYYYYY'S0010
+SYSTEC*                    ENDIF
+     C                   GOTO      OK
+     C                   ENDIF
+      * AVREGNING TYPE AH100
+     C     AH100         IFEQ      'AH100'
+     C     AH100         OREQ      'AH200'
+     C                   MOVE      'AVR'         WTYP                           *REMIT.DATA
+     C                   MOVE      'A'           SST                            Status sendi
+     C                   MOVEL     'BANKAVST'    S0004
+     C                   GOTO      OK
+     C                   ENDIF
+N02   * Exempellinje, bytt ut YYY.XXX med aktuell verdi
+N02  C     'YYY.XXX'     SCAN      SXIFSOBJ                               22
+N02  C                   IF        *IN22
+N02  C                   EVAL      WTYP='XXX'
+N02  C                   MOVEL     'ZZZZZZZZ'    S0004
+N02  C                   EVAL      SST='C'
+N02  C                   GOTO      OK
+N02  C                   ENDIF
+      * UKJENT TYPE FLATFIL......
+     C                   MOVE      'UKJ'         WTYP                           *UKJENT
+     C                   MOVEL     'UKJENT'      S0004
+     C                   MOVE      'C'           SST                            Status sendi
+N01  C                   CALL      'SYGE15C'
+N01  C                   PARM                    WDT               8
+N01  C                   PARM                    WTM               6
+N01  C                   MOVE      WDT           XDT               8 0
+N01  C                   MOVE      WTM           XTM               6 0
+N05  C                   IF        %SUBST(RDATA:1:7) <> 'UNA:+.?'
+N01  C                   EVAL      XMSG = 'Ukjent fil. '
+N04  C                             + 'FIRMA = ' + %TRIM(FIFT) + ', '
+N01  C                             + 'PROGRAM = EDIOCCR, '
+N01  C                             + 'FILNAVN = EDIRE, '
+N01  C                             + 'KOMPONENT = ' + %TRIM(SMBR) + ', '
+N01  C                             + 'DATO = ' + %TRIM(%EDITW(XDT:'    .  .  '))
+N01  C                             + ', '
+N01  C                             + 'TID = ' + %TRIM(%EDITW(XTM:'  :  :  '))
+N01  C                             + '. '
+N01  C                   CALL      'EDIERRC'
+N01  C                   PARM                    XMSG            256
+N05  C                   END
+
+     C     OK            TAG
+      * LAG LOGG ELEMENT I SENDINGSLOGG
+     C                   EXSR      LOGGS
+      *
+     C     SLUTT         TAG
+     C                   MOVE      '1'           *INLR
+      *---------------------------------------
+     C     LOGGS         BEGSR
+      *"""""""""""""""""""""""""""""""""""""""
+      *
+      * HENTE DAGENS DATO OG TID
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+     C                   MOVE      ' '           S0035                          Testindikat.
+     C                   MOVE      'R'           SSR                            Send/rec.sen
+     C                   MOVEL     WDATO         SDT                            Dato inn sen
+     C                   MOVEL     WTID          STM                            Tid inn  sen
+      * Som sendingsref legges 14 første tegn av første record
+     C                   MOVEL     RDATA         S0020                          SENDINGSref.DI-ID
+     C                   MOVEL     WTYP          S0026                          APPL.REF    DI-ID
+      * Hent sendningsnummer fra pos 2-8 i komponentnavn
+     C                   EVAL      WMBR=SMBR
+     C                   EVAL      SSN=WMBRB
+      * Som antall legges antall linjer i fila (Obs! en rec. alt lest)
+     C     *IN21         DOWEQ     '0'
+     C                   ADD       1             ANTALL            5 0
+     C     SMBR          READE     EDIRE                                  21
+     C                   END
+     C                   Z-ADD     ANTALL        S0036                          ANT. LINJER
+      * Oppdater sendingsloggen
+     C                   WRITE     EDISR
+
+     C                   ENDSR

@@ -1,0 +1,414 @@
+      * FORSØK PÅ Å KONVERTERE TIL *FREE2
+     ‚*********************************************************************
+
+CRTP‚+*  CRTPGM SYSPED/TJINQSTED2 MODULE(*LIBL/TJINQSTED2 *LIBL/INCGI)
+CRTP‚m*        ACTGRP(*NEW) AUT(*USE)
+
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX‚* 01 JOV PTF11 droppet merkelig logikk med filter åpå ETT postnr/infør søk via postnr
+     ‚*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+11XXX‚* 02 JOV PTF11 Ved GetAvd=J returner avdelinger dersom vilkår for det er tilstede
+****‚***************************************************************
+     ‚*********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+     ‚*********************************************************************
+       dcl-f bridf keyed usropn;
+       dcl-f firm keyed usropn;
+       dcl-f sted2 keyed usropn;
+       dcl-f sted2d keyed usropn rename(sted2r:sted2rd);
+       dcl-f sted2a keyed usropn rename(sted2r:sted2ra);
+       dcl-f sted2s keyed usropn rename(sted2r:sted2rs);
+     ‚*--------------------------------------------------------------------
+     ‚* Variables common to all CGIs
+     ‚*--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+       dcl-s soklk char(2);
+       dcl-s soknvn varchar(30);
+       dcl-s soknvn2 char(30);
+       dcl-s maxnvn char(30);
+       dcl-s sokkod char(5);
+       dcl-s maxkod char(5);
+       dcl-s getval char(1);                                                    // J=Get/validate
+       dcl-s fullinfo char(1);                                                  // J=Ret. full info
+       dcl-s getavd char(1);                                                    // J=Ret Avd hvis..
+       dcl-s avd packed(4);                                                     // Avd for DUP e.l.
+       dcl-s oprkod char(5);
+       dcl-s oprnvn char(30);
+       dcl-s viapnr char(5);
+       dcl-s user char(10);
+       dcl-s wskunpa char(1);
+       dcl-s maxv char(5);
+       dcl-s maxvis packed(5);
+       dcl-s jsonstring char(32000);
+       dcl-s error char(150);
+       dcl-s antlest packed(9);
+
+
+     ‚* Prototype for 'JSONFIX'
+       dcl-pr jsonfix extpgm('JSONFIX');
+         jsonstring_ like(jsonstring);
+       end-pr;
+     ‚* Prototype for 'INCGI'
+       dcl-pr incgi extproc('INCGI');
+         bistdl_ like(bistdl);
+       end-pr;
+     ‚* Prototype for bilibl
+       dcl-pr bilibl_001 extpgm(bilibl);
+       end-pr;
+     ‚* Prototype for 'ESGETPAR'
+       dcl-pr esgetpar extpgm('ESGETPAR');
+         bibrid_ like(bibrid);
+         bifi1m_ like(bifirm);
+         bikunr_ like(bikunr);
+         bikng_ like(bikng);
+         rowhead_ like(rowhead);
+         odd_ like(odd);
+         even_ like(even);
+         logoimg_ like(logoimg);
+         xsprÅk_ like(xsprÅk);
+         xintern_ like(xintern);
+         parmds1_ like(parmds1);
+         parmds2_ like(parmds2);
+         parmds3_ like(parmds3);
+       end-pr;
+
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+       dcl-s antvist packed(5);
+       dcl-s even char(10);
+       dcl-s excl char(1);
+       dcl-s logoimg char(50);
+       dcl-s odd char(10);
+       dcl-s parmds1 char(1024);
+       dcl-s parmds2 char(1024);
+       dcl-s parmds3 char(1024);
+       dcl-s rowhead char(10);
+       dcl-s xintern char(1);
+       dcl-s xsprÅk char(2);
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+     ‚*get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+       exsr parse;
+
+       exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       jsonstring='{'
+       +'¬user¬ : ¬'+%trim(user)+'¬, '
+       +'¬soklk¬ : ¬'+%trim(soklk)+'¬, '
+       +'¬soknvn¬ : ¬'+%trim(soknvn)+'¬, '
+       +'¬sokkod¬ : ¬'+%trim(sokkod)+'¬, '
+       +'¬wskunpa¬ : ¬'+%trim(wskunpa)+'¬, '
+       +'¬getVal¬ : ¬'+%trim(getval)+'¬, '
+       +'¬fullInfo¬ : ¬'+%trim(fullinfo)+'¬, '
+       +'¬getAvd¬ : ¬'+%trim(getavd)+'¬, '
+       +'¬error¬ : ¬'+%trim(error)+'¬, ';
+
+     ‚* JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       jsonfix ( jsonstring );
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+     ‚* Listestart
+       jsonstring ='"postnrlist" : [';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+     ‚* Find/send lines
+       if error = *blanks;
+         exsr lines;
+       endif;
+
+     ‚* Listeslutt
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+     ‚* Quit
+       exsr exit;
+
+
+     ‚*=====================================================================
+     ‚* Parse input / cvt to numeric
+     ‚*=====================================================================
+       begsr parse;
+     ‚* Parse variables from QUERY_STRING environment variable
+         soklk   = zhbgetvar('SOKLK');
+         soklk   = uppify(soklk);
+         soknvn  = zhbgetvar('SOKNVN');
+         soknvn  = uppify(soknvn);
+         sokkod  = zhbgetvar('SOKKOD');
+         sokkod  = uppify(sokkod);
+         getval  = zhbgetvar('GetVal');
+     ‚* param for FullInfo klargjort - men ikke logikk for å legge ut ekstra  (
+         fullinfo= zhbgetvar('FullInfo');
+         getavd  = zhbgetvar('GetAvd');
+         maxv    = zhbgetvar('MaxV');
+         maxvis  = c2n2(maxv);
+         wskunpa = zhbgetvar('WSKUNPA');
+         if maxvis = *zeros;
+           maxvis = 50;
+         endif;
+     ‚* Userid.....
+         user = zhbgetvar('USER');
+       endsr;
+
+
+     ‚*=====================================================================
+     ‚* Close output html and quit
+     ‚*=====================================================================
+       begsr exit;
+     ‚* Do not delete the call to wrtsection with section name *fini.  It is needed
+     ‚* to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+     ‚* Quit
+         close bridf;
+         if *in50 = *off;
+           close firm;
+           close sted2d;                                                        // LK+Kode
+           close sted2;                                                         // Kode
+           close sted2a;
+           close sted2s;
+         endif;
+         *inlr = *on;
+         return;
+       endsr;
+
+
+     ‚*=====================================================================
+     ‚* Fine lins - send to browser
+     ‚*=====================================================================
+       begsr lines;
+         antvist = *zeros;
+         soknvn2   = soknvn;
+         if soknvn = *blanks
+           and sokkod = *blanks
+           and soklk = *blanks;
+           soknvn2='A';
+         endif;
+     ‚* søk via kode
+         if sokkod <> *blanks;
+           maxkod=%trim(sokkod)+'9999';
+           if soklk <> *blanks;                                                 // Via LK
+             setll ( soklk : sokkod ) sted2d;
+             reade soklk sted2d;
+             *in33 = %eof;
+           else;                                                                // Uanh av LK
+             setll sokkod sted2;
+             read sted2;
+             *in33 = %eof;
+           endif;
+         else;
+     ‚* søk via navn
+           maxnvn=%trim(soknvn)+'9999999999999999999';
+           if soklk <> *blanks;                                                 // Via LK
+             setll ( soklk : soknvn2 ) sted2a;
+             reade soklk sted2a;
+             *in33 = %eof;
+           else;                                                                // Uanh av LK
+             setll ( soknvn2 ) sted2s;
+             read sted2s;
+             *in33 = %eof;
+           endif;
+         endif;
+     ‚* behandle EN LEST POST
+         dow *in33 = *off;
+     ‚* lest for langt ?? - hopp ut
+           if sokkod <> *blanks;
+             if st2kod > maxkod;
+               leavesr;
+             endif;
+           else;
+             if st2nvn > maxnvn;
+                 leavesr;
+             endif;
+           endif;
+           exsr exclude;
+           if excl = 'N';
+
+             if getavd='J';
+               exsr getavdsr;
+             endif;
+             viapnr = *blanks;
+             if st2sol='VIA';
+               viapnr = st2ko2;
+             endif;
+
+             antlest=antlest+1;
+             if antlest=1;
+               jsonstring=*blanks;
+             else;
+               jsonstring=', ';
+             endif;
+             jsonstring=%trim(jsonstring)+'{'
+                +'¬st2kod¬ : ¬'+%trim(st2kod)+'¬, '
+                +'¬st2nvn¬ : ¬'+%trim(st2nvn)+'¬, '
+                +'¬st2lk¬ : ¬'+%trim(st2lk)+'¬,'
+                +'¬viapnr¬ : ¬'+%trim(viapnr)+'¬, '
+                +'¬oprkod¬ : ¬'+%trim(oprkod)+'¬, '
+                +'¬oprnvn¬ : ¬'+%trim(oprnvn)+'¬, '
+                +'¬avd¬ : ¬' +%trim(%editc(avd:'Z'))+'¬}';
+             jsonfix ( jsonstring );
+             updhtmlvar2('JSONstring'
+                        :%addr(jsonstring)
+                        :%len(jsonstring));
+             wrtsection('JSONlin');
+             antvist=antvist+1;
+             if antvist > maxvis;
+               leavesr;
+             endif;
+           endif;
+     ‚* ved get/Validate  er det kun en
+           if getval = 'J';
+             leave;
+           endif;
+     ‚* søk via kode
+           if sokkod <> *blanks;
+             if soklk <> *blanks;                                               // Via LK
+               reade soklk sted2d;
+               *in33 = %eof;
+             else;                                                              // Uanh av LK
+               read sted2;
+               *in33 = %eof;
+             endif;
+           else;
+             if soklk <> *blanks;                                               // Via LK
+               reade soklk sted2a;
+               *in33 = %eof;
+             else;                                                              // Uanh av LK
+               read sted2s;
+               *in33 = %eof;
+             endif;
+           endif;
+         enddo;
+
+       endsr;
+
+
+     ‚*=====================================================================******
+     ‚*  Eksluder post basert på...
+     ‚*=====================================================================******
+       begsr exclude;
+         excl = 'J';
+     ‚* diverse tester - om ikke bestått hopp ut (med J i EXCL)
+     ‚* vis kun postnummer (numeriske)
+         if wskunpa = 'P'
+           and (st2kod < '00000' or  st2kod >  '99999');
+           leavesr;
+         endif;
+     ‚* vis kun Alfakoder
+         if wskunpa = 'A'
+           and st2kod >= '00000'
+           and st2kod <= '99999';
+           leavesr;
+         endif;
+     ‚* Posten skal med på liste
+         excl = 'N';
+
+       endsr;
+
+
+     ‚*=====================================================================******
+     ‚*  INITIER
+     ‚*=====================================================================******
+       begsr init;
+         open bridf;
+         chain user bridf;
+         *in50 = not %found;
+     ‚* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+         if bilibl = *blanks;
+           incgi ( bistdl );
+         else;
+     ‚* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+           bilibl_001();
+         endif;
+     ‚* hent Parametre som går igjen i mange prog:
+     ‚*      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+         esgetpar ( bibrid : bifirm : bikunr :
+         bikng : rowhead : odd : even : logoimg :
+         xsprÅk : xintern : parmds1 : parmds2 :
+         parmds3 );
+         if *in50 = *off;
+           open firm;
+           open sted2d;                                                         // LK+Kode
+           open sted2;                                                          // Kode
+           open sted2a;                                                         // LK+Navn
+           open sted2s;                                                         // Navn
+         endif;
+     ‚* Søk på postnr og Landkode blank = foreslå firmaets egen
+         if soklk = *blanks
+           and sokkod >= '00000'
+           and sokkod <= '99999';
+           setll *loval firm;
+           read firm;
+           soklk = filand;
+         endif;
+
+     ‚* GatVal er alltid på KODE
+         if getval='J';
+           if soklk <> *blanks;
+             chain ( soklk : sokkod ) sted2d;
+             *in30 = not %found;
+             if *in30 = *on;
+               error = 'Country + place-code not found';
+             endif;
+           else;
+             chain sokkod sted2;
+             *in30 = not %found;
+             if *in30 = *on;
+               error = 'Place-code not found';
+             endif;
+           endif;
+         endif;
+
+       endsr;
+
+
+     ‚**************************************************************
+       begsr getavdsr;
+     ‚**************************************************************
+     ‚* Dersom "VIA" i sone utland så er det en kort-kode for HUB/viasted
+     ‚* korrekt postnr finnes i ST2KOD / evt fast DUP-aceling ligger ST2UNI
+         avd    = *zeros;
+         oprkod = *blanks;
+         oprnvn = *blanks;
+         if st2sol = 'VIA';
+           avd = c2n2(st2uni);
+           oprkod = st2kod;
+           oprnvn = st2nvn;
+           soklk  = st2lk;
+           sokkod = st2ko2;
+           chain ( soklk : sokkod ) sted2d;
+         endif;
+
+     ‚* her kan en tenke seg flere metoder å hent avdeling fra NOPNR  mm  samt KUNDESPESIFIKKE
+
+
+       endsr;

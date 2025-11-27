@@ -1,0 +1,342 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 Test om total toll og avgift er mindre enn 50
+12XXX * 02 YBC PTF12 FEIL VARIABLE VED BEREGNING AV MOMS
+12069 * 03 CB  PTF12 Egen behandling av omberegning
+12XXX * 04 YBC PTF12 Ikke summere verdi fra original hvis omeberegning finnes
+********************************************************************
+     h DftActGrp( *No )
+n01  fsadh      if   e           k disk
+     fsadvavg   if   e           k disk
+     fsad62aw   uf a e           k disk
+     fsad62bw   uf a e           k disk
+     ‚*  Prototype for sad62r4
+     d sad62r4         pr
+     d zwfavd_                             like(zwfavd)
+     d zwftdn_                             like(zwftdn)
+     ‚*  *ENTRY Interface for Main Procedure
+     d sad62r4         pi
+     d zwfavd                         4  0
+     d zwftdn                         7  0
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d w7              s                   like(sad62a6)
+     d zsad62a3        s                   like(sad62a3)
+     d zsad62a4        s                   like(sad62a4)
+     d zsad62a5        s                   like(sad62a5)
+n01  d x_medmvg        s              1
+N04  d o_zwftdn        s                   like(zwftdn)
+N04  d x_oppd          s              1
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+     ‚*//////////////
+     ‚*  Hodelogikk /
+     ‚*//////////////
+      /free
+       exsr sra;
+       exsr srb;
+       exsr src;
+       *inlr = *on;
+       //////////////////////////////////////////////////////////////
+       //  Initiering                                           SRA /
+       //////////////////////////////////////////////////////////////
+       begsr sra;
+         //________________
+         // Arbetsvariablar
+         //""""""""""""""""
+         //_________________
+         // Input parametere
+         //"""""""""""""""""
+         //__________________
+         // Definiere Nøkkler
+         //""""""""""""""""""
+       endsr;
+       //////////////////////////////////////////////////////////////
+       //  Detaljer                                             SRB /
+       //////////////////////////////////////////////////////////////
+       begsr srb;
+N04
+N04      // sjekk ombergning
+N04      if zwftdn > 0;
+N04        o_zwftdn = zwftdn * -1;
+N04        chain ( zwfavd : o_zwftdn ) sadh;
+N04        if %found and sist = 'P';
+N04          x_oppd = 'N';                    // omberegning finnes. ikke oppdatere total
+N04        else;
+N04          x_oppd = 'J';                    // omberegning ikke klar. oppdatere total
+N04        endif;
+N04      else;
+N04        x_oppd = 'J';                      // omberegning. oppdatere total
+N04      endif;
+
+n01      chain ( zwfavd : zwftdn ) sadh;
+S02     // if (sibel5 + sibel7) < 50;
+N02      if sibel7 < 50;
+n01        x_medmvg = 'N';
+n01      else;
+n01        x_medmvg = 'J';
+n01      endif;
+         setll ( zwfavd : zwftdn ) sadvavg;
+         reade ( zwfavd : zwftdn ) sadvavg;
+
+         DoW Not %EoF(sadvavg);
+
+           exsr srba;
+
+           reade ( zwfavd : zwftdn ) sadvavg;
+         enddo;
+       endsr;
+       //////////////////////////////////////////////////////////////
+       //  Summer og sorter avgifter per deklarasjon          SRBA /
+       //////////////////////////////////////////////////////////////
+       begsr srba;
+
+
+         // Moms
+
+         if wfimvs=*zeros;
+         if wfiskv='1';
+         wfimvs=25;
+         endif;
+         if wfiskv='2';
+         wfimvs=15;
+         endif;
+         endif;
+
+         zsad62a3='3';
+         zsad62a4='MV';
+         zsad62a5=wfimvs;
+         chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+         if not %found(sad62aw);
+           clear sad62awr;
+           sad62a1=zwfavd;
+           sad62a2=zwftdn;
+           sad62a3=zsad62a3;
+           sad62a4=zsad62a4;
+           sad62a5=zsad62a5;
+n01       if x_medmvg = 'J';
+           sad62a6=wfimvg;
+           w7=wfimvg * sad62a5 / 100;
+n01       else;
+S02     // sad62a6=wfitlg;
+S02     // w7=wfitlg * sad62a5 / 100;
+N02        sad62a6=wfistb;
+N02        w7=wfistb * sad62a5 / 100;
+n01       endif;
+             w7=w7+0.1;
+           if w7 < 0.5;
+             w7=1;
+           endif;
+           if sad62a5=*zeros;
+             w7=*zeros;
+           endif;
+             eval(h) sad62a7=w7;
+           write sad62awr;
+         else;
+n01       if x_medmvg = 'J';
+           sad62a6=sad62a6+wfimvg;
+           w7=wfimvg * sad62a5 / 100;
+n01       else;
+S02     // sad62a6=sad62a6+wfitlg;
+S02     // w7=wfitlg * sad62a5 / 100;
+N02        sad62a6=sad62a6+wfistb;
+N02        w7=wfistb * sad62a5 / 100;
+n01       endif;
+             w7=w7+0.1;
+           if w7 < 0.5;
+             w7=1;
+           endif;
+           if sad62a5=*zeros;
+             w7=*zeros;
+           endif;
+             eval(h) wfimva=w7;
+             sad62a7=sad62a7+wfimva;
+           update sad62awr;
+         endif;
+
+         // Avgift-1
+
+         if wfity1 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity1;
+           zsad62a5=wfist1;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+         if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl1;
+             sad62a7=wfibl1;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl1;
+             sad62a7=sad62a7+wfibl1;
+             update sad62awr;
+           endif;
+         endif;
+
+         // Avgift-2
+
+         if wfity2 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity2;
+           zsad62a5=wfist2;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+           if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl2;
+             sad62a7=wfibl2;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl2;
+             sad62a7=sad62a7+wfibl2;
+             update sad62awr;
+           endif;
+         endif;
+
+         // Avgift-3
+
+         if wfity3 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity3;
+           zsad62a5=wfist3;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+           if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl3;
+             sad62a7=wfibl3;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl3;
+             sad62a7=sad62a7+wfibl3;
+             update sad62awr;
+           endif;
+         endif;
+
+         // Avgift-4
+
+         if wfity4 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity4;
+           zsad62a5=wfist4;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+           if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl4;
+             sad62a7=wfibl4;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl4;
+             sad62a7=sad62a7+wfibl4;
+             update sad62awr;
+           endif;
+         endif;
+
+         // Avgift-5
+
+         if wfity5 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity5;
+           zsad62a5=wfist5;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+           if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl5;
+             sad62a7=wfibl5;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl5;
+             sad62a7=sad62a7+wfibl5;
+             update sad62awr;
+           endif;
+         endif;
+
+         // Avgift-6
+
+         if wfity6 <> *blanks;
+           zsad62a3='2';
+           zsad62a4=wfity6;
+           zsad62a5=wfist6;
+           chain ( zwfavd : zwftdn : zsad62a3 : zsad62a4 : zsad62a5 ) sad62aw;
+           if not %found(sad62aw);
+             clear sad62awr;
+             sad62a1=zwfavd;
+             sad62a2=zwftdn;
+             sad62a3=zsad62a3;
+             sad62a4=zsad62a4;
+             sad62a5=zsad62a5;
+             sad62a6=wfigl6;
+             sad62a7=wfibl6;
+             write sad62awr;
+           else;
+             sad62a6=sad62a6+wfigl6;
+             sad62a7=sad62a7+wfibl6;
+             update sad62awr;
+           endif;
+         endif;
+       endsr;
+       //////////////////////////////////////////////////////////////
+       //  Summer og sorter avgifter per bestilling            SRC /
+       //////////////////////////////////////////////////////////////
+       begsr src;
+
+S04      // if zwftdn > 0;
+
+         setll ( zwfavd : zwftdn ) sad62aw;
+         reade ( zwfavd : zwftdn ) sad62aw;
+
+         DoW Not %EoF(sad62aw);
+
+           chain ( sad62a3 : sad62a4 : sad62a5 ) sad62bw;
+           if not %found(sad62bw);
+             clear sad62bwr;
+             sad62b3=sad62a3;
+             sad62b4=sad62a4;
+             sad62b5=sad62a5;
+N04         if x_oppd = 'J';
+             sad62b6=sad62a6;
+             sad62b7=sad62a7;
+N04         endif;
+             write sad62bwr;
+           else;
+N04         if x_oppd = 'J';
+             sad62b6=sad62b6+sad62a6;
+             sad62b7=sad62b7+sad62a7;
+N04         endif;
+             update sad62bwr;
+           endif;
+
+           reade ( zwfavd : zwftdn ) sad62aw;
+           enddo;
+
+S05      // endif;
+
+       endsr;
+      /end-free

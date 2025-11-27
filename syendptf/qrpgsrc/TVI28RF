@@ -1,0 +1,156 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 SMS via SYGE99   ......
+********************************************************************
+     FKODTP     IF   E           K DISK
+     FKODTFM    IF   E           K DISK
+     FKUFAST    IF   E           K DISK
+     FSADH      IF   E           K DISK
+     FEDIM      IF   E           K DISK
+     FEDIMB     IF   E           K DISK    PREFIX(B_)
+     F                                     RENAME(EDIMR:EDIMRB)
+     FTVI28FP   O    E             PRINTER OFLIND(*IN51)
+     D GSMtxt          s            150
+     D GSMcmd          s            200
+     D Appo            c                   x'7D'
+      * Info om forh.melding skal printes/sms-es
+      * eks Forh:J SMS:48052470
+     D                 DS
+     D  SIFT4                  1     45
+     D  SIFT4A                 1      6
+     D  SIFT4B                 6      6
+     D  GSMnr                 12     26
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRINIT
+     C                   EXSR      SRHOVE
+     C                   SETON                                        LR
+      *
+      *
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                        SRINIT /
+      *////////////////////////////////////////////////////////////
+     C     SRINIT        BEGSR
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    UAVD              4
+     C                   PARM                    UTDN              7
+     C                   PARM                    UMN               9
+      *
+      *__________________
+      * Definiere N¦kkler
+      *""""""""""""""""""
+     C     KEYSH         KLIST
+     C                   KFLD                    SIAVD
+     C                   KFLD                    SITDN
+      *
+     C     KEYTMB        KLIST
+     C                   KFLD                    M0068A
+     C                   KFLD                    M0068B
+     C                   KFLD                    M0068C
+     C                   KFLD                    MSR
+     C     KODTPK        KLIST
+     C                   KFLD                    KOPUNI
+     C                   KFLD                    SIAVD
+     C                   KFLD                    KOPLNR
+     C     KUFASTK       KLIST
+     C                   KFLD                    KFTYP
+     C                   KFLD                    KFKOD
+      *___________________
+      * Initiere faste n¦kkelfelt
+      *_________________
+     C                   MOVE      UAVD          SIAVD
+     C                   MOVE      UTDN          SITDN
+     C                   MOVE      UMN           XMN               9 0
+     C                   MOVEL     'ELKTOLLSTD'  KFTYP
+     C                   MOVE      'P'           KOPUNI
+     C                   Z-ADD     86            KOPLNR
+      *
+     C     KODTPK        CHAIN     KODTP                              33
+     C  N33KOPFM         IFNE      *BLANKS
+     C     KOPFM         SETLL     KODTFM
+     C     KOPFM         READE     KODTFM                                 33
+     C                   END
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           ELKDT
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      *  Behandl tolldeklarasjon                           SRHOVE /
+      *////////////////////////////////////////////////////////////
+     C     SRHOVE        BEGSR
+      *
+     C     XMN           CHAIN     EDIM                               33
+     C                   IF        *IN33 = *OFF
+     C     KEYTMB        SETLL     EDIMB
+     C     KEYTMB        READE     EDIMB                                  33
+     C  N33              IF        B_MMN = XMN
+     C     KEYSH         CHAIN     SADH                               33
+     C                   MOVEL     SIAVD         KFKOD
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C   33              EVAL      XFTXT = '*UKJENT'
+     C  N33              EVAL      XFTXT = KFTXT
+     C
+     c                   move      'J'           Print             1
+      * SMS og/eller print
+     C     GSMnr         IFne      *blanks
+     C                   EXSR      SMSSR
+     C     SIFT4B        Ifne      'B'
+     c                   move      'N'           Print
+     C                   END
+     C                   End
+      *
+     C     Print         IFeq      'J'
+     C                   WRITE     TVI28FP1
+     C                   END
+      *
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  LAGE SMS TIL SJÅFØR                               SRHOVE /
+      *////////////////////////////////////////////////////////////
+     C     SMSSR         BEGSR
+     C                   MOVE      *blanks       Blank1000      1000
+     C                   MOVE      M0068A        M0068AA           8
+     C                   MOVE      M0068B        M0068BA           6
+     C                   MOVE      M0068C        M0068CA           2
+     C                   eval      GSMTXT = 'MELDING OM ' +
+     C                             'FORHÅNDSSENDT ' +
+     C                             'TVINN-DEKLARASJON. ' +
+     C                             'Dekarant: ' + %trim(SIRG) +
+     C                             ' Dato: ' + %trim(M0068AA) +
+     C                             ' Sekv: ' + %trim(M0068BA) +
+     C                             ' Vers: ' + %trim(M0068CA) +
+     C                             ' Ant kll:' + %trim(%editc(SINTK:'Z'))
+S01  C*                  eval      GSMCMD = 'SNDGSMTMSG GSMI(' + %trim(GSMNR) +
+S01  C*                            ') MTXT('+Appo+%trim(GSMTXT)+Appo+')'+
+S01  C*                            Blank1000
+S01  C*                  Z-ADD     200           UCMDL            15 5
+S01  C*                  CALL      'QCMDEXC'                            33
+S01  C*                  PARM                    GSMCMD
+S01  C*                  PARM                    UCMDL
+N01   /free
+N01     USRID='roger@systema.no';
+N01     PW='straffe12';
+N01     SMSNR=GSMNR;
+N01     BODY=GSMTXT;
+N01   /end-free
+N01  C                   CALL      'SYGE99'
+N01  C                   PARM                    USRID           128
+N01  c                   PARM                    PW               32
+N01  c                   PARM                    SMSNR            16
+N01  c                   PARM                    BODY           1280
+N01   *
+N01  C
+      *
+     C                   ENDSR

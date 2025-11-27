@@ -1,0 +1,637 @@
+      * BASIS = STSW02RM
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT22  MODULE(*LIBL/ESTKT22 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 Kan merke manuelt via avd_opd dersom ikke innland (og ikke kollimerket)
+11XXX * 04 JOV PTF12 Lokasjon  (sat %trim på merknadstekst)
+11XXX * 05 JOV PTF12 Param.ID for Sone/lokasjon = CSSON (gammel TERMK bevrat for overgang)
+11XXX * 06 JOV PTF12 utvidet array for lok-tekster (for lite for KINGS)
+10XXX * 07 JOV PTF12 Location parametr innført
+10XXX * 08 JOV PTF12 Utvidet trasnportærmelding
+********************************************************************
+      *
+     H decedit('0.')
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     if   e           k disk    usropn
+     FHeadf     if   e           k disk    usropn
+     FSTSCLI    if   E           K DISK    usropn
+     FSTSOPD    if   E           K DISK    usropn
+N03  FTRACKL02  IF   E           K DISK    USROPN
+N03  FFREETXT2  IF   E           K DISK    USROPN
+     FDOKUFV    IF   E           K DISK    USROPN
+     FDOKUFM    IF   E           K DISK    USROPN
+N03  FDOKUFM1   IF   E           K DISK    USROPN
+     F                                     RENAME(DOKUFMR:DOKUFM1R)
+N03  FDOKUFN    IF   E           K DISK    USROPN
+N04  FBRPARF    IF   E           K DISK    USROPN
+N03  FCARGOF    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     ‚*  Prototype for 'BHRURLCL'
+     d bhrurlcl        pr                  extpgm('BHRURLCL')
+     d ubane_                              like(ubane)
+     d bildeFins_                          like(bildeFins)
+      * Variables received from the input string
+     D TurNr           s              8
+     D avd             s              4
+     D opd             s              7
+     D WSPRO           s              8  0
+     DTN1              s              8
+     DwsPro1           s              8  0
+     DTA2              s              4
+     DTN2              s              8
+     DwsPro2           s              8  0
+     DTA3              s              4
+     DTN3              s              8
+     DwsPro3           s              8  0
+     DBILN             s             10
+     D TERM            s             20
+     D TERM5           s              5
+N07  D Loc             s              5
+     D UserId          s             10
+     D User            s             10
+     D CllTxt          s             15
+     D AntLest         s              5  0
+      * andre variabler
+     d Ubane           s            256
+     d BildeFins       s              1
+     D AntCli          s              5  0
+     D Antmank         s              5  0
+     D JSONstring      s          32000
+     D ErrMsg          S            150
+     D InfoMsg         S            150
+     D SuccessMsg      S            150
+     D avvlist         S           1000
+     D ImgList         S           5000
+     D VareLinjer      S           5000
+     D BESK2           S            100
+     D antXX           s              5  0
+S08  D*TranspMsg       S           1000
+N08  D TranspMsg       S          10000
+      *
+     D ankDtShort      s             11
+     D avgDtShort      s             11
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D Imn             s              1  0
+     D Imn2            s              2  0
+     D Location        s             10
+     D AvvKode         s             10
+     D AvvSkyld        s             10
+     D AvvSkyld2       s             10
+     D lenbrehoy       s             20
+     D                 DS
+     D  FMITDT                 1      8  0
+     D    FMITDTM              5      6
+     D    FMITDTD              7      8
+     D                 DS
+     D  FMITTM                 1      6  0
+     D    FMITTMMtt            1      2
+     D    FMITTMMmm            3      4
+     D                 DS
+     D  FMUTDT                 1      8  0
+     D    FMUTDTM              5      6
+     D    FMUTDTD              7      8
+     D                 DS
+     D  FMUTTM                 1      6  0
+     D    FMUTTMMtt            1      2
+     D    FMUTTMMmm            3      4
+     D    FMUTTM4              1      4  0
+N04   * lookup-table for terminalkoder - max 100 a 5 tegn
+N04  D                 DS
+N04  D  TK                     1   2500
+N04  D                                     DIM(500)
+N04   * lookup-table for terminaltekst - max 100 a 35 tegn
+N04  D                 DS
+N04  D  TT                     1  17500
+N04  D                                     DIM(500)
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   eval      TURNR  = zhbgetvar('TURNR')
+     C                   eval      WSPRO    = c2n2(TURNR)
+     C                   eval      AVD    = zhbgetvar('AVD')
+     C                   eval      scavd  = c2n2(AVD)
+     C                   eval      OPD    = zhbgetvar('OPD')
+     C                   eval      scopd  = c2n2(OPD)
+     C                   eval      TN1      = zhbgetvar('TN1   ')
+     C                   eval      TN2      = zhbgetvar('TN2   ')
+     C                   eval      TN3      = zhbgetvar('TN3   ')
+     C                   eval      TERM     = zhbgetvar('TERM')
+     C                   eval      TERM5    = TERM
+N07  C                   eval      LOC      = zhbgetvar('LOC')
+N07   * Lokasjon xxINT (eks DRINT) = Inn Torg Drammen og skal overstyre type/term i STS-filer
+N07  C                   if        %subst(LOC:3:3)='INT'
+N07  C                   eval      TERM5    = LOC
+N07  C                   endif
+     C                   eval      BILN   = zhbgetvar('BILN')
+     C                   eval      userid = zhbgetvar('user')
+      * Set libl/open files
+     C                   exsr      Init
+      * Set output skeleton html member name
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':'/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * Hent/vis oppd.info / kolli-id mm
+     C                   exsr      HCLI
+      *
+      *
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     headf
+     C                   close     STSCLI
+     C                   close     STSOPD
+     C                   close     TRACKL02
+     C                   close     FREETXT2
+     C                   close     DOKUFV
+     C                   close     DOKUFM
+     C                   close     DOKUFM1
+     C                   close     DOKUFN
+N04  C                   close     BRPARF
+     C                   close     CARGOF
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+     C***********************************************
+     C     HCLI          BEGSR
+     C***********************************************
+      *
+     C     CliKey        chain     StsOpd
+     C     HEAKey        chain     headf
+N01  c     hxsndn        ifeq      *blanks
+N01  c                   move      HEAVD         HEAVDA            4
+N01  c                   move      HEOPD         HEOPDA            7
+N01  c                   eval      hxsndn= HEAVDA+'_'+HEOPDA
+N01  c                   endif
+      *
+N02  c                   move      'false'       URGKOD            5
+N03  C                   MOVE      'URG'         XXACTI
+N03  c     TTKey         Chain     TRACKl02                           33
+N03  c                   if        *in33=*off and %subst(TTTEXT:1:8)='*URGENT*'
+N02  c                   move      'true '       URGKOD
+N02  c                   endif
+      * Låner ankDtShort for TEIDATO
+     c                   eval      ankDtShort= *blanks
+     c                   move      *blanks       TEIuser          10
+N03  C                   MOVE      'TEI'         XXACTI
+N03  c     TTKey         Chain     TRACKl02                           33
+N03  c                   if        *in33=*off
+     c                   eval      FMITDT = TTDATE
+     c                   eval      FMITTM = TTTIME
+     c                   eval      ankDtShort= FMITDTD +'/'+ FMITDTM+' '
+     c                             + FMITTMMtt +':' + FMITTMMmm
+     c                   eval      TEIuser = TTUSER
+N02  c                   endif
+     c                   exsr      getTranspMsg
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(userId)+'¬, '
+        +'¬turnr¬ : ¬'+%trim(%editc(WSPRO:'3'))+'¬, '
+        +'¬term¬ : ¬'+%trim(TERM)+'¬, '
+        +'¬term5¬ : ¬'+%trim(TERM5)+'¬, '
+        +'¬heavd¬ : ¬'+%trim(%editc(HEAVD:'3'))+'¬, '
+        +'¬heopd¬ : ¬'+%trim(%editc(HEOPD:'3'))+'¬, '
+        +'¬hxsndn¬ : ¬'+%trim(hxsndn)+'¬, '
+        +'¬henas¬ : ¬'+%trim(henas)+'¬, '
+        +'¬heads1¬ : ¬'+%trim(heads1)+'¬, '
+        +'¬heads3¬ : ¬'+%trim(heads3)+'¬, '
+        +'¬henak¬ : ¬'+%trim(henak)+'¬, '
+        +'¬headk1¬ : ¬'+%trim(headk1)+'¬, '
+        +'¬headk3¬ : ¬'+%trim(headk3)+'¬, '
+        +'¬urgent¬ : '+%trim(urgkod)+', '
+        +'¬transpmsglist¬ : ['+%trim(TranspMsg)+'], '
+        +'¬hent¬ : '+%trim(%editc(HENT:'3'))+','
+        +'¬hevkt¬ : '+%trim(%editc(HEVKT:'3'))+','
+        +'¬hem3¬ : '+%trim(%editc(HEM3:'L'))+','
+        +'¬helm¬ : '+%trim(%editc(HELMLA:'L'))+','
+        +'¬teiDatShort¬ : ¬'+%trim(ankDtShort)+'¬, '
+        +'¬teiUserId¬ : ¬'+%trim(TEIuser)+'¬, '
+        +'¬sostat¬ : ¬'+%trim(SOSTAT)+'¬, '
+        +'¬colliList¬ : [';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      **
+N04  c                   move      *blanks       LoctxtO          25
+     c                   move      *zeros        antcli
+     c                   move      *zeros        antmank
+     C     cliKey        SETLL     STSCLI
+     C     cliKey        READE     STSCLI                                 94
+     C     *IN94         DOWEQ     '0'
+      * hent mer info om kolliet
+     c                   exsr      ClrCliDta
+     c                   eval      FMMRK1=%subst(SCCLID:3:18)
+     C     FMMRK1        chain     DOKUFM1
+     C     SCCLID        chain     CARGOF
+     C                   if        KOMLEN=0 or KOMBRE=0 or KOMHØY=0
+     c                   eval      LenBreHoy=*blanks
+     C                   else
+     c                   eval      LenBreHoy=%trim(%editc(KOMLEN:'3'))
+     c                             +' x '+ %trim(%editc(KOMBRE:'3'))
+     c                             +' x '+ %trim(%editc(KOMHØY:'3'))
+     C                   endif
+     C                   add       1             antcli
+     C     SCSTAT        IFEQ      ' '
+     C                   add       1             antmank
+     C                   end
+N04  c                   exsr      GetLoc
+     c                   exsr      GetAvv
+     c                   exsr      GetImg
+      *
+     C                   eval      CllTxt = %trim(%editc(Antcli:'3'))
+     C                                    +' av '+ %trim(%editc(HENT:'3'))
+      /free
+            if FMITDT = *zeros;
+              ankDtShort= *blanks;
+            else;
+              ankDtShort= FMITDTD +'/'+ FMITDTM+' '
+                    + FMITTMMtt +':' + FMITTMMmm ;
+            endif;
+            if FMUTDT = *zeros;
+              FMUTDT =  SCDT;
+              FMUTTM4=  SCTID;
+            endif;
+            if FMUTDT = *zeros;
+              avgDtShort= *blanks;
+            else;
+              avgDtShort= FMUTDTD +'/'+ FMUTDTM+' '
+                    + FMUTTMMtt +':' + FMUTTMMmm ;
+            endif;
+          // Lægg ut Json stræng
+          // Skriv en JSON-Array-linje pr sending - komma før hvert nytt element
+            AntLest = AntLest + 1;
+            if AntLest=1;
+              JSONstring=*blanks;
+            else;
+              JSONstring=', ';
+            endif;
+            JSONstring=%trim(JSONstring)+'{'
+              +'¬clli¬ : ¬'+%trim(SCCLID)+'¬, '
+              +'¬avvlist¬ : ['+%trim(avvlist)+'], '
+              +'¬imglist¬ : ['+%trim(imglist)+'], '
+              +'¬ankDtShort¬ : ¬'+%trim(ankDtShort)+'¬, '
+              +'¬avgDtShort¬ : ¬'+%trim(avgDtShort)+'¬, '
+              +'¬status¬ : ¬'+%trim(SCSTAT)+'¬, '
+              +'¬vkt¬ : '+%trim(%editc(KOMVKT:'3'))+', '
+              +'¬len¬ : '+%trim(%editc(KOMLEN:'3'))+', '
+              +'¬bre¬ : '+%trim(%editc(KOMBRE:'3'))+', '
+              +'¬hoy¬ : '+%trim(%editc(KOMHØY:'3'))+', '
+              +'¬lenBreHoy¬ : ¬'+%trim(LenBreHoy)+'¬, '
+              +'¬m3¬ : '+%trim(%editc(KOMM3:'L'))+', '
+              +'¬lm¬ : '+%trim(%editc(KOMLM:'L'))+', '
+              +'¬terminal¬ : ¬'+%trim(KOTERM)+'¬, '
+              +'¬stasjon¬ : ¬'+%trim(KOSTNR)+'¬, '
+N04           +'¬locTxt¬ : ¬'+%trim(locTxt)+'¬, '
+              +'¬user¬ : ¬'+%trim(KOUSER)+'¬, '
+              +'¬clltxt¬ : ¬'+%trim(CllTxt)+'¬ '
+              +'}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+     C     Next          tag
+     C     cliKey        READE     STSCLI                                 94
+     C  N94              ENDDO
+      *avslutt kollitabell
+     C                   eval      JSONstring='], '
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * Hent/vis Varelinjer
+     C                   exsr      getVlin
+      /free
+        JSONstring= '¬varelinjer¬ : ['+%trim(VARELINJER)+'], '
+N04     +'¬locTxt¬ : ¬'+%trim(locTxtO)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ErrMsg)+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬successMsg¬ : ¬'+%trim(SuccessMsg)+'¬}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   ENDSR
+      *
+      *
+      *
+      ****************************************************
+     C     ClrCliDta     begsr
+      ****************************************************
+     c                   clear                   FMITER
+     c                   clear                   FMITDT
+     c                   clear                   FMITTM
+     c                   clear                   FMITUS
+      *
+     c                   clear                   FMUTER
+     c                   clear                   FMUTDT
+     c                   clear                   FMUTTM
+     c                   clear                   FMUTUS
+      *
+     c                   clear                   KOMVKT                               7 2
+     c                   clear                   KOMLM                                4 2
+     c                   clear                   KOMM3                                7 5
+     c                   clear                   KOMLEN                               3 0
+     c                   clear                   KOMBRE                               3 0
+     c                   clear                   KOMHØY                               3 0
+     c                   clear                   KOTERM
+     c                   clear                   KOSTNR
+     c                   clear                   KOINDT
+     c                   clear                   KOINTI
+     c                   clear                   KOUSER
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+     C     init          begsr
+      *=====================================================================******
+      *
+     C                   open      BRIDF
+     C     UserID        CHAIN     BRIDF                              30
+      *
+      * --------------------------------------
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      STSCLI
+     C                   open      STSOPD
+     C                   open      headf
+     C                   open      TRACKL02
+     C                   open      FREETXT2
+     C                   open      DOKUFV
+     C                   open      DOKUFM
+     C                   open      DOKUFM1
+     C                   open      DOKUFN
+N04  C                   open      BRPARF
+     C                   open      CARGOF
+      *
+      *  keys mm
+     C     CLIKEY        KLIST
+     C                   KFLD                    TERM5
+     C                   KFLD                    wspro
+     C                   KFLD                    scavd
+     C                   KFLD                    scopd
+N03  C     TTKey         KLIST
+N03  C                   KFLD                    HEAVD
+N03  C                   KFLD                    HEOPD
+N03  C                   KFLD                    XXFBNR            3 0
+N03  C                   KFLD                    XXACTI            3
+     C     HEAKEY        KLIST
+     C                   KFLD                    scavd
+     C                   KFLD                    scopd
+N04   * Legg terminalkoder / tekster i lookuptable
+N04  C     BrParKey      KLIST
+N04  C                   kfld                    PABRID
+N04  C                   kfld                    PAKUNR
+N04  C                   kfld                    PAID
+N04  C                   MOVE      *zeros        PAKUNR
+N04  C                   MOVEL     'TERMK'       PAID
+N04  C                   MOVE      '*KUNDFT*  '  PABRID
+N04  C                   MOVE      BIFIRM        PABRID
+N04  C                   move      *zeros        XN                3 0
+N05  C     SonLocTag     tag
+N04  c     BrParKey      setll     BRPARF
+N04  c     BrParKey      reade     BRPARF                                 33
+N04  c     *in33         doweq     '0'
+N04  C                   add       1             XN
+N04  c                   eval      TK(XN) = %subst(PAVRDA:1:5)
+N04  c                   eval      TT(XN) = %subst(PAVRDA:7:35)
+E02  c     XN            ifeq      500
+N04  C                   leave
+N04  c                   end
+N04  c     BrParKey      reade     BRPARF                                 33
+N04  c                   enddo
+N05  C                   if        PAID = 'TERMK'
+N05  C                   MOVEL     'CSSON'       PAID
+N05  C                   goto      SonLocTag
+N05  C                   endif
+      *
+     c                   move      *zeros        FMITDT
+     c                   move      *zeros        FMITTM
+     c                   move      *zeros        FMUTDT
+     c                   move      *zeros        FMUTTM
+     C                   endsr
+      /free
+       //*********************************************
+       begsr     getAvv;
+       //*********************************************
+           AntXX = AntXX + 1;
+        // Første TEI-avvik
+            if %subst(FMLEDI:1:5)<>*blanks;
+              if avvList<>*blanks;
+                avvList=%trim(avvlist)+',';
+              endif;
+              avvList=%trim(avvlist)
+                     +'{¬avvKode¬ : ¬'+%trim(%subst(FMLEDI:1:5))+'¬, '
+                        +'¬avvSkyld¬ : ¬'+%trim(avvSkyld)+'¬}';
+            endif;
+        // Første TEU-avvik
+            if %subst(FMLEDI:5:5)<>*blanks;
+              if avvList<>*blanks;
+                avvList=%trim(avvlist)+',';
+              endif;
+              avvList=%trim(avvlist)
+                     +'{¬avvKode¬ : ¬'+%trim(%subst(FMLEDI:5:5))+'¬, '
+                        +'¬avvSkyld¬ : ¬'+%trim(avvSkyld)+'¬}';
+            endif;
+      // Avvik på DOKUFN
+         setll ( fmmrk1 ) dokufn;
+         reade ( fmmrk1 ) dokufn;
+         dow not %eof(dokufn);
+          if FNAVKO<>*blanks;
+              if avvList<>*blanks;
+                avvList=%trim(avvlist)+',';
+              endif;
+              avvList=%trim(avvlist)
+                     +'{¬avvKode¬ : ¬'+%trim(FNAVKO)+'¬, '
+                        +'¬avvSkyld¬ : ¬'+%trim(avvSKYLD2)+'¬}';
+           endif;
+           reade ( fmmrk1 ) dokufn;
+         enddo;
+
+
+       endsr;
+       //*********************************************
+       begsr     getIMG;
+       //*********************************************
+       // Bilde1 nettbrett.. (skade eller bare bilde)
+         imn= 0 ;
+         imn2= 0 ;
+         dow imn < 9 ;
+           ubane  = '/syspeddev/clid/'+SCCLID+'-'
+                      +%editc(imn:'X')+'.jpg';
+           bhrurlcl ( ubane : bildeFins );
+           if bildeFins='J';
+             if imn2=0;
+               Imglist='¬'+%trim(ubane)+'¬';
+             else;
+               Imglist=%trim(Imglist)+','+'¬'+%trim(ubane)+'¬';
+             endif;
+           imn2= imn2+1;
+           endif;
+           imn= imn+1;
+         enddo;
+
+       // Bilde fre TEI (pr 2020.03.14 - KUN ETT)
+         ubane  = '/syspeddev/clid/TEI_'+SCCLID+'.jpg';
+         bhrurlcl ( ubane : bildeFins );
+         if bildeFins='J';
+           if imn2=0;
+             Imglist='¬'+%trim(ubane)+'¬';
+           else;
+             Imglist=%trim(Imglist)+','+'¬'+%trim(ubane)+'¬';
+           endif;
+           imn2= imn2+1;
+         endif;
+       // Bilde fra TEU (pr 2020.03.14 - KUN ETT)
+         ubane  = '/syspeddev/clid/TEU_'+SCCLID+'.jpg';
+         bhrurlcl ( ubane : bildeFins );
+         if bildeFins='J';
+           if imn2=0;
+             Imglist='¬'+%trim(ubane)+'¬';
+           else;
+             Imglist=%trim(Imglist)+','+'¬'+%trim(ubane)+'¬';
+           endif;
+           imn2= imn2+1;
+         endif;
+
+       endsr;
+       //*********************************************
+       begsr     getTranspMsg;
+       //*********************************************
+         AntXX = *zeros;
+         setll ( heavd : heopd : 'G' ) freetxt2;
+         reade ( heavd : heopd : 'G' ) freetxt2;
+         dow not %eof(freetxt2);
+           AntXX = AntXX + 1;
+            if AntXX=1;
+              TranspMsg='¬'+%trim(FRTTXT)+'¬';
+            else;
+              TranspMsg=%trim(TranspMsg)+','+'¬'+%trim(FRTTXT)+'¬';
+            endif;
+           reade ( heavd : heopd : 'G' ) freetxt2;
+         enddo;
+
+       endsr;
+
+       //*********************************************
+       begsr     getVlin;
+       //*********************************************
+         setll ( 'F' : HEAVD : HEOPD : 1 ) dokufv;
+         reade ( 'F' : HEAVD : HEOPD : 1 ) dokufv;
+         dow not %eof(dokufv);
+             // hent godsmerke
+              BESK2 =*blanks;
+              FMMRK1=*blanks;
+              chain ( 'F' : HEAVD : HEOPD : 1 : FVLINR ) dokufm;
+              BESK2 =FMMRK1;
+              if FVLEN<>0;
+                BESK2 =%trim(BESK2)+' LBH:'+%trim(%editc(FVLEN:'3'))
+                      +'x'+%trim(%editc(FVBRD:'3'))
+                      +'x'+%trim(%editc(FVHOY:'3'));
+              endif;
+              if FVLM2<>0;
+                BESK2 =%trim(BESK2)+' Lm:'+%trim(%editc(FVLM2:'4'));
+              endif;
+              // slriv json
+              if VARELINJER <> *blanks;
+                VARELINJER=%trim(VARELINJER)+',';
+              endif;
+              VARELINJER=%trim(VARELINJER)
+                     +'{¬linje¬ : '+%trim(%editc(FVLINR:'3'))+', '
+                        +'¬ant¬ : '+%trim(%editc(FVANT:'3'))+', '
+                        +'¬enhet¬ : ¬'+%trim(FVPAKN)+'¬, '
+                        +'¬beskrivelse¬ : ¬'+%trim(FVVT)+'¬, '
+                        +'¬vkt¬ : '+%trim(%editc(FVVKT:'3'))+', '
+                        +'¬vol¬ : '+%trim(%editc(FVVOL:'L'))+', '
+                        +'¬beskrivelse2¬ : ¬'+%trim(BESK2)+'¬}';
+           reade ( 'F' : HEAVD : HEOPD : 1 ) dokufv;
+         enddo;
+      *
+       endsr;
+      /end-free
+N04  C*****************************************************************
+N04  C     GetLoc        BEGSR
+N04  C*****************************************************************
+N04  c                   eval      FNCLID = FMMRK1
+N04   * finn siste DOKUFN / location
+N04   * (her burde også ligg test på om det er på samme TERMINAL)
+N04  c                   move      *blanks       FXTERM            5
+N04  c     FNCLID        setll     DOKUFN
+N04  c     FNCLID        reade     DOKUFN                                 33
+N04  C     *in33         doweq     '0'
+N04   * ....+... 10...+... 20...+... 30
+N04   * Lagt på lokasjon UTE01
+N04  C                   if        FNSTAT = 'L'
+N04  c                   eval      FXTERM = %subst(FNTEXT:18:5)
+N04  C                   endif
+N04  c     FNCLID        reade     DOKUFN                                 33
+N04  C                   enddo
+N04   *
+N04  C                   Z-ADD     1             XN
+N04  c                   move      *blanks       Loctxt           25
+N04  C     FXTERM        LOOKUP    TK(XN)                                 33
+N05  c  N33              eval      Loctxt = FXTERM
+N04  c   33              eval      Loctxt = FXTERM + ' ' + TT(XN)
+N04  c                   if        LoctxtO=*blanks
+N04  c                   eval      LoctxtO=Loctxt
+N04  c                   else
+N04  c                   if        LoctxtO<>Loctxt
+N04  c                   eval      LoctxtO='*MIXED*'
+N04  c                   endif
+N04  c                   endif
+N04   *
+N04  C                   ENDSR

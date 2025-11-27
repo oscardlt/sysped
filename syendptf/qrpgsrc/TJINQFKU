@@ -1,0 +1,232 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQFKU MODULE(*LIBL/TJINQFKU *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 innføre AKT-kod    .....
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+12XXX * 02 JOV PTF12 Legg ut også kunden  selv (for validering av gyldig nr..)
+********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FKUNKO1    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FVADR      IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D USER            S             10
+     D MaxV            S              5
+     D MaxVis          S              5  0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+     D Error           S            150
+     D JSONstring      s          32000
+     D Navn            S             30
+     D GateAdr         S             30
+     D Adresse2        S             30
+     D PostnrSted      S             35
+     D Land            S              2
+     D kundNavn        S             30
+     D kundPnSt        S             35
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"inqFkund" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C     ERROR         IFEQ      *blanks
+     C                   EXSR      LINES
+     C                   ENDIF
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   EXSR      EXIT
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     PARSE         BEGSR
+     C                   EVAL      USER    = zhbgetvar('USER')
+     C                   ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     KUNKO1
+     C  N50              CLOSE     CUNDL01
+     C  N50              CLOSE     VADR
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   ENDSR
+      *=====================================================================
+      * Fine lins - send to browser
+      *=====================================================================
+     C     Lines         BEGSR
+N02   * først legg ut KUNDEN SELV  (enhetlig ved validering.)
+N02  c                   eval      KUKUN2 = BIKUNR
+N02  c                   EVAL      KUVADR = 1                                   = egen Lev Adr
+N02  C                   ADD       1             AntVist           5 0
+N02  C                   exsr      SkrivPost
+N02   * deretter poster fra x-ref - men kun de med avvikende nr (gyldige avvikende fakt.mottakere)
+     C     BIKUNR        SETLL     KUNKO1
+     C     BIKUNR        READE     KUNKO1                                 33
+     C     *IN33         DOWEQ     *OFF
+      * IKKE vis egne (=vareadresser) - KUN andre/fremmede kundenr
+     c     KUKUN2        CABEQ     KUKUN1        NextKU
+     C                   ADD       1             AntVist           5 0
+N02  C                   exsr      SkrivPost
+      * all logikk i SRGetkun flyttet herfra
+
+     C*    AntVist       CABGE     MaxVis        UtLes
+
+     C     NextKu        TAG
+     C     BIKUNR        READE     KUNKO1                                 33
+     C                   ENDDO
+
+     C     UTLES         TAG
+
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på USER - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      KUNKO1
+     C  N50              OPEN      CUNDL01
+     C  N50              OPEN      VADR
+
+      * Key for CUNDL01
+     C     KunKey        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    KUKUN2
+      * Key for VADR
+     C     VadrKey       KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    KUKUN2
+     C                   KFLD                    KUVADR
+
+     C                   ENDSR
+N02
+N02   **************************************
+N02  C     SkrivPost     BEGSR
+N02   **************************************
+N02  C     KUNKEY        CHAIN     CUNDL01                              34
+N02  c     *IN34         CABEQ     '1'           NextKU2
+N02  C                   eval      Navn      = KNAVN
+N02  C                   eval      GateAdr   = ADR1
+N02  C                   eval      Adresse2  = ADR2
+N02  c                   select
+N02  c                   when      POSTNR <> *zeros
+N02  C                   eval      PostnrSted= %editc(POSTNR:'X')+' '+ADR3
+N02  c                   when      SYPOGE <> *blanks
+N02  C                   eval      PostnrSted= %trim(SYPOGE)+' '+ADR3
+N02  C                   other
+N02  C                   eval      PostnrSted= ADR3
+N02  C                   endsl
+N02  C                   eval      Land      = SYLAND
+N02  c                   eval      kundNavn=Navn
+N02  c                   eval      kundPnSt=PostnrSted
+N02   *varedresse oppgitt ??
+N02  c                   IF        KUVADR = *zeros
+N02  c                   EVAL      KUVADR = 1                                   = egen Lev Adr
+N02  c                   ENDIF
+N02  C     VadrKey       CHAIN     VADR
+N02  c                   if        %found(VADR)
+N02  C                   eval      Navn      = VADRNA
+N02  C                   eval      GateAdr   = VADRN1
+N02  C                   eval      Adresse2  = VADRN2
+N02  C                   eval      PostnrSted= VADRN3
+N02  C                   eval      Land      = SYLAND
+N02  c                   else
+N02  c                   EVAL      KUVADR = *zeros
+N02  c                   endif
+N02  c
+N02   /free
+N02    if AntVist=1;
+N02       JSONstring=*blanks;
+N02       else;
+N02       JSONstring=', ';
+N02       endif;
+N02    JSONstring=%trim(JSONstring)+'{'
+N02       +'¬kundnr¬ : ¬'+%trim(%editc(KUNDNR:'Z'))+'¬, '
+N02       +'¬vadrnr¬ : ¬'+%trim(%editc(KUVADR:'Z'))+'¬, '
+N02       +'¬navn¬ : ¬'+%trim(NAVN)+'¬, '
+N02       +'¬gateAdr¬ : ¬'+%trim(gateAdr)+'¬, '
+N02       +'¬adresse2¬ : ¬'+%trim(adresse2)+'¬, '
+N02       +'¬postnrSted¬ : ¬'+%trim(postnrSted)+'¬, '
+N02       +'¬land¬ : ¬'+%trim(LAND)+'¬, '
+N02       +'¬kundNavn¬ : ¬'+%trim(kundNavn)+'¬, '
+N02       +'¬kundPnSt¬ : ¬'+%trim(kundPnSt)+'¬, '
+N02       +'¬sonavn¬ : ¬'+%trim(sonavn)+'¬, '
+N02       +'¬kualfa¬ : ¬'+%trim(kualfa)+'¬}';
+N02   /end-free
+N02  C                   call      'JSONFIX'
+N02  C                   parm                    JSONstring
+N02  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+N02  C     NextKu2       TAG
+N02  C                   ENDSR

@@ -1,0 +1,346 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Ny funksjon = Resten  ..
+********************************************************************
+********************************************************************
+      * Program for å bestemme posisjonsrekkefølge på transp.modul (innland)
+      *
+     FHEAD11    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEA11R)
+     FHEADF     UF   E           K DISK
+     FKODTA     IF   E           K DISK
+s01  F*YTR33RD  CF   E             WORKSTN
+N01  FSYTR33RD  CF   E             WORKSTN USROPN
+     F                                     SFILE(SUBFIL:ZRECNO)
+     D POS             S            125    DIM(999)
+     D                 DS
+     D  POSDS                  1    125
+     D  PDSPOS                 1      7
+     D  PDSADR3                8     37
+     D  SFADR3                 8     23
+     D  PDSADR1               38     67
+     D  SFADR1                38     54
+     D  PDSNAVN               68     97
+     D  SFNAVN                68     84
+     D  PDSAVD                98    101
+     D  PDSOPD               102    108
+     D  PDSHIND              109    109
+     D  PDSNT                110    112
+     D  PDSVKT               113    117
+     D  PDSM3                118    121
+     D  PDSLM                122    125
+     D                 DS
+     D  HENT                   1      7  0
+     D  SFNT                   5      7  0
+     D                 DS
+     D  HEVKT                  1      9  0
+     D  SFVKT                  5      9  0
+     D                 DS
+     D  HEM3                   1      7  3
+     D  SFM3                   3      6  2
+N01   * vise bilde /opne
+N01  c                   if        UAuto <>'A'
+N01  c                   open      SYTR33RD
+N01  c                   endif
+     C     START0        TAG
+     C                   EXSR      INIT
+      *
+N01   * Auto ' ' = IKKE auto / vis bilde
+N01   * Auto J = atomatisk men BLI i bildet
+N01   * Auto A = atomatisk IKKE bilde (og IKKE open av displayfile)
+N01  c                   if        UAuto = 'J' or
+N01  c                             UAuto = 'A'
+N01  c                   exsr      AutoSR
+N01  c                   if        UAuto = 'A'
+N01  C                   GOTO      SLUTT
+N01  c                   endif
+N01  c                   endif
+      *
+     C     START         TAG
+     C                   move      '0'           *in51
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   move      *off          *in51
+     C                   Z-ADD     *ZEROS        ZRECNO
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C     FraNr         do        999           NR
+     C                   MOVE      POS(NR)       POSDS
+     C                   movel     PDSPOS        WSPOS
+     C                   move      PDSAVD        HEAVD
+     C                   move      PDSOPD        HEOPD
+     C                   MOVE      PDSHIND       *IN52
+     C   52              move      '1'           *in51
+     c                   move      PDSNT         SFNT
+     c                   move      PDSVKT        SFVKT
+     c                   move      PDSM3         SFM3
+     c                   move      PDSLM         HELM
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SUBFIL
+     C                   ENDDO
+      *
+      *
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+      * ingen poster - hopp ut
+     C     ZRECNO        IFEQ      0
+     C                   MOVE      '1'           *IN03
+     C                   GOTO      SLUTT
+     C                   ELSE
+     C                   Z-ADD     1             ZRECNO
+     C                   END
+     C                   WRITE     SUBCTL
+     C                   EXFMT     BUNN
+     C*
+     C                   SETOFF                                       9899
+     C*** AVSLUTT
+     C   03              GOTO      SLUTT
+     C*
+     C*** FRISK OPP
+     C   05              GOTO      START0
+     C*** Renumerer 01,02,03..
+     C     *IN07         IFEQ      *ON
+     c                   z-add     1             Gap               2 0
+     C                   EXSR      RENUM
+     C                   GOTO      START
+     C                   end
+     C*** Renumerer 010,020,030,
+     C     *IN10         IFEQ      *ON
+     c                   z-add     10            Gap               2 0
+     C                   EXSR      RENUM
+     C                   GOTO      START
+     C                   end
+N01  C*** resten
+N01  C     *IN15         IFEQ      *ON
+N01  C                   EXSR      RESTEN
+N01  C                   GOTO      START
+N01  C                   end
+     C*
+     C     ZRECNO        IFNE      0
+     C                   EXSR      HENTSR
+     C     Endret        IFEQ      'J'
+     C                   SORTA     POS
+     C                   GOTO      START
+     C                   END
+     C                   END
+      *  uten utført valg - vis samme bilde/poster
+     C                   GOTO      START3
+     C*
+      *
+     C     SLUTT         TAG
+N01  c                   if        UAuto <>'A'
+N01  c                   close     SYTR33RD
+N01  c                   endif
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     RENUM         BEGSR
+     C***********************************************
+      * Finn antall som har posisjon - renum disse med avstand GAP
+     C* (nummerer midlertidig '    001','    002',... for å unngå kluss i READP ..)
+     C                   Move      *zeros        ANTPOS            3 0
+     C     FraNr         do        999           NR
+     C                   MOVE      POS(NR)       POSDS
+     C     PDSPOS        IFNE      *blanks
+     C                   ADD       1             ANTPOS
+     C                   Move      *blanks       PDSPOS
+     C                   Move      ANTPOS        PDSPOS
+     C                   MOVE      POSDS         POS(NR)
+     c                   end
+     C                   ENDDO
+      *
+     C                   SORTA     POS
+      * renummerer bakfra, men kun de xx som har fått pos
+     C                   Z-ADD     999           NR
+     C                   Z-ADD     ANTPOS        N2                3 0
+     C                   DO        ANTPOS
+     C                   MOVE      POS(NR)       POSDS
+     C                   move      PDSAVD        HEAVD
+     C                   move      PDSOPD        HEOPD
+     c     HeaKey        chain     Headf                              33
+     c     *in33         ifeq      '0'
+     C     N2            Mult      Gap           POSNR             3 0
+     C                   Move      *blanks       HEPOS1
+     C     Gap           Ifeq      1
+     C     ANTPOS        andle     99
+     C                   z-add     PosNr         PosNr2            2 0
+     C                   Movel     PosNr2        HEPOS1
+     c                   else
+     C                   Movel     PosNr         HEPOS1
+     c                   end
+     C                   UPDATE    HEADFR
+     C                   Movel     HEPOS1        PDSPOS
+     C                   MOVE      POSDS         POS(NR)
+     c                   end
+     C                   Sub       1             NR
+     C                   Sub       1             N2
+     C*
+     C                   ENDDO
+     C*
+     c                   ENDSR
+     C*
+     C***********************************************
+     C     HENTSR        BEGSR
+     C***********************************************
+     C                   move      'N'           Endret            1
+     C                   SETOFF                                       919299
+      *
+     C     *IN98         DOWEQ     '0'
+     C                   READC     SUBFIL                                 98
+     C   98              DO
+     C   99              SETOFF                                       98
+     C                   GOTO      SLHENT
+     C                   END
+      * ENDRET
+     C                   EXSR      CHGPOS
+     C                   END
+     C*
+     C     SLHENT        TAG
+     C*
+     C                   ENDSR
+     C***********************************************
+     C     CHGPOS        BEGSR
+     C***********************************************
+     C                   SETON                                        99
+     C     WSPOS         IFEQ      'N  '
+     C     WSPOS         OREQ      ' N '
+     C     WSPOS         OREQ      '  N'
+     C                   EXSR      NEXPOS
+     C                   END
+     c     HeaKey        chain     Headf                              33
+     c     *in33         ifeq      '0'
+     c                   eval      HEPOS1 = WSPOS
+     C                   UPDATE    HEADFR
+     c                   eval      NR = FraNr + ZRECNO - 1
+     C                   MOVE      POS(NR)       POSDS
+     C                   Movel     HEPOS1        PDSPOS
+     C                   MOVE      POSDS         POS(NR)
+     C                   move      'J'           Endret            1
+     c                   end
+     C*
+     C                   ENDSR
+N01  C***********************************************
+N01  C     RESTEN        BEGSR
+N01  C***********************************************
+N01  C     FraNr         do        999           NR
+N01  C                   MOVE      POS(NR)       POSDS
+N01  C                   movel     PDSPOS        WSPOS
+N01  C                   move      PDSAVD        HEAVD
+N01  C                   move      PDSOPD        HEOPD
+N01  C                   IF        WSPOS=*BLANKS
+N01  C                   EXSR      NEXPOS
+N01  c     HeaKey        chain     Headf                              33
+N01  c     *in33         ifeq      '0'
+N01  c                   eval      HEPOS1 = WSPOS
+N01  C                   UPDATE    HEADFR
+N01  C                   Movel     HEPOS1        PDSPOS
+N01  C                   MOVE      POSDS         POS(NR)
+N01  c                   end
+N01  c                   ENDIF
+N01  C                   ENDDO
+N01  C*
+N01  C                   SORTA     POS
+N01  C*
+N01  C                   ENDSR
+     C*
+     C***********************************************
+     C     NEXPOS        BEGSR
+     C***********************************************
+     C                   MOVE      HEAVD         GMAVD             4 0
+     C                   MOVE      HEOPD         GMOPD             7 0
+      * finn høyeste/2 el 3 siffer
+     C     UPRO          SETGT     HEAD11
+     C     UPRO          READPE    HEAD11                                 94
+     C     *IN94         IFEQ      '0'
+     C                   movel     HEPOS1        WSPOS
+     C                   TESTN                   WSPOS                34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      WSPOS         PosNr
+     c                   add       10            PosNr
+     c                   movel     PosNr         WSPOS
+     C                   Else
+     C                   movel     HEPOS1        WSPO2             2
+     C                   TESTN                   WSPO2                34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      WSPO2         PosNr2
+     c                   add       1             PosNr2
+     c                   move      *blanks       wspos
+     c*                  movel     PosNr         WSPOS
+     c                   movel     PosNr2        WSPOS
+     C                   Else
+     c                   movel     '010'         WSPOS
+     C                   END
+     C                   END
+     C                   END
+     C                   MOVE      GMAVD         HEAVD
+     C                   MOVE      GMOPD         HEOPD
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     *entry        Plist
+     c                   parm                    UUpro             8
+     c                   parm                    UAuto             1
+      *
+     c                   move      UUpro         Upro              8 0
+     C     HEAKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     KOAKEY        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    HEAVD
+     C                   MOVE      'A'           KOAUNI
+      * Fyll sort-tabell
+     c                   clear                   POS
+     c                   Move      *zeros        NR                4 0
+     c                   Move      *zeros        FraNr             4 0
+     C     UPRO          SETLL     HEAD11
+     C     UPRO          READe     HEAD11                                 94
+     C     *IN94         doweq     '0'
+     C     KOAKEY        CHAIN     KODTA                              33
+     C     KOAIE         COMP      '2'                                    52
+     c                   move      HEPOS1        PDSPOS
+     c     *in52         ifeq      '0'
+     c                   move      HEADK3        PDSADR3
+     c                   move      HEADK1        PDSADR1
+     c                   move      HENAK         PDSNAVN
+     c                   else
+     c                   move      HEADS3        PDSADR3
+     c                   move      HEADS1        PDSADR1
+     c                   move      HENAS         PDSNAVN
+     c                   end
+     c                   move      HEAVD         PDSAVD
+     c                   move      HEOPD         PDSOPD
+     c                   move      *IN52         PDSHIND
+     c                   add       1             NR
+     c                   move      SFNT          PDSNT
+     c                   move      SFVKT         PDSVKT
+     c                   move      SFM3          PDSM3
+     c                   move      HELM          PDSLM
+     C                   MOVE      POSDS         POS(NR)
+     C     UPRO          READe     HEAD11                                 94
+     C                   END
+     C                   SORTA     POS
+     c                   eval      Franr = 999 - NR  + 1
+      *
+     C                   ENDSR
+     C*
+     C*
+N01  C***********************************************
+N01  C     AutoSR        BEGSR
+N01  C***********************************************
+N01   *
+N01  C                   EXSR      RESTEN
+N01  C*** Renumerer 01,02,03..
+N01  c                   z-add     1             Gap               2 0
+N01  C                   EXSR      RENUM
+N01   *
+N01  C                   ENDSR
+      *

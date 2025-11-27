@@ -1,0 +1,222 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SADEFJSONW MODULE(*LIBL/SADEFJSONW *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSADEFCL1  IF   E           K DISK    USROPN
+     FSADEFCSL1 IF   E           K DISK    USROPN
+     FSADEFL02  UF   E           K DISK    USROPN
+     FEDIS2     IF   E           K DISK    USROPN
+     FECMSG1    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D ErrorT          S          32000
+     d pro             s              8
+     d xidag           s              8  0
+     d x_sndok         s              1
+     d wsst2           s              1
+     D                 DS
+     D  pro_n                  1      8  0
+     D  pro_a                  1      8
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'JSONFIX'
+     d JSONFIX         pr                  extpgm('JSONFIX')
+     d JSONstring_                         like(JSONstring)
+      *  Prototype for 'INCGI'
+     d INCGI           pr                  extpgm('INCGI')
+     d bistdl_                             like(bistdl)
+      *  Prototype for 'SADEFJSON'
+     d SADEFJSON       pr                  extpgm('SADEFJSON')
+     d pro_                                like(pro)
+      *
+      /free
+
+      // *get input-string
+      // /copy syspeds/qrpgsrcpy,prolog3
+         nbrVars = zhbgetinput(savedquerystring:qusec);
+
+       // Parse input
+         exsr Parse;
+       // Open files etc
+         exsr init;
+
+         chain(n) pro_n sadefl02;
+         if %found;
+           exsr testtur;
+           if x_sndok = 'J';
+             chain ('S': 'EXPREM') ecmsg1;
+             if %found;
+             // Sjekk om manifest er godkjent før
+               *in51 = *on;
+               s0020 = 'EF' + pro_a;
+               setll s0020 edis2;
+               reade s0020 edis2;
+               dow not %eof;
+                 if ssr = 'S' and s0026 = 'SADEFJSON' and sst = 'C';
+                   *in51 = *off;
+                   leave;
+                 endif;
+                 reade s0020 edis2;
+               enddo;
+               if *in51;
+                 wsst2 = 'S';
+               else;
+                 wsst2 = 'R';
+               endif;
+
+               chain (efpro) sadefl02;
+               efst2 = wsst2;
+               update sadeffr;
+               sadefjson (pro_a);
+               error = 'O';
+               errort = ' ';
+             else;
+               error = 'M';
+               errort = 'Utgående melding er ikke definert. Pkt- 5 på meny '
+                       + 'EDIMNU3';
+             endif;
+           else;
+             error = 'M';
+             errort = 'Feil: Manifest kan ikke sendes.';
+           endif;
+         else;
+           error = 'M';
+           errort = 'Manifest finnes ikke eller avsluttet.';
+
+         endif;
+
+         exsr      srutjson;
+
+         //* Quit
+         exsr Exit;
+
+       //*=====================================================================
+       //* Close output html and quit
+       //*=====================================================================
+       begsr Exit;
+
+       // Lukk fil
+       close bridf;
+       close sadefcl1;
+       close sadefcsl1;
+       close sadefl02;
+       close edis2;
+       close ecmsg1;
+
+       //* Do not delete the call to wrtsection with section name *fini.  It is needed
+       //* to ensure that all output html that has been buffered gets output.
+       callp wrtsection('*fini');
+       //* Quit
+       *inlr = *on;
+       return;
+
+       endsr;
+
+       //*********************************************************
+       //C     Parse         Begsr
+       //*********************************************************
+       begsr Parse;
+
+       //* Get input
+       WSUSER  = zhbgetvar('USER');
+       PRO     = zhbgetvar('PRO');
+       PRO_N   = c2n2(PRO);
+       Error   = zhbgetvar('Error');
+       ErrorT  = zhbgetvar('ErrorTxt');
+
+       endsr;
+
+       //*********************************************************
+       //C     SRUTJSON      Begsr
+       //*********************************************************
+       begsr srutjson;
+
+       callp gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+       callp wrtsection('top');
+       error = ' ';
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬pro¬ : ¬'+%trim(PRO)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, '
+        +'¬errMsgT¬ : ¬'+%trim(Errort)+'¬}';
+
+       //* JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       JSONFIX (JSONstring);
+       CALLP updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+       callp wrtsection('JSONlin');
+
+       endsr;
+
+      // ********************************************
+       begsr testtur;
+
+       if efst = ' ' or efst = 'C' or efst = 'M';
+         x_sndok = 'J';
+         setll efpro sadefcl1;
+         reade efpro sadefcl1;
+         dow not %eof;
+           chain (clavd: cltdn) sadefcsl1;
+           if not %found and clst <> 'O';
+           // Oppdrag er ikke klar, mangler info.
+             x_sndok = 'N';
+             leave;
+           endif;
+           reade efpro sadefcl1;
+         enddo;
+       else;
+         x_sndok = 'N';
+       endif;
+
+       endsr;
+
+       //*********************************************************
+       //C     INIT          Begsr
+       //*********************************************************
+       begsr init;
+
+       open bridf;
+       //* Test innlogging
+       chain wsuser bridf;
+       if bilibl = *blanks;
+         incgi (bistdl);
+       else;
+      /end-free
+     C                   call      BILIBL
+      /free
+       endif;
+
+       open sadefl02;
+       open sadefcl1;
+       open sadefcsl1;
+       open edis2;
+       open ecmsg1;
+
+       syge15c (wdt: wtm);
+       xidag = wdt_n;
+
+       endsr;
+

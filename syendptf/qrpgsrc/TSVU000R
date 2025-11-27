@@ -1,0 +1,341 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 SØK PÅ MRN
+12XXX * 02 JOV PTF12 ta hensyn til historikk-mappe
+      *********************************************************************
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVU000R MODULE(*LIBL/TSVU000R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+     FARKIVL06  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+     ‚*  Prototype for 'SYGE20'
+     d syge20          pr                  extpgm('SYGE20')
+     d ufunk_                              like(ufunk)
+     d udat1_                              like(udat1)
+     d udat2_                              like(udat2)
+     d udgr_                               like(udgr)
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          c                   const('''')
+     d SqlStm          s            512a
+     d myrows          s             10i 0
+     D WSUSER          S             10
+     D TULLID          S             10
+N01  D MRNNR           S             35
+     D DATUM           S              8
+     D DATUMT          S              8
+     D AVSNAVN         S             35
+     D MOTNAVN         S             35
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D Jn043           S              1
+     d X               S             10  0
+     d pos             S              5U 0
+     d udat1           s              8  0
+     d udat2           s              8  0
+     d udgr            s              5  0
+     d ufunk           s              3
+     d wpabrid         s                   like(pabrid)
+     d wpakunr         s                   like(pakunr)
+     d wpasort         s                   like(pasort)
+     d pdfh            s            128
+     d MyPoDS          ds                  Qualified  dim(100)
+     d DOC_1001                       3
+     d DOC_1004                      10
+N01  d MRN                           35
+     d DTM_2380B                      8
+     d NAD_3036D                     35
+     d NAD_3207D                      2
+     d NAD_3036E                     35
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+         exsr ParseSr;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬tullid¬ : ¬'+%trim(TULLID)+'¬, '
+N01     +'¬mrn¬ : ¬'+%trim(MRNNR)+'¬, '
+        +'¬datum¬ : ¬'+%trim(DATUM)+'¬, '
+        +'¬datumt¬ : ¬'+%trim(DATUMT)+'¬, '
+        +'¬avsnavn¬ : ¬'+%trim(AVSNAVN)+'¬, '
+        +'¬motnavn¬ : ¬'+%trim(MOTNAVN)+'¬, '
+        +'¬errmsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"utlList" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+         if myrows > 0;
+           exsr LesSr;
+         endif;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+         exsr Exit;
+
+       //-----------------------------------------------------------------
+       // Select fra fil via SQL
+       //-----------------------------------------------------------------
+       begsr     SelSr;
+
+       If    TULLID  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DOC_1004 LIKE ' + cQuote + '%' + %trim(TULLID) + '%' + cQuote;
+        EndIf;
+N01
+N01    If    MRNNR  <> *blanks;
+N01      Exsr  AddAnd;
+N01      Eval  WhereC =  %trim(WhereC)  +
+N01      ' MRN LIKE ' + cQuote + '%' + %trim(MRNNR) + '%' + cQuote;
+N01     EndIf;
+
+       If    DATUM <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DTM_2380B  >= ' + DATUM;
+       EndIf;
+
+       If    DATUMT <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DTM_2380B  <= ' + DATUMT;
+       EndIf;
+
+       If    AVSNAVN  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(NAD_3036D) LIKE UPPER(' + cQuote + '%' +
+         %trim(AVSNAVN) + '%' + cQuote + ')';
+        EndIf;
+
+       If    MOTNAVN  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(NAD_3036E) LIKE UPPER(' + cQuote + '%' +
+         %trim(MOTNAVN) + '%' + cQuote + ')';
+        EndIf;
+
+         Eval      WhereC =  ' Where ' + %trim(WhereC);
+
+         Eval       SqlStm = 'Select DOC_1001, DOC_1004, ' +
+N01                          'MRN, ' +
+                             'DTM_2380B, ' +
+                             'NAD_3036D, NAD_3207D, NAD_3036E ' +
+                             'from SVUH ' +
+                              %trim(WhereC)  +
+                             ' Order by '       +
+                             'DTM_2380B desc ' +
+                             'FOR READ ONLY ';
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  A33  cursor for DynSel;
+         Exec SQL OPEN A33;
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+       //-----------------------------------------------------------------
+       // Set inn "AND" mellom where settninger
+       //-----------------------------------------------------------------
+       begsr     AddAnd;
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+       //-----------------------------------------------------------------
+       // hent input
+       //-----------------------------------------------------------------
+       begsr     ParseSr;
+         wsuser  = zhbgetvar('USER');
+         tullid  = zhbgetvar('TULLID');
+N01      mrnnr   = zhbgetvar('MRN');
+         datum   = zhbgetvar('DATUM');
+         datumt  = zhbgetvar('DATUMT');
+         avsnavn = zhbgetvar('AVSNAVN');
+         motnavn = zhbgetvar('MOTNAVN');
+        endsr;
+        // __________________________________________________
+        // Læs array                                    LESSR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr LesSr;
+       for x = 1 to myrows;
+
+       if mypods(x).DOC_1004 = *blanks;
+         leave;
+       endif;
+
+           if error = *blanks;
+
+         // Hämta arkivlänkar
+         pdfh = *blanks;
+             chain (bifirm: 'UT': (mypods(x).doc_1004)) arkivl06;
+               if %found;
+N02              if arbhis <> *blanks;
+N02                arcane = arbhis;
+N02              endif;
+                 pdfh ='/'+%trim(arcane)+'/'+%trim(arlink) + '.pdf';
+               endif;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬doc_1001¬ : ¬'+%trim(mypods(x).DOC_1001)+'¬, '
+          +'¬doc_1004¬ : ¬'+%trim(mypods(x).DOC_1004)+'¬, '
+N01       +'¬mrn¬ : ¬'+%trim(mypods(x).MRN)+'¬, '
+          +'¬dtm_2380b¬ : ¬'+%trim(mypods(x).DTM_2380B)+'¬, '
+          +'¬nad_3036d¬ : ¬'+%trim(mypods(x).NAD_3036D)+'¬, '
+          +'¬nad_3207d¬ : ¬'+%trim(mypods(x).NAD_3207D)+'¬, '
+          +'¬nad_3036e¬ : ¬'+%trim(mypods(x).NAD_3036E)+'¬, '
+          +'¬pdfh¬ : ¬'+%trim(pdfh)+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endif;
+
+        endfor;
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+         open brparf;
+         open firmarc;
+         open ARKIVL06;
+
+         // Er dato= blank eller 0, sett  da dato 7 dager tilbake
+S01      //if tullid=*blanks and datum=*blanks;
+N01      if tullid=*blanks and mrnnr = *blanks and datum=*blanks;
+
+           wpabrid=wsuser;
+           wpakunr=0;
+           wpasort=0;
+           chain (WPABRID: WPAKUNR: 'DFTDG': WPASORT) BRPARF;
+           if not %found or pavrdn = 0;
+              pavrdn=7;
+           endif;
+
+           ufunk = 'SUB';
+           udat1 = *zeros;
+           udgr = pavrdn;
+           syge20 ( ufunk : udat1 : udat2 : udgr );
+           datum = %editc(udat2:'X');
+         endif;
+         // Hent firmaopplysninger arkiv
+         chain bifirm firmarc;
+
+       endsr;
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close brparf;
+         close firmarc;
+         close ARKIVL06;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free

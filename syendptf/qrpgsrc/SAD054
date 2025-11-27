@@ -1,0 +1,392 @@
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11109‚* 01 YBC PTF11 OMBEREGNING PÅ OMBEREGNING
+     ‚*              MYE ENDRINGER. INGEN MERKING.
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX‚* 02 YBC PTF12 Kopier koder for sammenslåing og default omr.faktor
+12081‚* 03 YBC PTF12 MERK NYE LINJER FRA TIDLIGERE OMBEREGNING
+12201‚* 04 YBC PTF12 Containernr
+****‚***************************************************************
+
+     ‚***********************************************************
+     ‚*** PROGRAM SKAL KOPIERE OPPDRAG TIL OMBEREGNING        ***
+     ‚*** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+     ‚*** LEDIGE INDIKATORER 01-26
+     ‚*** LEDIGE INDIKATORER 27-32 34-99
+     ‚***********************************************************
+
+     H DFTACTGRP(*NO)
+     fsaeh      uf a e           k disk
+N02  fsaehtl    uf a e           k disk
+     fsaehom    uf a e           k disk    rename(saehr:saehrom)
+     fsaef      uf a e           k disk    rename(sadfr:saefr)
+     fsaev      uf a e           k disk
+N04  fsaevcn    uf a e           k disk
+     fsaeomt    uf a e           k disk
+     fsaeomth   uf a e           k disk
+     fsaeomtf   uf a e           k disk
+     fsaeomtv   uf a e           k disk
+N04  fsaeomtvcn uf a e           k disk
+     ‚*  Prototype for sad054
+     d sad054          pr
+     d uavd_                               like(uavd)
+     d utdn_                               like(utdn)
+     d usg_                                like(usg)
+     d utype_                              like(utype)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d sad054          pi
+     d uavd                           4  0
+     d utdn                           7  0
+     d usg                            3
+     d utype                          3
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d wdt             s              8
+     d wtm             s              6
+     d x_seavd         s                   like(seavd)
+     d x_sedtg         s                   like(sedtg)
+     d x_seombn        s                   like(seombn)
+     d x_setdn         s                   like(setdn)
+     d x_setle         s                   like(setle)
+     d x_setll         s                   like(setll)
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      /free
+       exsr init;
+
+       select;
+       when utype = 'NYS';                                                      // Ny omberegning
+         exsr srnyomb;                                                          // basert sist omb.
+       when utype = 'NYO';                                                      // Ny omberegning
+         exsr srnyombori;                                                       // basert original
+       when utype = 'NYA';                                                      // ANGRE NY OMBEREGN
+         exsr srangomb;
+       endsl;
+
+       chain(n) ( uavd : setdn ) saehom;
+       select;
+       when not %found and utype <> 'OMS';
+
+         chain(n) ( uavd : x_setdn ) saeh;
+N02      chain ( uavd : x_setdn ) saehtl;
+N02      if %found;
+N02        delete saehtlr;
+N02      endif;
+         setdn  = utdn;
+         sest   = ' ';
+         sesg   = usg;
+         semf   = *blanks;
+         sedt   = %dec(wdt:8:0);
+         write saehr;
+N02      write saehtlr;
+         write saehrom;
+
+         setll ( uavd : x_setdn ) saef;
+         reade ( uavd : x_setdn ) saef;
+         dow not %eof;
+           sfopdn = utdn;
+           write saefr;
+           reade ( uavd : x_setdn ) saef;
+         enddo;
+
+         setll ( uavd : x_setdn ) saev;
+         reade(n) ( uavd : x_setdn ) saev;
+         dow not %eof;
+           svtdn = utdn;
+           write saevr;
+           reade(n) ( uavd : x_setdn ) saev;
+         enddo;
+N04
+N04      setll ( uavd : x_setdn ) saevcn;
+N04      reade(n) ( uavd : x_setdn ) saevcn;
+N04      dow not %eof;
+N04        svtdn = utdn;
+N04        write saevcnr;
+N04        reade(n) ( uavd : x_setdn ) saevcn;
+N04      enddo;
+
+         // OMSTART: SLETT GAMLE OG LAGE NYE I OMBEREGNINGSOPPDRAG
+       when %found and utype = 'OMS';
+         // SLETT GAMLE LINJE I OMBEREGNINGSOPPDRAG (SETDN < 0)
+         setll ( uavd : setdn ) saev;
+         reade ( uavd : setdn ) saev;
+         dow not %eof;
+           delete saevr;
+           reade ( uavd : setdn ) saev;
+         enddo;
+N04      setll ( uavd : setdn ) saevcn;
+N04      reade ( uavd : setdn ) saevcn;
+N04      dow not %eof;
+N04        delete saevcnr;
+N04        reade ( uavd : setdn ) saevcn;
+N04      enddo;
+         // LAGE NYE LINJER
+         seombn = 99;
+         setll ( uavd : utdn : seombn ) saeomt;
+         readpe(n) ( uavd : utdn ) saeomt;
+
+         if not %eof and sesomb = 'J';
+           exsr srcpy;
+         else;
+           exsr srcpyori;
+         endif;
+
+       endsl;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************
+       begsr init;
+         //**********************************************
+         setdn = utdn;
+         x_seavd = uavd;
+         x_setdn = utdn * -1;
+         syge15c ( wdt : wtm );
+
+       endsr;
+
+       //**********************************************
+       begsr srcpy;
+         //**********************************************
+         setll ( uavd : utdn : seombn ) saeomtv;
+         reade(n) ( uavd : utdn : seombn ) saeomtv;
+         dow not %eof;
+           write saevr;
+           reade(n) ( uavd : utdn : seombn ) saeomtv;
+         enddo;
+N04      setll ( uavd : utdn : seombn ) saeomtvcn;
+N04      reade(n) ( uavd : utdn : seombn ) saeomtvcn;
+N04      dow not %eof;
+N04        write saevcnr;
+N04        reade(n) ( uavd : utdn : seombn ) saeomtvcn;
+N04      enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srcpyori;
+         //**********************************************
+         setll ( uavd : x_setdn ) saev;
+         reade(n) ( uavd : x_setdn ) saev;
+         dow not %eof;
+           svtdn = utdn;
+           write saevr;
+           reade(n) ( uavd : x_setdn ) saev;
+         enddo;
+N04      setll ( uavd : x_setdn ) saevcn;
+N04      reade(n) ( uavd : x_setdn ) saevcn;
+N04      dow not %eof;
+N04        svtdn = utdn;
+N04        write saevcnr;
+N04        reade(n) ( uavd : x_setdn ) saevcn;
+N04      enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srnyomb;
+         //**********************************************
+         seombn = 99;
+         setll ( uavd : utdn : seombn ) saeomt;
+         readpe(n) ( uavd : utdn ) saeomt;
+         if %eof;
+           x_seombn = 1;
+         else;
+           x_seombn = seombn + 1;
+         endif;
+         clear saeomtr;
+         sedtsl = %dec(wdt:8:0);
+         setmsl = %dec(wtm:6:0);
+         chain ( uavd : utdn ) saehom;
+         seombn = x_seombn;
+         sesomb = 'J';
+         write saeomtr;
+         clear saehrom;
+         seavd  = uavd;
+         setdn  = utdn;
+         update saehrom;
+         chain(n) ( x_seavd : x_setdn ) saeh;
+         x_setll  = setll;
+         x_setle  = setle;
+         x_sedtg  = sedtg;
+         chain ( uavd : utdn ) saeh;
+         seombn = x_seombn;
+         write saeomthr;
+         sest   = ' ';
+         eval setll  = x_setll;
+         setle  = x_setle;
+         sedtg  = x_sedtg;
+         semf   = *blanks;
+         update saehr;
+         setll ( uavd : utdn ) saef;
+         reade(n) ( uavd : utdn ) saef;
+         sfombn = x_seombn;
+         dow not %eof;
+           write saeomtfr;
+           reade(n) ( uavd : utdn ) saef;
+         enddo;
+         setll ( uavd : utdn ) saev;
+S03      // reade(n) ( uavd : utdn ) saev;
+N03      reade ( uavd : utdn ) saev;
+         svombn = x_seombn;
+         dow not %eof;
+           write saeomtvr;
+N03        if svnyl = 'J';
+N03          svnyl = 'N';
+N03        endif;
+N03        update saevr;
+S03      //   reade(n) ( uavd : utdn ) saev;
+N03        reade ( uavd : utdn ) saev;
+         enddo;
+N04      setll ( uavd : utdn ) saevcn;
+N04      reade ( uavd : utdn ) saevcn;
+N04      svombn = x_seombn;
+N04      dow not %eof;
+N04        write saeomtvcnr;
+N04        update saevcnr;
+N04        reade ( uavd : utdn ) saevcn;
+N04      enddo;
+
+         *inlr = *on;
+         return;
+
+       endsr;
+
+       //**********************************************
+       begsr srnyombori;
+         //**********************************************
+         seombn = 99;
+         setll ( uavd : utdn : seombn ) saeomt;
+         readpe(n) ( uavd : utdn ) saeomt;
+         if %eof;
+           x_seombn = 1;
+         else;
+           x_seombn = seombn + 1;
+         endif;
+         clear saeomtr;
+         sedtsl = %dec(wdt:8:0);
+         setmsl = %dec(wtm:6:0);
+         chain ( uavd : utdn ) saehom;
+         seombn = x_seombn;
+         sesomb = 'N';
+         write saeomtr;
+         delete saehrom;
+         clear saehrom;
+         chain ( uavd : utdn ) saeh;
+         seombn = x_seombn;
+         write saeomthr;
+         delete saehr;
+         clear saehr;
+         setll ( uavd : utdn ) saef;
+         reade ( uavd : utdn ) saef;
+         sfombn = x_seombn;
+         dow not %eof;
+           write saeomtfr;
+           delete saefr;
+           reade ( uavd : utdn ) saef;
+         enddo;
+         clear saefr;
+         setll ( uavd : utdn ) saev;
+         reade ( uavd : utdn ) saev;
+         svombn = x_seombn;
+         dow not %eof;
+           write saeomtvr;
+           delete saevr;
+           reade ( uavd : utdn ) saev;
+         enddo;
+         clear saevr;
+N04      setll ( uavd : utdn ) saevcn;
+N04      reade ( uavd : utdn ) saevcn;
+N04      svombn = x_seombn;
+N04      dow not %eof;
+N04        write saeomtvcnr;
+N04        delete saevcnr;
+N04        reade ( uavd : utdn ) saevcn;
+N04      enddo;
+N04      clear saevcnr;
+
+         utype = 'OMB';
+
+       endsr;
+
+       //**********************************************
+       begsr srangomb;
+         //**********************************************
+         // SJEKK OM TIDLIGERE OMBEREGNING FINNES
+         seombn = 99;
+         setll ( uavd : utdn : seombn ) saeomt;
+         readpe(n) ( uavd : utdn ) saeomt;
+         if not %eof;
+           x_seombn = seombn;
+
+         // SLETT UFERDIG OMBEREGNING
+           chain ( uavd : utdn ) saehom;
+           delete saehrom;
+           chain ( uavd : utdn ) saeh;
+           delete saehr;
+           setll ( uavd : utdn ) saef;
+           reade ( uavd : utdn ) saef;
+           dow not %eof;
+             delete saefr;
+             reade ( uavd : utdn ) saef;
+           enddo;
+           setll ( uavd : utdn ) saev;
+           reade ( uavd : utdn ) saev;
+           dow not %eof;
+             delete saevr;
+             reade ( uavd : utdn ) saev;
+           enddo;
+N04        setll ( uavd : utdn ) saevcn;
+N04        reade ( uavd : utdn ) saevcn;
+N04        dow not %eof;
+N04          delete saevcnr;
+N04          reade ( uavd : utdn ) saevcn;
+N04        enddo;
+
+         // FLYTT SISTE OMBEREGNING TILBAKE
+           chain ( uavd : utdn : seombn ) saeomt;
+           write saehrom;
+           delete saeomtr;
+           chain ( uavd : utdn : seombn ) saeomth;
+           write saehr;
+           delete saeomthr;
+           setll ( uavd : utdn : seombn ) saeomtf;
+           reade ( uavd : utdn : seombn ) saeomtf;
+           dow not %eof;
+             write saefr;
+             delete saeomtfr;
+             reade ( uavd : utdn : seombn ) saeomtf;
+           enddo;
+           setll ( uavd : utdn : seombn ) saeomtv;
+           reade ( uavd : utdn : seombn ) saeomtv;
+           dow not %eof;
+             write saevr;
+             delete saeomtvr;
+             reade ( uavd : utdn : seombn ) saeomtv;
+           enddo;
+N04        setll ( uavd : utdn : seombn ) saeomtvcn;
+N04        reade ( uavd : utdn : seombn ) saeomtvcn;
+N04        dow not %eof;
+N04          write saevcnr;
+N04          delete saeomtvcnr;
+N04          reade ( uavd : utdn : seombn ) saeomtvcn;
+N04        enddo;
+
+         endif;
+
+         *inlr = *on;
+         return;
+
+       endsr;
+
+      /end-free

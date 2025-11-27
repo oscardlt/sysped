@@ -1,0 +1,679 @@
+      *********************************************************************
+      * Spørring på innenlands fraktpriser
+      * PROGRAM BEHANDLER INPUT FRA SYMN1
+      *
+CRTPG+*  CRTPGM SYSPED/SYFRA MODULE(*LIBL/SYFRA *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 Produktkoder kan være gitt i espedparm..
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 02 JOV PTF11 Ved unenlands bruk foreslå avvikende landkode/ postnr
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+12027 * 03 JOV PTF12 Tar hensyn til vareadresse 1 som foreslått FRA-sted for frakt
+12XXX * 04 JOV PTF12 UPPIFY WSUSER (kan legges rett på hjemmeside med feilaktige små bokst..)
+********************************************************************
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FKODTOTY   IF   E           K DISK    USROPN
+     FKUFAST    if   e           k disk    usropn
+     Favfrh     if   e           k disk    usropn
+     Favfrhl05  if   e           k disk    usropn
+     F                                     RENAME(AVFRHR:AVFRH05R)
+     FKodtfr    if   e           k disk    usropn
+     Fcundl01   if   e           k disk    usropn
+N03  Fvadr      if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D AVVKNR          S              8
+     D AVVKNN          S              8  0
+     D AVVKNTXT        S            500
+     D OVERSKR         s            150
+     D WSOT            S              2
+     D FRALK           s              2
+     D FRA             s              5
+     D TILLK           s              2
+     D TIL             s              5
+     D VKT             s              5
+     D ANT             s              5
+     D LM              s              5
+     D M3              s              5
+     D PROD            s              1
+     D FRAN            s              3
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D                 DS
+     D  FrString               1     48                                         Frankaturer
+     D  FR                     1     48    DIM(12)
+     D                 DS
+     D  OtString               1     48                                         Oppdragstyper
+     D  OT                     1     48    DIM(16)
+N01  D                 DS
+N01  D  PrString               1     50                                         Prod-kode
+N01  D  PR                     1     50    DIM(25)
+     D                 DS
+     D  PAVRDA                 1     50
+     D  PAVRDA1                1      2
+     D  PAVRDA2                5      5
+     D  PAVRDA3                6     50
+     D                 DS
+     D  WSAVD                  1      7
+     D  WSAVDMOD               1      2
+     D  WSAVDSK                3      3
+     D  WSAVDAVD               4      7
+     D                 DS
+     D  XAVD                   1      7
+     D  XAVDMOD                1      2
+     D  XAVDSK                 3      3
+     D  XAVDAVD                4      7  0
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      * Blank passord=anonym, OK, Ellers må være "Inne"
+     C     BIPO          IFNE      *BLANKS
+     C*                  IF        ((BIBRID = *BLANKS) OR
+     C                   IF        ((*IN50 = *ON) OR
+     C                              (BIINN = *BLANKS))
+     C                   exsr      SetSkl01B
+     C                   GOTO      SLUTT
+     C                   END
+     C                   END
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+     C                   IF        (XINTERN = 'J')
+     C                   callp     wrtsection('AvvKnr')
+     C                   END
+     C                   callp     wrtsection('Del2')
+      * 2-Prod.koder -pulldown
+     C                   exsr      DspProd
+      * 3-Frankaturer -pulldown
+     C     BIKUNR        Ifne      *zeros
+     C                   IF        ((XKUNFRAKT <> 'J') AND (XKUNFRAKT <> 'j'))
+     C                   EXSR      DSPMOD
+     C                   EXSR      DSPFR
+     C                   EXSR      DSPOT
+     C                   ELSE
+     C                   exsr      DspFran
+     C                   END
+     C                   end
+      * bunn
+     C                   callp     wrtsection('bot')
+      *
+     C     SLUTT         TAG
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      WSUSER  = zhbgetvar('USER')
+N04  C                   eval      WSUSER  = uppify(WSUSER)
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSAVD   = zhbgetvar('WSAVD')
+     C                   eval      WSOT    = zhbgetvar('WSOT')
+     C                   eval      FRA     = zhbgetvar('FRA')
+     C                   eval      FRALK   = zhbgetvar('FRALK')
+     C                   eval      TIL     = zhbgetvar('TIL')
+     C                   eval      TILLK   = zhbgetvar('TILLK')
+     c     FRALK         Ifeq      *blanks
+     c                   move      'NO'          FRALK
+     c                   end
+     c     TILLK         Ifeq      *blanks
+     c                   move      'NO'          TILLK
+     c                   end
+     C                   eval      VKT     = zhbgetvar('VKT')
+     C                   eval      ANT     = zhbgetvar('ANT')
+     C                   eval      LM      = zhbgetvar('LM')
+     C                   eval      M3      = zhbgetvar('M3')
+     C                   eval      PROD    = zhbgetvar('PROD')
+     C                   eval      FRAN    = zhbgetvar('FRAN')
+     C                   eval      AVVKNR  = zhbgetvar('AVVKNR')
+     C                   eval      AVVKNN  = c2n2(AVVKNR)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl01B     begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYMNB'
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      SetTop
+     C                   callp     updHTMLvar('FEILTXT':'.')
+     C                   callp     wrtsection('all')
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHtmlVar('AVVKNR':
+     C                             %trim(%editc(AVVKNN:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   callp     updHTMLvar('FEILTXT':Spaces)
+     C                   callp     updHTMLvar('FRALK':FRALK)
+     C                   callp     updHTMLvar('TILLK':TILLK)
+     c     FRA           IFNE      *blanks
+     C                   callp     updHTMLvar('FRA':FRA)
+     c                   else
+     C     Bikunr        IFNE      *zeros
+     C                   callp     updHTMLvar('FRA':XXSDF)
+     c                   else
+     C                   callp     updHTMLvar('FRA':'1000 ')
+     c                   end
+     c                   end
+     C                   callp     updHTMLvar('TIL':TIL)
+     C                   callp     updHTMLvar('VKT':VKT)
+     C                   callp     updHTMLvar('ANT':ANT)
+     C                   callp     updHTMLvar('LM':LM)
+     C                   callp     updHTMLvar('M3':M3)
+      * sett overskrift etter kun frakt/full (for å kunne fjerne mange sections...)
+     C                   eval      Overskr='<div class="centeredtitle">e-SPED'
+     C                             +'   -  FRAKTKALKULATOR. </div>'
+     C                   IF        ((XKUNFRAKT <> 'J') AND (XKUNFRAKT <>'j'))
+     C                   eval      Overskr='<div class="centeredtitle">e-SPED'
+     C                             +'   -  FULL FAKTURABEREGNING </div>'
+     C                   END
+     C                   callp     updHTMLvar('OVERSKR':Overskr)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYFRA'
+     C                   CAT       XSPRÅK:0      MBR
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Display Product codes to select from
+      *=====================================================================******
+     C     DspProd       begsr
+n01   * Vis kun de kunden har i param HEPRO i ESPEDPARM..
+n01  C                   MOVE      'HEPRO'       PAID
+n01  C                   EXSR      SETKEY
+n01  c     *in33         ifeq      '0'
+n01  c                   exsr      DspProdP
+n01  c                   goto      Utprod
+n01  c                   end
+      * Vis kun de kunden har i postal pkt 9
+     C     KufasKey      setll     KUFAST
+     C     kufasKey      reade     KUFAST                                 40
+     C     *in40         doweq     '0'
+     C                   movel     KFKOD         AFPROD
+     C     BIKUNR        IFEQ      *zeros
+     C                   eval      *IN33 = *OFF
+     C                   else
+     C     KuProKey      chain     AVFRH                              33
+     C                   end
+     C     *in33         Ifeq      '0'
+     C     KFKOD         andne     ' DEFN'
+     C                   MOVEL     KFTXT         PRODTXT          20
+     C                   IF        PROD = AFPROD
+     C                   callp     updhtmlvar('XSELP':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELP':'')
+     C                   END
+     C                   callp     updhtmlvar('PRODKOD':AfProd)
+     C                   callp     updhtmlvar('PRODTXT':prodtxt)
+     C                   callp     wrtsection('typsltrow')
+     C                   end
+     C     KufasKey      reade     KUFAST                                 40
+     C                   enddo
+      *
+     C                   callp     wrtsection('typsltend')
+      *
+N01  c     UtProd        tag
+     C                   endsr
+      **
+N01   *=====================================================================******
+N01   *  Display Product codes to select from  - NÅR angitt i parameter
+N01   *=====================================================================******
+N01  C     DspProdP      begsr
+N01   ****************************************************************************
+N01  C                   Move      PAVRDA        PrString
+N01   *
+N01  C     1             DO        25            XN                3 0
+N01  C                   MOVEL     PR(XN)        AFPROD
+N01  C                   IF        ((AFPROD=*BLANKS) and (XN > 1))
+N01  c                   leave
+N01  c                   end
+N01  c                   eval      KFKOD  = AFPROD
+N01  C     KufaskeyK     chain     KUFAST                             33        Kun gyldige koder..
+N01  C     *in33         Ifeq      '0'
+N01  C                   MOVEL     KFTXT         PRODTXT          20
+N01  C                   IF        PROD = AFPROD
+N01  C                   callp     updhtmlvar('XSELP':'selected')
+N01  C                   ELSE
+N01  C                   callp     updhtmlvar('XSELP':'')
+N01  C                   END
+N01  C                   callp     updhtmlvar('PRODKOD':AfProd)
+N01  C                   callp     updhtmlvar('PRODTXT':prodtxt)
+N01  C                   callp     wrtsection('typsltrow')
+N01  C                   end
+N01  C                   END
+N01  C                   callp     wrtsection('OTSltend')
+N01   *
+N01  C                   endsr
+      *=====================================================================******
+      *  Display Frankaturer  codes to select from
+      *=====================================================================******
+     C     DspFran       begsr
+      *
+     C                   Move      ' '           TopFrSkevet       1
+     C                   MOVE      *BLANKS       AFFRAN
+     C     Avfr05Key     CHAIN     AVFRHL05                           33
+     C     Avfr05Key     setgt     AVFRHL05
+     C     BIKUNR        reade     AVFRHL05                               40
+     C     *in40         Cabeq     '1'           UtFran
+     C                   Move      'J'           TopFrSkevet
+     C* Det finnes minst 1 forskjellig fra blank..- set top.
+     C                   callp     wrtsection('fraslttop')
+     C* Det finnes Blank i franka.. - den er første linje
+     c     *in33         Ifeq      '0'
+     C                   IF        FRAN = AFFRAN
+     C                   callp     updhtmlvar('XSELF':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELF':'')
+     C                   END
+     C                   callp     updhtmlvar('FRANKOD':'   ')
+     C                   callp     updhtmlvar('FRANTXT':'   ')
+     C                   callp     wrtsection('frasltrow')
+     c                   end
+     C     *in40         doweq     '0'
+     C     FranKey       chain     KODTFR                             33
+     C                   IF        FRAN = AFFRAN
+     C                   callp     updhtmlvar('XSELF':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELF':'')
+     C                   END
+     C                   callp     updhtmlvar('FRANKOD':AFFRAN)
+     C  N33              callp     updhtmlvar('FRANTXT':KFRNTX)
+     C   33              callp     updhtmlvar('FRANTXT':AFFRAN)
+     C                   callp     wrtsection('frasltrow')
+      *
+     C     Avfr05Key     setgt     AVFRHL05
+     C     BIKUNR        reade     AVFRHL05                               40
+     C                   enddo
+      *
+     C     TopFrSkevet   Ifeq      'J'
+     C                   callp     wrtsection('frasltend')
+     C                   end
+      *
+     C     UtFran        endsr
+      *=====================================================================******
+      *  Pulldown-boks for å velge type ved ved Lag ny..                    )
+      *=====================================================================******
+     C     DSPMOD        begsr
+     C                   callp     wrtsection('MODSlttop')
+      *
+     C                   MOVE      'HEUR '       PAID
+      *
+     C                   EXSR      SETKEY
+      *
+     C                   IF        WSAVDMOD = *BLANKS
+     C                   MOVE      PAVRDA1       XXAVDMOD          2
+     C                   END
+      *
+     C                   DOW       *IN33 = *OFF
+     c                   IF        ((PAVRDA1 <> ' ') AND (PAVRDN <> 0))
+     c                   MOVE      PAVRDA1       XAVDMOD
+     c                   MOVE      PAVRDA2       XAVDSK
+     c                   Z-ADD     PAVRDN        XAVDAVD
+     C                   IF        WSAVD = XAVD
+     C                   callp     updhtmlvar('XSELA':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELA':'')
+     C                   END
+     C                   callp     updhtmlvar('WSAVD1':XAVD)
+     C                   callp     updhtmlvar('WSAVD2':PAVRDA3)
+     C                   callp     wrtsection('MODSltRow')
+     C                   END
+     C     BRPARFK       READE     BRPARF                                 33
+     C                   ENDDO
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Display LEVERINGSVILKÅR codes to select from
+      *=====================================================================******
+     C     DspFR         begsr
+      *
+     C                   move      *blanks       FrString
+     C                   callp     wrtsection('fraSlttop')
+     C                   MOVE      'HEURF'       PAID
+      *
+     C                   IF        WSAVDMOD = *BLANKS
+     C                   MOVE      XXAVDMOD      WSAVDMOD
+     C                   END
+      *
+     C                   EXSR      SETKEY
+      *
+     C                   DOW       *IN33 = *OFF
+     C                   IF        PAVRDA1 = WSAVDMOD
+     C                   Move      PAVRDA        FrString
+     C                   leave
+     C                   end
+     C     BRPARFK       reade     BRPARF                                 33
+     C                   ENDDO
+      *
+     C     1             DO        12            XN                3 0
+     C                   MOVEL     FR(XN)        KFRKOD
+     C                   IF        KFRKOD <> *BLANKS
+     C                   IF        KFRKOD = FRAN
+     C                   callp     updhtmlvar('XSELF':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELF':'')
+     C                   END
+     C     KODTFRK       CHAIN     KODTFR                             40
+     C                   callp     updhtmlvar('FRANKOD':KFRKOD)
+     C                   callp     updhtmlvar('FRANTXT':KFRNTX)
+     C                   callp     wrtsection('fraSltRow')
+     C                   END
+     C                   ENDDO
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Display OPPDRAGSTYPE codes to select from
+      *=====================================================================******
+     C     DspOT         begsr
+      *
+     C                   move      *blanks       OtString
+     C                   callp     wrtsection('OTSlttop')
+     C                   MOVE      'HEURO'       PAID
+      *
+     C                   IF        WSAVDMOD = *BLANKS
+     C                   MOVE      XXAVDMOD      WSAVDMOD
+     C                   END
+      *
+     C                   EXSR      SETKEY
+      *
+     C                   DOW       *IN33 = *OFF
+     C                   IF        PAVRDA1 = WSAVDMOD
+     C                   Move      PAVRDA        OtString
+     C                   leave
+     C                   end
+     C     BRPARFK       reade     BRPARF                                 33
+     C                   ENDDO
+      *
+     C     1             DO        16            XN                3 0
+     C                   MOVEL     OT(XN)        KO1KOD
+     C                   IF        KO1KOD <> *BLANKS
+     C                   IF        KO1KOD = WSOT
+     C                   callp     updhtmlvar('XSELO':'selected')
+     C                   ELSE
+     C                   callp     updhtmlvar('XSELO':'')
+     C                   END
+     C     KODTOTYK      CHAIN     KODTOTY                            40
+     C                   callp     updhtmlvar('WSOT1':KO1KOD)
+     C                   callp     updhtmlvar('WSOT2':KO1NTX)
+     C                   callp     wrtsection('OTSltRow')
+     C                   END
+     C                   ENDDO
+     C                   callp     wrtsection('OTSltend')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  SETT NØKKEL OG LES FØRST POST
+      *=====================================================================******
+     C     SETKEY        begsr
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      *
+     C     BRPARFK       setll     BRPARF
+     C     BRPARFK       reade     BRPARF                                 33
+     C                   IF        *IN33
+     c                   EVAL      PABRID = '*KUNDFT*' + BIFIRM
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       setll     BRPARF
+     C     BRPARFK       READE     BRPARF                                 33
+     C                   IF        *IN33
+     c                   EVAL      PABRID = '*KUNDFT*' + BIFIRM
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       setll     BRPARF
+     C     BRPARFK       READE     BRPARF                                 33
+     C                   IF        *IN33
+     C                   EVAL      PAKUNR = BIKNG
+     C     BRPARFK       setll     BRPARF
+     C     BRPARFK       READE     BRPARF                                 33
+     C                   IF        *IN33
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       setll     BRPARF
+     C     BRPARFK       READE     BRPARF                                 33
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C*    RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C*                  eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C*                            qusec)
+     C*                  eval      S_Name     =getenv('SERVER_NAME':
+     C*                            qusec)
+      *
+     C*                  endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+     C                   OPEN      BRPARF
+     C                   OPEN      KODTOTY
+     C                   OPEN      kufast
+     C                   OPEN      avfrh
+     C                   OPEN      avfrhl05
+     C                   OPEN      kodtfr
+     C                   OPEN      cundl01
+N03  C                   OPEN      vadr
+     c     KufasKey      klist
+     c                   kfld                    KFTYP
+     c                   movel     'PRODTYPE'    KFTYP
+n01  c     KufasKeyK     klist
+n01  c                   kfld                    KFTYP
+n01  c                   kfld                    KFKOD
+     c     KuProKey      klist
+     c                   kfld                    BIKUNR
+     c                   kfld                    AFPROD
+     C     kunkey        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    BIKUNR
+N03  C     VadrKey       KLIST
+N03  C                   KFLD                    BIFIRM
+N03  C                   KFLD                    BIKUNR
+N03  C                   KFLD                    VADRNR
+N03  C                   eval      VADRNR = 1
+     C     Avfr05Key     KLIST
+     C                   KFLD                    BIKUNR
+     C                   KFLD                    AFFRAN
+     C     FranKey       KLIST
+     C                   KFLD                    KFRUNI
+     C                   KFLD                    AFFRAN
+     C                   Move      'FR'          KFRUNI
+     C     KODTFRK       KLIST
+     C                   KFLD                    KFRUNI
+     C                   KFLD                    KFRKOD
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     KODTOTYK      KLIST
+     C                   KFLD                    KO1UNI
+     C                   KFLD                    KO1KOD
+     C                   MOVE      'OTY'         KO1UNI
+      *
+     C     Bikunr        IFNE      *zeros
+     C     kunkey        chain     cundl01                            33
+     C  N33              MOVE      *blanks       XXSDF             5
+     C  N33              MOVEL     POSTNR        XXSDF
+N02  c  N33              if        POSTNR = *zeros
+N02  C                   MOVEL     SYPOGE        XXSDF
+N02  C                   MOVEL     SYLAND        FRALK
+N02  C                   MOVEL     SYLAND        TILLK
+N02  c                   endif
+N03  c     VadrKey       chain     vadr                               33
+N03  c     *in33         ifeq      *off
+N03  C                   MOVEL     VADRN3        XXSDF
+N03  c                   endif
+     c                   end
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+     C                   MOVEL     'KUNFR'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        *IN33
+     c                   EVAL      PABRID = '*KUNDFT*' + BIFIRM
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        *IN33
+     c                   EVAL      PABRID = '*KUNDFT*' + BIFIRM
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        *IN33
+     C                   EVAL      PAKUNR = BIKNG
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        *IN33
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       chain     BRPARF                             33
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C                   IF        *IN33
+     C                   MOVE      'J'           XKUNFRAKT         1
+     C                   ELSE
+     C                   MOVEL     PAVRDA        XKUNFRAKT
+     C                   END
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * HENT SPRÅKKODE
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BrParFK       Chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   END
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   callp     wrtsection('endhtml')
+     C                   callp     wrtsection('*fini')
+     C                   close     BRIDF
+     C                   close     BRPARF
+     C                   close     KODTOTY
+     C                   close     kufast
+     C                   close     avfrh
+     C                   close     avfrhl05
+     C                   close     kodtfr
+     C                   close     cundl01
+N03  C                   close     vadr
+     C                   eval      *inlr = *on
+      *
+     C                   endsr

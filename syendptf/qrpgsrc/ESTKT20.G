@@ -1,0 +1,1439 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT20 MODULE(*LIBL/ESTKT20 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Logger fjerning fra tur via PDA
+      *
+********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     if   e           k disk    usropn
+     FKODTA     if   e           k disk    usropn
+     FTURER14   IF   E           K DISK    usropn
+     FHEADF     IF   E           K DISK    usropn
+     FHEAD14    IF   E           K DISK    usropn
+     F                                     RENAME(HEADFR:HEADFR14)
+     FHEAD39    IF   E           K DISK    usropn
+     F                                     RENAME(HEADFR:HEADFR39)
+     FFRISOL01  IF   E           K DISK    usropn
+     FDOKUF     IF   E           K DISK    usropn
+     FDOKUFM    IF   E           K DISK    usropn
+     FDOKUFM1   UF   E           K DISK    usropn
+     F                                     RENAME(DOKUFMR:DOKUFMR1)
+     FHENOK01   IF   E           K DISK    usropn
+     FHENOS     IF   E           K DISK    usropn
+     FSTSTUR    UF A E           K DISK    usropn
+     FSTSOPD    UF A E           K DISK    usropn
+     FSTSFBR    UF A E           K DISK    usropn
+     FSTSCLI    UF A E           K DISK    usropn
+     FSTSCLI1   UF   E           K DISK    usropn
+     F                                     RENAME(STSCLIR:STSCLIR1)
+E01  FTRACKL02  IF A E           K DISK    USROPN
+     FBRPARF    if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *
+      *Array over adresser en vil sende mankomail til
+     D MAIL            S             70    DIM(5)
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     DwsPro            s              8  0
+     DTA1              s              4
+     DTN1              s              8
+     DwsPro1           s              8  0
+     DTA2              s              4
+     DTN2              s              8
+     DwsPro2           s              8  0
+     DTA3              s              4
+     DTN3              s              8
+     DwsPro3           s              8  0
+     DBILN             s             10
+     Dxxmrk1           s             35
+     DWsClId           s             20
+      * funksjon v/skyting Blank=Skyt , O=Opphev skyting ,  S= Slett fra tur(kun ved oppd.skyting)
+     Dfunk             s              1                                         O=Opphev
+     DWSUSER           s             10
+     D VERSJ           s             10
+     D MerkManKll      s              1
+      * andre variabler
+     D BridSw          s              1
+     D WsAnOp          s              4  0
+     D WsAnOk          s              4  0
+     D WsAnOM          s              4  0
+     D WsAnKi          s              4  0
+     D WsAnKk          s              4  0
+     D WsAnKM          s              4  0
+     D AVVKOD          s              5
+     D GetProCs        s              1
+     D Feil            s             50
+     D PRITXT          s             50
+     D RefrTur         s              1
+     D JSONstring      s          32000
+     D ErrMsg          S            150
+     D InfoMsg         S            150
+     D SuccessMsg      S            150
+      *
+     D                 DS
+     D  XXREF                  1     48
+     D  XTAB                   1     48    DIM(48)
+     D                 DS
+     D  XXREF2                 1     20
+     D  XTAB2                  1     20    DIM(20)
+     D                 DS
+     D  FMAI00                 1      2
+     D  FMMRK1                 3     37
+     D  FMMRK18                3     20
+     D  FMCLID                 1     20
+     D                 DS
+     D  SCAVDOPD               1     11  0
+     D    SCAVD                1      4  0
+     D    SCOPD                5     11  0
+     D                 DS
+     D  GmAVDOPD               1     11  0
+     D    GfAVD                1      4  0
+     D    GfOPD                5     11  0
+     D                 DS
+     D  XDT                    1      8  0
+     D  XDTÅÅ                  1      4  0
+     D  XDTMM                  5      6  0
+     D  XDTDD                  7      8  0
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      4  0
+N01  D  XTID6                  1      6  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input string
+     C                   EXSR      PARSE
+      ***
+      * Set output skeleton html member name
+     C                   exsr      LoadHtml
+      * User changed?? - Set libl ..
+     C                   exsr      Init
+      *------------------
+      * Write sections of HTML.
+      *
+      * Her er HOVED logikk-rutine
+     C                   exsr      MAIN
+      *
+      * Send section top
+     C                   callp     wrtsection('top')
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬clid¬ : ¬'+%trim(WSCLID)+'¬, '
+        +'¬tn1¬ : ¬'+%trim(TN1)+'¬, '
+        +'¬tn2¬ : ¬'+%trim(TN2)+'¬, '
+        +'¬tn3¬ : ¬'+%trim(TN3)+'¬, '
+        +'¬ta1¬ : ¬'+%trim(TA1)+'¬, '
+        +'¬ta2¬ : ¬'+%trim(TA2)+'¬, '
+        +'¬ta3¬ : ¬'+%trim(TA3)+'¬, '
+        +'¬term¬ : ¬¬, '
+        +'¬term5¬ : ¬¬, '
+        +'¬biln¬ : ¬'+%trim(BILN)+'¬, '
+        +'¬cli¬ : ¬'+%trim(%editc(wsanki:'3'))+'¬, '
+        +'¬cliK¬ : ¬'+%trim(%editc(wsankk:'3'))+'¬, '
+        +'¬cliM¬ : ¬'+%trim(%editc(wsankm:'3'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(wsanop:'3'))+'¬, '
+        +'¬opdK¬ : ¬'+%trim(%editc(wsanok:'3'))+'¬, '
+        +'¬opdM¬ : ¬'+%trim(%editc(WsAnOm:'3'))+'¬, '
+        +'¬pritxt¬ : ¬'+%trim(PriTxt)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ErrMsg)+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬successMsg¬ : ¬'+%trim(SuccessMsg)+'¬}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+      *
+     C                   close     BRIDF
+     C                   close     KODTA
+     C                   close     TURER14
+     C                   close     HEADF
+     C                   close     HEAD14
+     C                   close     HEAD39
+     C                   close     FRISOL01
+     C                   close     DOKUF
+     C                   close     DOKUFM
+     C                   close     DOKUFM1
+     C                   close     STSTUR
+     C                   close     STSOPD
+     C                   close     STSFBR
+     C                   close     STSCLI
+     C                   close     STSCLI1
+     C                   close     henok01
+     C                   close     henos
+     C                   close     TRACKL02
+     C                   close     BRPARF
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *****************************************************
+     C     LoadHtml      begsr
+      *****************************************************
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      WSUSER   = zhbgetvar('USER')
+     C                   eval      TN1      = zhbgetvar('TN1')
+     C                   eval      TN2      = zhbgetvar('TN2')
+     C                   eval      TN3      = zhbgetvar('TN3')
+     C                   eval      WSPRO    = c2n2(TN1)
+     C                   eval      WSPRO1   = c2n2(TN1)
+     C                   eval      WSPRO2   = c2n2(TN2)
+     C                   eval      WSPRO3   = c2n2(TN3)
+      * Bilnr er blank 1 gang.
+     C                   eval      BILN   = zhbgetvar('BILN')
+     C                   eval      WSCLID   = zhbgetvar('CLID')
+      * 17 lang, (manuell) uten 401 i front = legg på 401
+     c                   if        %subst(wsclid:17:1)<>' ' and
+     c                             %subst(wsclid:18:1) =' '
+     c                   eval      wsclid='401'+WSCLID
+     c                   endif
+      * 18 lang, (manuell) uten 00 i front = legg på 00
+     c                   if        %subst(wsclid:18:1)<>' ' and
+     c                             %subst(wsclid:19:1) =' '
+     c                   eval      wsclid='00'+WSCLID
+     c                   endif
+      * funksjon v/skyting Blank=Skyt , O=Opphev skyting ,  S= Slett fra tur(kun ved oppd.skyting)
+     C                   eval      FUNK     = zhbgetvar('FUNK')
+     C                   eval      AVVKOD = zhbgetvar('AVVIK')
+     C                   eval      VERSJ = zhbgetvar('V')
+      *
+     C                   endsr
+      *=====================================================================
+      * EXECUTE LOGIC / Set html output variables for section /$top
+      *=====================================================================
+     C     MAIN          begsr
+     C                   Move      *blanks       ErrMsg
+     C                   Move      *blanks       PRITXT                         Prioritert gods?
+      *
+      * Initiere tur..
+      * KOMMER INN FRA TURBILDET.. med oppgitt Turnr - CLID = 99,- INITIER
+     C                   if        wsclid='99'
+     C                   eval      wsclid=*blanks
+     C                   if        WSPRO<>*zeros
+     C                   EXSR      INITTUR
+     C                   endif
+     C                   endif
+      * 0 i TURBILDET.. med oppgitt clid  - finn evt tur  INITIER
+     C                   if        WSPRO=*zeros and %subst(wsclid:1:2)='00'
+     c                   exsr      GetProCli
+     c                   if        WSPRO<>*zeros
+     C                   EXSR      INITTUR
+     C                   endif
+     C                   endif
+      * 0 i TURBILDET.. med oppgitt clid  - finn evt tur  INITIER
+     C                   if        WSPRO=*zeros and %subst(wsclid:1:3)='401'
+     c                   exsr      GetProSnd
+     c                   if        WSPRO<>*zeros
+     C                   EXSR      INITTUR
+     C                   endif
+     C                   endif
+      *
+      * hent turs avdeling
+     c                   exsr      GetTAvd
+      *
+      *
+      * Behandle input - wsclid = clid eller sendnr
+     C                   IF        WSCLID <> *BLANKS
+     C                   if        %subst(wsclid:1:3)='401' or
+     c                             %subst(WSCLID:5:1)='_'                       Avd._Oppdrag
+     c                   exsr      SR401                                        SR for skutt sending
+     c                   else
+     C                   exsr      SR00                                         SR for skutt kolliID
+     c                   endif
+     C                   ENDIF
+      *
+      *
+      *  FULL REFRESH av tur(er) for HVER syklus for så sikre at evt nye er med
+     C                   if        ErrMsg = *blanks
+     C                   movel     wspro1        wspro
+     C                   EXSR      INITTUR
+     C                   endif
+      *
+      *
+      * HENT ANTALL FOR Å VISE PÅ SKJERMEN
+     C                   MOVE      *ZEROS        WSANOP
+     C                   MOVE      *ZEROS        WSANOK
+     C                   MOVE      *ZEROS        WSANKI
+     C                   MOVE      *ZEROS        WSANKK
+     c                   movel     wspro1        wspro
+      *  tur 1
+     C                   EXSR      HANTS
+      * +tur 2
+     c     wspro2        ifne      *zeros
+     c                   movel     wspro2        wspro
+     C                   EXSR      HANTS
+     c                   end
+      * +tur 3
+     c     wspro3        ifne      *zeros
+     c                   movel     wspro3        wspro
+     C                   EXSR      HANTS
+     c                   end
+      *
+      * TURENS ANTAL OPPDRAG / ANTALL OPPDRAG KONTROLLERT.
+     C     WSANOP        COMP      WSANOK                               5050
+      *
+      *
+     C     wsanop        sub       wsanok        WsAnOm
+     c     WsAnOm        IFLT      *ZEROS
+     c                   MOVE      *ZEROS        WsAnOm
+     C                   end
+     C     wsanki        sub       wsankk        wsankm
+     c     wsankm        IFLT      *ZEROS
+     c                   MOVE      *ZEROS        wsankm
+     C                   end
+      * Nullstill WSCLID
+     c                   move      wsclid        gmclid           20
+     c                   move      *blanks       wsclid
+      *
+      * "skutt seg inn" på turen via Cll el Send-nr , ikke vis evt feil om Cll allerede skutt e.l.
+     c                   if        GetProCs ='Y'
+     c                   eval      ErrMsg = *blanks
+     c                   endif
+      *
+     C                   endsr
+      *
+      *
+     C***********************************************
+     C     GetProCli     BEGSR
+     C***********************************************
+      * hent turnr for initiering via kolli-ID
+     c                   eval      HEPRO = *zeros
+     c                   eval      Fmmrk1 = %subst(wsclid:3)
+     C     FMMRK1        chain(n)  Dokufm1
+     c                   if        %found
+     c     HeaKey        chain     Headf
+     c                   endif
+      * hvis på mor-oppdrag som har VF-dup OG mor har TEI / TEU/ POD switch til VF ??
+     c                   if        HEPRO <> *zeros
+     c                   eval      WSPRO = HEPRO
+     c                   eval      WSPRO1= HEPRO
+     c                   eval      GetProCs='Y'
+     c                   endif
+     C                   endsr
+     C***********************************************
+     C     GetProSnd     BEGSR
+     C***********************************************
+      * hent turnr for initiering via sendingsnr - enten ren innland/HXSNDN eller via IFB
+     c                   eval      HEPRO = *zeros
+     C     wsclid        chain     HEAD39
+     c                   if        not %found
+     C                   eval      FSKODE= 'IFB'
+     c                   eval      FSSOK = %subst(wsclid:4)
+     C                   eval      FSKODE= 'IFB'
+     C     Fris1Key      chain     FRISOL01
+     c                   if        %found
+     C                   eval      FMAVD = FSAVD
+     C                   eval      FMOPD = FSOPD
+     c     HeaKey        chain     Headf
+     c                   endif
+     c                   endif
+      *
+      * hvis på mor-oppdrag som har VF-dup OG mor har TEI / TEU/ POD switch til VF ??
+     c                   if        HEPRO <> *zeros
+     c                   eval      WSPRO = HEPRO
+     c                   eval      WSPRO1= HEPRO
+     c                   eval      GetProCs='Y'
+     c                   endif
+     C                   endsr
+     C***********************************************
+     C     GetTavd       BEGSR
+     C***********************************************
+      *TA1
+     c                   if        WSPRO1 <> *zeros
+     C     WSPRO1        CHAIN     TURER14                            33
+     c                   if        %found
+     c                   move      TUAVD         TA1
+     C                   endif
+     C                   endif
+      *TA2
+     c                   if        WSPRO2 <> *zeros
+     C     WSPRO2        CHAIN     TURER14                            33
+     c                   if        %found
+     c                   move      TUAVD         TA2
+     C                   endif
+     C                   endif
+      *TA3
+     c                   if        WSPRO3 <> *zeros
+     C     WSPRO3        CHAIN     TURER14                            33
+     c                   if        %found
+     c                   move      TUAVD         TA3
+     C                   endif
+     C                   endif
+     C                   endsr
+     C***********************************************
+     C     SR00          BEGSR
+     C***********************************************
+     C                   move      *ZEROS        HEPRO
+     C                   move      'N'           RefrTur
+      *
+      *
+     C     StrTestb      tag
+      *
+      * Finns colli allerede på en av 3 turer
+     c                   move      wspro1        wspro                          Tur 1
+     C     CLIK1         CHAIN     STSCLI1                            30
+     c     *in30         ifeq      '1'
+     c     wspro2        andne     *zeros
+     c                   move      wspro2        wspro                          Tur 2
+     C     CLIK1         CHAIN     STSCLI1                            30
+     c                   end
+     c     *in30         ifeq      '1'
+     c     wspro3        andne     *zeros
+     c                   move      wspro3        wspro                          tur3
+     C     CLIK1         CHAIN     STSCLI1                            30
+     c                   end
+      *
+     C     *IN30         IFEQ      '1'                                          1<-B
+      * finner ikke kolli-id i skyte-fila
+     C                   MOVE      *OFF          *IN30
+      * Kolli finnes ikke i skytelista, er det gyldig likevel??
+     C                   MOVE      'J'           Gethent           1
+     C                   MOVE      'N'           FantHent          1
+     c     TstDokufm     tag
+     c                   eval      Fmmrk1 = %subst(wsclid:3)
+     c     FMMRK1        Chain     DOKUFM1                            30
+     c                   if        *in30=*off
+     C                   MOVE      'N'           Gethent           1
+     c                   if        AVVKOD<>*blanks
+     C                   MOVE      AVVKOD        FMLEDI                         5 SISTE
+     C                   eval      infoMsg = 'Avviket er registrert '
+     c                   endif
+     c                   update    dokufmR1
+     C     HEAKEY        CHAIN     HEADF                              30
+     c                   endif
+      * kolli finnes ikke i dokufm - finnes det i hentesystemet??
+     c                   if        *in30=*off
+     c                             and GetHent = 'J'
+     c                   exsr      HenteSR
+     c     FantHent      cabeq     'J'           TstDokufm
+     c     FantHent      cabeq     'F'           Ut00
+     c                   endif
+      *
+      * Funnet oppdrag.. som kolliet henger på
+     C     *IN30         IFEQ      '0'                                          1<-B
+      * Ikke turdisponert
+     C     HEPRO         IFEQ      *ZEROS
+     C                   EXSR      SettPaTur
+     c   30              goto      UT00
+     c                   goto      StrTestb
+     C                   end
+      *
+     c     HEPRO         IFEQ      WSPRO1
+     c     HEPRO         oreq      WSPRO2
+     c     HEPRO         oreq      WSPRO3
+     c                   move      hepro         wspro
+      * Kolli er gyldig, på riktig tur, men ikke i skytelista - refresh (nye posisjoner)
+     c     RefrTur       Ifeq      'N'
+     c     HEPRO         ANDNE     *ZEROS
+     C                   EXSR      REFRESH
+     C                   move      'J'           RefrTur                        ER utfø./KUN EN gang
+     c                   goto      StrTestb
+     C                   end
+      * ok. kolli men tilhører annen tur
+     C                   else
+     C                   MOVE      *ON           *IN30
+     C                   eval      ErrMsg = wsclid + ' tilhører IKKE turen'
+      * ok. turen på annen avdeling
+     C                   move      Heavd         heavda            4
+     C     TA1           IFne      Heavda                                        2<-B
+     C     TA2           andne     Heavda                                        2<-B
+     C     TA3           andne     Heavda                                        2<-B
+     C                   eval      ErrMsg = wsclid + ' tilhører avd '+heavda
+     C                   end
+     C                   end
+     C                   end
+      *
+      * KOLLI-ID FINNES IKKE , feilindikator
+     C                   eval      ErrMsg = wsclid + ' er ugyldig'
+     C                   ELSE                                                   1
+      * KOLLI-ID finnes i skytelista - vellykket les.
+      * Kolli skutt for Opphev tidliogere skyting
+     c                   If        Funk = 'O'
+     C                   If        SCSTAT=' '
+     C                   eval      ErrMsg = wsclid + ' ER IKKE lest/skutt, '
+     C                                  + 'Dvs kan ikke oppheves.'
+     C                   else
+     C                   eval      SuccessMsg = wsclid + ' Tidligere skyting '
+     C                                  + 'er nå opphevet.'
+     C                   MOVE      ' '           SCSTAT
+     c                   endif
+     c                   update    STSCLIR1
+     C                   GOTO      UT00
+     c                   endif
+      * Normal skyting av kolli.
+     C     SCSTAT        IFEQ      'X'                                           2<-B
+      * KOLLI-ID ER KONTROLLERT FRA FØR.
+     C                   MOVE      *ON           *IN30
+     c                   if        AVVKOD = *BLANKS
+     C                   eval      ErrMsg = wsclid + ' ER ALT lest/skutt '
+     C                   endif
+     C                   UPDATE    STSCLIR1
+     C                   ELSE                                                    2
+      * ikke skutt før
+      *
+     C                   TIME                    XTIME
+     C                   MOVE      XDD           XDTDD
+     C                   MOVE      XMM           XDTMM
+     C                   MOVE      XÅÅ           XDTÅÅ
+     C                   MOVE      XDT           SCDT
+     C                   MOVE      XTID          SCTID
+     C                   MOVE      WSUSER        SCUSER
+     C                   MOVE      'X'           SCSTAT
+     C                   UPDATE    STSCLIR1
+     C                   END                                                    1<-E
+      *
+     C                   END                                                    1<-E
+      *
+     C     UT00          ENDSR
+      *
+     C***********************************************
+     C     SR401         BEGSR
+     C***********************************************
+      * Skyting basert på Sendingsnr...
+      * sendingen må finnes..
+      * via avd_oppd (manuell merking via oppdragsliste)
+     c                   if        %subst(WSCLID:5:1)='_'
+     c                   move      *zeros        HEAVDA            4
+     c                   move      *zeros        HEOPDA            7
+     c                   eval      HEAVDA= %subst(WSCLID:1:4)
+     c                   eval      HEOPDA= %subst(WSCLID:6:7)
+     c                   move      HEAVDA        FMAVD
+     c                   move      HEOPDA        FMOPD
+     C     HEAKEY        CHAIN     HEADF                              30
+     c                   else
+      * eller via sendingsnr innland
+     c     wsclid        chain     Head39                             30
+     c                   endif
+      *
+      *
+      *
+      * Skyting via sendingsnr/IFB
+     c     *in30         ifeq      '1'
+     c                   setoff                                       30
+     C                   eval      FSKODE= 'IFB'
+     C                   eval      FSSOK = %subst(WSCLID:4:17)
+     C     Fris1Key      chain     FRISOL01                           30
+     C  N30              eval      FMAVD = FSAVD
+     C  N30              eval      FMOPD = FSOPD
+     c  N30HeaKey        chain     Headf                              30
+     c                   endif
+      *
+      *
+      *
+      * Hvis oppdrag bak fraktbrevet hadde utk-oppdrag under seg så bruk utkj-oppdraget
+      * (men kun hvis NYTT oppdrag / ikke allerede PÅ denne turen)
+     C  N30TROPD2        ifne      *zeros
+     C     WSPRO         andne     HEPRO
+     C                   MOVE      TRAVD2        FMAVD
+     C                   MOVE      TROPD2        FMOPD
+     C     HEAKEY        CHAIN     HEADF                              33
+     c                   endif
+      *
+      *
+      *
+     C     *in30         IFEQ      '1'
+     C                   eval      ErrMsg = 'UKjent sending lest'
+     c   30              goto      Ut401
+     C                   end
+      *
+      * Sendingen kan IKKE være kollimerket (må da lese kolli for kolli)
+      * (Selv når fraktbrev ikke finnes er kollimerking lagret på fb.nr 001)
+     c                   IF        MerkManKll<>'J'
+     C                   Z-add     1             DFFBNR
+     C     DOKFMK        setll     DOKUFM
+     C     NESTEKLL      TAG
+     C     DOKFMK        Reade     DOKUFM                                 33
+     c     *IN33         IFEQ      '0'
+     C                   IF        FMST<>'I' AND  FMST<>'E'
+     C                   GOTO      NESTEKLL
+     C                   ENDIF
+     c                   If        Funk <> 'S'                                  ikke test v fjerning
+     c                             and  Funk <> 'O'                             ikke vbed oppgev??
+     C                   SETON                                        30
+     C                   eval      ErrMsg = 'Sendingen er KOLLIMERKET. '
+     C                                  + 'SKYT det enkelte KOLLI.'
+     c   30              goto      Ut401
+     c                   endif
+     c                   end
+     c                   ENDIF
+      *
+      * Sending er ikke på tur nå
+     c     HEPRO         IFEQ      *zeros
+     C                   EXSR      SettPaTur
+     c   30              goto      Ut401
+     c                   end
+      *
+      * Sending må tilhøre rett tur
+     c     HEPRO         IFNE      WSPRO1
+     c     HEPRO         ANDNE     WSPRO2
+     c     HEPRO         ANDNE     WSPRO3
+     C                   SETON                                        30
+     C                   eval      ErrMsg = 'Sendingen tilhører IKKE turen'
+      * Annen avdeling?? - i så fall send mail...
+     C                   move      Heavd         heavda            4
+     C     TA1           IFne      Heavda                                        2<-B
+     C     TA2           ANDNE     Heavda                                        2<-B
+     C     TA3           ANDNE     Heavda                                        2<-B
+     C                   eval      ErrMsg = 'Sending tilh. IKKE tur/+
+     C                                     Tilh. avd '+heavda
+     C                   end
+      * det var IKKE match med noen av turene - hopp ut
+     C                   goto      Ut401
+     C                   else
+      * matcher en av max 3 turer - sett rett tur i key
+     C                   move      hepro         wspro
+     C                   end
+      *
+      * Sending må finnes i "skyteliste" for aktuell tur
+     C     OPDKEY        CHAIN(N)  STSFBR                             33
+     C     *iN33         IFeq      '1'
+     C                   EXSR      REFRESH
+     C     OPDKEY        CHAIN(N)  STSFBR                             33
+     C                   end
+     C     *iN33         IFeq      '1'
+     C                   SETON                                        30
+     C                   eval      ErrMsg = 'Sendingen IKKE i skyteliste'
+     c   30              goto      Ut401
+     C                   end
+      *
+      * Slett fra TUR ??
+     c                   If        Funk = 'S'
+     c                   exsr      Slett401
+     C                   eval      SuccessMsg = wsclid + ' er nå fjernet fra '
+     C                                  + 'turen.'
+     C                   goto      ut401
+     c                   endif
+      * Opphev?  Må være skutt før
+     c                   If        Funk = 'O'
+     C                   If        SFSTAT=' '
+     C                   eval      ErrMsg = wsclid + ' ER IKKE lest/skutt, '
+     C                                  + 'Dvs kan ikke oppheves.'
+     C                   goto      ut401
+     c                   else
+     c                   exsr      Opphev401
+     C                   eval      SuccessMsg = wsclid + ' Tidligere skyting '
+     C                                  + 'er nå opphevet.'
+     C                   goto      ut401
+     c                   endif
+     C                   else
+      * Fraktbrev må ikke være skutt før..
+     C                   If        SFSTAT<>' '
+     C                   eval      ErrMsg = 'Sendingen ER alt skutt'
+     C                   goto      ut401
+     C                   end
+     c                   endif
+      *
+      * skal IKKE finnes i Koli-id fila
+     c                   IF        MerkManKll<>'J'
+     C     OPDKEY        CHAIN(N)  STSCLI                             33
+     c     *IN33         IFEQ      *OFF
+     C                   SETON                                        30
+     C                   eval      ErrMsg = 'Sendingen er Kolli-Merket, +
+     C                             skyt Kolli'
+     C                   goto      ut401
+     C                   end
+     c                   ENDIF
+      *
+      * ALT OK. oppdater både FBR og OPD..
+     C     OPDKEY        CHAIN     STSFBR
+     c                   if        %found(STSFBR)
+     c                   eval      SFSTAT = 'X'
+     c                   update    STSFBRR
+     c                   endif
+     C     OPDKEY        CHAIN     STSOPD
+     c                   if        %found(STSOPD)
+     c                   eval      SOSTAT = 'X'
+     c                   update    STSOPDR
+     c                   endif
+      *
+     C     Ut401         ENDSR
+      *
+     C***********************************************
+     C     Opphev401     BEGSR
+     C***********************************************
+      * oppdater både FBR og OPD..
+     C     OPDKEY        CHAIN     STSFBR
+     c                   if        %found(STSFBR)
+     c                   eval      SFSTAT = ' '
+     c                   update    STSFBRR
+     c                   endif
+     C     OPDKEY        CHAIN     STSOPD
+     c                   if        %found(STSOPD)
+     c                   eval      SOSTAT = ' '
+     c                   update    STSOPDR
+     c                   endif
+      * Fjern evt kolli.IDs
+     C     OPDKEY        setll     STSCLI
+     C     OPDKEY        READE     STSCLI                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     c                   eval      SCSTAT = ' '
+     c                   update    STSCLIR
+     C     OPDKEY        READE     STSCLI                                 33
+     C  N33              ENDDO                                                   2<-E
+      *
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     Slett401      BEGSR
+     C***********************************************
+      *
+N01  C                   move      HEPRO         GMproA            8
+     C                   CALL      'SYGE21B'
+     C                   parm                    HEPRO
+     C                   parm                    HEAVD
+     C                   parm                    HEOPD
+     C                   parm                    Uflagg            1
+      *
+N01  c                   if        Uflagg = '0'
+N01  c                   exsr      TTSR
+N01  c                   endif
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     INITTUR       BEGSR
+     C***********************************************
+      *
+      * tur 1
+     C     WSPRO         CHAIN     TURER14                            30
+     C   30              move      wspro         PRO
+     C   30              eval      ErrMsg = 'Finner ikke angitt tur ' + PRO
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+     c                   movel     TUAVD         TA1
+     c                   movel     TUBILN        BILN
+     C                   exsr      INITTURB
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+      *
+      * tur 2
+     c     wspro2        ifne      *zeros
+     c     wspro2        andne     wspro1
+     c     wspro2        andne     wspro3
+     C                   move      wspro2        wspro
+     C     WSPRO         CHAIN     TURER14                            30
+     C   30              move      wspro         PRO
+     C   30              eval      ErrMsg = 'Finner ikke angitt tur ' + PRO
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+     c                   movel     TUAVD         TA2
+     C                   exsr      INITTURB
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+     c                   end
+      *
+      * tur 3
+     c     wspro3        ifne      *zeros
+     c     wspro3        andne     wspro1
+     c     wspro3        andne     wspro2
+     C                   move      wspro3        wspro
+     C     WSPRO         CHAIN     TURER14                            30
+     C   30              move      wspro         PRO
+     C   30              eval      ErrMsg = 'Finner ikke angitt tur ' + PRO
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+     c                   movel     TUAVD         TA3
+     C                   exsr      INITTURB
+     C     *IN30         cabeq     '1'           UtIni                          1<-B
+     c                   end
+      *
+     c     UtIni         TAG
+      * hvis en har skutt seg inn på tur via Colli/sendinsg-nr vis evt feilmelding (på inng.bilde)
+     c                   if        GetProCs='Y' and ErrMsg<>*blanks
+     c                   eval      GetProCs=' '
+     c                   endif
+     C                   endsr
+      *
+     C***********************************************
+     C     INITTURB      BEGSR
+     C***********************************************
+      * tur kan være fanget opp via skyting - bevar for HTMLVAR
+     c     TN1           IFEQ      *blanks
+     C                   move      wspro         TN1
+     c                   end
+      * bevar bilnr fra 1. tur
+     c     BILN          IFEQ      *blanks
+     C                   move      TUBILN        BILN
+     c                   end
+      * Ved flere turer i samme skyting må bilnr matche
+     C     TUBILN        COMP      BILN                               3030
+     C   30              move      tupro         PRO
+     C   30              eval      ErrMsg = 'Bil '+TUBILN+' tur ' +PRO+
+     C                                    ' er feil'
+     C     *IN30         cabeq     '1'           UtIniB                         1<-B
+      * Sjekk om den finnes i skytefila fra før...
+     C     TURKEY        CHAIN(N)  STSTUR                             33
+     C     *IN33         IFEQ      '1'                                          1<-B
+      * finnes IKKE fra før...
+      * TØM FØRST EVT GAMLE DATA PÅ STATUSFIL UNDERREGISTER OPD/FBR/CLI
+     C                   EXSR      TØMUNDER
+      * legg ut STSTURR - kjør så "refresh" = sikre at den er ajour uavh av ny/gml
+     C                   CLEAR                   STSTURR
+     C                   MOVE      *BLANKS       STTYPE
+     C                   MOVE      WSPRO         STPRO
+     C                   WRITE     STSTURR
+     C                   ELSE                                                   1<-E
+      * finnes fra før... ferdig skutt?
+     C     STSTAT        COMP      ' '                                3030
+     C   30              move      wspro         pro               8        T+
+     C   30              eval      ErrMsg = 'Tur '+PRO+' ferdig skutt ('+STSTAT+
+     C                             ') Trykk Avbryt!!'
+     C                   END                                                    1<-E
+      * refresh både ved ny / gjenopptakelse av skyting
+     C  N30              EXSR      REFRESH
+      *
+     C     UtIniB        ENDSR
+      *
+     C***********************************************
+     C     TØMUNDER      BEGSR
+     C***********************************************
+      * OPD
+     C     TURKEY        SETLL     STSOPD
+     C     TURKEY        READE     STSOPD                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     C                   DELETE    STSOPDR
+     C     TURKEY        READE     STSOPD                                 33
+     C  N33              ENDDO                                                   2<-E
+      * FBR
+     C     TURKEY        SETLL     STSFBR
+     C     TURKEY        READE     STSFBR                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     C                   DELETE    STSFBRR
+     C     TURKEY        READE     STSFBR                                 33
+     C  N33              ENDDO                                                   2<-E
+      * CLI
+     C     TURKEY        SETLL     STSCLI
+     C     TURKEY        READE     STSCLI                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     C                   DELETE    STSCLIR
+     C     TURKEY        READE     STSCLI                                 33
+     C  N33              ENDDO                                                   2<-E
+      *
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HETTOPD       BEGSR
+     C***********************************************
+     C                   ADD       1             STANOP
+     C                   CLEAR                   STSOPDR
+     C                   MOVE      STTYPE        SOTYPE
+     C                   MOVE      WSPRO         SOPRO
+     C                   MOVE      HEAVD         SOAVD
+     C                   MOVE      HEOPD         SOOPD
+      *
+     C                   EXSR      HFBR
+      *
+     C                   WRITE     STSOPDR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HFBR          BEGSR
+     C***********************************************
+      *** Takler uansett ikke flere fraktbrev/sprending / forutsett  1
+     C                   Z-add     1             DFFBNR
+     C                   ADD       1             SOANFB
+     C                   CLEAR                   STSFBRR
+     C                   MOVE      SOTYPE        SFTYPE
+     C                   MOVE      WSPRO         SFPRO
+     C                   MOVE      HEAVD         SFAVD
+     C                   MOVE      HEOPD         SFOPD
+     C                   MOVE      DFFBNR        SFFBNR
+      *
+     C                   EXSR      HCLI
+      *
+     C                   WRITE     STSFBRR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HCLI          BEGSR
+     C***********************************************
+     C     DOKFMK        SETLL     DOKUFM
+     C     DOKFMK        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   IF        FMST='I' OR  FMST='E'
+     C                   ADD       1             SFANKI
+     C                   CLEAR                   STSCLIR
+     C                   MOVE      SFTYPE        SCTYPE
+     C                   MOVE      WSPRO         SCPRO
+     C                   MOVE      HEAVD         SCAVD
+     C                   MOVE      HEOPD         SCOPD
+     C                   MOVE      FMFBNR        SCFBNR
+     C                   MOVE      FMCLID        SCCLID
+     C                   WRITE     STSCLIR
+     C                   ENDIF
+     C     DOKFMK        READE     DOKUFM                                 33
+     C  N33              ENDDO
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HANTS         BEGSR
+     C***********************************************
+      * Retell fra bunnen ->opp
+     c                   exsr      RefrSTS
+      * HENT TURENS TOTALER FOR VISING PÅ SKJERM
+     C     TURKEY        CHAIN(N)  STSTUR                             33
+      * oppdrag   / Opd. KONTROLLERT.
+     C                   ADD       STANOP        WSANOP
+     C                   ADD       STANOK        WSANOK
+      * KOLLIID / KLID KONTROLLERT.
+     C     TURKEY        SETLL     STSFBR
+     C     TURKEY        READE(N)  STSFBR                                 33
+     C     *IN33         DOWEQ     '0'                                          1<-B
+     C                   ADD       SFANKI        WSANKI
+     C                   ADD       SFANKK        WSANKK
+     C     TURKEY        READE(N)  STSFBR                                 33
+     C  N33              ENDDO                                                  1<-E
+     C                   ENDSR
+      *
+     C***********************************************
+     C     RefrSTS       BEGSR
+     C***********************************************
+      * Refresh statusfil botom UP / appdaetr TUR-post med antall
+      * CLI -> Fbr/opd
+     c                   move      *zeros        GMavdOpd         11 0
+     c                   move      *zeros        xxANKK            4 0
+     c                   move      *zeros        xxANOK            4 0
+     C     TURKEY        SETLL     STSCLI
+     C     TURKEY        READE(n)  STSCLI
+     c                   if        not %eof
+     c                   move      SCAVDOpd      GmAvdOpd
+     c                   endif
+     C                   DOW       not %eof
+     c                   if        SCAVDOpd <> GMavdOpd
+     c                   exsr      AkkuBrudd
+     c                   move      *zeros        xxANKK            4 0
+     C                   endif
+      *
+     C                   if        SCSTAT <> ' '
+     C                   eval      xxANKK = xxANKK + 1                          kolli kontrollert
+     c                   endif
+     c                   move      SCAVDOpd      GMavdOpd
+     C     TURKEY        READE(n)  STSCLI
+     C                   ENDDO                                                   2<-E
+      *
+      * sist leste oppdr med kolli..
+     c                   if        GmavdOpd <> *zeros
+     c                   exsr      AkkuBrudd
+     c                   endif
+      * legg til ant frakbr/oppd uten kolli som ER skutt
+     C     TURKEY        CHAIN     STSTUR
+     C                   if        %found(STSTUR)
+     C     TURKEY        SETLL     STSFBR
+     C     TURKEY        READE(N)  STSFBR
+     C                   DOW       not %eof(STSFBR)
+     C                   if        SFSTAT<>' ' and SFANKI = 0
+     C                   eval      xxANOK = xxANOK + 1                          Oppdr. kontrollert
+     C                   endif
+     C     TURKEY        READE(N)  STSFBR
+     C                   ENDDO                                                  1<-E
+     c                   eval      STANOK = XXANOK
+     c                   update    STSTURR
+     c                   endif
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     AkkuBrudd     BEGSR
+     C***********************************************
+     c                   move      GfAvd         SfAvd
+     c                   move      GfOpd         SfOpd
+     C     OPDK1         CHAIN     STSFBR
+     c                   if        %found(STSFBR)
+     C                   eval      SFANKK = xxANKK
+     c                   if        SFANKK >= SFANKI
+     c                   eval      SFSTAT = 'X'
+     c                   else
+     c                   eval      SFSTAT = ' '
+     c                   endif
+     c                   update    STSFBRR
+     c                   endif
+      * oppdrag samme som fr.br..
+     C     OPDK1         CHAIN     STSOPD
+     c                   if        %found(STSOPD)
+     c                   eval      SOSTAT = SFSTAT
+     c                   if        SOSTAT = 'X'
+     c                   eval      SOANFK = 1
+     C                   eval      xxANOK = xxANOK + 1                          Oppdr. kontrollert
+     c                   endif
+     c                   update    STSOPDR
+     c                   endif
+     C                   ENDSR
+      *
+     C***********************************************
+     C     REFRESH       BEGSR
+     C***********************************************
+      * BEVAR HEAVD/HEOPD, (KEY I VISSE SAMMENHENGER)
+     C                   MOVE      HEAVD         GMAVD             4 0
+     C                   MOVE      HEOPD         GMOPD             7 0
+      *  FJERN OPPDRAG SOM IKKE LENGER HØRER TIL TUREN...
+     C     TURKEY        SETLL     STSOPD
+     C     TURKEY        READE(N)  STSOPD                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     C                   MOVE      SOAVD         FMAVD
+     C                   MOVE      SOOPD         FMOPD
+     C     HEAKEY        CHAIN     HEADF                              34
+     C     *IN34         IFEQ      *OFF
+     C     HEPRO         ANDNE     SOPRO
+     C                   EXSR      DLTSND
+     C                   END                                                      3<-E
+     C     TURKEY        READE(N)  STSOPD                                 33
+     C                   END                                                      3<-E
+      *
+     C     TURKEY        CHAIN     STSTUR                             33
+     C     *IN33         IFEQ      '0'                                          1<-B
+      * REFRESH DATA (=HENT NYE POSISJONER)
+     C     WSPRO         SETLL     HEAD14
+     C     WSPRO         READE     HEAD14                                 33
+     C     *IN33         DOWEQ     '0'                                           2<-B
+     C     OPDKEY        CHAIN     STSOPD                             34
+     C     *IN34         IFEQ      '1'                                            3<-B
+     C                   EXSR      HETTOPD
+     C                   MOVE      *BLANKS       STSTAT
+     C                   ELSE                                                     3
+     C                   EXSR      HFBR2
+     C                   UPDATE    STSOPDR
+     C                   END                                                      3<-E
+      * sjekk om ennå uskutt oppdrag har kode for prioritert
+     c                   if        SOSTAT=' ' and PRITXT=*blanks
+     C                   MOVE      'URG'         XXACTI
+     c     TTKey         Chain     TRACKl02                           33
+     c                   if        *in33=*off and %subst(TTTEXT:1:8)='*URGENT*'
+     c                   eval      PRITXT='Uskutt PRIORITERT GODS finnes!'
+     c                   endif
+     c                   endif
+     C     WSPRO         READE     HEAD14                                 33
+     C  N33              ENDDO                                                   2<-E
+      *
+     C                   UPDATE    STSTURR
+      *
+     C                   END                                                    1<-E
+     C                   MOVE      GMAVD         HEAVD
+     C                   MOVE      GMOPD         HEOPD
+      *
+     C                   ENDSR
+      *
+      *
+      *
+     C***********************************************
+     C     DLTSND        BEGSR
+     C***********************************************
+     C                   MOVE      FMAVD         SFAVD
+     C                   MOVE      FMOPD         SFOPD
+      * FJERN OPPDRAG/REDUSER ANT I TUR.
+     C     OPDK1         CHAIN     STSOPD                             33
+     C     *IN33         IFEQ      *OFF
+     C                   DELETE    STSOPDR
+     C     TURKEY        CHAIN     STSTUR                             33         *FIL
+     C     *IN33         IFEQ      *OFF
+     C                   SUB       1             STANOP
+     C     SOSTAT        IFEQ      'X'
+     C                   SUB       1             STANOK
+     C                   END
+     C                   UPDATE    STSTURR
+     C                   END
+     C                   END
+      * FRAKTBREV
+     C     OPDK1         SETLL     STSFBR
+     C     OPDK1         READE     STSFBR                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    STSFBRR
+     C     OPDK1         READE     STSFBR                                 33
+     C                   END
+      * KOLLI
+     C     OPDK1         SETLL     STSCLI
+     C     OPDK1         READE     STSCLI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    STSCLIR
+     C     OPDK1         READE     STSCLI                                 33
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HFBR2         BEGSR
+     C***********************************************
+     c                   move      HEAVD         DFAVD
+     c                   move      HEOPD         DFOPD
+     c                   z-add     1             DFFBNR
+     C     FBRKEY        CHAIN     STSFBR                             33
+     C     *IN33         IFEQ      '1'                                           2<-B
+     C                   EXSR      HCLI
+     C                   MOVE      *BLANKS       STSTAT
+     C                   MOVE      *BLANKS       SOSTAT
+     C                   ELSE                                                    2
+      * HENT NYE DATA
+     C                   EXSR      HCLI2
+      *
+     C                   UPDATE    STSFBRR
+     C                   END                                                     2<-E
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HCLI2         BEGSR
+     C***********************************************
+     C     DOKFMK        SETLL     DOKUFM
+     C     DOKFMK        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'                                          1<-B
+     C                   IF        FMST='I' OR  FMST='E'
+     C     CLIKEY        CHAIN(N)  STSCLI                             33
+     C     *IN33         IFEQ      '1'                                           2<-B
+     C                   MOVE      *BLANKS       STSTAT
+     C                   MOVE      *BLANKS       SOSTAT
+     C                   MOVE      *BLANKS       SFSTAT
+     C                   ADD       1             SFANKI
+     C                   CLEAR                   STSCLIR
+     C                   MOVE      SFTYPE        SCTYPE
+     C                   MOVE      WSPRO         SCPRO
+     C                   MOVE      HEAVD         SCAVD
+     C                   MOVE      HEOPD         SCOPD
+     C                   MOVE      FMFBNR        SCFBNR
+     C                   MOVE      FMCLID        SCCLID
+     C                   WRITE     STSCLIR
+     C                   END                                                     2<-E
+     C                   ENDIF
+     C     DOKFMK        READE     DOKUFM                                 33
+     C  N33              ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  Different User than last invocation
+      *=====================================================================******
+     C     Init          begsr
+     C                   open      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              30
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      KODTA
+     C                   open      TURER14
+     C                   open      HEADF
+     C                   open      HEAD14
+     C                   open      HEAD39
+     C                   open      FRISOL01
+     C                   open      DOKUF
+     C                   open      DOKUFM
+     C                   open      DOKUFM1
+     C                   open      STSTUR
+     C                   open      STSOPD
+     C                   open      STSFBR
+     C                   open      STSCLI
+     C                   open      STSCLI1
+     C                   open      henok01
+     C                   open      henos
+     C                   open      TRACKL02
+     C                   open      BRPARF
+      * Om brukerid ikke har kundenr (anonym) bruk avdelings knr
+      *    (for å kunne sende mail....)
+     C     BIKUNR        IFEQ      *ZEROS
+     C     *LOVAL        SETLL     KODTA
+     C                   READ      KODTA
+     C                   MOVE      KOAKNR        BIKUNR
+     C                   END
+      *
+      * definer KEYS m.m.
+      *
+     C     *LIKE         DEFINE    STTYPE        YTYPE
+      *
+     c     Fris1Key      KLIST
+     c                   KFLD                    FSKODE
+     c                   KFLD                    FSSOK
+     C     TURKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C     OPDKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     FBRKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    DFAVD
+     C                   KFLD                    DFOPD
+     C                   KFLD                    DFFBNR
+     C     CLIKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMCLID
+     C                   move      '00'          FMAI00
+     C     OPDK1         KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    SFAVD
+     C                   KFLD                    SFOPD
+     C     FBRK1         KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    SCAVD
+     C                   KFLD                    SCOPD
+     C                   KFLD                    SCFBNR
+     C     CLIK1         KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    WSCLID
+     C     DOKUFK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     DOKFMK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    DFFBNR
+     C     DOKFM1K       KLIST
+     C                   KFLD                    XXMRK1
+     C     HEAKEY        KLIST
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C     HenosKey      KLIST
+     C                   KFLD                    HKLNR
+     C                   KFLD                    HKLNR2
+     C     TTKey         KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    XXFBNR            3 0
+     C                   KFLD                    XXACTI            3
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C                   MOVE      *BLANKS       YTYPE
+     C                   MOVE      'F'           DFRI
+      * key for å finne adr for å sende email om feilplassert gods.
+      * OBS! Det foutsettes at PDA-USER i BRIDF har rett firmakode
+      *  og firmaets kundenr, samt at det på FØRSTE POST av type *FEILUTGODS
+      *  ligger AS/400 USERID/ADR for avsender ( må ligge i WRKDIRE)
+     C     MAILKEYI      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    YYCONTA
+     C                   KFLD                    BIKUNR
+     C                   MOVEL     '*FEILUTGODS' YYCONTA          30
+      *
+      * kode for om manuell merking av oppdrag som er kollimerket er tillatt
+     c                   eval      MerkManKll= 'N'
+     C                   EVAL      PABRID   = BIBRID
+     C                   EVAL      PAID     = 'TUMOK'
+     C     BrParKey      Chain     BRPARF                             33
+     c   33              eval      PABRID   = '*KUNDFT*'+BIFIRM
+     C   33BrParKey      Chain     BRPARF                             33
+     C                   IF        *IN33 = '0' AND %SUBST(PAVRDA:1:1)='J'
+     C                   EVAL      MerkManKll= 'J'
+     c                   ENDIF
+      *
+     C                   endsr
+      *
+     C***********************************************
+     C     SettPaTur     BEGSR
+     C***********************************************
+      *
+      *** fjerne nattport-logikk ?????? ---
+      *  KAN IKKE LEGGE PÅ TUR VED NATTPORT-LASTING (sjekkr kun tur1 )
+     C     WSPRO1        CHAIN     TURER14                            33
+     C     *in33         IFEQ      '0'
+     C     TUTST3        andeq     '1'
+     C                   move      *on           *in30
+     c                   eval      ErrMsg = '*NATTPORT* Ukjent gods, +
+     c                                     KAN IKKE LEGGES PÅ TUR'
+     c                   goto      UtPaTur
+     C                   END
+      * Oppdraget må tilhøre samme avd som tur det settes på..
+     c                   move      heavd         heavda
+     C                   select
+     C     HEAVDA        WHENEQ    TA1
+     C                   move      wspro1        wspro
+     C     HEAVDA        WHENEQ    TA2
+     C                   move      wspro2        wspro
+     C     HEAVDA        WHENEQ    TA3
+     C                   move      wspro3        wspro
+     C                   OTHER
+     C                   move      *on           *in30
+     c                   eval      ErrMsg = 'Kan IKKE LEGGE PÅ TUR, feil avd.'
+     c                   goto      UtPaTur
+     C                   ENDSL
+      *
+      * (BHR-spesial??)  Oppdraget må ha kode for ok terminal inn
+     C     HXTERI        IFEQ      ' '
+      * STATUS PÅ SENDINGSNIVÅ BLANK - likevel ok fordi alle sjekket inn??
+     c                   move      'J'           AllCllOK          1
+     C     DOKFMK        SETLL     DOKUFM
+     C     DOKFMK        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   IF        FMST='I' OR  FMST='E'
+     c     FMITER        ifeq      ' '
+     c                   move      'N'           AllCllOK          1
+     c                   goto      UtAllcok
+     c                   end
+     C                   ENDIF
+     C     DOKFMK        READE     DOKUFM                                 33
+     C  N33              ENDDO
+     c     UtAllcok      tag
+     c     AllCllOK      ifeq      'N'
+     C                   move      *on           *in30
+     c                   eval      ErrMsg =  WsClid+' på oppdr. '+
+     c                                     'IKKE KOMPLETT INN'
+     c                   goto      UtPaTur
+     C                   END
+     C                   END
+      * (BHR-spesial??)  Beløp må være godkjent...
+      *
+     C*    HXBLGK        IFEQ      *BLANKS
+     C*    FantHent      andne     'J'
+     C*                  move      *on           *in30
+     C*                  eval      ErrMsg = 'Kan IKKE LEGGE PÅ TUR, +
+     C*                                    ER IKKE PRISET/GODKJENT.'
+     C*                  goto      UtPaTur
+     C*                  END
+      *
+      * (BHR-spesial??)  Beløp må være godkjent...
+      *
+      * (BHR-spesial??)  Utlev.forbehold KUN dersom sending via agent
+      *
+      * (BHR-spesial??)  Kan ikke sette på tur etter at avsl. godsl. kjørt.
+      *                  (turstatus A)
+      *
+      *
+      * OK.. Sett på Tur
+     C                   call      'SYGE21'
+     C                   parm                    HEAVD
+     C                   parm                    HEOPD
+     C                   parm                    WSPRO
+     C                   parm                    UUIND             1
+     C     UUIND         ifeq      '0'
+     C                   MOVE      WSPRO         HEPRO
+     C                   eval      SuccessMsg = 'Sendingen er lagt til turen.'
+     C                   else
+     C                   move      *on           *in30
+     C                   eval      ErrMsg = 'Kan IKKE LEGGE PÅ TUR, +
+     c                                     Kont. megler(st?)'
+     C                   end
+      *
+     C     UtPaTur       ENDSR
+      *
+     C***********************************************
+     C     HenteSr       BEGSR
+     C***********************************************
+      *
+     c     WSCLID        chain     Henok01                            33
+     c     *in33         cabeq     '1'           UtHenSr
+     c     HenosKey      chain     Henos                              33
+     c     *in33         cabeq     '1'           UtHenSr
+     c     HSST          cabeq     'O'           UtHenSr
+      * Ukomplett - gi mer spesifik melding en 41= ukjent kolliid (F=Feil=hopp ut)
+     c     HSSTIN        ifeq      ' '
+     C                   move      'F'           FantHent
+     C                   eval      ErrMsg = WsClid+' tilhører UKOMPLETT ' +
+     C                                    'henteoppdrags-sending'
+     c                   goto      UtHenSr
+     c                   end
+     c     HSAVDH        Ifne      *zeros
+     c     HSOPDH        andeq     *zeros
+     C                   move      HSAVDH        Heavda
+     C     TA1           IFne      Heavda                                        2<-B
+     C     TA2           andne     Heavda                                        2<-B
+     C     TA3           andne     Heavda                                        2<-B
+     c                   goto      UtHenSr
+     c                   end
+      * FINNES på ennå ikke overdørt senfing OG avd er lik en av TU-avd
+     C                   move      'J'           UAUTO             1
+     C                   CALL      'SYTR34B'
+     C                   PARM                    HSLNR
+     C                   PARM                    UAUTO
+      * fakt henteoppdrag som ikke var overført , prov igjen.
+     C                   move      'J'           FantHent
+      *
+     c                   else
+     C                   move      'F'           FantHent
+     C                   eval      ErrMsg = WsClid+' tilhører UFERDIG ' +
+     C                                    'henteoppdrags-sending'
+     c                   goto      UtHenSr
+     c                   end
+      *
+     C     UtHenSr       ENDSR
+      *
+N01
+N01  C***********************************************
+N01  C     TTSR          BEGSR
+N01  C***********************************************
+N01  C                   TIME                    XTIME
+N01  C                   MOVE      XDD           XDTDD
+N01  C                   MOVE      XMM           XDTMM
+N01  C                   MOVE      XÅÅ           XDTÅÅ
+N01   *
+N01  c                   clear                   TRACKFR
+N01  C                   MOVE      HEAVD         TTAVD
+N01  C                   MOVE      HEOPD         TTOPD
+N01  C                   MOVE      DFFBNR        TTFBNR
+N01  C                   MOVE      'NEI'         TTACTI
+N01  C                   MOVE      XDT           TTDATE
+N01  C                   MOVE      XTID6         TTTIME
+N01  C                   MOVE      TTDATE        TTDATL
+N01  C                   MOVE      TTTIME        TTTIML
+N01  C                   MOVE      WSUSER        TTUSER
+N01  C                   EVAL      TTTEXT='Rejected in TKTERM. Rmvd from '
+N01  C                             + GMproA
+N01  C                   EVAL      TTTEXL='Avvist i TKTERM. Fjernet fra '
+N01  C                             + GMproA
+N01  C                   WRITE     TRACKFR
+N01  C                   ENDSR

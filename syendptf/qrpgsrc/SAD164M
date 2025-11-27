@@ -1,0 +1,451 @@
+********************************************************************
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      ****************************************************************************************
+      * SYSPED - Ankomstmelding som mail med lenke for å følge opp Ruckattest                *
+      ****************************************************************************************
+     FSADEXHL1  IF   E           K DISK
+     FSADEXML2  IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+N04  FSYPARL1   IF   E           K DISK
+N03  FTRACKl02  IF A E           K DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+s10  D*CmdLine         S            512
+N10  D CmdLine         S           1024
+N10  D Vedlegg         S           1000
+N10  D HF_Vedl         S              1                                         V=send som vedlegg
+     D CmdLen          S             15  5
+     D SDATA           S           1000
+     D WFilNam         S            256
+     D SMS             S             15
+     D ImgRef          S            200
+     D LabTxt          S             70
+     D LabImg          S             70
+     D RuckURL         S            500
+     D HfaktURL        S            500
+     D UNIK            S             10
+N04  D*Frakt           S              7  0
+N04  D Frakt           S              9  2
+N04  D FraktVAL        S              3
+N06  D TrMidd          S             20
+     D ExtRef          S             35
+     D XXADK3          S             30
+N13  D HTTPtyp         S             10
+N13  D HTTPtypV        S             10
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                SDS
+     D  ZUSER                254    263
+      *
+     D LINK            S            150
+     D MailSMS         S             70
+N02  D POS             S             15
+     D Emne            S             70
+      *
+     D timedata1       S               z                                        z=Timestamfield
+      *
+     C                   EXSR      INIT
+      *
+     C     HEAKEY        CHAIN     SADEXHL1                           33
+     C  N33EHPRO         CHAIN     SADEXML2                           33
+     C     *IN33         CABEQ     *ON           SLUTT
+      * Lag/send mailen
+     C                   EXSR      LagMail
+     C                   EXSR      SendMail
+      *
+      * Lag/send SMS med varsel
+N14  C                   if        moSMS <> *blanks
+S14  C**                 EXSR      SMSsr
+N14  C                   endif
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     LagMail       BEGSR
+      ******************************************************************************
+      * Lag fil og set codepage (pc)
+     C                   time                    Timedata1
+     C                   movel     timedata1     TS26             26            må være 26 lang
+     C                   movel     TS26          TS               22
+      *                                                 typisk TS er nå  2012-09-08-17.39.49.73
+     C                   EVAL      WFilNam ='/SYSPEDDEV/TEMP/'
+     C                             + TS + '_' + UAVD + '_' + UTDN + '.html'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     C                   EXSR      HOVED
+      * close file
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     HOVED         BEGSR
+      ******************************************************************************
+      * klargjør InstruksjonsURL
+N03  c                   MOVE      EHAVD         TTAVD
+N03  c                   MOVE      EHTDN         TTOPD
+N09  c                   MOVE      *zeros        TTFBNR
+N03  c                   MOVE      'RAS'         TTACTI
+N03  c     TT02KEY       chain     TRACKL02
+N03  C                   exsr      ttsr
+N03  c                   eval      UNIK = TTDEPO
+N03   *
+N04  C                   eval      SYKUNR = *zeros
+N04  C                   eval      SYPAID = 'ESUSR'
+N04  C     Sypar1Key     CHAIN     SYPARL1
+N02  c                   if        not %found
+N02  c                   eval      syvrda = 'NN'
+N02  c                   endif
+N13  c                   eval      HTTPtyp='http://'
+N13  c                   if        ARCPSE = 'J'                                 Secure=J
+N13  c                   eval      HTTPtyp='https://'
+N13  c                   endif
+S13  c*                  eval      RuckURL ='<a href="http://'+%trim(ARCPAE)
+N13  c                   eval      RuckURL ='<a href="'+%trim(HTTPtyp)
+N13  c                             +%trim(ARCPAE)
+     c                             +'/sycgip/syfa40RU.pgm'
+     c                             +'?unik='+UNIK
+     c                             +'&avd='+%TRIM(%EDITC(EHAVD:'Z'))
+     c                             +'&opd='+%TRIM(%EDITC(EHTDN:'Z'))
+N03  c                             +'&user='+%trim(syvrda)
+N03  c                             +'" Target="RuckWindow">'
+     c                             +'denne lenken</A>'
+      *
+      * LEGG UT HTML TOP / STYLE MM  (se f.esk SYSPED/HTMLSRC.EISO15 for inlin css.)
+     C                   EVAL      SDATA  = '<HTML>'
+     C                             + '<style type="text/css"> '
+     c                             + 'th {font-size: 15pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'td {font-size: 10pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'BODY {'
+     c                             + '  font-size:10pt;'
+     c                             + '  font-family: arial,'
+     c                             + '  helvetica, helv;'
+     c                             + '  background-color: #E6E6FA;'
+     c                             + '  margin-top: 50px;'
+     c                             + '  margin-right: 5px;'
+     c                             + '  margin-bottom: 5px;'
+     c                             + '  margin-left: 50px;'
+     c                             + '} '
+     c                             + '</style>  '
+     c                             + '<Body><table>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)       Skriv til IFS-fil
+      *
+     C                   Eval      EMNE  = 'DigiToll. Anmodning fra '
+     C                                    + %trim(FIKRTN)
+     C                                    +' om HouseTransportDocumentNumber.'
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Anmodning om å oppgi'
+     C                                    +' HouseTransportDocumentNumber'
+     C                                    +' for referanse i DigiToll Manifest '
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'For å unngå forsinkelser ved gre'
+     C                                    + 'sepassering må House Transport  '
+     C                                    + 'Referanse oppgis.'
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Korriger vekt dersom den avviker '
+     C                                    + 'fra forventet verdi.'
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Informasjon om Master/Innko'
+     C                                    + 'mmende bil:'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Grensepasseringssted: <b>'
+     C                                    + %trim(EMTSD)
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     c                   movel     EMETAT        ETAT_A4           4
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Forventet passeringstid: <b>'
+     C                                    + %editw(EMETAD:'    .  .  ')
+     C                                    + '</b> klokka <b>'
+     C                                    + %subst(ETAT_A4:1:2)+':'
+     C                                    + %subst(ETAT_A4:3:2)
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+      ***** Vareeier - men kun hvis ulik mottaker ****
+     c     KunKey        chain     CUNDL01
+     c                   if        %found
+     c                   move      POSTNR        POSTNRA           4
+     c                   eval      XXADK3 = POSTNRA +' ' + ADR3
+      ***** vareeier ****
+     C                   EVAL      SDATA  = '<tr><td>'
+n04  C                             + 'Vareeier/Speditør:</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + KNAVN  + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + ADR1 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + XXADK3 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     c                   endif
+      *
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      **** Lenke for ruck-attest
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+N12  C                                    + 'Vennligst meld inn House Transport'
+     C                                    + ' Referanse + kode samt evt juster '
+     C                                    + 'vekt via '
+     C                                    + %trim(RuckURL)+'.'
+     C                                    + '</b>'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EXSR      BUNN
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     BUNN          BEGSR
+      ******************************************************************************
+      *
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Med vennlig hilsen'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + FIFT
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+S13  c*                            +'http://'+%trim(ARCPAE)
+N13  C                                    + '<img src="'+%trim(HTTPTYP)
+N13  C                                    + %trim(ARCPAE)
+     c                                    + '/syspeddev/systematop1.jpg">'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Denne eposten er skapt'
+     C                             + ' automatisk av SYSPED toll-system.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Vennligst ikke svar på den.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '</table></Body></HTML>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SMSsr         BEGSR
+      ******************************************************************************
+      *
+      /free
+        USRID='roger@systema.no';
+        PW='straffe12';
+        SMSNR=moSMS;
+           // ....+... 1 ...+... 2 ...+... 3 ...+... 4 ...+... 5 ...+... 6
+        BODY='Mail med forespørsel om DigiToll med lenke for tilbakebelding '
+            +' er sendt til '
+            +%trim(MoAd)+ '  Vennlist følg opp. Hilsen '+ FIKRTN;
+      /end-free
+     C                   CALL      'SYGE99'
+     C                   PARM                    USRID           128
+     c                   PARM                    PW               32
+     c                   PARM                    SMSNR            16
+     c                   PARM                    BODY           1280
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    UPRO              8
+     C                   PARM                    UAVD              4
+     C                   PARM                    UTDN              7
+     C                   PARM                    avNa             50
+     C                   PARM                    avAd             50
+     C                   PARM                    moNa             50
+     C                   PARM                    moAd             50
+     C                   PARM                    moSMS            15
+     C                   PARM                    dummy             1
+     C                   move      UPRO          EHPRO
+     C                   move      UAVD          EHAVD
+     C                   move      UTDN          EHTDN
+      *
+      *
+     C     HEAKEY        KLIST
+     C                   KFLD                    EHPRO
+     C                   KFLD                    EHAVD
+     C                   KFLD                    EHTDN
+      *
+     C     KunKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    EHKNM
+N03   *
+N03  C     TT02KEY       KLIST
+N03  C                   KFLD                    TTAVD
+N03  C                   KFLD                    TTOPD
+N03  C                   KFLD                    TTFBNR
+N03  C                   KFLD                    TTACTI
+      *
+N04  C     Sypar1Key     KLIST
+N04  C                   KFLD                    SYKUNR
+N04  C                   KFLD                    SYPAID
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+     C     FIFIRM        CHAIN     FIRMARC                            33
+      *
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SendMail      BEGSR
+      ******************************************************************************
+      * Send via MMAIL
+     C                   EVAL      CmdLine = 'ADDLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+S10   * EMLHTML2 takler veddlegg i param STMF('/xxx.pdf' '/yyy.pdf') MEN om param STMF angis må
+S10   *          det være minst en - variable VEDLEGG er Blank (ikke STMF('') )
+S10  C*                  EVAL      CmdLine = 'EMLHTML SUBJECT('+ X'7D'
+S10  C*                            + %trimr(Emne) + X'7D' + ') '
+S10  C*                            + 'FROMNAME(' + X'7D'
+S10  C*                            + %trimr(AvNa) + X'7D' + ') '
+S10  C*                            + 'FROMADDR('  + X'7D'
+S10  C*                            + %trimr(AvAd) + X'7D' + ') '
+S10  C*                            + 'TO('+ X'7D'+%trimr(MoAd)+ X'7D'+'/'+ X'7D'
+S10  C*                            + %trimr(MoNa)+ X'7D'+'/*TO) '
+S10  C*                            + 'STMF('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+N10  C                   EVAL      CmdLine = 'EMLHTML2 SUBJECT('+ X'7D'
+N10  C                             + %trimr(Emne) + X'7D' + ') '
+N10  C                             + 'FROMNAME(' + X'7D'
+N10  C                             + %trimr(AvNa) + X'7D' + ') '
+N10  C                             + 'FROMADDR('  + X'7D'
+N10  C                             + %trimr(AvAd) + X'7D' + ') '
+N10  C                             + 'TO('+ X'7D'+%trimr(MoAd)+ X'7D'+'/'+ X'7D'
+N10  C                             + %trimr(MoNa)+ X'7D'+'/*TO) '
+E11  C                             + 'HTML('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+N10  C                             + ' '+%trimr(VEDLEGG)
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   EVAL      CmdLine = 'RMVLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   ENDSR
+      *
+      *
+N03  C***********************************************
+N03  C     TTSR          BEGSR
+N03  C***********************************************
+N03   * legg ut logg med RAS / unik key i TTDEPO
+N03  c                   move      WDT           TTDATE
+N03  c                   move      WTM           TTTIME
+N03  c                   move      TTDATE        TTDATL
+N03  c                   move      TTTIME        TTTIML
+N03  c                   eval      TTTEXL='DigiToll foresp sendt '+ moAd
+N03  c                   eval      TTTEXT='DigiToll notice sent '+ moAd
+N03  c                   eval      TTUSER=ZUSER
+N03   * Generer random number / legg i TTDEPO  - men kun 1. gang  - senere gjenbruk
+N09  c                   if        not %found(TRACKl02)
+N03  C                   CALL      'ARCRAN'
+N03  C                   PARM                    TTDEPO
+N07  C                   endif
+N03  c                   write     TRACKFR
+N03  c                   endsr

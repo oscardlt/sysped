@@ -1,0 +1,323 @@
+      *********************************************************************
+      * STSC9=Overføring fra PDA-TKterm   (når ren webbrowservariant benyttes - se STSC2 )
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STSCS9 MODULE(*LIBL/STSCS9
+CRTPGM*         *LIBL/INCGI) ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 LM kan mottas, pumktum tolkes som desimaltegn i LM
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 02 jov PTF12 OPPDATER TID KUN VED 1. GANG
+      * 03 jov PTF12 Varsel ved stoppgods
+********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    usropn
+S01  F*ARGOF    IF a E           K DISK    usropn
+N01  FCARGOF    UF a E           K DISK    usropn
+     FDOKUFM1   IF   E           K DISK    usropn
+N03  FHEADF     IF   E           K DISK    usropn
+     FHENOK01   IF   E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          s             10
+     D USER            s             10
+     D WDsCLID         s             20
+     D snd1            s              1
+     D LBH             s             15
+     D LENA            s             15
+     D BREA            s             15
+     D HØYA            s             15
+     D VKT             s              4
+     D VKTN            s              4  0
+     D NumBig          s             19  9
+     D KravTyp         s             25
+     D LinTxt          s            500
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+      *
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      6  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+      * låner DS fra wrkfile (se STSCS2) for å får mer lik logikk
+     D                 DS
+     D  Wdata                  1    220
+     D  DatoKl                 1     14
+     D  WDsDT                  1      8
+     D  WDsDTÅÅ                1      4
+     D  WDsDTMM                5      6
+     D  WDsDTDD                7      8
+     D  WDsTID                 9     14
+     D  WDsPALL               15     15
+     D  WDsVKT                16     19
+     D  WDsLBH                21     35
+N01  D  WDsLM                 36     39
+      * Array for konv. av alfa til numerisk
+     D FE              S              1    DIM(15)
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+      *
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      SetALL
+      *
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     CARGOF
+     C                   close     DOKUFM1
+N03  C                   close     HEADF
+     C                   close     HENOK01
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      wsuser = zhbgetvar('USER')
+     C                   eval      WSUSER = uppify(WSUSER)
+     C                   eval      SND1   = zhbgetvar('Snd1')
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'STSCS9'
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetALL        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+      * Ugyldig userID
+     C     *IN50         IFEQ      '1'
+     C                   eval      LinTxt = '#ERROR# Ukjent userID'
+     C                   callp     updHTMLvar('LINTXT':LinTxt)
+     C                   callp     wrtsection('lin')
+     C                   goto      utles
+     c                   end
+      * For alle forekomster av &Snd
+     C                   eval      ItemCount = ZhbGetVarCnt('CLID')
+     C                   eval      i = 1
+     C     i             DOWLE     ItemCount
+     C                   eval      WDsCLID = ZhbGetVar('CLID':i)
+     C                   eval      WdsVKT  = ZhbGetVar('VKT':i)
+     C                   eval      WdsLBH  = ZhbGetVar('LBH':i)
+N01  C                   eval      WdsLM   = ZhbGetVar('LM':i)
+N01  c     '.':','       xlate     WdsLM         WdsLM
+     c                   eval      DatoKl = ZhbGetVar('Datokl':i)
+     c                   eval      KravTyp= ZhbGetVar('KravTyp':i)
+     C                   eval      XXID = WDsCLID
+S01  C*    CSKEY         Chain     Cargof                             33  33 OFTE ARB-VARIABEL(->34)
+S01  C*  33              EXSR      LAGCS
+N01  C     CSKEY         Chain     Cargof                             34
+N01  C                   EXSR      LAGCS
+     C                   eval      i = i +1
+     C                   END
+      *
+     C                   eval      i = i -1
+     C                   eval      LinTxt = '#OK# Records motatt: '
+     c                             + %trim(%editc(i:'3'))
+      * ved innsending 1 og 1 KAN det være at kolliet skal stoppes (ukjent, enkolli lavvekt)
+     c     SND1          ifeq      'Y'
+     c                   move      WDsCLID       CLID18           18
+     c                   movel     CLID18        CLID35           35
+N02  c     CLID35        setll     dokufm1
+N02  c     NextClid      tag
+N02  c     CLID35        reade     dokufm1                                33
+N02  c  N33              if        FMST<>'I' and  FMST<>'E'
+N02  c                   goto      Nextclid
+N02  c                   endif
+N03   *  funnet kolli i DOKUFM.. er det stoppkode /utlev-forbehold  ?
+N03  c                   if        *in33=*off
+N03  c     HeaKey        chain     headf
+N03  c                   if        %found(headf)
+N03  c                   if        HEKF <> *blanks  and
+N03  c                             HEKFT1 <> 'X'
+N03  C                   eval      LinTxt = '#OK#STOPP - '+HEKF+' '+HEFT1
+N03  c                   endif
+N03  c                   endif
+N03  c                   endif
+N03   *
+N03   * kolli IKKE funnet i DOKUFM - finnes det i hentesystem HENOK ??
+     c   33WDsCLID       chain     HENOK01                            33
+     C   33              eval      LinTxt = '#OK#STOPP - Overtallig/'
+     c                             + 'Ukjent kolli!!'
+     c                   end
+     C                   callp     updHTMLvar('LINTXT':LinTxt)
+     C                   callp     wrtsection('lin')
+      *
+      * Send section bot
+     C     UTLES         TAG
+     C                   callp     wrtsection('bot')
+     C
+     C                   endsr
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C                   open      BRIDF
+      * MEN chain BRIDF for å validere user..
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      CARGOF
+     C                   OPEN      DOKUFM1
+N03  C                   OPEN      HEADF
+     C                   OPEN      HENOK01
+     C     CSKEY         KLIST
+     C                   KFLD                    XXID             20
+     C                   KFLD                    XXTERM           20
+N03  C     HEAKEY        KLIST
+N03  C                   KFLD                    FMAVD
+N03  C                   KFLD                    FMOPD
+      *
+     C                   MOVEL     'OSL'         XXTERM
+      *
+     C                   ENDSR
+      ************************************************************
+     C     LAGCS         BEGSR
+      ************************************************************
+N01  C     *in34         ifeq      '1'
+     C                   clear                   Cargofr
+N01  C                   else
+N01   * clear knytning til oppddr. - (funker som 'status') = trigge ny summering
+S02  C**                 clear                   Cargofr
+N01  c                   clear                   KOAVD
+N01  c                   clear                   KOOPD
+N01  c                   clear                   KOLNR
+N01  c                   clear                   KOLNR2
+N01  C                   endif
+     C                   eval      KoID        = WDsCLID
+     C                   eval      KoTerm      = XXTERM
+     C                   eval      KoStat      = '0'
+     C                   eval      KoStNr      = '99'
+N02  C     *in34         ifeq      '1'
+     C                   move      WDsDT         KOINDT
+     C                   move      WDsTID        KOINTI
+N02  C                   endif
+     C                   eval      KOUSER      = WSUSER
+     C                   move      KravTyp       KOGTYP
+     C                   movel     KravTyp       KOKRAV
+      *
+     c     WdsLBH        ifne      *blanks
+     c     WdsVKT        orne      *blanks
+N01  c     WdsLM         orne      *blanks
+     c                   exsr      MaalSR
+     c                   end
+S01  C*                  write     CARGOFR
+N01  C   34              write     CARGOFR
+N01  C  N34              UPDATE    CARGOFR
+     C                   ENDSR
+      ************************************************************
+     C     MAALSR        BEGSR
+      ************************************************************
+      * Vekt..
+     C                   EVAL      KOMVKT = c2n2(WdsVKT)
+N01  C                   EVAL      KOMLM  = c2n2(WdsLM)
+      * Mål...
+     c     WdsLBH        ifne      *blanks
+     c                   move      *zeros        ST2               3 0
+     c                   move      *zeros        KOMLEN
+     c                   move      *zeros        KOMBRE
+     c                   move      *zeros        KOMHØY
+     c                   move      *blanks       LENa
+     c                   move      *blanks       BREa
+     c                   move      *blanks       HØYa
+      * dersom mål inneholder ? så er det ikke angitt (kun defaulten som kommer)
+     C     '?'           SCAN      WdsLBH        X                 3 0
+     C     X             cabgt     0             FeilInp
+      *
+      * fjern evt slutt-tegn
+     C*    '#':' '       XLATE     WdsLBH        WdsLBH
+      * f.eks: WDsLBH = '120*70*55'
+      * X=4 , Y = 7
+     C     '*'           SCAN      WdsLBH        X                 3 0
+     c     X             cablt     2             FeilInp
+     c     X             cabgt     12            FeilInp
+     C                   eval      st2    = X+1                                 *startpkt søk2
+     C     '*'           SCAN      WdsLBH:ST2    Y                 3 0
+     c     Y             cablt     4             FeilInp
+     c     Y             cabgt     14            FeilInp
+      * skrell bort ev grums (ikke numerisk) etter 2 stjerne
+     c                   move      'N'           Ferdig            1
+     c     Y             add       1             Z                 3 0
+     c                   movea     WdsLBH        FE
+     c     Z             dowle     15
+     c     FE(Z)         iflt      '0'
+     c     FE(Z)         orgt      '9'
+     c                   move      'J'           Ferdig
+     c                   end
+     c     Ferdig        ifeq      'J'
+     c                   move      ' '           FE(Z)
+     c                   end
+     c                   add       1             Z
+     c                   end
+     c                   movea     FE            WdsLBH
+      * Eksempelet: FRA 1 : lengde 3 (først stjerne minus 1)
+     C                   EVAL      LENa   = %SUBST(WdsLBH:1:X-1)
+      * Eksempelet: Fra 5 (første stj. + 1 ) : lengde 2 (sist - første - 1 = 7-4-1 = 2)
+     C                   EVAL      BREa   = %SUBST(WdsLBH:x+1:Y-X-1)
+      * Eksempelet: Fra 8 (andre  stj. + 1 ) : lengde 8 (max-siste stj = 17-7=8)
+     C                   EVAL      HØYa   = %SUBST(WdsLBH:Y+1:15-Y)
+     C                   EVAL      KOMLEN = c2n2(LENa)
+     C                   EVAL      KOMBRE = c2n2(BREa)
+     C                   EVAL      KOMHØY = c2n2(HØYa)
+      *
+     c     FeilInp       tag
+      * beregn kubikMETER (resultat bil kubik CM - 100 * 100 *100 = 1.000.000 cm3 = 1 M3 )
+      * (hvis en av de er 0 blir jo resultatet 0, men so what...)
+     C                   eval(H)   NumBig= (KOMLEN*KOMBRE*KOMHØY)/1000000
+     c     NumBig        ifle      99.99999
+     C                   eval      KOMM3= NumBig
+     c                   end
+     c                   end
+     C                   ENDSR

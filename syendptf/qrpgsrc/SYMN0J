@@ -1,0 +1,595 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SYMN0J MODULE(*LIBL/SYMN0J *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 02 JOV PTF11 TID/USER inn i USRSPC-DS
+11XXX * 03 JOV PTF11 koder for opplasting
+11XXX * 04 JOV PTF11 ikke kall rutine for opplastingskoder ved errir (ukjent user)
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+12XXX * 05 CB  PTF12 Send ut firmans landkode i JSON retursvar
+12XXX * 06 JOV PTF12 Dersom FIRMA mottas i input - test det
+12XXX * 07 JOV PTF12 Send ut Installasjonid i retursvar
+12XXX * 08 JOV PTF12 Send også info om multiUser/switch (=logg av på)
+      *              nytt kall med pwd='MLTID' er tillatt/switch (bør kontrollerer mot param)??
+12XXX * 09 JOV PTF12 Dersom tomcatPort er difinert på Firma betyr det flerfirma-SETT rett miljø
+12XXX *              (benyttes ved felles pålogging (a la "mine sider") i flerfirmakonsern..)
+12XXX * 10 JOV PTF12 to nye tags for Tomcat-meny-pgm: "veiledning" og "infoImg"
+12XXX * 11 CB  PTF12 Send ut default antall dager for datosøk/lister i retursvar
+12XXX * 12 CB  PTF12 Send ut default avdeling i retursvar
+12XXX * 13 jov PTF12 Parameter for L1 kundevedlikehold J=Kund skriv/V= Vis-skriv
+12XXX * 14 jov PTF12 også HTTPS i direktekall (B)
+12XXX * 15 jov PTF12 Oppdater sist brukt OG antal feil pålogginger - justerer Error-tekst
+12XXX * 16 jov PTF12 INSID kan overstyres på brukernivå (normalt for TEST..)
+12XXX * 17 jov PTF12 'SGAKX' arkiv-koder ekspressfortolling
+      * 18 JOV PTF12 LANGT passord
+      * 19 JOV PTF12 call syge15C kan tidvis feile - kritis for recordlock BRIDF/flyttet før chain
+      * 20 JOV PTF12 Ved INTERN user skal DFTDG fra FIRMA IKKE sendes (fare for tunge søk..)
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+S01  F*RIDF     IF   E           K DISK    USROPN
+N01  FBRIDF     UF   E           K DISK    USROPN
+     FBRPRF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+N01  FFIRM      IF   E           K DISK    USROPN
+N07  FSYPARL3   IF   E           K DISK    USROPN
+N07  F                                     PREFIX(X_)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D BRUKERID        S             10
+     D PASSORD         S             10
+N18  D PASSORDL        S             70
+N06  D FIRMA           S             10
+N16  D InsId           S             15
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+      * State related variables (DS som legges i UsrSpc )
+     D State           ds                  based(StateP)
+     D  UBRID                        10
+     D  UINNDT                        8
+     D  UINNTM                        6
+      * User space variables
+     D UsrSpcName      s             10
+     D UsrSpcLib       c                   'SYCGIUSP'
+      * Message ID for CrtUsrSpc
+     D MsgId           s              7
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+     C                   OPEN      BRIDF
+      *
+     C                   EVAL      BRUKERID = zhbgetvar('USER')
+     C                   EVAL      PASSORD  = zhbgetvar('PWD')
+N18  C                   EVAL      PASSORDL = zhbgetvar('PWD')
+N06  C                   EVAL      FIRMA    = zhbgetvar('FIRMA')
+     C                   eval      BRUKERID = uppify(BRUKERID)
+     C                   eval      PASSORD  = uppify(PASSORD)
+N06  C                   eval      FIRMA    = uppify(FIRMA)
+      *
+N19  C                   CALL      'SYGE15C'
+N19  C                   PARM                    WDT               8
+N19  C                   PARM                    WTM               6
+      * Test innlogging
+     C     BRUKERID      CHAIN     BRIDF                              50
+N04  C     *IN50         IFEQ      '0'
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+N04  C                   ENDIF
+     C     *IN50         IFEQ      '0'
+     C                   OPEN      BRPRF
+     C                   OPEN      BRPARF
+N01  C                   OPEN      FIRM
+N07  C                   OPEN      SYPARL3
+     C                   ENDIF
+     C*
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+N08  c                   if        *in50='0' and PASSORD='MLTID'
+N08  c                   eval      PASSORD=BIPO
+N08  c                   endif
+N15   * Test på deaktivert/mange feil (+ kun ved 50 OFF) flyttet forran test på passord.
+N15   * Ingen merking ...
+     c                   if        *in50='0'
+     c                   if        Error = *blanks and BIAKT <> 'A'
+     c                   eval      Error = 'User deactivated '
+     c                             + 'by system administrator'
+     c                   endif
+     c                   if        Error = *blanks and BIANTF >  4
+     c                   eval      Error = 'User deactivated, '
+     c                             + 'too many attempts'
+     c                   endif
+     c                   endif
+      *
+     c*                  if        Error = *blanks and
+S18  c*                            (*in50 or BIPO<>PASSORD)
+      * i eSpedsg er anonym logon(PWD=blank) ikke tillat
+N18  c                   if        Error = *blanks
+N18  c                   if        *in50=*on                                    User finnes ikke
+N18  c                             or PASSORD = *blanks                         Oppgitt pwd blank
+N18  c                             or (BIPO=*blanks and BIPOL=*blanks)          Begge blank i User
+N18  c                             or (BIPO<>PASSORD and BIPOL<>PASSORDL)       Ingen match
+     c                   eval      Error = 'User or password incorrect'
+N18  c                   endif
+     c                   endif
+     c                   if        Error = *blanks and FIRMA <> *blanks
+     c                             and FIRMA <> BIFIRM
+     c                   eval      Error = 'User or password incorrect'
+     c                   endif
+      *
+N15  c                   if        %found(Bridf)
+N15  c                   if        Error = *blanks
+N15  c                   exsr      DatTimOK
+N15  c                   else
+N15  c                   exsr      DatTimFEIL
+N15  c                   endif
+N15  c                   update    BRIDFR
+N15  c                   endif
+      *
+N01  c     Error         cabne     *blanks       wrtTop
+      *
+N01  C     BRPARFK       klist
+N01  C                   kfld                    BIBRID
+N01  C                   kfld                    PAKUNR
+N01  C                   kfld                    PAID
+N01  c     KundKey       klist
+N01  c                   kfld                    DFTUSER          10
+N01  c                   kfld                    BIKUNR
+N01  c                   kfld                    PAID
+N01  c                   Eval      DFTUSER = '*KUNDFT*'+BIFIRM
+N01  c     GrupKey       klist
+N01  c                   kfld                    DFTUSER
+N01  c                   kfld                    BIKNG
+N01  c                   kfld                    PAID
+N01  c     FirmKey       klist
+N01  c                   kfld                    DFTUSER
+N01  c                   kfld                    NULLKU            8 0
+N01  c                   kfld                    PAID
+N03   * FINNES ARKIVKODE PÅ USERNIVÅ / FIRMANIVÅ ??
+N03  c     BrArkKey      klist
+N03  c                   kfld                    PABRID
+N03  c                   kfld                    NULLKU            8 0
+N03  c                   kfld                    PAID
+      * Hent språk
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   MOVEL     PAVRDA        XSPRÅK            2
+     C                   MOVEL     'ASUSR'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   MOVEL     PAVRDA        XASUSR           10
+      * Hent Intern/Ekstern
+     C                   MOVEL     'INTER'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        XINTERN           1
+      * Hent SYSPED Signatur
+     C                   MOVEL     'ASSIG'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        XSIGN             3
+      * Minst ett menypunkt ?
+N01   * På kunde-nr-nivå??
+N01  C     BIKUNR        setll     BRPRF
+N01  C     BIKUNR        READE     BRPRF                                  55
+N01  C     *IN55         doweq     '0'
+N01  C                   if        BPAKT='T' or BPAKT='B'
+N01  C                   leave
+N01  C                   endif
+N01  C     BIKUNR        READE     BRPRF                                  55
+N01  C                   enddo
+N01   * Hvis ikke på kunde-nr-nivå - finnes det på gruppenivå??
+N01  C                   if        *in55
+N01  C     BIKNG         setll     BRPRF
+N01  C     BIKNG         READE     BRPRF                                  55
+N01  C     *IN55         doweq     '0'
+N01  c                   if        BPAKT='T' or BPAKT='B'
+N01  c                   leave
+N01  C                   endif
+N01  C     BIKNG         READE     BRPRF                                  55
+N01  C                   enddo
+N01  c                   endif
+N01   * sjekk om brukeren har minst ett produkt, Test AKTKOD (T=Tomcat, B=Begge, A=kun Esped)
+     c                   if        *in55
+E15  c                   eval      Error = 'User has no menu items'
+N01  c                   goto      wrtTop
+     c                   endif
+     c*
+      * tildel userspacename (= vellykket pålogging  )
+     C                   eval      UsrSpcName= CrtUsrSpc(
+     C                               UsrSpcLib : StateP : MsgID : '*ALL')
+N02   * Fyll opp UsrSpsDS med inndato/tid/user
+N02   *     (må faktisk skje etter at CrtUsrSpc - hvis ikke så får en NOT ADRESSABLE..)
+N02   *     (UsrSpc ser altså ut som å oppføre seg som en åpen UDS som dynemisk endres...)
+s19  C*                  CALL      'SYGE15C'
+s19  C*                  PARM                    UINNDT
+s19  C*                  PARM                    UINNTM
+N15  C                   move      WDT           UINNDT
+N15  C                   move      WTM           UINNTM
+N02  C                   MOVE      BIBRID        UBRID
+N01   * firmanavn / logo
+N01  c     *loval        setll     FIRM
+N01  c                   read      FIRM
+N01   * Logo?  kode TLOSG  = TopLogo eSpedsg
+N01  C                   MOVEL     'TLOSG'       PAID
+N01  C     BRPARFK       chain     BRPARF                             33
+N01  C   33KundKey       chain     BRPARF                             33
+N01  C   33GrupKey       chain     BRPARF                             33
+N01  C   33FirmKey       chain     BRPARF                             33
+N01  c     *in33         ifeq      *off
+N01  c     PAVRDA        andne     *Blanks
+N01  c                   movel     PAVRDA        Logo             50
+N01  c                   end
+      * Banner ??   kode TLOSB  = TopLogo BANNER  eSpedsg
+N01  C                   MOVEL     'TLOSB'       PAID
+N01  C     BRPARFK       chain     BRPARF                             33
+N01  C   33KundKey       chain     BRPARF                             33
+N01  C   33GrupKey       chain     BRPARF                             33
+N01  C   33FirmKey       chain     BRPARF                             33
+N01  c     *in33         ifeq      *off
+N01  c     PAVRDA        andne     *Blanks
+N01  c                   movel     PAVRDA        Banner           50
+N01  c                   end
+      * Systemalogo/profilering til høyre ??   kode TLOSS  = TopLogo Systemalogo  eSpedsg
+N01  c                   movel     'Y'           SyLogo           50
+N01  C                   MOVEL     'TLOSS'       PAID
+N01  C     BRPARFK       chain     BRPARF                             33
+N01  C   33KundKey       chain     BRPARF                             33
+N01  C   33GrupKey       chain     BRPARF                             33
+N01  C   33FirmKey       chain     BRPARF                             33
+N01  c     *in33         ifeq      *off
+N01  c     PAVRDA        andne     *Blanks
+N01  c                   movel     PAVRDA        SyLogo           50
+N01  c                   end
+N09   * felles pålogging/flerfirma - switch til port....
+N09  C                   MOVEL     'SGTPO'       PAID
+N09  C     FirmKey       chain     BRPARF                             33
+N09  c     *in33         ifeq      *off
+N09  c                   movel     PAVRDA        tcPort            5
+N09  c                   end
+N13   * Kundevedlikehold L1
+N13  C                   MOVEL     'SGKL1'       PAID
+N13  C     FirmKey       chain     BRPARF                             33
+N13  c     *in33         ifeq      *off
+N13  c                   movel     PAVRDA        kundeL1           1
+N13  c                   end
+N13  c                   if        kundeL1<>'J' and kundeL1<>'V'
+N13  c                   eval      kundeL1 =' '
+N13  c                   endif
+N07   * InstallasjonID
+N07  C     'INSID'       CHAIN     SYPARL3
+N16  C                   if        %found
+N16  c                   eval      InsId= X_SYVRDA
+N16  C                   endif
+N16   * InstallasjonID kan ovesrtyres på userid (for test ??)
+N16  C                   MOVEL     'INSID'       PAID
+N16  C     BRPARFK       chain     BRPARF
+N16  C                   if        %found
+N16  c                   eval      InsId= PAVRDA
+N16  C                   endif
+N11   * Default antall dager for datosøk i lister
+N11  C                   MOVEL     'DFTDG'       PAID
+N11  C     BRPARFK       chain     BRPARF                             33
+N11  C   33KundKey       chain     BRPARF                             33
+N11  C   33GrupKey       chain     BRPARF                             33
+N11  C   33FirmKey       chain     BRPARF                             33
+N11  c                   if        *in33 = *off
+N11  c                   z-add     PAVRDN        xdftdg            7 0
+N20   * Hvis intern-returner dftdg kun dersom det er satt på bruker-id-nivå
+N20  c                   if        XINTERN = 'J' and
+N20  c                             PABRID <> BIBRID
+N20  c                   z-add     *zeros        xdftdg
+N20  c                   endif
+N11  c                   endif
+N12   * Default avd
+N12  C                   MOVEL     'ASAVD'       PAID
+N12  C     BRPARFK       chain     BRPARF                             33
+N12  C   33KundKey       chain     BRPARF                             33
+N12  C   33GrupKey       chain     BRPARF                             33
+N12  C   33FirmKey       chain     BRPARF                             33
+N12  c                   if        *in33 = *off
+N12  c                   z-add     PAVRDN        xasavd            4 0
+N12  c                   endif
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+     c     wrtTop        tag
+     C                   callp     wrtsection('top')
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(BRUKERID)+'¬, '
+N01     +'¬userName¬ : ¬'+%trim(BIBESK)+'¬, '
+N09     +'¬tcPort¬ : ¬'+%trim(TCport)+'¬, '
+N13     +'¬kundeL1¬ : ¬'+%trim(kundeL1)+'¬, '
+        +'¬custNr¬ : ¬'+%trim(%editc(BIKUNR:'Z'))+'¬, '
+E01     +'¬custName¬ : ¬'+%trim(FIKRTN)+'¬, '
+N01     +'¬logo¬ : ¬'+%trim(LOGO)+'¬, '
+N01     +'¬banner¬ : ¬'+%trim(BANNER)+'¬, '
+N01     +'¬systemaLogo¬ : ¬'+%trim(SYLOGO)+'¬, '
+        +'¬usrLang¬ : ¬'+%trim(XSPRÅK)+'¬, '
+        +'¬usrAS400¬ : ¬'+%trim(XASUSR)+'¬, '
+        +'¬intern¬ : ¬'+%trim(XINTERN)+'¬, '
+        +'¬signatur¬ : ¬'+%trim(XSIGN)+'¬, '
+        +'¬filand¬ : ¬'+%trim(FILAND)+'¬, '
+S16     //+'¬insid¬ : ¬'+%trim(X_SYVRDA)+'¬, '
+N16     +'¬insid¬ : ¬'+%trim(InsId)+'¬, '
+N11     +'¬dftdg¬ : ¬'+%trim(%editc(XDFTDG:'Z'))+'¬, '
+N12     +'¬asavd¬ : ¬'+%trim(%editc(XASAVD:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, '
+        +'¬usrSpcName¬ : ¬'+%trim(UsrSpcName)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"menuList" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Hent menypunkter kun dersom vellykket pålogging
+S01  C*                  if        Error = *blanks
+N01  c     Error         cabne     *blanks       wrtBot
+N01   *
+N01  C     BPKUNR        setll     BRPRF
+N01  C     BPKUNR        READE     BRPRF                                  55
+     C     *IN55         DOWEQ     '0'
+N01  C                   if        BPAKT<>'T' and BPAKT<>'B'
+N01  C                   goto      nextProd
+N01  C                   endif
+     C                   Add       1             AntLest
+     c                   if        XSPRÅK='EN'
+     c                   eval      BPTXT=BPTXTE
+     c                   endif
+      * Test om prod 1 inneholder http:// i så fall er det en klassisk URL
+     C                   MOVE      *BLANKS       XBPPRD          200
+N10  C                   MOVE      *BLANKS       XBPPRD2         128
+N10  C                   MOVE      *BLANKS       XBPBILD          50
+     C     *like         DEFINE    BPPRD         BPPRDTmp
+     C                   EVAL      BPPRDTmp = uppify(BPPRD)
+     C     'HTTP://'     SCAN      BPPRDTmp                               45
+N14  C  N45'HTTPS://'    SCAN      BPPRDTmp                               45
+     c                   if        *IN45=*on
+     C                   eval      XBPPRD=%trim(BPPRD)+%trim(BIBRID)
+     c                             +'&UsrSpcName=' + UsrSpcName + %trim(BPPRD2)
+     C                   else
+     C                   eval      XBPPRD=%trim(BPPRD)
+N10  C                   eval      XBPPRD2=%trim(BPPRD2)
+N10  C                   eval      XBPBILD=%trim(BPBILD)
+     C                   endif
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬line¬ : ¬'+%trim(%editc(BPLIN:'Z'))+'¬, '
+          +'¬col¬ : ¬'+%trim(%editc(BPKOL:'Z'))+'¬, '
+          +'¬prog¬ : ¬'+%trim(XBPPRD)+'¬, '
+N10       +'¬prTxt¬ : ¬'+%trim(BPTXT)+'¬, '
+N10       +'¬veiledning¬ : ¬'+%trim(XBPPRD2)+'¬, '
+N10       +'¬infoImg¬ : ¬'+%trim(XBPBILD)+'¬}';
+S10     //+'¬prTxt¬ : ¬'+%trim(BPTXT)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+N01  C     nextProd      tag
+S01  C*    XGRP          IFEQ      'J'
+S01  C*    BIKNG         READE     BRPRF                                  55
+S01  C*                  ELSE
+S01  C*    BIKUNR        READE     BRPRF                                  55
+S01  C*                  END
+N01  C     BPKUNR        READE     BRPRF                                  55
+     C                   ENDDO
+S01  c*                  endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+N01  c     wrtBot        tag
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+N04  C                   if        Error = *blanks
+     C                   EXSR      ARKKoD
+N08  C                   EXSR      SWITCHSR
+N04  C                   endif
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C     *IN50         IFEQ      '0'
+     C                   CLOSE     BRPRF
+     C                   CLOSE     BRPARF
+N01  C                   CLOSE     FIRM
+N07  C                   CLOSE     SYPARL3
+     C                   ENDIF
+      * Quit
+     C                   exsr      Exit
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+N03   **************************************************
+N03  C     ARKKOD        BEGSR
+N03   **************************************************
+N03   * på oppdrag
+N03  C                   MOVEL     'SGAKO'       PAID
+N03   * listetopp
+N03  c                   eval      JSONstring =', "arkivKodOpdList" : ['
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+N03   * listeinnhold
+N03  c                   EXSR      ARKKOD2
+N03   * listebunn
+N03  c                   eval      JSONstring =']'
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+N03   *
+N03   *
+N03   * på tur
+N03  c                   eval      JSONstring =', "arkivKodTurList" : ['
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+N03  C                   MOVEL     'SGAKT'       PAID
+N03   * listeinnhold
+N03  c                   EXSR      ARKKOD2
+N03   * listebunn
+N03  c                   eval      JSONstring =']'
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+N17   * på ekspressfortolling
+N17  c                   eval      JSONstring =', "arkivKodExpList" : ['
+N17  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N17  C                   callp     wrtsection('JSONlin')
+N17  C                   MOVEL     'SGAKX'       PAID
+N17   * listeinnhold
+N17  c                   EXSR      ARKKOD2
+N17   * listebunn
+N17  c                   eval      JSONstring =']'
+N17  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N17  C                   callp     wrtsection('JSONlin')
+N03   *
+N03  C                   ENDSR
+N03   **************************************************
+N03  C     ARKKOD2       BEGSR
+N03   **************************************************
+N03  C                   move      *zeros        AntLest
+N03  C                   MOVEL     BIBRID        PABRID
+N03   * Innhold i arakivkode-list
+N03  C     BrArkKey      setll     BRPARF
+N03  C     BrArkKey      reade     BRPARF                                 33
+N03  C   33              move      DFTUSER       PABRID
+N03  C   33BrArkKey      setll     BRPARF
+N03  C   33BrArkKey      reade     BRPARF                                 33
+N03  C     *in33         doweq     '0'
+N03  C                   ADD       1             AntLest
+N03   /free
+N03    if AntLest=1;
+N03       JSONstring=*blanks;
+N03       else;
+N03       JSONstring=', ';
+N03       endif;
+N03    JSONstring=%trim(JSONstring)+'{'
+N03       +'¬arkKod¬ : ¬'+%trim(%subst(PAVRDA:1:2))+'¬, '
+N03       +'¬arkTxt¬ : ¬'+%trim(%subst(PAVRDA:4))+'¬}';
+N03   /end-free
+N03  C                   call      'JSONFIX'
+N03  C                   parm                    JSONstring
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+N03  C     BrArkKey      reade     BRPARF                                 33
+N03  C                   enddo
+N03   * Ingen ? ZO  er hadkodet default ...
+N03  C     Antlest       ifeq      0
+N03   /free
+N03     PAVRDA = 'ZO Opplastet dokument';
+N03     JSONstring='{'
+N03       +'¬arkKod¬ : ¬'+%trim(%subst(PAVRDA:1:2))+'¬, '
+N03       +'¬arkTxt¬ : ¬'+%trim(%subst(PAVRDA:4))+'¬}';
+N03   /end-free
+N03  C                   call      'JSONFIX'
+N03  C                   parm                    JSONstring
+N03  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N03  C                   callp     wrtsection('JSONlin')
+     C                   endif
+N03   *
+N03  C                   ENDSR
+N03   *
+N08
+N08   *****************************************************
+N08  C     SWITCHSR      begsr
+N08   *****************************************************
+N08   * Hvis det finnes minst en Multi-ID-parameter (SwitchTo-user) så send liste
+N08   *
+N08  c                   eval      JSONstring =', "multiUser" : ['
+N08  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N08  C                   callp     wrtsection('JSONlin')
+N08   *
+N08  C                   move      *zeros        AntLest
+N08  c                   move      'MLTID'       PAID
+N08  C     BRPARFK       setll     BRPARF
+N08  C     BRPARFK       reade     BRPARF                                 40
+N08  C     *in40         doweq     '0'
+N08  C                   ADD       1             AntLest
+N08   /free
+N08    if AntLest=1;
+N08       JSONstring=*blanks;
+N08       else;
+N08       JSONstring=', ';
+N08       endif;
+N08    JSONstring=%trim(JSONstring)+'{'
+N08       +'¬multiID¬ : ¬'+%trim(%subst(PAVRDA:1:10))+'¬, '
+N08       +'¬multiTxt¬ : ¬'+%trim(%subst(PAVRDA:11))+'¬}';
+N08   /end-free
+N08  C                   call      'JSONFIX'
+N08  C                   parm                    JSONstring
+N08  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N08  C                   callp     wrtsection('JSONlin')
+N08  C     BRPARFK       reade     BRPARF                                 40
+N08  C                   enddo
+N08   *
+N08  c                   eval      JSONstring =']'
+N08  C                   callp     updHTMLvar('JSONstring':JSONstring)
+N08  C                   callp     wrtsection('JSONlin')
+N08  C                   endsr
+      *
+N15
+N15   ********************************************
+N15  C     DatTimOK      begsr
+N15   ********************************************
+N15  C                   Z-ADD     0             BIANTF
+N15  C                   MOVE      WDT           BIDTV
+N15  C                   MOVE      WTM           BITIDV
+N15  C                   endsr
+N15   ********************************************
+N15  C     DatTimFeil    begsr
+N15   ********************************************
+N15   * (Aktiv) Bruker har gitt feil passord - add 1 til antall ganger
+N15   * Mer en xx feil - må RESETTES av operatør
+N15  C                   IF        BIANTF < 9
+N15  C                   ADD       1             BIANTF
+N15  C                   ENDIF
+N15  C                   MOVE      WDT           BIDTF
+N15  C                   MOVE      WTM           BITIDF
+N15  C                   endsr

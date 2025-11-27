@@ -1,0 +1,87 @@
+             PGM   PARM(&FRTIOK)
+             DCL        VAR(&FRTIOK) TYPE(*CHAR) LEN(1025)
+             DCL        VAR(&FRA) TYPE(*CHAR) LEN(512)
+             DCL        VAR(&TIL) TYPE(*CHAR) LEN(512)
+             DCL        VAR(&OK) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&SPLF) TYPE(*CHAR) LEN(10) +
+                          VALUE(QPSYCDAU)
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&START) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&XIFSAUT) TYPE(*CHAR) LEN(132)
+             DCLF       FILE(QTEMP/XIFSAUT) RCDFMT(XIFSAUT)
+
+/* CHGJOB     LOG(4 00 *SECLVL) LOGCLPGM(*YES)  */
+
+             CHGVAR     VAR(&FRA) VALUE(%SUBSTRING(&FRTIOK 1 512))
+             CHGVAR     VAR(&TIL) VALUE(%SUBSTRING(&FRTIOK 513 512))
+             CHGVAR     VAR(&OK)  VALUE(%SUBSTRING(&FRTIOK 1025 1))
+
+             CRTPF      FILE(QTEMP/XIFSAUT) RCDLEN(132) AUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+
+             MOV        OBJ(&FRA) TOOBJ(&TIL) TOCCSID(277)
+/*MONITORE EN HVER CPF... - FEILSITUASJON....  */
+/*N03 OBS! CPFA09E BETYR OBJEKTET I BRUK (FRA-OBJ), BURDE MINITORE DET/VENTE..*/
+/*S03        MONMSG     MSGID(CPF0000) EXEC(CHGVAR VAR(&OK) VALUE('N')) */
+             MONMSG     MSGID(CPF0000) EXEC(DO)
+                        CHGVAR VAR(&OK) VALUE('N')
+                        GOTO CMDLBL(EXIT)
+             ENDDO
+
+/*N01*/      CHGAUT     OBJ(&TIL) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+/*N01*/      MONMSG     MSGID(CPF0000)
+
+
+
+/* INNDRA INDIVIDUELL AUTORISASJON (SOM IKKE TRENGS) NÅR *PUBLIC HAR *ALL   */
+/* Ingen APIer/kommandoer rett til fil - må gå via DSP->*print / RCVF ... */
+/* Burde heller være gjort i RPG ???                                      */
+             OVRPRTF    FILE(&SPLF) HOLD(*YES)
+             DSPAUT     OBJ(&TIL) OUTPUT(*PRINT)
+             CPYSPLF    FILE(&SPLF) TOFILE(QTEMP/XIFSAUT) SPLNBR(*LAST)
+
+        /*_________*/
+        /* Les fil */
+        /*"""""""""*/
+ /* Start leting etter reelle users først etter at 'Bruker'/'User' lest */
+             CHGVAR     VAR(&START) VALUE('N')
+ READ:       RCVF       RCDFMT(*FILE)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(EXIT))
+
+             CHGVAR     VAR(&USER) VALUE(%SST(&XIFSAUT 2 11))
+
+             IF         COND(&START *EQ 'Y' *AND +
+                             &USER  *NE '*PUBLIC' *AND +
+                             &USER  *NE '          ') +
+                        THEN(DO)
+             CHGAUT     OBJ(&TIL) USER(&USER) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+                        ENDDO
+ /* *PUBLIC ENDRER EIER OG SETTER ALLE RETTIGHETER                */
+             IF         COND(&START *EQ 'Y' *AND +
+                             &USER  *EQ '*PUBLIC') +
+                        THEN(DO)
+             CHGOWN     OBJ(&TIL) NEWOWN(SY400USR)
+             MONMSG     MSGID(CPF0000)
+             CHGAUT     OBJ(&TIL) USER(&USER) DTAAUT(*RWX) OBJAUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+             CHGAUT     OBJ(&TIL) USER(SY400USR) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+                        ENDDO
+             IF         COND(&USER *EQ 'Bruker    ') +
+                        THEN(CHGVAR VAR(&START) VALUE('Y'))
+             IF         COND(&USER *EQ 'User      ') +
+                        THEN(CHGVAR VAR(&START) VALUE('Y'))
+
+             GOTO       CMDLBL(READ)
+        /*______________________*/
+        /* Delete av spoolfiler */
+        /*""""""""""""""""""""""*/
+ EXIT:       DLTSPLF    FILE(&SPLF) SPLNBR(*LAST)
+             MONMSG     MSGID(CPF0000)
+
+ SLUTT:      ENDPGM

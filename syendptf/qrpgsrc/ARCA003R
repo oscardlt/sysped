@@ -1,0 +1,535 @@
+**********************************************************************************************
+      *  Arkiver dokument ................. FRAKTBREV
+      *  Et fraktbrev kan skannes i mangge ulike faser av et oppdrag...
+      *  VANLIGST er at en kun skanner KVITTERT brev for å loggføre den viktige 'POD'en
+      *      Ved lagring kan en velge om også T&T skal oppdateres med hendelse POD eller ikke:
+      *          sendes brevet til mappe FRBREV    så blir kun arkivloggen oppdatert (arktyp ZS)
+      *          sendes brevet til mappe FRBREVPOD så blir POD-hendelse loggført     (arktyp ZP)
+      *          MEN dato/tid er jo da tiden det ble arkivert - ikke når det ble levert....
+      *  Skanning av ORIGINAL-brev + Kvittert brev
+      *          2 knapper på skanner til ulike innmapper/"dummy" firma2 kun for avvikende *F-regel
+      *  NYTT av 15.03.2010 - (komb. m/V 02.10 av TKpdfHandler). "FORSIDE" *F*xxx.. kan styre..
+      *          eks: *F*POD sender til mappe FRBREVPOD,(dummyfirma/2 knapper på skanner unødvendig)
+      *          eks: *F*XX (der XX er egendefinert gyldig arkivkode) sender til mappe FRBREVXX
+      *               agenten(dette prog) benytter de 2 bokstavene bak "FRBREV" som ARKIV-KODE !!
+**********************************************************************************************
+      * OBS - FØR KJØRING må typen være definert i fil ARKTXT
+      *       og denne bør gjerne peke på "eksternt" arkivlager med
+      *       avvikende bane (f.eks /pdf/scan ) (fil ARKEXT)
+**********************************************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF09 FEIL I KALL PÅ POD..
+10XXX * 01 JOV PTF10 ignorer evt timestamp bakerst ...xlsx_2009-11-27
+10XXX * 02 JOV PTF10 Behandle mappe FRBREVXX (der xx er arkkode), + evt POD
+10XXX * 03 JOV PTF10 Feil i ptf 2 - finne rett Avvikende kode i syparf
+10XXX * 04 JOV PTF10 Ikke kun ZS/ZP for manuell match
+      * 05 jov PTF10 Numerisk kode 2 er også  tidsoppfølging (da med kra om også Klokka..)
+10XXX * 06 SH  PTF10 skjekk om dokument skal sendes som epost EMMA
+10XXX * 07 JOV PTF10 Feil i arkivering på AVD/OPD når brev/IFB mangler (ingen/mange)
+10XXX * 08 JOV PTF10 Oppdater ALLE LEDD I KJEDEN (LEGG FERDIGE OPPDRAG I ARRAY/UNNGÅ DOBBELT)
+10XXX * 09 SH  PTF10 ikke sped POD på ff dup til hoved opppdrag
+      * 10 JOV PTF10 ny paramerter TTEDRE = Reason - KOP=kopi av hendelse på annet oppdrag
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 11 SH  PTF12 henter extension i SYGE112
+      * 12 JOV PTF12 JUSTERING PÅ PTF 11 - må finne lengde på fraktbrevsnr..
+      * 13 sh  PTF12 arc044  tilleggsparameter
+      * 14 JOV PTF12 Hvis lagring i google cloud send rett dit (den rutinen sletter lokalt)
+      * 15 sh  PTF12 arc044 må til batch
+********************************************************************
+     H DFTACTGRP(*NO)
+      *""""""""""""""""
+     FFIRMARC   IF   E           K DISK
+N14  FFIRMGOOG  IF   E           K DISK
+     FARKIVP    O  A E           K DISK
+     FDOKUF     IF   E           K DISK
+     FDOKUF7    IF   E           K DISK
+     F                                     RENAME(DOKUFR:DOKUFR7)
+     FFIRM      IF   E             DISK
+     FHEAD39    IF   E           K DISK
+N08  FHEADF     IF   E           K DISK
+N08  F                                     RENAME(HEADFR:HEADFRx)
+     FFRISOL01  IF   E           K DISK
+     FARKTXT    IF   E           K DISK    PREFIX(X_)
+     FARKEXT    IF   E           K DISK    PREFIX(Y_)
+n02  FSYPARL3   IF   E           K DISK
+      *""""""""""""""""
+     D DirName         S            100A
+     D EntryName       S            120A
+     D EntryPath       S            256A
+      *________________
+      * Andre variabler
+      *""""""""""""""""
+     D FBR20A          S             20
+     D FBR35B          S             35
+     D Tst401          S             35
+     D STAT            S              1
+     D TYPE            S              2
+     D AVD             S              4
+     D OPD             S              7
+     D XXFRBR          S             17
+     D NULL            S              1A   INZ(X'00')
+     D CMDLINE         S            512
+     D CMDLEN          S             15  5
+     D NEWDIR          S            100
+     D NEWFILE         S            100
+     D NEWOBJ          S            200
+s01  D*NEWEND          S              4
+s11  D*NEWEND          S             10
+     D NEWRAN          S             10
+N02   *  FRBREVxx (xx = avvikende mappe/arkivkode)
+N02  D                 DS
+N02  D  FBMAPPE                1     10
+N02  D  FBAVVIK                7      8
+N02  D                 DS
+N02  D  SYvrda                 1     50
+N02  D    SYvrda1_2            1      2
+N02  D    SYvrda4_6            4      6
+N02  D    SYvrda8_50           8     50
+N08  D                 DS
+N08  D  AV_OP                  1     11
+N08  D  HEAVD                  1      4  0
+N08  D  HEOPD                  5     11  0
+N08  D                 DS
+N08  D  AvOP                   1    110
+N08  D                                     DIM(10)                              I/O. frankatur
+
+     C                   EXSR      INIT
+      * Init sjekker match / Exit hvis ikke funet, DVS: Kommet hit=Arkiver
+     C                   EXSR      MOV
+     C     OkMov         IFEQ      'J'
+     C                   EXSR      ARK
+     C                   end
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+
+      *////////////////////////////////////////////////////////////
+      *  Init                                                INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     *entry        PLIST
+     C                   PARM                    DirName
+     C                   PARM                    EntryName
+     C                   PARM                    EntryPath
+N08   * INIT AV DS/NUMERISKE
+N08  C                   MOVE      *ZEROS        AV_OP
+      * Er det i POD-mappa..
+     C     'FRBREVPOD'   SCAN      Dirname                                33
+     C   33              move      'J'           POD               1
+N02   * Hvis ikke,er det i FRBREV eller er det 2 tegn bak med avvikende kode ??
+N02  c     *in33         ifne      *on
+N02  C     'FRBREV'      SCAN      Dirname       Sp                3 0    33
+N02  c                   eval      FBMAPPE = %subst(Dirname:Sp:10)
+N02  c                   end
+      *
+     C     Frikey        KLIST
+     C                   KFLD                    FSKODE
+     C                   KFLD                    FBR35B
+     C                   MOVE      'IFB'         FSKODE
+     C     DokufKey      KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   move      'F'           DFRI
+N08  C     HeaKey        KLIST
+N08  C                   KFLD                    HEAVD
+N08  C                   KFLD                    HEOPD
+      *
+      * VIA SKILLEARK ?? (Kun avd/oppdnr. tar da første og beste  fr.brev)
+N07  C                   move      *zeros        AvdOpd           11
+     C                   EVAL      TYPE   = %subst(EntryName:1:2)
+S04  C**   TYPE          IFEQ      'ZS'
+S04  C**   TYPE          oreq      'ZP'
+N04   * flere typer for fraktbrev kan være matchet via avd/oppdr.nr
+N04  C     TYPE          CHAIN     ARKTXT                             51
+N04  C     *IN51         IFEQ      *off
+     C                   exsr      SkilleSR
+     C     XXFRBR        ifne      *blanks
+     C     *IN33         andeq     *on
+      * det fantes ett og bare ett brev.. - arkiver på det
+     C                   EVAL      FBR20A = '401'+XXFRBR
+     C                   EVAL      FBR35B = XXFRBR
+     c                   goto      match
+     c                   else
+      * ikke unikt brev (XXFRBR blank=Inget, *IN33 OFF=mange)- arkiver på oppdragsnivå
+     C                   EVAL      FBR35B = AVD+OPD
+N07  C                   EVAL      AvdOpd = AVD+OPD
+     c                   goto      match2
+     c                   end
+     c                   end
+      *
+      * Normal er det identifisert via strekkoden i fraktbrevet...
+      * Type er    hardkodet Z=privat, S=stykkgodsfr.brev
+     C                   Eval      TYPE = 'ZS'
+     C     POD           ifeq      'J'
+     C                   Eval      TYPE = 'ZP'
+     C                   end
+N02  C     FBAVVIK       ifne      *blanks
+N02  C                   Eval      TYPE = FBAVVIK
+N02  C                   end
+
+      * Fraktbrevsnr er 20 første av Filnavn...
+      * I frisok lagres IKKE 401
+     C                   EVAL      TST401 = %subst(EntryName:1:3)
+     C     TST401        IFEQ      '401'
+     C                   EVAL      FBR20A = %subst(EntryName:1:20)
+     C                   EVAL      FBR35B = %subst(EntryName:4:17)
+     C                   ELSE
+      * Dersom . i filnavn ( .pdf) i pos 10 da er det 9 langt frbrev:legg til Ktr-sif
+s11  C*    '.'           SCAN      EntryName     X                 3 0
+s01  C*                  EVAL      NEWEND = %SUBST(EntryName:X:4)
+s11  C*    '_'           SCAN      EntryName:X   Y                 3 0
+s11  c*    Y             ifeq      *zeros
+s11  C*    ' '           SCAN      EntryName:X   Y                 3 0
+s11  c*                  end
+s11  C*                  EVAL      NEWEND = %SUBST(EntryName:X:y-x)
+n11  c                   eval      par512=EntryName
+n11  c                   call      'SYGE112'
+n11  c                   parm                    par512          512
+n11  c                   parm                    NEWEND           10
+N12  C     '.'           SCAN      EntryName     X                 3 0
+     c     X             Ifeq      10
+     C                   Movel     EntryName     WSSN9A            9
+     C                   Movel     EntryName     WSSN10           10
+     C                   MOVE      *ZEROS        XBAK              1 0
+     C                   MOVE      *ZEROS        UPAR21           21
+     C                   MOVE      WSSN9A        UPAR21
+     C                   testn                   wssn9a               33
+     C     *in(33)       ifeq      '1'
+     C                   CALL      'SYGE09'
+     C                   PARM                    UPAR21
+     C                   PARM                    XBAK
+     C                   MOVE      XBAK          WSSN10
+     C                   EVAL      EntryName =   WSSN10 + Newend
+     C                   END
+     C                   END
+     C                   EVAL      FBR20A = %subst(EntryName:1:10)
+     C                   EVAL      FBR35B = %subst(EntryName:1:10)
+     C                   END
+     C     Match         Tag
+      * FRAKTBREV ENTEN FRA INNLANDSSYSTEM (DA ER 401 MED..)  ELLER ...
+     C     FBR20A        chain     HEAD39                             33
+      * FANT IKKE I INNLAND...
+     C     *IN33         IFEQ      *ON
+     c     Frikey        Chain     Frisol01                           33
+     C     *IN33         IFEQ      *ON
+      * Burde flyttes til manuell mappe???? men da må denne mottas som
+      * innparameter... (bryter med tanken om at "agenten" kontinuerlig skal
+      * spise av mappen..
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+     C                   end
+     C                   end
+     C     Match2        Tag
+      * Definiere parameterliste
+     C     QCMDEXC       PLIST
+     C                   PARM                    CMDLINE
+     C                   PARM                    CMDLEN
+      *
+     C                   READ      FIRMARC                                41
+
+     C     EXKEY         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    X_ARKLAG
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Via skilleark/label                                  MOV /
+      *////////////////////////////////////////////////////////////
+     C     SKILLESR      BEGSR
+     C     TYPE          ifeq      'ZP'
+     C                   Eval      POD  = 'J'
+     C                   end
+      * AVD  er 4 neste av filnavn (3-6)
+     C                   EVAL      AVD = %subst(EntryName:3:4)
+     C                   TESTN                   AVD                  30
+     C                   IF        *IN30=*OFF
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDIF
+     C                   MOVE      AVD           HEAVD
+      * OPD  er 7 neste av filnavn (7-13)
+     C                   EVAL      OPD = %subst(EntryName:7:7)
+     C                   TESTN                   OPD                  30
+     C                   IF        *IN30=*OFF
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDIF
+     C                   MOVE      OPD           HEOPD
+      *  FINNS DET ETT OG BARE ETT BREV.
+     C                   MOVE      *blanks       XXFRBR
+     C     DokufKey      CHAIN     DOKUF                              33
+     C  N33              MOVEL     DF1004        XXFRBR
+     C  N33DokufKey      READE     DOKUF                                  33
+      * *IN33 OFF = det fantes mer en ett brev, legg hendelsen kun på oppdragsnr
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Flytt og endre navn på fil                           MOV /
+      *////////////////////////////////////////////////////////////
+     C     MOV           BEGSR
+      * Les firmafil for å få tak i firmakode.
+     C                   READ      FIRM
+      * Hent dato og klokkeslett
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+      * Hent slutt på filnavn (ex. .pdf) fra frafil
+     C     '.'           SCAN      EntryName     X                 3 0
+     C                   EVAL      NEWEND = %SUBST(EntryName:X:4)
+      * Generer random number
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN
+      * Definier ny katalog Hent fra standard
+     C                   EVAL      NEWDIR = '/' + %trimr(ARCANE)
+      * Er det på dokumenttypenivå angitt avvikende katalog?(via EXT lager)
+     C                   EVAL      *IN51 = *OFF
+     C     TYPE          CHAIN     ARKTXT                             51
+     C                   IF        *IN51 = *OFF
+     C     X_ARKLAG      IFNE      *BLANKS
+     C     EXKEY         CHAIN     ARKEXT                             51
+     C                   IF        *IN51 = *OFF
+     C                   EVAL      NEWDIR = '/' + %trimr(Y_ARCANE)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      * Definier nytt filnavn
+     C                   EVAL      NEWFILE= %trim(TYPE)
+     C                             + %SUBST(WDATO:1:4)
+     C                             + %trimr(FBR35B)
+     C                             + NEWRAN
+     C                             + NEWEND
+      * Lag nytt objektnavn
+     C                   EVAL      NEWOBJ = %trim(NEWDIR) + '/'
+     C                             + %trimr(NEWFILE)
+      * Flytte objekt
+     C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+     C                             + %trimr(EntryPath) + X'7D'
+     C                             + ') TOOBJ(' +X'7D'
+     C                             + %trimr(NEWOBJ) + X'7D' + ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   MOVE      'J'           OkMov             1
+     C                   MOVEl     EntryPath     FRA             120
+     C                   MOVEl     NewObj        Til             120
+     C                   CALL      'ARCAMOVC'
+     C                   PARM                    FRA
+     C                   PARM                    TIL
+     C                   PARM                    OkMov
+n14   *Hvis google cloud benyttes - send det i skyen med en gang
+n14  C                   IF        OkMov = 'J'
+n14  C     FIFIRM        chain     FIRMGOOG
+n14  C                   if        %found and GOBUID <> *blanks
+n14  c                   eval      Companyid = GOBUID
+n14  c                   eval      UlocalPath= %trim(NEWDIR)+'/'
+n14  c                   eval      USrcFile  = NEWFILE
+n14  c                   eval      UNewFile  = *blanks
+n14  c                   eval      Udelete   = 'J'
+n14  c                   call      'ARC99WSU1'
+n14  c                   parm                    Companyid        10
+n14  c                   parm                    UlocalPath      100
+n14  c                   parm                    uSrcFile        120
+n14  c                   parm                    udelete           1
+n14  c                   parm                    uNewFile         60
+n14  c                   parm                    Uok               1
+n14  c                   endif
+n14  c                   endif
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Finn alle oppdrag i kostn.bilaget                    ARK /
+      *////////////////////////////////////////////////////////////
+     C     ARK           BEGSR
+      *Det skal legges ut en arkivpost pr avd oppdrag som er berørt
+      * Innland...
+     C     FBR20A        IFNE      *BLANKS
+     C     FBR20A        SETLL     HEAD39
+     C     FBR20A        READE     HEAD39                                 33
+     C     *IN33         DOWEQ     *OFF
+S08  C*                  EXSR      ARK2
+N08  C                   EXSR      TSTDUP                                       FÅ MED DUP/IKKE DOBB
+     C     FBR20A        READE     HEAD39                                 33
+     C                   END
+     C                   END
+      *
+      * Frisøk IFB (også eksterne der en selv IKKE har utstedtt??)
+     C     Frikey        SETLL     Frisol01
+     C     Frikey        READE     Frisol01                               33
+     C     *IN33         DOWEQ     *OFF
+     C                   Move      Fsavd         HEAVD
+     C                   Move      Fsopd         HEOPD
+S08  C*                  EXSR      ARK2
+N08  C                   EXSR      TSTDUP                                       FÅ MED DUP/IKKE DOBB
+     C     Frikey        READE     Frisol01                               33
+     C                   END
+      *
+n07   * Fra skillearks(eller upload)-rutina - rett på avd/oppd
+n07  C     AvdOpd        ifne      *zeros
+n07  C     AvdOpd        andne     *blanks
+n07  C                   Movel     AvdOpd        HEAVD
+n07  C                   Move      AvdOpd        HEOPD
+S08  C*                  EXSR      ARK2
+N08  C                   EXSR      TSTDUP                                       FÅ MED DUP/IKKE DOBB
+N07  C                   endif
+     C                   ENDSR
+
+N08   *******************************************
+N08  C     TSTDUP        BEGSR
+N08   *******************************************
+N08   * FÅ MED DUP - også mor/barn i en DUP-kjede??
+N08   *    MEN IKKE DOBBELT (SJEKEKS I TSTDUP2)
+N08   *
+N08  c     Heakey        chain     Headf                              33
+N08  c     *in33         ifeq      *off
+N08   * FØRST SELVE OPPDRAGET SOM ER LEST..
+N10  C                   MOVE      *BLANKS       TTEDRE
+N08  C                   EXSR      TSTDUP2
+N08   *
+N10  C                   MOVE      'KOP'         TTEDRE
+N08   * OVERORDNET
+N08  c     TROPD0        ifne      *zeros
+n08  C                   Movel     TRAVD0        HEAVD
+N08  C                   Move      TROPD0        HEOPD
+N08  C                   EXSR      TSTDUP2
+N08  C                   endif
+N08   * INNHENTINGSDUP
+N08  c     TROPD1        ifne      *zeros
+n08  C                   Movel     TRAVD1        HEAVD
+n08  C                   Move      TROPD1        HEOPD
+N08  C                   EXSR      TSTDUP2
+N08  C                   endif
+N08   * INNHENTINGSDUP
+N08  c     TROPD2        ifne      *zeros
+n08  C                   Movel     TRAVD2        HEAVD
+n08  C                   Move      TROPD2        HEOPD
+N08  C                   EXSR      TSTDUP2
+N08  C                   endif
+N08  C                   endif
+N08  C                   ENDSR
+N08   *******************************************
+N08  C     TSTDUP2       BEGSR
+N08   *******************************************
+N08  C     1             DO        10            NO                2 0
+N08  C     AVOP(NO)      CABEQ     AV_OP         FERDDUP
+N08  C     AVOP(NO)      IFEQ      *BLANKS                                      IKKE BEHANDLET  FØR
+N08  C                   MOVEL     AV_OP         AVOP(NO)
+N08  C                   EXSR      ARK2
+N08  c                   leave
+N08  C                   endif
+N08  C                   ENDDO
+N08  C     FERDDUP       ENDSR
+N08   *
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP                                     ARK2/
+      *////////////////////////////////////////////////////////////
+     C     ARK2          BEGSR
+      * EGEN-UTSTEDT, LAGRE FR.BR.NR/TYPE I ARUNDE
+     C                   move      *BLANKS       FBNRA             4
+     C     FBR35B        Chain     Dokuf7                             33
+     C     *IN33         ifeq      *OFF
+     C                   movel     dffbnr        FBNRA
+     C                   move      'F'           FBNRA
+     C     DFtoll        ifne      *zeros
+     C                   move      'T'           FBNRA
+     c                   end
+     c                   end
+      * Skriv til ARKIVP
+     C                   CLEAR                   ARKIVR
+
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C                   EVAL      ARAVD  = HEAVD
+     C                   EVAL      AROPD  = HEOPD
+     C                   EVAL      ARUNDE = FBNRA +'F'
+     C                   EVAL      ARUSER = 'SY400USR'
+     C                   move      WDATO         ARDATE
+     C                   movel     WTID          ARTIME
+     C                   EVAL      ARKUND = 0
+     C                   EVAL      ARLINK = NEWFILE
+
+     C                   WRITE     ARKIVR
+N15   * GIDDER IKKE MERKE
+     C                   MOVE      ARAVD         ARAVDX            4
+     C                   MOVE      AROPD         AROPDX            7
+     C                   MOVE      ARDATE        ARDATEX           8
+     C                   CALL      'ARC044CL'
+     C                   PARM                    ARAVDX
+     C                   PARM                    AROPDX
+     C                   PARM                    ARTYPE
+     c                   parm                    ardateX
+     c                   parm                    arlink
+
+      *Kun POD og avvikende mappe skal/kan skrive til T&T..
+     C     POD           ifne      'J'
+N02  C     FBAVVIK       andeq     *blanks
+     C                   goto      UtArk2
+     C                   end
+      *
+N02  c                   move      *blanks       TTACTI
+N03  C     POD           ifeq      'J'
+N03  c                   move      'POD'         TTACTI                         default v/POD
+N03  c                   endif
+N03  c                   move      *blanks       TidsOppf          1
+N02  C     SyparKey      KLIST
+N02  C                   KFLD                    XXPAID            5
+N02  C                   KFLD                    XXVRDA           50
+N02  C                   movel     'ARKTT'       XXPAID
+e03  C                   movel     TYPE          XXVRDA
+N03   * ark-koden er del av KEY i SYPARL3 - alltid nok med EN chain
+N02  C     SyparKey      setll     SYPARL3
+N02  C     XXPAID        reade     SYPARL3                                33
+e03  c  N33SYvrda1_2     comp      TYPE                               3333
+n02  c  N33              movel     SYvrda4_6     TTACTI
+n02  c  N33              movel     SYvrda8_50    TTtext
+n03  c  N33SyvrdN        ifeq      1
+n05  c     SyvrdN        oreq      2                                            Også klokke-krav
+n03  c                   move      'J'           TidsOppf
+N03  c                   end
+      * Oppdater POD i T&T
+     C     POD           ifeq      'J'
+N09  c     trackff       andne     'J'
+S01  C*    ARAVD         ANDNE     GMAVD
+S01  C*    AROPD         ANDNE     GMOPD
+S08  C*    ARAVD         IFNE      GMAVD
+S08  C*    AROPD         ORNE      GMOPD
+     C                   call      'ARCAPOD'
+     C                   parm                    ARAVD
+     C                   parm                    AROPD
+     C                   parm                    ARDATE
+     C                   parm                    ARTIME
+     C                   parm                    ARUSER
+N02  C                   parm                    TTACTI            3
+N02  C                   parm                    TTEDRE            3
+N02  C                   parm                    TidsOppf
+N09   *
+N09   * HVIS TRSLAG FF ikke spre TT videre
+N09   *
+N09  c     trslag        ifeq      'FF'
+N09  c                   move      'J'           trackff           1
+N09  c                   end
+S08  C*                  MOVE      ARAVD         GMAVD             4 0
+S08  C*                  MOVE      AROPD         GMOPD             7 0
+S08  C*                  end
+     c                   goto      UTArk2
+N01  C                   end
+N02   * avvikende type
+N02  C     FBAVVIK       ifne      *blanks
+N02  C     TTACTI        ifne      *blanks
+S08  C*    ARAVD         IFNE      GMAVD
+S08  C*    AROPD         ORNE      GMOPD
+N02  C                   call      'ARCAFXX'
+N02  C                   parm                    ARAVD
+N02  C                   parm                    AROPD
+N02  C                   parm                    TTFBNR            3 0
+N02  C                   parm                    TTACTI            3
+N02  C                   parm                    TTTEXT           70
+N02  C                   parm                    ARDATE
+N02  C                   parm                    ARTIME
+N02  C                   parm                    ARUSER
+N02  C                   parm                    TidsOppf
+S08  C*                  MOVE      ARAVD         GMAVD
+S08  C*                  MOVE      AROPD         GMOPD
+S08  C*                  end
+N02  C                   end
+N02  C                   end
+     C     UTARK2        ENDSR

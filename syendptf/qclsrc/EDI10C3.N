@@ -1,0 +1,182 @@
+/* *********************************************************************   */
+/*       * RETTINGER I DETTE PROGRAM:                                      */
+/* PTFnr:*Sek Sig Vers  Beskrivelse..........................              */
+/* """"""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""    */
+/* XXXXX * 01 CB  PTF10 KONVERTER EDIFACT FRA 1024 TIL 80 I RCDLEN         */
+/* 10030 * 02 CB  PTF10 FÅ MED IFSPAREMETER INN I VALIDERINGSPGM           */
+/* 12XXX * 03 CB  PTF12 BYTT JOBQ SLIK ATT IKKE TVINN STÖRES               */
+/* 12XXX * 04 CB  PTF12 OVRDBF XXXX MED FRCRATIO(*NONE)                    */
+/* 12260 * 05 YBC PTF12 IKKE KOPIER SVENSK KODEFILER TIL EDI.BACK1K        */
+/* ********************************************************************    */
+             PGM
+        /*___________________*/
+        /* Declare variables */
+        /*"""""""""""""""""""*/
+             DCL        VAR(&LIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MEMBER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MLNAME) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&DATE) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&JUL) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&TIME) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&PGM) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&W0065) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&DATA) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&LEN) TYPE(*DEC) LEN(5 0) VALUE(30)
+             DCL        VAR(&TYPE) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&PREFIX) TYPE(*CHAR) LEN(1)
+/*N05*/      DCL        VAR(&SVKODE) TYPE(*CHAR) LEN(1)
+             DCLF       FILE(EDI10C) RCDFMT(QWHFDML)
+             RTVDTAARA  DTAARA(EDIDTA (171 10)) RTNVAR(&LIB)
+        /*________________*/
+        /* Get memberlist */
+        /*""""""""""""""""*/
+             CLRPFM     FILE(QTEMP/EDI10C)
+             MONMSG     MSGID(CPF0000)
+             DSPFD      FILE(EDI79F1K) TYPE(*MBRLIST) +
+                          OUTPUT(*OUTFILE) FILEATR(*PF) +
+                          OUTFILE(QTEMP/EDI10C)
+             MONMSG     MSGID(CPF0000)
+        /*_________________*/
+        /* Read memberlist */
+        /*"""""""""""""""""*/
+ READ:       RCVF       RCDFMT(*FILE)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(EXIT))
+             IF         COND(&MLNAME *EQ '          ') THEN(GOTO +
+                          CMDLBL(READ))
+        /*______________*/
+        /* Spec for RJE */
+        /*""""""""""""""*/
+             IF         COND(&MLNRCD *GT 0) THEN(GOTO +
+                          CMDLBL(NOTRJE))
+             CHGVAR     VAR(&PREFIX) VALUE(%SST(&MLNAME 1 1))
+             IF         COND(&PREFIX *NE 'B') THEN(GOTO +
+                          CMDLBL(NOTRJE))
+                          GOTO READ
+        /*___________________*/
+        /* Any memberlocks ? */
+        /*"""""""""""""""""""*/
+             NOTRJE:      ALCOBJ     OBJ((EDI79F1K *FILE *EXCL &MLNAME)) WAIT(1)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(READ))
+        /*____________________*/
+        /* TAR BACKUP AV MOTTAK */
+        /*""""""""""""""""""""*/
+             CHGJOB     DATFMT(*JUL)
+             RTVJOBA    DATE(&DATE)
+             CHGJOB     DATFMT(*SYSVAL)
+             DLYJOB     DLY(1)
+             RTVSYSVAL  SYSVAL(QTIME) RTNVAR(&TIME)
+             CHGVAR     VAR(&JUL) VALUE(%SST(&DATE 3 3))
+             CHGVAR     VAR(&MEMBER) VALUE('E' *CAT &JUL *CAT &TIME)
+/*N05*/      OVRDBF     FILE(EDI79F1K) MBR(&MLNAME) FRCRATIO(*NONE)
+/*N05*/      CALL       PGM(EDI851KSE) PARM(&SVKODE)
+/*N05*/      IF         COND(&SVKODE *NE 'J') THEN(DO)
+/*N04*/      OVRDBF     FILE(EDI79F1K) FRCRATIO(*NONE)
+/*N04*/      OVRDBF     FILE(EDI.BACK1K) FRCRATIO(*NONE)
+/*S04        CPYF       FROMFILE(*LIBL/EDI79F1K) TOFILE(EDI.BACK1K) +
+                          FROMMBR(&MLNAME) TOMBR(&MEMBER) MBROPT(*ADD)  */
+/*S04        MONMSG     MSGID(CPF0000)      */
+/*N05*/      ENDDO
+             CALL       PGM(EDISXR1) PARM(&MLNAME &MEMBER)
+        /*____________________*/
+        /* Split the workfile */
+        /*""""""""""""""""""""*/
+/*N05*/      IF         COND(&SVKODE *NE 'J') THEN(DO)
+ TAG01:      CLRPFM     FILE(EDI85F1K) MBR(EDI73C2)
+             MONMSG     MSGID(CPF0000)
+/*E04*/      OVRDBF     FILE(EDI79F1K) MBR(&MLNAME) FRCRATIO(*NONE)
+/*E04*/      OVRDBF     FILE(EDI85F1K) MBR(EDI73C2) FRCRATIO(*NONE)
+/*S02        CALL       PGM(EDI85R1K) PARM(&TYPE)  */
+/*N02*/      CALL       PGM(EDI85R1K) PARM(&TYPE &MLNAME)
+             IF         COND(&TYPE *EQ '    ') THEN(DO)
+             RMVM       FILE(EDI79F1K) MBR(&MLNAME)
+             MONMSG     MSGID(CPF0000)
+             GOTO       CMDLBL(READ)
+             ENDDO
+/*N05*/      ENDDO
+        /*____________________________________*/
+        /* Create new member in file: EDIRE1K */
+        /*""""""""""""""""""""""""""""""""""""*/
+/*N04*/      OVRDBF     FILE(EDIRE1K) FRCRATIO(*NONE)
+/*N05*/      IF         COND(&SVKODE *EQ 'J') THEN(DO)
+/*N05*/      OVRDBF     FILE(EDI79F1K) MBR(&MLNAME) FRCRATIO(*NONE)
+/*N05*/      CALL       PGM(EDI10C3RSE) PARM(&MEMBER)
+/*N05*/      ENDDO
+/*N05*/      ELSE       CMD(DO)
+ NYMBR:      CALL       PGM(EDI10C3R) PARM(&MEMBER)
+/*N05*/      ENDDO
+             CALL       PGM(EDISXR2) PARM(&MLNAME &MEMBER)
+        /*_________________________________*/
+        /* Find Messagetype in interchange */
+        /*"""""""""""""""""""""""""""""""""*/
+/*N05*/      IF         COND(&SVKODE *EQ 'J') THEN(DO)
+/*N05*/      OVRDBF     FILE(EDI79F1K) MBR(&MLNAME) FRCRATIO(*NONE)
+/*N05*/      CALL       PGM(EDI80R1KSE) PARM(&W0065)
+/*N05*/      ENDDO
+/*N05*/      ELSE       CMD(DO)
+             CALL       PGM(EDI80R1K) PARM(&W0065)
+/*N05*/      ENDDO
+             CHGVAR     VAR(&PGM) VALUE(EDIOCC1K)
+             IF         COND(&W0065 *EQ IMPORT) THEN(CHGVAR +
+                          VAR(&PGM) VALUE(TVI21C1K))
+             IF         COND(&W0065 *EQ EXPORT) THEN(CHGVAR +
+                          VAR(&PGM) VALUE(TVI21C1K))
+             IF         COND((&W0065 *EQ IFTMIN) *OR (&W0065 *EQ +
+                          IFTMBP) *OR (&W0065 *EQ IFTMBF) *OR +
+                          (&W0065 *EQ IFCSUM) *OR (&W0065 *EQ +
+                          INVOIC) *OR (&W0065 *EQ ORDERS) *OR +
+                          (&W0065 *EQ ORDRSP) *OR (&W0065 *EQ +
+                          IFTMCS) *OR (&W0065 *EQ IFTSTA) *OR +
+                          (&W0065 *EQ APERAK) *OR (&W0065 *EQ +
+                          DESADV) *OR (&W0065 *EQ PRICAT) *OR +
+                          (&W0065 *EQ IFTMAN) *OR (&W0065 *EQ +
+                          INVRPT)) THEN(DO)
+/*N01*/      ADDPFM     FILE(EDI79F) MBR(&MEMBER)
+/*N01*/      MONMSG     MSGID(CPF0000)
+/*N01*/      OVRDBF     FILE(EDI79F) MBR(&MEMBER)
+/*N01*/      MONMSG     MSGID(CPF0000)
+/*N01*/      CALL       PGM(EDI86R)
+/*N01*/      MONMSG     MSGID(CPF0000)
+/*N01*/      GOTO       CMDLBL(TAG01)
+             CHGVAR     VAR(&DATA) VALUE(&LIB *CAT 'EDIRE1K   ' +
+                          *CAT &MEMBER)
+             CALL       PGM(QSNDDTAQ) PARM(E081Q *LIBL    &LEN &DATA)
+             MONMSG     MSGID(CPF0000)
+             GOTO       CMDLBL(TAG01)
+                         ENDDO
+        /*______________________________________*/
+        /* Submit translate of messages in JOBQ */
+        /*""""""""""""""""""""""""""""""""""""""*/
+             IF         COND((&W0065 *EQ IMPORT) *OR (&W0065 *EQ +
+                          EXPORT)) THEN(GOTO CMDLBL(SYSPED))
+
+/*S03        SBMJOB     CMD(CALL PGM(&PGM) PARM(EDIRE1K *LIBL +
+                          &MEMBER)) JOB(RCVEDI1K) JOBD(SY400JOBD) +
+                          JOBQ(SY400QER)    */
+/*N03*/      SBMJOB     CMD(CALL PGM(&PGM) PARM(EDIRE1K *LIBL +
+                          &MEMBER)) JOB(RCVEDI1K) JOBD(SY400JOBD) +
+                          JOBQ(SY400JOBQ)
+        /*__________________________________*/
+        /* Read next record from memberlist */
+        /*""""""""""""""""""""""""""""""""""*/
+             GOTO       CMDLBL(TAG01)
+        /*_____________________________________________*/
+        /* Submit translate of messages in SYSPED JOBQ */
+        /*"""""""""""""""""""""""""""""""""""""""""""""*/
+/*S03        SBMJOB     CMD(CALL PGM(&PGM) PARM(EDIRE1K *LIBL +
+                          &MEMBER)) JOB(RCVTVI1K) +
+                          JOBD(SY400JOBD) +
+                          JOBQ(SY400QER) INLLIBL(*JOBD)  */
+/*N03*/
+ SYSPED:     SBMJOB     CMD(CALL PGM(&PGM) PARM(EDIRE1K *LIBL +
+                          &MEMBER)) JOB(RCVTVI1K) +
+                          JOBD(SY400JOBD) +
+                          JOBQ(SY400JOBQ) INLLIBL(*JOBD)
+        /*__________________________________*/
+        /* Read next record from memberlist */
+        /*""""""""""""""""""""""""""""""""""*/
+             GOTO       CMDLBL(TAG01)
+        /*______*/
+        /* Exit */
+        /*""""""*/
+ EXIT:       RCLRSC
+             ENDPGM

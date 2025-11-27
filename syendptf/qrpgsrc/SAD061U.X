@@ -1,0 +1,2749 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 KODE FOR DOKUMENT = M2 --> MVA FRITAK
+10XXX * 02 YBC PTF10 SETT IKKE SEKVENS=1 NÅR DET ER MV
+10XXX * 03 YBC PTF10 PROSEDYRE 60-69 MED MVA, UTEN TOLL
+10XXX * 04 YBC PTF10 SLUTT DATO PÅ TOLLTARIFF
+10XXX * 05 YBC PTF10 SÆRAVGIFT I ØRE MÅ AVRUNDES TO GANGER. FØRST
+      *              AVRUNDES TIL HEL ØRE, SÅ TIL KRONER
+10XXX * 06 YBC PTF10 HENT MOMS SATS
+10XXX * 07 YBC PTF10 TEST OM KUNDE SKAL HA MILJØ-GEBYR
+10XXX * 08 YBC PTF10 ØREAVRUNING
+10XXX * 09 YBC PTF10 ENHET L
+10XXX * 10 YBC PTF10 AVGIFT MED BREGINGSMÅTE B
+10XXX * 11 YBC PTF10 VERDIFASTSETTELSE KAN IKKE VÆRE 1 VED TRANSAKSJONSTYPE = 9
+10XXX * 12 YBC PTF10 RETT PÅ ENDRING 5. TOLL BEHANDLES SOM ANDRE PROSEDYRE
+10XXX * 13 YBC PTF10 IKKE HENT VAREBESKRIVELSE FRA TARIFF-REG FOR TILLEGGSLINJE
+10031 * 14 YBC PTF10 BEHOLD KUNDENR VED SØKING PÅ KUNDES VAREREG.
+10037 * 15 YBC PTF10 TOLL BEREGNINGSMÅTE
+10221 * 16 YBC PTF10 IKKE SER-DOKUMENT NÅR PREFERANSE = 'J'/'N'
+      *              KRAV SER-DOKUMENT NÅR PREFERANSE = 'A'/'B'/'C'/'G'/'P'
+10244 * 17 YBC PTF10 VARENR ER UTVIDERT FRA 15A TIL 28A
+10262 * 18 YBC PTF10 TOLLSATS ER UTVIDERT TIL 7.2
+      *              DEL AV ENDRING 15 ER FJERNET
+10279 * 19 CB  PTF10 Økt SVFT fra 17 til 28
+10XXX * 20 YBC PTF10 DESIMAL FEIL PÅ SVBELS
+10286 * 21 YBC PTF10 VEKT ER ENDRET FRA 9.0 TIL 12.3
+      *              VAREBESKRIVELSE ER ØKT FRA 15A TIL 30A
+10329 * 22 YBC PTF10 MENGDE I ANNEN ENHET ER ENDRET FRA 7.0 TIL 9.0
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11009 * 23 YBC PTF11 FEILMELDING VED MANGEL AV ANNEN ENHET
+11016 * 24 YBC PTF11 OMBEREGNING
+11016 * 25 YBC PTF11 Mengde i annen enhet, kalkulator funket ikke
+11020 * 26 YBC PTF11 TARIFFREG. HAR FLERE NYE LAND OG REGIONER
+11XXX * 27 YBC PTF11 IKKE HENT VAREBESKRIVELSE FRA SOKTARI
+11XXX * 28 YBC PTF11 OPPDATER AVG.KODE ETTER VALG AV AVGIFTER
+11XXX * 29 SH  PTF11 startverdi søk varenummer
+11XXX * 30 YBC PTF11 RETTELSE PÅ ENDRING 28
+11XXX * 31 YBC PTF11 GODTA TIDLIGST TARIFF NÅR OPPRINNELIG TARIFF ER SLETTET
+      *              VED OMBEREGNING
+11XXX * 32 SH  PTF11 ikke sette moms ved kode 57
+11132 * 33 YBC PTF11 3 DESIMALER PÅ KALKULATOR
+11138 * 34 YBC PTF11 VIS STATUS PÅ FEILMELDING FRA TVINN. IND. 52
+11174 * 35 YBC PTF11 TILLEGGSLINJER MED SAMME POST
+11185 * 36 YBC PTF11 VIS TOTAL VEKT OG SUM AV LINJEVEKT
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX * 37 YBC PTF12 FEILRETTING PÅ TEST AV DOK.REF OG DOBBEL BRUK IND. 62
+12XXX * 38 YBC PTF12 SETT RITKIG KODE FOR NY ELLER ENDRING
+12XXX * 39 YBC PTF12 Beregn vekt etter faktor fra første side
+12044 * 40 YBC PTF12 IKKE M2 I DOKUMENT VED MVA-REGISTRERT
+12053 * 41 YBC PTF12 FLERE FELTER ER UTVIDET.
+12XXX * 42 YBC PTF12 KODE FOR BEREGNING AV TOLL
+12079 * 43 YBC PTF12 BEVARE LINJER PÅ TIDLIGERE OMBEREGNING
+********************************************************************
+     H DECEDIT('0,') DATEDIT(*DMY.)
+     FSADVARE   IF A E           K DISK
+     FSADH      IF   E           K DISK
+     FSADVJ     UF A E           K DISK
+     FSADV      UF A E           K DISK
+     FSADSD     IF   E           K DISK
+     FKODTVAL2  IF   E           K DISK
+     FMULTKOD2  IF   E           K DISK
+     FKODTSB    IF   E           K DISK
+     FKODTS8L2  IF   E           K DISK
+     F                                     RENAME(KOS8R:KOS8RL2)
+     FCUNDMAF   IF A E           K DISK
+     FTARI      UF   E           K DISK
+S27  F*SOKTARI2  IF   E           K DISK
+     FSYPTFF    IF   E           K DISK
+     FSAD061FU  CF   E             WORKSTN USROPN
+     F                                     INFDS(FBAREA)
+     D A1              S              1    DIM(5) CTDATA PERRCD(5)
+      *
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D XVB44           C                   CONST('FLYTTEGODS     ')
+     D XVB61           C                   CONST('RETUR MESSEGODS')
+     D XLVTXT          C                   CONST('FAKTURAERKLÆRING')
+     D                 DS
+     D  SITRT                  1      7  0
+     D  SISLAA                 1      1  0
+     D  SIDFVF                 2      2  0
+     D                 DS
+     D  KS8FTX                 1     52
+     D  KS8MIL                52     52
+     D  KS8ØRE                51     51
+     D                 DS
+     D  UPARM2                 1    512
+     D  UAVD                   1      4  0
+     D  UTDN                   5     11  0
+      * ULI = NESTE LINJENR
+     D  ULI                   12     16  0
+      * UVLI = LINJENR TIL HOVEDLINJE
+     D  UVLI                  17     21  0
+S41  D* UFAKNO                22     30  0
+     D  UTOPP1                31     47
+     D  UCREF1                76     78
+     D  UIN29                 79     79
+     D  UIN37                 80     80
+     D  UIN39                 82     82
+     D  UIN46                 83     83
+     D  UIN60                 84     84
+     D  W2VSUM                85     97  2
+     D  W2DIFF                98    110  2
+     D  UF11                 111    111
+     D  UF21                 112    112
+     D  ULVERD               113    113
+     D  UVS1                 114    138
+     D  UVS2                 139    163
+     D  UFIRM                164    165
+     D  UVF                  166    166
+     D  ULK                  167    168
+     D  UVNT                 169    176
+     D  UTN                  177    177
+     D  UPRE                 178    178
+     D  UPVA                 179    179
+S18  D* UAS                  180    184
+S18  D* UMFR                 185    185
+S18  D* USIDT                186    193  0
+S18  D* UTOPP2               194    210
+S18  D* UCREF2               211    213
+S18  D* UTOPP3               214    230
+S18  D* UCREF3               231    233
+S18  D* UTOPP4               234    250
+S18  D* UCREF4               251    253
+S18  D* UTOPP5               254    270
+S18  D* UCREF5               271    273
+S18  D* UKNVARE              274    281
+N18  D  UAS                  180    186
+N18  D  UMFR                 187    187
+N18  D  USIDT                188    195  0
+N18  D  UTOPP2               196    212
+N18  D  UCREF2               213    215
+N18  D  UTOPP3               216    232
+N18  D  UCREF3               233    235
+N18  D  UTOPP4               236    252
+N18  D  UCREF4               253    255
+N18  D  UTOPP5               256    272
+N18  D  UCREF5               273    275
+N18  D  UTOPP6               276    292
+N18  D  UCREF6               293    295
+N18  D  UTOPP7               296    312
+N18  D  UCREF7               313    315
+N18  D  UTOPP8               316    332
+N18  D  UCREF8               333    335
+N18  D  UTOPP9               336    352
+N18  D  UCREF9               353    355
+N18  D  UTOPP10              356    372
+N18  D  UCREF10              373    375
+N18  D  UKNVARE              376    383
+N36  D  W2VKB                384    396  3
+N36  D  W2VDIF               397    409  3
+N41  D  UFAKNO               410    420  0
+     D  UFLAGG               512    512  0
+     D*                DS
+     D* SVTO                   1     45
+     D* SVTOA                  1     22
+     D* SVTOB                 23     45
+     D                 DS
+     D  W2AKD1                 1      2
+     D  W2AKD2                 3      4
+     D  W2AKD3                 5      6
+     D  W2AKD4                 7      8
+     D  W2AKD5                 9     10
+     D  W2AKD6                11     12
+     D  W2AKD7                13     14
+     D  W2AKD8                15     16
+     D  AKD                    1     16    DIM(8)
+     D                 DS
+     D  W2ASV1                 1      3
+     D  W2ASV2                 4      6
+     D  W2ASV3                 7      9
+     D  W2ASV4                10     12
+     D  W2ASV5                13     15
+     D  W2ASV6                16     18
+     D  W2ASV7                19     21
+     D  W2ASV8                22     24
+     D  ASV                    1     24    DIM(8)
+     D                 DS
+     D  W2ASA1                 1      7  2
+     D  W2ASA2                 8     14  2
+     D  W2ASA3                15     21  2
+     D  W2ASA4                22     28  2
+     D  W2ASA5                29     35  2
+     D  W2ASA6                36     42  2
+     D  W2ASA7                43     49  2
+     D  W2ASA8                50     56  2
+     D  ASA                    1     56  2 DIM(8)
+     D                 DS
+E41  D  W2AGR1                 1     13  2
+E41  D  W2AGR2                14     26  2
+E41  D  W2AGR3                27     39  2
+E41  D  W2AGR4                40     52  2
+E41  D  W2AGR5                53     65  2
+E41  D  W2AGR6                66     78  2
+E41  D  W2AGR7                79     91  2
+E41  D  W2AGR8                92    104  2
+E41  D  AGR                    1    104  2 DIM(8)
+     D                 DS
+E41  D  W2ABL1                 1     13  2
+E41  D  W2ABL2                14     26  2
+E41  D  W2ABL3                27     39  2
+E41  D  W2ABL4                40     52  2
+E41  D  W2ABL5                53     65  2
+E41  D  W2ABL6                66     78  2
+E41  D  W2ABL7                79     91  2
+E41  D  W2ABL8                92    104  2
+E41  D  ABL                    1    104  2 DIM(8)
+     D                 DS
+S19  D* W2FT01                 1     17
+S19  D* W2FT02                18     34
+S19  D* W2FT03                35     51
+S19  D* W2FT04                52     68
+S19  D* W2FT05                69     85
+S19  D* W2FT06                86    102
+S19  D* W2FT07               103    119
+S19  D* VFT                    1    136    DIM(8)
+N19  D  W2FT01                 1     28
+N19  D  W2FT02                29     56
+N19  D  W2FT03                57     84
+N19  D  W2FT04                85    112
+N19  D  W2FT05               113    140
+N19  D  W2FT06               141    168
+N19  D  W2FT07               169    196
+N19  D  VFT                    1    224    DIM(8)
+     D                 DS
+     D  W2NT01                 1      6  0
+     D  W2NT02                 7     12  0
+     D  W2NT03                13     18  0
+     D  W2NT04                19     24  0
+     D  W2NT05                25     30  0
+     D  W2NT06                31     36  0
+     D  W2NT07                37     42  0
+     D  VNT                    1     48  0 DIM(8)
+     D                 DS
+     D  W2EH01                 1      4
+     D  W2EH02                 5      8
+     D  W2EH03                 9     12
+     D  W2EH04                13     16
+     D  W2EH05                17     20
+     D  W2EH06                21     24
+     D  W2EH07                25     28
+     D  VEH                    1     32    DIM(8)
+     D                 DS
+S21  D* W2VT01                 1     15
+S21  D* W2VT02                16     30
+S21  D* W2VT03                31     45
+S21  D* W2VT04                46     60
+S21  D* W2VT05                61     75
+S21  D* W2VT06                76     90
+S21  D* W2VT07                91    105
+S21  D* VVT                    1    120    DIM(8)
+N21  D  W2VT01                 1     30
+N21  D  W2VT02                31     60
+N21  D  W2VT03                61     90
+N21  D  W2VT04                91    120
+N21  D  W2VT05               121    150
+N21  D* W2VT06               151    180
+N21  D* W2VT07               181    210
+N21  D  VVT                    1    240    DIM(8)
+     D                 DS
+     D  W2TOP1                 1     17
+     D  W2TOP2                18     34
+     D  W2TOP3                35     51
+     D  W2TOP4                52     68
+     D  W2TOP5                69     85
+N21  D  W2TOP6                86    102
+N21  D  W2TOP7               103    119
+N21  D  W2TOP8               120    136
+N21  D  W2TOP9               137    153
+N21  D  W2TOP10              154    170
+     D  TOP                    1    187    DIM(11)
+     D                 DS
+     D  W2CRE1                 1      3
+     D  W2CRE2                 4      6
+     D  W2CRE3                 7      9
+     D  W2CRE4                10     12
+     D  W2CRE5                13     15
+N21  D  W2CRE6                16     18
+N21  D  W2CRE7                19     21
+N21  D  W2CRE8                22     24
+N21  D  W2CRE9                25     27
+N21  D  W2CRE10               28     30
+     D  TCR                    1     33    DIM(11)
+     D                 DS
+     D  SVAKD1                 1      2
+     D  SVAKD2                 3      4
+     D  SVAKD3                 5      6
+     D  SVAKD4                 7      8
+     D  SVAKD5                 9     10
+     D  SVAKD6                11     12
+     D  SVAKD7                13     14
+     D  SVAKD8                15     16
+     D  SVAKD                  1     16    DIM(8)
+     D                 DS
+     D  SVASV1                 1      3
+     D  SVASV2                 4      6
+     D  SVASV3                 7      9
+     D  SVASV4                10     12
+     D  SVASV5                13     15
+     D  SVASV6                16     18
+     D  SVASV7                19     21
+     D  SVASV8                22     24
+     D  SVASV                  1     24    DIM(8)
+     D                 DS
+     D  SVASA1                 1      7  2
+     D  SVASA2                 8     14  2
+     D  SVASA3                15     21  2
+     D  SVASA4                22     28  2
+     D  SVASA5                29     35  2
+     D  SVASA6                36     42  2
+     D  SVASA7                43     49  2
+     D  SVASA8                50     56  2
+     D  SVASA                  1     56  2 DIM(8)
+     D                 DS
+E41  D  SVAGR1                 1     13  2
+E41  D  SVAGR2                14     26  2
+E41  D  SVAGR3                27     39  2
+E41  D  SVAGR4                40     52  2
+E41  D  SVAGR5                53     65  2
+E41  D  SVAGR6                66     78  2
+E41  D  SVAGR7                79     91  2
+E41  D  SVAGR8                92    104  2
+E41  D  SVAGR                  1    104  2 DIM(8)
+     D                 DS
+E41  D  SVABL1                 1     13  2
+E41  D  SVABL2                14     26  2
+E41  D  SVABL3                27     39  2
+E41  D  SVABL4                40     52  2
+E41  D  SVABL5                53     65  2
+E41  D  SVABL6                66     78  2
+E41  D  SVABL7                79     91  2
+E41  D  SVABL8                92    104  2
+E41  D  SVABL                  1    104  2 DIM(8)
+     D                 DS
+     D  SVFT01                 1     28
+     D  SVFT02                29     56
+     D  SVFT03                57     84
+     D  SVFT04                85    112
+     D  SVFT05               113    140
+     D  SVFT06               141    168
+     D  SVFT07               169    196
+     D  SVFT                   1    224    DIM(8)
+     D                 DS
+     D  SVNT01                 1      6  0
+     D  SVNT02                 7     12  0
+     D  SVNT03                13     18  0
+     D  SVNT04                19     24  0
+     D  SVNT05                25     30  0
+     D  SVNT06                31     36  0
+     D  SVNT07                37     42  0
+     D  SVNT                   1     48  0 DIM(8)
+     D                 DS
+     D  SVEH01                 1      4
+     D  SVEH02                 5      8
+     D  SVEH03                 9     12
+     D  SVEH04                13     16
+     D  SVEH05                17     20
+     D  SVEH06                21     24
+     D  SVEH07                25     28
+     D  SVEH                   1     32    DIM(8)
+     D                 DS
+     D  SVVT01                 1     30
+     D  SVVT02                31     60
+     D  SVVT03                61     90
+     D  SVVT04                91    120
+     D  SVVT05               121    150
+     D  SVVT                   1    240    DIM(8)
+     D                 DS
+     D  SVTOP1                 1     17
+     D  SVTOP2                18     34
+     D  SVTOP3                35     51
+     D  SVTOP4                52     68
+     D  SVTOP5                69     85
+     D  SVTOP6                86    102
+     D  SVTOP7               103    119
+     D  SVTOP8               120    136
+     D  SVTOP9               137    153
+     D  SVTOP10              154    170
+     D  SVTOP                  1    187    DIM(11)
+     D                 DS
+     D  SVCRE1                 1      3
+     D  SVCRE2                 4      6
+     D  SVCRE3                 7      9
+     D  SVCRE4                10     12
+     D  SVCRE5                13     15
+     D  SVCRE6                16     18
+     D  SVCRE7                19     21
+     D  SVCRE8                22     24
+     D  SVCRE9                25     27
+     D  SVCRE10               28     30
+     D  SVTCR                  1     33    DIM(11)
+      *
+     C                   EXSR      INIT
+      *
+     C                   MOVE      *ZEROS        XXLN              5 0
+     C     START0        TAG
+     C     XENDRE        IFEQ      'J'
+     C                   EXSR      HENTSV
+     C                   ELSE
+     C                   EXSR      MOVB2
+     C                   END
+      *
+     C     START         TAG
+     C  N30
+     CANN04              Z-ADD     3             LINNBR
+     C  N30
+     CANN04
+     CANN39              Z-ADD     11            POSNBR
+     C  N30
+     CANN04
+     CAN 39              Z-ADD     25            POSNBR
+     C     STAR21        TAG
+     C                   EXFMT     BILDE
+     C                   MOVEA     '000000000000'*IN(88)
+     C                   MOVEA     '000000000000'*IN(76)
+     C                   MOVEA     '000000000000'*IN(64)
+     C                   MOVEA     '000'         *IN(61)
+     C                   MOVEA     '0000000'     *IN(53)
+N37  C                   MOVE      '0'           *IN(52)
+     C                   MOVE      '0'           *IN(30)
+      *
+     C   23              DO
+     C                   WRITE     WINDOWSZ
+     C                   MOVE      LEVENR        WSLEVE
+     C                   MOVE      *BLANKS       VARENR
+     C                   MOVE      *BLANKS       VAREBE
+     C                   SETOFF                                       33
+     C     STAR23        TAG
+     C                   EXFMT     VINDU
+     C  N12              DO
+     C                   SETOFF                                       33
+     C     VARENR        IFEQ      *BLANKS
+     C     VAREBE        OREQ      *BLANKS
+     C                   SETON                                        33
+     C                   GOTO      STAR23
+     C                   END
+     C                   MOVE      WSLEVE        LEVENR
+     C                   WRITE     SADVARER
+     C                   END
+     C                   GOTO      START
+     C                   END
+     C   12              GOTO      SLUTT
+      *
+     C   11              MOVE      'J'           UF11
+     C   21              MOVE      'J'           UF21
+      *
+     C   04              DO
+     C                   EXSR      SØKDTA
+     C                   GOTO      START
+     C                   END
+      *
+      *** F9  ---> SETTE IND. 39 PÅ/AV FOR Å MERKERE KALKULATOR PÅ/AV
+     C*** F15 ---> SETTE IND. 37 PÅ/AV FOR Å AUTOKOPIERE TILLEGGSOPPL.
+     C   09
+     COR 15              DO
+     C                   EXSR      SETIND
+     C                   EXSR      MOVB2
+     C                   GOTO      START
+     C                   END
+      *
+     C   10              DO
+     C                   EXSR      VARESR
+     C                   Z-ADD     3             LINNBR
+     C                   Z-ADD     25            POSNBR
+     C                   GOTO      STAR21
+     C                   END
+      *
+     C                   EXSR      TESTB
+     C   30              GOTO      START
+     C     XSÆRAV        IFEQ      'J'
+     C     W2MFR         ANDNE     'F'
+     C                   EXSR      SÆRAVG
+     C                   MOVE      'N'           XSÆRAV
+     C                   END
+     C  N05XENDRE        CABEQ     'N'           START
+      *
+     C                   EXSR      OPDSAD
+S38  C*                  MOVE      'J'           XNY               1
+     C     SIBEL3        SUB       W2VSUM        W2DIFF
+N36  C     SIVKB         SUB       W2VKB         W2VDIF
+     C     W2DIFF        CABEQ     0             SLUTT
+     C     XENDRE        IFEQ      'N'
+     C                   EXSR      MOVB2
+     C                   MOVE      'J'           XSÆRAV
+     C                   GOTO      START
+     C                   END
+      *
+     C     SLUTT         TAG
+     C     XNY           IFEQ      'J'
+     C                   Z-ADD     9             UFLAGG
+     C                   ELSE
+     C                   Z-ADD     1             UFLAGG
+     C                   END
+     C                   MOVE      *IN39         UIN39
+     C                   MOVE      UPARM2        UPARM1
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+     C***********************************************
+     C     SETIND        BEGSR
+     C***********************************************
+      *
+      *** F9  ---> KALKULATOR PÅ/AV. BEHOLD FELLESOPPLYSNIGER PÅ LINJE
+      ***          TOLLVERDI, BRUTTO- OG NETTO-VEKT SKAL REGISTRERES
+      *            BENYTT INDIKATOR 39   39 PÅ -> KALKULATOR PÅ
+     C     *IN09         IFEQ      '1'
+     C     *IN39         IFEQ      '1'
+     C                   MOVE      '0'           *IN39
+     C                   ELSE
+     C                   MOVE      '1'           *IN39
+     C                   END
+     C                   END
+      *
+      *** F15 ---> AUTO KOPIERING AV TILLEGGS OPPLYSNIGER
+      *            BENYTT INDIKATOR 37   37 PÅ -> AUTO KOPIERING
+     C     *IN15         IFEQ      '1'
+     C     *IN37         IFEQ      '1'
+     C                   MOVE      '0'           *IN37
+     C                   ELSE
+     C                   MOVE      '1'           *IN37
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TESTB         BEGSR
+     C***********************************************
+      *
+S32  C*    SIDP          IFEQ      57
+S03  C*    SIDP          ORGE      60
+S03  C*    SIDP          ANDLE     69
+S03  C*    SIDP          ANDNE     68
+s32  C*    TCR(1)        OREQ      'M2'
+n32  C     TCR(1)        ifeq      'M2'
+N01  C     TCR(2)        OREQ      'M2'
+N01  C     TCR(3)        OREQ      'M2'
+N01  C     TCR(4)        OREQ      'M2'
+N01  C     TCR(5)        OREQ      'M2'
+N21  C     TCR(6)        OREQ      'M2'
+N21  C     TCR(7)        OREQ      'M2'
+N21  C     TCR(8)        OREQ      'M2'
+N21  C     TCR(9)        OREQ      'M2'
+N21  C     TCR(10)       OREQ      'M2'
+n32  C     TCR(1)        OReq      'FLY'
+N01  C     TCR(2)        OREQ      'FLY'
+N01  C     TCR(3)        OREQ      'FLY'
+N01  C     TCR(4)        OREQ      'FLY'
+N01  C     TCR(5)        OREQ      'FLY'
+N21  C     TCR(6)        OREQ      'FLY'
+N21  C     TCR(7)        OREQ      'FLY'
+N21  C     TCR(8)        OREQ      'FLY'
+N21  C     TCR(9)        OREQ      'FLY'
+N21  C     TCR(10)       OREQ      'FLY'
+     C                   MOVE      'F'           W2MFR
+     C                   END
+N03  C     SIDP          IFGE      60
+N03  C     SIDP          ANDLE     69
+S12  C*                  MOVE      'F'           W2PVA
+N03  C                   END
+      *
+      *** CHAIN OPPRINNELSESLAND / TARIFFNR (FOR Å KUNNE SETTE PREF)
+     C     KODS2K        CHAIN     KOS2R                              98
+     C                   TESTN                   W2VNTI               61
+     C   61              MOVE      W2VNTI        W2VNT
+     C  N61              MOVE      '99999999'    W2VNT
+N21  C                   EVAL      *IN61 = *OFF
+     C     W2VNTI        IFEQ      *BLANKS
+     C                   MOVE      *ZEROS        W2VNT
+     C                   END
+     C                   MOVE      W2VNT         TATANR
+N31  C                   MOVE      'N'           XTARIFFOK         1
+     C     TARIKM        SETLL     TARI
+     C     TARIK         READPE(N) TARI                                   97
+N31  C  N97              IF        UTDN < 0
+N31  C                   MOVE      'J'           XTARIFFOK
+N31  C                   END
+     C     *IN97         DOWEQ     '0'
+     C     TADATO        IFLE      USIDT
+N04  C     TADTS         ANDEQ     0
+N04  C     TADATO        ORLE      USIDT
+N04  C     TADTS         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     TARIK         READPE(N) TARI                                   97
+     C  N97              ENDDO
+N31  C   97              IF        UTDN < 0 AND XTARIFFOK = 'J'
+N31  C                   EVAL      *IN97 = *OFF
+N31  C                   END
+     C  N97VVT(1)        IFEQ      *BLANKS
+     C     TAALFA        ANDEQ     'DIVERSE'
+     C                   MOVEL     UVS1          VVT(1)
+     C                   MOVEL     UVS2          VVT(2)
+     C                   END
+     C* DERSOM LANDKODEN TILLATER PREFERANSE OG DET IKKE ER BEVISST
+     C* SATT "N" FOR INGEN PREF. ER PREF "P" DEFAULT (KOLONNE ETTER LK)
+     C* (MEN PREF SKAL IKKE SETTES DERSOM VARENR ER FRITT "I SEG SELV")
+     C* (PREF PÅ VARE SOM ER FRI I KOL. 1  GAV FEIL I TVINN - ENNÅ????)
+     C     W2TN          IFEQ      ' '
+     C     W2PRE         ANDEQ     ' '
+     C     SIDP          IFEQ      71
+      * TRANSIT/FRILAGER....
+     C     KS2PRE        IFEQ      ' '
+     C                   MOVE      'N'           W2PRE
+     C                   ELSE
+     C                   MOVE      'J'           W2PRE
+     C                   END
+     C                   ELSE
+      * ... ANNET (IKKE PROS 71.)
+      * VED REISEGODS BEHOLD ' '(->N) I PREF ELLERS SETT PREF ETTER LK
+     C     W2VNT         IFEQ      *ZEROS
+     C     SIDP          ANDEQ     44
+     C     SITST         ANDEQ     9
+     C                   MOVE      'N'           W2PRE
+     C                   ELSE
+     C                   MOVE      KS2PRE        W2PRE
+     C  N97              IF        ((W2PRE ='A') OR (W2PRE = 'B'))
+     C                   IF        TAORDB = TAEFB
+     C                   EVAL      W2PRE = 'N'
+     C                   END
+     C                   END
+     C                   END
+     C     W2PRE         IFEQ      'B'
+     C     W2LK          ANDNE     'CH'
+     C     W2LK          ANDNE     'LI'
+     C     W2LK          ANDNE     'RO'
+     C     W2LK          ANDNE     'BG'
+     C     TAEØSB        ANDLE     TAEFB
+     C                   MOVE      'A'           W2PRE
+     C                   END
+     C     W2PRE         IFEQ      'C'
+     C     W2LK          ANDNE     'CH'
+     C     W2LK          ANDNE     'LI'
+     C     TAEØSB        ANDLE     TAEFTB
+     C                   MOVE      'A'           W2PRE
+     C                   END
+     C                   END
+     C                   END
+      *** 37 PÅ(AUTODUP) OG TARIFFNR = 55  -->  ALLTID SERTIFIKAT
+     C   37W2TOP1        IFEQ      *BLANKS
+     C     W2VNT         ANDEQ     55
+     C                   MOVEL     UTOPP1        W2TOP1
+     C                   MOVE      UCREF1        W2CRE1
+     C                   MOVEL     UTOPP2        W2TOP2
+     C                   MOVE      UCREF2        W2CRE2
+     C                   MOVEL     UTOPP3        W2TOP3
+     C                   MOVE      UCREF3        W2CRE3
+     C                   MOVEL     UTOPP4        W2TOP4
+     C                   MOVE      UCREF4        W2CRE4
+     C                   MOVEL     UTOPP5        W2TOP5
+     C                   MOVE      UCREF5        W2CRE5
+N21  C                   MOVEL     UTOPP6        W2TOP6
+N21  C                   MOVE      UCREF6        W2CRE6
+N21  C                   MOVEL     UTOPP7        W2TOP7
+N21  C                   MOVE      UCREF7        W2CRE7
+N21  C                   MOVEL     UTOPP8        W2TOP8
+N21  C                   MOVE      UCREF8        W2CRE8
+N21  C                   MOVEL     UTOPP9        W2TOP9
+N21  C                   MOVE      UCREF9        W2CRE9
+N21  C                   MOVEL     UTOPP10       W2TOP10
+N21  C                   MOVE      UCREF10       W2CRE10
+     C                   END
+      *
+      *** HENT FORRIGE TILLEGGSOPPLYSNING VED AUTODUP
+     C   37W2TOP1        IFEQ      *BLANKS
+     C     W2PRE         ANDNE     ' '
+     C     W2PRE         ANDNE     'N'
+     C     W2PRE         ANDNE     'J'
+     C                   MOVEL     UTOPP1        W2TOP1
+     C                   MOVE      UCREF1        W2CRE1
+     C                   MOVEL     UTOPP2        W2TOP2
+     C                   MOVE      UCREF2        W2CRE2
+     C                   MOVEL     UTOPP3        W2TOP3
+     C                   MOVE      UCREF3        W2CRE3
+     C                   MOVEL     UTOPP4        W2TOP4
+     C                   MOVE      UCREF4        W2CRE4
+     C                   MOVEL     UTOPP5        W2TOP5
+     C                   MOVE      UCREF5        W2CRE5
+N21  C                   MOVEL     UTOPP6        W2TOP6
+N21  C                   MOVE      UCREF6        W2CRE6
+N21  C                   MOVEL     UTOPP7        W2TOP7
+N21  C                   MOVE      UCREF7        W2CRE7
+N21  C                   MOVEL     UTOPP8        W2TOP8
+N21  C                   MOVE      UCREF8        W2CRE8
+N21  C                   MOVEL     UTOPP9        W2TOP9
+N21  C                   MOVE      UCREF9        W2CRE9
+N21  C                   MOVEL     UTOPP10       W2TOP10
+N21  C                   MOVE      UCREF10       W2CRE10
+     C                   END
+      *
+      *** TEST KODE FOR DOKUMENT/SERTIFIKAT
+     C     *IN29         IFEQ      '1'                                          1<-B
+N16   *
+N16   * PREFERANSE =J/N --> BLANKE KODE OG TEKST
+N16  C                   IF        W2PRE = 'J' OR W2PRE = 'N'                    2<-B
+S21  C*    1             DO        5             XN                1 0            3<-B
+N21  C     1             DO        10            XN                3 0            3<-B
+N16  C                   IF        TCR(XN) = 'SER'                                 4<-B
+N16  C                   EVAL      TCR(XN) = *BLANKS
+N16  C                   EVAL      TOP(XN) = *BLANKS
+N16  C                   END                                                       4<-E
+N16  C                   ENDDO                                                    3<-E
+N16  C                   END                                                     2<-E
+N16   *
+N16   * PREFERANSE =A/B/C/G/P --> LAGE SER/FAKTURAERKLARING HVIS SER IKKE FINNES
+N16  C                   IF        W2PRE = 'A' OR W2PRE = 'B' OR W2PRE = 'C' OR  2<-B
+N16  C                             W2PRE = 'G' OR W2PRE = 'P'
+S21  C*    1             DO        5             XN                               3<-B
+N21  C     1             DO        10            XN                               3<-B
+N16  C                   IF        TCR(XN) = 'SER'                                 4<-B
+N16  C                   GOTO      XSERERMED
+N16  C                   END                                                       4<-E
+N16  C                   ENDDO                                                    3<-E
+S21  C*    1             DO        5             XN                               3<-B
+N21  C     1             DO        10            XN                               3<-B
+N16  C                   IF        TCR(XN) = *BLANKS                               4<-B
+N16  C                   LEAVE
+N16  C                   END                                                       4<-E
+N16  C                   ENDDO                                                    3<-E
+S21  C*                  IF        XN > 5                                         3<-B
+S21  C*                  EVAL      XN = 5
+N21  C                   IF        XN > 10                                        3<-B
+N21  C                   EVAL      XN = 10
+N16  C                   END                                                      3<-E
+N16  C                   EVAL      TCR(XN) = 'SER'
+N16  C                   EVAL      TOP(XN) = XLVTXT
+N16  C     XSERERMED     TAG
+N16  C                   END                                                     2<-E
+N16   *
+S21  C*    1             DO        5             XN                1 0           2<-B
+N21  C     1             DO        10            XN                3 0           2<-B
+     C     TCR(XN)       IFNE      *BLANKS                                        3<-B
+N40  C                   IF        SIMVA = 'J' AND TCR(XN) = 'M2'
+N40   * IKKE SEND MVA-FRITAK VED MVA-REGISTRERT
+N40  C                   EVAL      *IN33 = *ON
+N40  C                   ELSE
+     C     TCR(XN)       CHAIN     KODTSB                             33
+N40  C                   END
+     C     *IN33         IFEQ      '1'                                             4<-B
+      * INNTASTET KODE ER UGYLDIG
+     C     XN            MULT      2             X2                3 0
+     C     74            SUB       X2            X2
+N21  C                   IF        X2 <= 60
+N21  C                   EVAL      X2 = X2 - 1
+N21  C                   END
+     C                   MOVE      '1'           *IN(X2)
+     C                   SETON                                        30
+     C                   ELSE                                                      4
+     C     TOP(XN)       IFEQ      *BLANKS                                          5<-B
+      * TEKSTEN ER IKKE OPPGITT
+     C     XN            MULT      2             X2                3 0
+     C     75            SUB       X2            X2
+N21  C                   IF        X2 < 60
+N21  C                   EVAL      X2 = X2 - 1
+N21  C                   END
+     C                   MOVE      '1'           *IN(X2)
+     C                   SETON                                        30
+     C                   END                                                        5<-E
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+      *
+     C  N30TOP(XN)       IFNE      *BLANKS                                        3<-B
+     C     TCR(XN)       ANDEQ     *BLANKS
+      * KODE ER IKKE OPPGITT
+     C     XN            MULT      2             X2                3 0
+     C     74            SUB       X2            X2
+N21  C                   IF        X2 <= 60
+N21  C                   EVAL      X2 = X2 - 1
+N21  C                   END
+     C                   MOVE      '1'           *IN(X2)
+     C                   SETON                                        30
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+      * VED LAV-VERDI OG PREFERANSE = 'A'/'B' SETTES "FAKT.ERKLÆRING'
+      * OG "SER" PÅ RUBR. 44
+     C   29ULVERD        IFEQ      'J'
+     C     W2TOP1        ANDEQ     *BLANKS
+     C     W2CRE1        ANDEQ     *BLANKS
+     C     W2PRE         IFEQ      'A'
+     C     W2PRE         OREQ      'B'
+S16  C*    W2LK          OREQ      'IL'
+     C                   MOVEL     XLVTXT        W2TOP1
+     C                   MOVE      'SER'         W2CRE1
+     C                   GOTO      STTST0
+     C                   END
+     C                   END
+      *
+      * MÅ OPPGI TILLEGGSOPPLYSNINGER HVIS PREFERANSE ER OPPGITT
+     C     W2TOP1        IFEQ      *BLANKS                                      1<-B
+     C     W2PRE         IFNE      ' '                                           2<-B
+     C     W2PRE         ANDNE     'N'
+     C     W2PRE         ANDNE     'J'
+     C                   SETON                                        73
+     C   29              SETON                                        30
+      *** SETT CREF HØYINTENSITET DERSOM DETTE OGSÅ ER BLANK
+S37  C*  29W2CRE1        COMP      '   '                                  72
+N37  C  N72
+N37  CAN 29W2CRE1        COMP      '   '                                  72
+     C                   END                                                     2<-E
+     C                   ELSE                                                   1
+      *** KRAV OM CREF VED PREF/TVINN (NÅR T.O. ER UTFULT)
+S37  C*  29W2CRE1        COMP      *BLANKS                                72
+N37  C  N72
+N37  CAN 29W2CRE1        COMP      *BLANKS                                72
+     C   72              SETON                                        30
+     C                   END                                                    1<-B
+     C     STTST0        TAG
+      *
+     C     UF11          IFEQ      'J'
+     C     UF21          OREQ      'J'
+     C     W2VKTB        IFEQ      0
+     C     W2VKTN        ANDEQ     0
+     C     W2BELT        DIV(H)    SIBEL3        XWORK
+     C     XWORK         MULT(H)   SIVKB         W2VKTB                 3333
+     C   33              Z-ADD     1             W2VKTB
+     C     W2VKTB        MULT(H)   FAKTVK        W2VKTN
+     C                   END
+     C                   END
+      *
+      *** AVGIFT KAN OVERSTYRES BÅDE SATS OG BELØP
+     C     STTST1        TAG
+     C     1             DO        8             XN                             1<-B
+     C     AKD(XN)       IFNE      *BLANKS                                       2<-B
+     C     AKD(XN)       ANDNE     '99'
+     C     AKD(XN)       IFEQ      'TL'                                           3<-B
+     C     AKD(XN)       OREQ      'TA'
+S02  C*    AKD(XN)       OREQ      'MV'
+     C                   MOVE      '1  '         ASV(XN)
+     C                   END                                                      3<-E
+     C                   MOVE      AKD(XN)       KS8AVG
+     C                   MOVE      ASV(XN)       KS8SKV
+     C     KODS8K        CHAIN     KOS8R                              33
+     C   33AKD(XN)       CHAIN     KODTS8L2                           33
+     C  N33ASV(XN)       COMP      *BLANKS                                33
+     C  N33AKD(XN)       IFNE      'TL'
+     C     SADS3K        SETLL     SADSD
+     C     SADS3K        READE     SADSD                                  33
+     C     *IN33         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     SADS3K        READE     SADSD                                  33
+     C  N33              ENDDO
+     C                   END
+      *
+     C     *IN33         IFEQ      '1'                                            3<-B
+     C     XN            MULT      2             X2
+     C     91            SUB       X2            X2
+     C                   MOVE      '1'           *IN(X2)
+     C                   SETON                                        30
+      *
+     C                   ELSE                                                     3
+      *
+      *** NÅR GRUNNLAG IKKE OPPGIS HENTER SYSTEMET GRUNNLAG AVHENGIG AV
+      *** AVGIFT TYPE
+      *** AVGIFT MED '%' I SATSTYPE - STAT. VERDI PÅ LINJE SETTES INN
+      *** AVGIFT MED 'P' I SATSTYPE - NETTO VEKT  PÅ LINJE SETTES INN
+      *** AVGIFT MED 'H' I SATSTYPE - NETTO VEKT  PÅ LINJE SETTES INN
+      *** AVGIFT MED 'K' I SATSTYPE - NETTO VEKT  PÅ LINJE SETTES INN
+      *** AVGIFT MED ' ' I SATSTYPE - ANTALL STK. PÅ LINJE SETTES INN
+      *** AVGIFT MED '*' I SATSTYPE - ANTALL STK. PÅ LINJE SETTES INN
+      *** AVGIFT MED 'G' I SATSTYPE - SATS PR GRAM (NETTO)
+      *** AVGIFT MED 'M' I SATSTYPE - MÅ ANGIS MANUELT
+      *** AVGIFT MED 'D' I SATSTYPE - STYKK/12 SETTES INN
+      *** AVGIFT MED 'T' I SATSTYPE - NETTO VEKT/1000 SETTES INN
+      *** AVGIFT MED 'L' I SATSTYPE - MANUELL SETT PÅ AVGIFTGRUNNLAG
+N10   *** AVGIFT MED 'B' I SATSTYPE - MANUELL SETT PÅ AVGIFTGRUNNLAG, ANTALL HESTEKRAFT
+     C     AGR(XN)       IFEQ      0                                               4<-B
+     C     KS8STY        ANDNE     'M'
+     C     KS8STY        IFEQ      '%'                                              5<-B
+     C     XTVFA2        IFEQ      0                                                 6<-B
+     C     W2BELT        MULT(H)   XTVFAK        XBEL9N            9 0
+     C                   ELSE                                                        6
+     C     W2BELT        MULT(H)   XTVFA2        XBEL9N            9 0
+     C                   END                                                         6<-E
+     C                   Z-ADD     XBEL9N        AGR(XN)
+     C                   ELSE                                                       5
+     C     KS8STY        IFEQ      'P'                                               6<-B
+     C     KS8STY        OREQ      'H'
+     C     KS8STY        OREQ      'K'
+     C     KS8STY        OREQ      'G'
+     C                   IF        KS8AVG <> 'FK'
+     C     W2VKTN        IFEQ      0                                                  7<-B
+     C     W2VKTB        MULT(H)   FAKTVK        W2VKTN
+     C                   ENDIF                                                        7<-E
+S21  C*                  Z-ADD     W2VKTN        AGR(XN)
+N21  C                   Z-ADD(H)  W2VKTN        AGR(XN)
+     C     KS8STY        IFEQ      'G'                                                7<-B
+     C                   MULT      1000          AGR(XN)
+     C                   END                                                          7<-E
+     C                   END
+     C                   ELSE                                                        6
+     C     KS8STY        IFEQ      'D'
+     C  N38              EVAL(H)   AGR(XN) = W2NTM / 12 + 0.5
+     C   38              EVAL(H)   AGR(XN) = XSTKGR / 12 + 0.5
+     C                   ELSE
+     C     KS8STY        IFEQ      'T'
+     C  N38              EVAL(H)   AGR(XN) = W2VKTN / 1000 + 0.5
+     C   38              EVAL(H)   AGR(XN) = XVEKGR / 1000 + 0.5
+     C                   ELSE
+     C     KS8STY        IFNE      'M'
+     C     KS8STY        ANDNE     'A'
+N10  C     KS8STY        ANDNE     'B'
+      * KS8STY = '*' ELLER ' ' ELLER 'L'
+     C                   Z-ADD     W2NTM         AGR(XN)
+     C                   END
+     C                   END
+     C                   END
+     C                   END                                                         6<-E
+     C                   END                                                        5<-E
+     C                   END                                                       4<-E
+     C                   MOVE      KS8ØRE        XS8ØRE            1
+     C     ABL(XN)       IFGE      999999999                                       4<-B
+     C                   Z-ADD     0             ABL(XN)
+     C                   MOVE      ' '           XEH2Æ             1
+     C                   ELSE                                                      4
+      *** HVIS SATS=0, HENTES SATS FRA KODE-REGISTER
+     C     ASA(XN)       IFEQ      0                                                5<-B
+     C     SDBLSÆ        IFEQ      0                                                 6<-B
+     C                   MOVE      KS8SAT        ASA(XN)
+     C                   ELSE                                                        6
+     C     SDBLSÆ        IFNE      99999,99
+     C     SDBLSÆ        ANDNE     999,99
+     C                   MOVE      SDBLSÆ        ASA(XN)
+     C                   END
+     C                   END                                                         6<-E
+     C                   END                                                        5<-E
+     C                   MOVE      KS8STY        XEH2Æ
+     C     ABL(XN)       IFEQ      0                                                5<-B
+     C                   SELECT                                                      6<-B
+     C     XEH2Æ         WHENEQ    ' '
+     C     XEH2Æ         OREQ      'K'
+     C     XEH2Æ         OREQ      'G'
+     C     XEH2Æ         OREQ      'M'
+     C     XEH2Æ         OREQ      'D'
+     C     XEH2Æ         OREQ      'T'
+N09  C     XEH2Æ         OREQ      'L'
+N10  C     XEH2Æ         OREQ      'B'
+     C                   MOVE      *ZEROS        TMP15            15 0
+     C                   EVAL      TMP15   = ASA(XN) * AGR(XN)
+     C     TMP15         IFLT      999999999
+     C                   EVAL      ABL(XN) = ASA(XN) * AGR(XN)
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C     XEH2Æ         WHENEQ    '%'
+     C     XEH2Æ         OREQ      'H'
+     C     XEH2Æ         OREQ      '*'
+     C                   EVAL      TMP15   = ASA(XN) * AGR(XN) / 100
+     C     TMP15         IFLT      999999999
+     C                   EVAL      ABL(XN) = ASA(XN) * AGR(XN) / 100
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C     XEH2Æ         WHENEQ    'P'
+     C                   EVAL      TMP15   = ASA(XN) * AGR(XN) / 1000
+     C     TMP15         IFLT      999999999
+     C                   EVAL      ABL(XN) = ASA(XN) * AGR(XN) / 1000
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C                   ENDSL                                                       6<-E
+     C     XS8ØRE        IFEQ      '*'
+S05  C*                  DIV       100           ABL(XN)
+N05  C                   DIV(H)    100           ABL(XN)
+     C                   END
+     C                   END                                                        5<-E
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C     ASA(XN)       IFEQ      99999,99                                       3<-B
+     C     ASA(XN)       OREQ      999,99
+     C                   MOVE      *ZEROS        ABL(XN)
+     C                   END                                                      3<-E
+     C                   ELSE                                                    2
+     C     ABL(XN)       IFNE      0                                              3<-B
+     C     XN            MULT      2             X2
+     C     90            SUB       X2            X2
+     C                   MOVE      '1'           *IN(X2)
+     C                   SETON                                        30
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+      *** TEST VARENR.
+     C                   MOVE      W2VNT         TATANR
+     C     TARIKM        SETLL     TARI
+     C     TARIK         READPE    TARI                                   97
+     C     *IN97         DOWEQ     '0'
+     C     TADATO        IFLE      USIDT
+N04  C     TADTS         ANDEQ     0
+N04  C     TADATO        ORLE      USIDT
+N04  C     TADTS         ANDGE     USIDT
+     C                   LEAVE
+     C                   ELSE
+     C                   UPDATE    TARIR
+     C                   END
+     C     TARIK         READPE    TARI                                   97
+     C  N97              ENDDO
+      *
+     C  N97AKD(1)        IFEQ      '99'
+     C                   MOVE      *BLANKS       AKD(1)
+     C                   MOVE      *BLANKS       ASV(1)
+     C                   END
+      *
+     C     *IN97         IFEQ      *OFF
+     C                   MOVE      'J'           OPPTAR            1
+     C                   ELSE
+     C                   MOVE      'N'           OPPTAR
+     C                   END
+      * FLYTTEGODS PÅ PROS 44 / TRANSTYPE =9 - OK MED 0 I TARIFFNR
+     C     W2VNT         IFEQ      *ZEROS
+     C     SITST         ANDEQ     9
+     C                   MOVE      'F'           W2PVA                           ALLTID FRI
+     C                   MOVE      *OFF          *IN97
+     C                   MOVE      *BLANKS       TASTK
+     C                   MOVE      *BLANKS       TAKAP
+     C                   MOVE      *BLANKS       TAKAPA
+     C     W2VT01        IFEQ      *BLANKS
+     C                   SELECT
+     C     SIDP          WHENEQ    44
+     C                   MOVE      XVB44         W2VT01
+     C     SIDP          WHENEQ    61
+     C                   MOVE      XVB61         W2VT01
+     C                   ENDSL
+     C                   END
+     C                   END
+     C   97              SETON                                        30
+     C   97              GOTO      SLTB1
+     C   13VVT(1)        IFNE      *BLANKS
+     C                   MOVE      VVT(1)        TAALFA
+     C                   END
+     C     OPPTAR        IFEQ      'J'
+     C                   UPDATE    TARIR
+     C                   END
+      *
+      *** TASTET PREF GIS HØYERE PRIORITET ENN M-FRI (OG ORDINÆR-FRI)
+      ***   DERSOM "ØVRIGE KAPITAL HENVENDELSE" VISER TIL M BEHANDLES
+      ***   VARE SOM MASKIN-FRI
+     C                   MOVEL     TAKAPA        TAKAP2            1
+     C     TAKAP         IFNE      'M'
+     C     TAKAP2        ANDEQ     'M'
+     C                   MOVE      'M'           TAKAP
+     C                   END
+      *
+     C     TAKAP         IFEQ      'M'
+     C     W2PRE         IFEQ      ' '
+     C     W2PRE         OREQ      'N'
+     C                   MOVE      'M'           W2TN
+     C                   END
+     C                   END
+      *
+      *** TEST VF-KODE
+     C     W2VF          COMP      '6'                                99
+N11  C  N99              SELECT
+N11  C                   WHEN      SITST = 9
+N11  C     W2VF          COMP      '1'                                  9999
+N11  C                   WHEN      SITST = 1
+N11  C     W2VF          COMP      '1'                                99
+N11  C                   ENDSL
+     C   99              SETON                                        30
+      *
+      *** TEST OPPRINNELSESLAND  (CHAIN ER FLYTTET I TOPP)
+     C   98              SETON                                        30
+      *
+      *** TEST TOLLNEDSETTELSE
+     C     W2TN          IFNE      ' '
+     C     KODS5K        CHAIN     KOS5R                              96
+     C   96              SETON                                        30
+     C                   END
+     C* BRUK PREF. FRA OPPR.LAND (I KEY KODS6K) TIL Å HENTE KOLONNUMMER
+     C*(DA VIL DEN "NYE" KODEN "P" FOR GEN. PREFERANSE GI RETT KOLONNE)
+     C     W2PRE         IFNE      ' '
+     C     W2PRE         ANDNE     'N'
+     C     W2PRE         ANDNE     'J'
+     C     KODS6K        CHAIN     KOS6R                              95
+     C* PREFERANSE HELT FRI - INGEN KOLONNE I TARIFF
+      *
+      * VED 'G'  SETTES FRI VED BLANK KODE
+      *
+     C     W2PRE         IFEQ      'G'
+     C     W2PVA         ANDEQ     ' '
+     C                   MOVE      'F'           W2PVA
+     C                   END
+     C   95              SETON                                        30
+     C                   END
+     C*
+     C*** TEST VEKT
+     C     W2VKTB        IFLE      0
+     C     W2VKTN        IFLE      0
+     C                   MOVE      '1'           *IN94
+     C                   MOVE      '1'           *IN30
+     C                   ELSE
+S39  C*    W2VKTN        MULT(H)   1,1           W2VKTB
+N39  C     W2VKTN        DIV(H)    FAKTVK        W2VKTB
+     C                   END
+     C                   ELSE
+     C     W2VKTN        IFEQ      0
+     C     W2VKTB        MULT(H)   FAKTVK        W2VKTN
+     C                   END
+     C                   END
+      *
+     C     W2VKTB        IFLT      W2VKTN
+     C                   MOVE      '1'           *IN94
+     C                   MOVE      '1'           *IN30
+     C                   END
+      *
+     C  N87              IF        ((W2PVA <> 'F') AND (W2AS = 0))
+     C                   CALL      'SAD061H'
+     C                   PARM      TATANR        U2TANR            8 0
+     C                   PARM      TADATO        U2DATO            8 0
+     C                   PARM                    W2PVA
+S18  C*    W2AS          PARM      W2AS          U2SATS            5 2
+N18  C     W2AS          PARM      W2AS          U2SATS            7 2
+S41  C*                  PARM      W2BELT        U2BL             11 2
+N41  C                   PARM      W2BELT        U2BL             13 2
+S21  C*                  PARM      W2VKTN        U2VKT             9 0
+N21  C                   PARM      W2VKTN        U2VKT            12 3
+S22  C*                  PARM      W2NTM         U2STK             7 0
+N22  C                   PARM      W2NTM         U2STK             9 0
+     C                   PARM                    W2PRE
+     C                   PARM                    W2LK
+     C                   PARM                    KS2MO
+     C                   END
+      *
+     C*
+     C*** TEST OM MAN MÅ OPPGI STYKK
+     C     TASTK         COMP      'J'                                    33
+     C  N33W2PVA         COMP      'A'                                    33
+     C   33W2NTM         COMP      0                                      93
+     C   93              SETON                                        30
+      *
+     C  N30
+     CANN46W2AS          IFEQ      0
+     C                   EXSR      TATEST
+     C                   END
+      *
+      *** TEST PVA
+     C  N30              DO
+     C                   SETOFF                                       33
+     C     W2PVA         LOOKUP    A1                                     33
+     C  N33              SETON                                        92
+     C   92              SETON                                        30
+     C   33W2PVA         IFEQ      'P'
+     C                   MOVE      '%'           XEH2              1
+     C                   ELSE
+     C                   MOVE      ' '           XEH2
+     C                   END
+      *
+      *** TEST SATS
+     C     W2PVA         IFNE      'F'
+     C     W2AS          COMP      0                                    9191
+     C   91              SETON                                        30
+     C                   END
+      *
+      *** TEST MOMSFRI-KODE
+     C                   SELECT                                                 1<-B
+     C     W2MFR         WHENEQ    'F'
+     C     W2MFR         WHENEQ    *BLANKS
+     C     SADSDK        SETLL     SADSD
+     C     SADSDK        READE     SADSD                                  33
+     C     *IN33         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     SADSDK        READE     SADSD                                  33
+     C  N33              ENDDO
+      * SJEKK OM DET FINNES FLERE MOMSSATS
+     C     *IN33         IFEQ      '0'                                           2<-B
+N06  C                   MOVEL     SDKDSÆ        XSDKDSÆ           3
+     C     SADSDK        READE     SADSD                                  33
+     C     *IN33         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     SADSDK        READE     SADSD                                  33
+     C  N33              ENDDO
+      *
+     C     *IN33         IFEQ      '0'                                            3<-B
+     C                   MOVE      '1'           *IN90
+     C                   ELSE                                                     3
+S06  C*                  MOVEL     SDKDSÆ        W2MFR
+N06  C                   MOVEL     XSDKDSÆ       W2MFR
+     C                   END                                                      3<-E
+     C                   ELSE                                                    2
+     C                   MOVEL     'F'           W2MFR
+     C                   END                                                     2<-E
+     C                   OTHER
+     C                   MOVEL     W2MFR         XDKDSÆ
+     C     SADS2K        SETLL     SADSD
+     C     SADS2K        READE     SADSD                                  90
+     C     *IN90         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     SADS2K        READE     SADSD                                  90
+     C  N90              ENDDO
+     C                   ENDSL                                                  1<-E
+     C   90              SETON                                        30
+     C                   END
+      *
+     C   30              GOTO      SLTB1
+     C*
+     C* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+     C*
+     C* VARNING/PÅMINNELSE - MEN IKKE DIREKTE FEIL
+     C                   MOVE      *BLANKS       MSGTX2
+     C* IKKE TVINN/BLANK OPPRINN.REF NÅR PREF.
+     C  N29
+     CAN 77              MOVE      XTXT1         MSGTX2
+     C* VED TVINN ER DET ABSOLUTT KRAV - TESTET LENGER OPP
+     C   29              SETOFF                                       77
+     C  N77TAKAP         IFNE      ' '
+     C                   MOVE      XTXT2         MSGTX2
+     C                   MOVEL     TAKAP         XXKAP             5
+     C                   MOVE      XXKAP         MSGTX2
+     C                   END
+      *
+     C  N30W2PRE         IFEQ      ' '
+     C                   MOVE      'N'           W2PRE
+     C                   END
+      *
+     C   30              GOTO      SLTB1
+      *
+      * TEST JUSTERING
+     C     W2BEL         IFEQ      0
+     C     W2PROS        ANDEQ     0
+     C                   MOVE      *ZEROS        W2BELN
+     C                   GOTO      SLTB1
+     C                   END
+      *
+     C     W2BEL         IFNE      0
+     C     W2PROS        ANDNE     0
+     C                   MOVE      '1'           *IN63
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLTB1
+     C                   END
+     C     KODVAK        SETGT     KODTVAL2
+S37  C*    W2VAL         READPE    KODTVAL2                               62
+S37  C*    *IN62         IFEQ      '1'
+N37  C     W2VAL         READPE    KODTVAL2                               52
+N37  C     *IN52         IFEQ      '1'
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLTB1
+     C                   END
+      *
+     C     W2PROS        IFEQ      0
+     C                   MOVE      W2BEL         W2BELN
+     C                   ELSE
+S08  C*    W2BELT        MULT      W2PROS        W2BELN
+S08  C*                  DIV       100           W2BELN
+N08  C                   EVAL(H)   W2BELN = W2BELT * W2PROS / 100
+     C                   END
+S08  C*                  MULT      SIVKU         W2BELN
+S08  C*                  DIV       KVAOMR        W2BELN
+N08  C                   EVAL(H)   W2BELN = W2BELN * SIVKU / KVAOMR
+      * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      *
+     C     SLTB1         TAG
+     C   30              EXSR      SETCUR
+N23  C                   IF        MSGNR = *BLANKS
+N23  C                   EVAL      MSGTX3 = *BLANKS
+N23  C                   ELSE
+N23  C                   Z-ADD     3             XLEVEL            1 0          NIVÅ
+N23  C                   Z-ADD     0             XRETUR            1 0          RETURKODE
+N23  C                   Z-ADD     78            XMSGL             4 0          LENGDE PÅ MELDING
+N23  C                   CALL      'SUBR23R3'
+N23  C                   PARM                    MSGNR             7
+N23  C                   PARM                    MSGTX3
+N23  C                   PARM                    XLEVEL
+N23  C                   PARM                    XRETUR
+N23  C                   PARM                    XMSGL
+N23  C                   IF        MSGNR = 'SPN0016'
+N23  C                   EVAL      MSGTX3 = %TRIM(MSGTX3)
+N23  C                             + ' Enhet=' + %TRIM(TAENHE)
+N23  C                   END
+N23  C                   END
+      *
+     C                   ENDSR
+     C***********************************************
+     C     SETBELIND     BEGSR
+     C***********************************************
+     C                   SETON                                        30
+     C                   select
+     C     XN            wheneq    1
+     C                   SETON                                        88
+     C     XN            wheneq    2
+     C                   SETON                                        86
+     C     XN            wheneq    3
+     C                   SETON                                        84
+     C     XN            wheneq    4
+     C                   SETON                                        82
+     C     XN            wheneq    5
+     C                   SETON                                        80
+     C     XN            wheneq    6
+     C                   SETON                                        78
+     C     XN            wheneq    7
+     C                   SETON                                        76
+     C     XN            wheneq    8
+     C                   SETON                                        74
+     c                   endsl
+     C                   ENDSR
+      *
+     C***********************************************
+     C     SETCUR        BEGSR
+     C***********************************************
+N21  C   53              Z-ADD     23            LINNBR
+N21  C   53              Z-ADD     70            POSNBR
+N21  C   53              MOVE      'SPC0006'     MSGNR
+N21  C   54              Z-ADD     23            LINNBR
+N21  C   54              Z-ADD     46            POSNBR
+N21  C   54              MOVE      'DIV1954'     MSGNR
+E21  C   55              Z-ADD     23            LINNBR
+E21  C   55              Z-ADD     30            POSNBR
+E21  C   55              MOVE      'SPC0006'     MSGNR
+E21  C   56              Z-ADD     23            LINNBR
+E21  C   56              Z-ADD     6             POSNBR
+E21  C   56              MOVE      'DIV1954'     MSGNR
+N21  C   57              Z-ADD     22            LINNBR
+N21  C   57              Z-ADD     70            POSNBR
+N21  C   57              MOVE      'SPC0006'     MSGNR
+N21  C   58              Z-ADD     22            LINNBR
+N21  C   58              Z-ADD     46            POSNBR
+N21  C   58              MOVE      'DIV1954'     MSGNR
+E21  C   59              Z-ADD     22            LINNBR
+E21  C   59              Z-ADD     30            POSNBR
+E21  C   59              MOVE      'SPC0006'     MSGNR
+E21  C   61              Z-ADD     22            LINNBR
+E21  C   61              Z-ADD     6             POSNBR
+E21  C   61              MOVE      'DIV1954'     MSGNR
+N21  C   62              Z-ADD     21            LINNBR
+N21  C   62              Z-ADD     70            POSNBR
+N21  C   62              MOVE      'SPC0006'     MSGNR
+N21  C   63              Z-ADD     21            LINNBR
+N21  C   63              Z-ADD     46            POSNBR
+N21  C   63              MOVE      'DIV1954'     MSGNR
+E21  C   64              Z-ADD     21            LINNBR
+E21  C   64              Z-ADD     30            POSNBR
+E21  C   64              MOVE      'SPC0006'     MSGNR
+E21  C   65              Z-ADD     21            LINNBR
+E21  C   65              Z-ADD     6             POSNBR
+E21  C   65              MOVE      'DIV1954'     MSGNR
+N21  C   66              Z-ADD     20            LINNBR
+N21  C   66              Z-ADD     70            POSNBR
+N21  C   66              MOVE      'SPC0006'     MSGNR
+N21  C   67              Z-ADD     20            LINNBR
+N21  C   67              Z-ADD     46            POSNBR
+N21  C   67              MOVE      'DIV1954'     MSGNR
+E21  C   68              Z-ADD     20            LINNBR
+E21  C   68              Z-ADD     30            POSNBR
+E21  C   68              MOVE      'SPC0006'     MSGNR
+E21  C   69              Z-ADD     20            LINNBR
+E21  C   69              Z-ADD     6             POSNBR
+E21  C   69              MOVE      'DIV1954'     MSGNR
+N21  C   70              Z-ADD     19            LINNBR
+N21  C   70              Z-ADD     70            POSNBR
+N21  C   70              MOVE      'SPC0006'     MSGNR
+N21  C   71              Z-ADD     19            LINNBR
+N21  C   71              Z-ADD     46            POSNBR
+N21  C   71              MOVE      'DIV1954'     MSGNR
+     C   72              Z-ADD     19            LINNBR
+     C   72              Z-ADD     30            POSNBR
+     C   72              MOVE      'SPC0006'     MSGNR
+     C   73              Z-ADD     19            LINNBR
+     C   73              Z-ADD     6             POSNBR
+     C   73              MOVE      'DIV1954'     MSGNR
+     C   74              Z-ADD     11            LINNBR
+     C   74              Z-ADD     35            POSNBR
+     C   74              MOVE      'JOV1407'     MSGNR
+     C   75              Z-ADD     11            LINNBR
+     C   75              Z-ADD     6             POSNBR
+     C   75              MOVE      'SPK0040'     MSGNR
+     C   76              Z-ADD     10            LINNBR
+     C   76              Z-ADD     35            POSNBR
+     C   76              MOVE      'JOV1407'     MSGNR
+     C   77              Z-ADD     10            LINNBR
+     C   77              Z-ADD     6             POSNBR
+     C   77              MOVE      'SPK0040'     MSGNR
+     C   78              Z-ADD     9             LINNBR
+     C   78              Z-ADD     35            POSNBR
+     C   78              MOVE      'JOV1407'     MSGNR
+     C   79              Z-ADD     9             LINNBR
+     C   79              Z-ADD     6             POSNBR
+     C   79              MOVE      'SPK0040'     MSGNR
+     C   80              Z-ADD     8             LINNBR
+     C   80              Z-ADD     35            POSNBR
+     C   80              MOVE      'JOV1407'     MSGNR
+     C   81              Z-ADD     8             LINNBR
+     C   81              Z-ADD     6             POSNBR
+     C   81              MOVE      'SPK0040'     MSGNR
+     C   82              Z-ADD     7             LINNBR
+     C   82              Z-ADD     35            POSNBR
+     C   82              MOVE      'JOV1407'     MSGNR
+     C   83              Z-ADD     7             LINNBR
+     C   83              Z-ADD     6             POSNBR
+     C   83              MOVE      'SPK0040'     MSGNR
+S37  C*  62              Z-ADD     6             LINNBR
+S37  C*  62              Z-ADD     66            POSNBR
+S37  C*  62              MOVE      'SPV0013'     MSGNR
+N37  C   52              Z-ADD     6             LINNBR
+N37  C   52              Z-ADD     66            POSNBR
+N37  C   52              MOVE      'SPV0013'     MSGNR
+     C   84              Z-ADD     6             LINNBR
+     C   84              Z-ADD     35            POSNBR
+     C   84              MOVE      'JOV1407'     MSGNR
+     C   85              Z-ADD     6             LINNBR
+     C   85              Z-ADD     6             POSNBR
+     C   85              MOVE      'SPK0040'     MSGNR
+     C   86              Z-ADD     5             LINNBR
+     C   86              Z-ADD     35            POSNBR
+     C   86              MOVE      'JOV1407'     MSGNR
+     C   87              Z-ADD     5             LINNBR
+     C   87              Z-ADD     6             POSNBR
+     C   87              MOVE      'SPK0040'     MSGNR
+     C   63              Z-ADD     4             LINNBR
+     C   63              Z-ADD     66            POSNBR
+     C   63              MOVE      'YBC0655'     MSGNR
+     C   88              Z-ADD     4             LINNBR
+     C   88              Z-ADD     35            POSNBR
+     C   88              MOVE      'JOV1407'     MSGNR
+     C   89              Z-ADD     4             LINNBR
+     C   89              Z-ADD     6             POSNBR
+     C   89              MOVE      'SPK0040'     MSGNR
+     C   90              Z-ADD     3             LINNBR
+S21  C*  90              Z-ADD     78            POSNBR
+S22  C*  90              Z-ADD     86            POSNBR
+S41  C*  90              Z-ADD     88            POSNBR
+N41  C   90              Z-ADD     90            POSNBR
+     C   90              MOVE      'YBC0874'     MSGNR
+     C   91              Z-ADD     3             LINNBR
+S21  C*  91              Z-ADD     70            POSNBR
+S41  C*  91              Z-ADD     77            POSNBR
+N41  C   91              Z-ADD     81            POSNBR
+     C   91              MOVE      'SPS0041'     MSGNR
+     C   92              Z-ADD     3             LINNBR
+S21  C*  92              Z-ADD     67            POSNBR
+S41  C*  92              Z-ADD     75            POSNBR
+N41  C   92              Z-ADD     79            POSNBR
+     C   92              MOVE      'SPP0024'     MSGNR
+     C   93              Z-ADD     3             LINNBR
+S21  C*  93              Z-ADD     58            POSNBR
+S41  C*  93              Z-ADD     66            POSNBR
+N41  C   93              Z-ADD     68            POSNBR
+     C   93              MOVE      'SPN0016'     MSGNR
+     C   94              Z-ADD     3             LINNBR
+S41  C*  94              Z-ADD     38            POSNBR
+N41  C   94              Z-ADD     40            POSNBR
+     C   94W2VKTB        IFLT      W2VKTN
+     C                   MOVE      'JOV1095'     MSGNR
+     C                   ELSE
+     C                   MOVE      'SPV0016'     MSGNR
+     C                   END
+     C   95              Z-ADD     3             LINNBR
+     C   95              Z-ADD     23            POSNBR
+     C   95              MOVE      'SPP0023'     MSGNR
+     C   96              Z-ADD     3             LINNBR
+     C   96              Z-ADD     20            POSNBR
+     C   96              MOVE      'SPT0034'     MSGNR
+     C   97              Z-ADD     3             LINNBR
+     C   97              Z-ADD     11            POSNBR
+     C   97              MOVE      'SPT0033'     MSGNR
+     C   98              Z-ADD     3             LINNBR
+     C   98              Z-ADD     7             POSNBR
+     C   98              MOVE      'SPL0001'     MSGNR
+     C   99              Z-ADD     3             LINNBR
+     C   99              Z-ADD     4             POSNBR
+     C   99              MOVE      'SPV0015'     MSGNR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HENTSV        BEGSR
+     C***********************************************
+     C                   MOVE      *BLANKS       AKD
+     C                   MOVE      *BLANKS       ASV
+     C                   MOVE      *ZEROS        ABL
+     C                   MOVE      *ZEROS        ASA
+     C                   MOVE      *ZEROS        AGR
+     C                   MOVE      *BLANKS       VFT
+     C                   MOVE      *ZEROS        VNT
+     C                   MOVE      *BLANKS       VEH
+     C                   MOVE      *BLANKS       VVT
+     C                   MOVE      *BLANKS       TOP
+     C                   MOVE      *BLANKS       TCR
+      *
+     C                   MOVE      *ZEROS        XN
+     C                   MOVE      *ZEROS        X2
+S21  C*                  MOVE      *ZEROS        X3                1 0
+N21  C                   MOVE      *ZEROS        X3                3 0
+     C     SADVK         CHAIN(N)  SADV                               33
+     C     *IN33         IFEQ      '0'                                          1<-B
+N24  C                   MOVE      SVPREÆ        XSVPREÆ           1
+N24  C                   EVAL      *IN28 = *OFF
+N24  C                   IF        UTDN < 0 AND SVPREÆ = ' '
+N43  C                             OR UTDN < 0 AND SVPREÆ = 'O'
+N24  C                   EVAL      *IN28 = *ON
+N24  C                   END
+     C                   MOVE      SVLN          XXLN              5 0
+     C                   MOVE      SVVF          W2VF
+     C                   MOVE      SVLK          W2LK
+     C                   MOVE      SVVNT         W2VNT
+     C                   MOVE      SVVNT         W2VNTI
+     C                   MOVE      SVTN          W2TN
+     C                   MOVE      SVPRE         W2PRE
+     C                   MOVE      SVBELT        W2BELT
+     C                   MOVE      SVVKTB        W2VKTB
+     C                   MOVE      SVVKTN        W2VKTN
+     C                   MOVE      SVNTM         W2NTM
+     C                   MOVE      SVPVA         W2PVA
+     C                   MOVE      SVAS          W2AS
+     C                   MOVE      SVMFR         W2MFR
+     C                   MOVEA     SVAKD         AKD
+     C                   MOVEA     SVASV         ASV
+     C                   MOVEA     SVAGR         AGR
+     C                   MOVEA     SVASA         ASA
+     C                   MOVEA     SVABL         ABL
+     C                   MOVEA     SVFT          VFT
+     C                   MOVEA     SVNT          VNT
+     C                   MOVEA     SVEH          VEH
+     C                   MOVEA     SVVT          VVT
+     C                   MOVEA     SVTOP         TOP
+     C                   MOVEA     SVTCR         TCR
+     C                   END                                                    1<-E
+      *
+     C     SADVJK        CHAIN(N)  SADVJ                              33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      SJVAL         W2VAL
+     C                   MOVE      SJBEL         W2BEL
+     C                   MOVE      SJPROS        W2PROS
+     C                   Z-ADD     SJBELN        W2BELN
+     C                   ELSE
+     C                   MOVE      SIVAL3        W2VAL
+     C                   MOVE      *ZEROS        W2BEL
+     C                   MOVE      *ZEROS        W2PROS
+     C                   MOVE      *ZEROS        W2BELN
+     C                   END
+      *
+      * DET FINNES FLERE LINJER ENN FULL MODULS TILLATER.
+     C     SLHENT        TAG
+     C     UFLAGG        IFEQ      5
+     C                   MOVE      UPARM2        UPARM1
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     OPDSAD        BEGSR
+     C***********************************************
+     C     XTVFA2        IFEQ      0
+     C     XTVFAK        MULT(H)   W2BELT        XBELS            11 0
+     C                   ELSE
+     C     XTVFA2        MULT(H)   W2BELT        XBELS            11 0
+     C                   END
+      *
+      * OPPDATER HOVEDLINJE
+     C     XENDRE        IFEQ      'J'
+     C     SADVK         CHAIN     SADV                               33
+     C                   ELSE
+     C                   MOVE      '1'           *IN33
+     C                   END
+     C                   Z-ADD     1             XN
+     C                   EXSR      MOVWSV
+      * INITIERER ANTALL TILLLEGGSLINJER
+     C     *LIKE         DEFINE    SVREFL        XREFL
+     C                   MOVE      *ZEROS        XREFL
+     C                   MOVE      *ZEROS        SVREFL
+     C     *IN33         IFEQ      '1'
+N24  C                   EVAL      SVPREÆ = XSVPREÆ
+     C                   MOVE      SVLI          SVLN
+     C                   WRITE     SADVR
+N38  C                   MOVE      'J'           XNY               1
+     C                   ELSE
+     C                   UPDATE    SADVR
+N38  C                   MOVE      'N'           XNY
+     C                   END
+     C                   MOVE      SVVF          UVF
+     C                   MOVE      SVLK          ULK
+     C                   MOVE      SVVNT         UVNT
+     C                   MOVE      SVTN          UTN
+     C                   MOVE      SVPRE         UPRE
+     C                   MOVE      SVPVA         UPVA
+     C                   MOVE      SVAS          UAS
+     C                   MOVE      SVMFR         UMFR
+      *
+     C     1             DO        8             XN
+     C                   IF        AKD(XN) <> *BLANKS
+     C                   MOVE      AKD(XN)       X_SVAKD
+     C                   MOVE      ASV(XN)       X_SVASV
+     C                   EXSR      OPDKMA
+     C                   END
+     C                   ENDDO
+      *
+     C                   MOVE      SVLI          SJLI
+     C                   MOVE      SVLN          XXLN              5 0
+     C     W2TOP1        IFNE      *BLANKS
+     C                   MOVEL     W2TOP1        UTOPP1
+     C                   END
+     C     W2CRE1        IFNE      *BLANKS
+     C                   MOVE      W2CRE1        UCREF1
+     C                   END
+     C     W2TOP2        IFNE      *BLANKS
+     C                   MOVEL     W2TOP2        UTOPP2
+     C                   END
+     C     W2CRE2        IFNE      *BLANKS
+     C                   MOVE      W2CRE2        UCREF2
+     C                   END
+     C     W2TOP3        IFNE      *BLANKS
+     C                   MOVEL     W2TOP3        UTOPP3
+     C                   END
+     C     W2CRE3        IFNE      *BLANKS
+     C                   MOVE      W2CRE3        UCREF3
+     C                   END
+     C     W2TOP4        IFNE      *BLANKS
+     C                   MOVEL     W2TOP4        UTOPP4
+     C                   END
+     C     W2CRE4        IFNE      *BLANKS
+     C                   MOVE      W2CRE4        UCREF4
+     C                   END
+     C     W2TOP5        IFNE      *BLANKS
+     C                   MOVEL     W2TOP5        UTOPP5
+     C                   END
+     C     W2CRE5        IFNE      *BLANKS
+     C                   MOVE      W2CRE5        UCREF5
+     C                   END
+N21  C     W2TOP6        IFNE      *BLANKS
+N21  C                   MOVEL     W2TOP6        UTOPP6
+N21  C                   END
+N21  C     W2CRE6        IFNE      *BLANKS
+N21  C                   MOVE      W2CRE6        UCREF6
+N21  C                   END
+N21  C     W2TOP7        IFNE      *BLANKS
+N21  C                   MOVEL     W2TOP7        UTOPP7
+N21  C                   END
+N21  C     W2CRE7        IFNE      *BLANKS
+N21  C                   MOVE      W2CRE7        UCREF7
+N21  C                   END
+N21  C     W2TOP8        IFNE      *BLANKS
+N21  C                   MOVEL     W2TOP8        UTOPP8
+N21  C                   END
+N21  C     W2CRE8        IFNE      *BLANKS
+N21  C                   MOVE      W2CRE8        UCREF8
+N21  C                   END
+N21  C     W2TOP9        IFNE      *BLANKS
+N21  C                   MOVEL     W2TOP9        UTOPP9
+N21  C                   END
+N21  C     W2CRE9        IFNE      *BLANKS
+N21  C                   MOVE      W2CRE9        UCREF9
+N21  C                   END
+N21  C     W2TOP10       IFNE      *BLANKS
+N21  C                   MOVEL     W2TOP10       UTOPP10
+N21  C                   END
+N21  C     W2CRE10       IFNE      *BLANKS
+N21  C                   MOVE      W2CRE10       UCREF10
+N21  C                   END
+      *
+      *
+      * OPPDATER JUSTERING PÅ LINJENIVÅ
+     C     SADVJK        CHAIN     SADVJ                              33
+     C     W2BELN        IFEQ      0
+     C  N33              DELETE    SADVJR
+     C                   ELSE
+     C                   MOVE      W2VAL         SJVAL
+     C                   MOVE      W2BEL         SJBEL
+     C                   Z-ADD(H)  W2BELN        SJBELN
+     C                   MOVE      W2PROS        SJPROS
+     C     *IN33         IFEQ      '0'
+     C                   UPDATE    SADVJR
+     C                   ELSE
+     C                   MOVE      SVAVD         SJAVD
+     C                   MOVE      SVTDN         SJTDN
+     C                   WRITE     SADVJR
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVWSV        BEGSR
+     C***********************************************
+     C     *IN33         IFEQ      '1'
+     C                   CLEAR                   SADVR
+     C                   MOVE      UAVD          SVAVD
+     C                   MOVE      UTDN          SVTDN
+     C                   ADD       1             ULI
+     C                   MOVE      ULI           SVLI
+     C                   END
+     C                   MOVE      UAVD          SVAVD
+     C                   MOVE      UTDN          SVTDN
+     C   21
+     COR 22              MOVE      'B'           SV01
+     C  N21
+     CANN22              MOVE      ' '           SV01
+     C                   MOVE      W2VF          SVVF
+     C                   MOVE      W2LK          SVLK
+     C                   MOVE      W2VNT         SVVNT
+     C                   MOVE      W2TN          SVTN
+     C                   MOVE      W2PRE         SVPRE
+     C     XN            IFEQ      1
+     C                   SUB       SVBELT        W2VSUM
+     C                   ADD       W2BELT        W2VSUM
+N36  C                   SUB       SVVKTB        W2VKB
+N36  C                   ADD       W2VKTB        W2VKB
+     C                   MOVE      W2BELT        SVBELT
+     C                   MOVE      W2VKTB        SVVKTB
+     C                   MOVE      W2VKTN        SVVKTN
+     C                   MOVE      W2NTM         SVNTM
+     C                   ELSE
+     C                   MOVE      *ZEROS        SVBELT
+     C                   MOVE      *ZEROS        SVVKTB
+     C                   MOVE      *ZEROS        SVVKTN
+     C                   MOVE      *ZEROS        SVNTM
+     C                   END
+     C                   MOVE      W2PVA         SVPVA
+     C                   MOVE      W2AS          SVAS
+     C                   MOVE      W2MFR         SVMFR
+     C                   MOVEA     AKD           SVAKD
+     C                   MOVEA     ASV(XN)       SVASV
+     C                   MOVEA     AGR(XN)       SVAGR
+     C                   MOVEA     ASA(XN)       SVASA
+     C                   MOVEA     ABL(XN)       SVABL
+     C                   MOVEA     VFT(XN)       SVFT
+     C                   MOVEA     VNT(XN)       SVNT
+     C                   MOVEA     VEH(XN)       SVEH
+     C                   MOVEA     VVT(XN)       SVVT
+     C     SVVT(1)       IFEQ      *BLANKS
+N13  C     XN            ANDEQ     1
+S21  C*                  MOVE      TAALFA        SVVT
+S27  C*    SVVNT         CHAIN     SOKTARI2                           34
+S27  C* N34              EVAL      SVVT = BESKR1
+S27  C*  34              EVAL      SVVT = TAALFA
+N27  C                   EVAL      SVVT(1) = TAALFA
+     C                   MOVE      *BLANKS       TAALFA
+     C                   ELSE
+     C     SVVT(1)       IFEQ      TAALFA
+     C                   MOVE      *BLANKS       TAALFA
+     C                   END
+     C                   END
+     C                   MOVEA     TOP           SVTOP
+     C                   MOVEA     TCR           SVTCR
+S20  C*                  MOVE      XBELS         SVBELS
+N20  C                   Z-ADD     XBELS         SVBELS
+     C                   MOVE      XEH2          SVEH21
+     C     KODS83        CHAIN     KOS8R                              30
+     C  N30              MOVE      KS8STY        SVEH2Æ
+     C   30              MOVE      ' '           SVEH2Æ
+N34  C                   MOVE      ' '           SVERR
+     C                   MOVE      '0'           *IN30
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVB2         BEGSR
+     C***********************************************
+N24  C                   EVAL      *IN28 = *OFF
+N24  C                   IF        UTDN < 0
+N24  C                   EVAL      XSVPREÆ = 'J'
+N24  C                   ELSE
+N24  C                   EVAL      XSVPREÆ = ' '
+N24  C                   END
+     C     *IN39         IFEQ      '1'
+     C                   MOVE      UVF           W2VF
+     C                   MOVE      ULK           W2LK
+     C                   MOVE      UVNT          W2VNT
+     C                   MOVE      UVNT          W2VNTI
+     C                   MOVE      UTN           W2TN
+     C                   MOVE      UPRE          W2PRE
+     C                   MOVE      UPVA          W2PVA
+     C                   MOVE      UAS           W2AS
+     C                   MOVE      UMFR          W2MFR
+     C                   ELSE
+     C                   MOVE      SIDFVF        W2VF
+     C                   MOVE      SILKA         W2LK
+     C                   MOVE      *ZEROS        W2VNT
+     C                   MOVE      *BLANKS       W2VNTI
+     C                   MOVE      *BLANKS       W2TN
+     C                   MOVE      *BLANKS       W2PRE
+     C                   MOVE      *BLANKS       W2PVA
+     C                   MOVE      *ZEROS        W2AS
+     C                   MOVE      *BLANKS       W2MFR
+     C                   END
+     C*
+     C     W2DIFF        IFGT      0
+     C                   Z-ADD     W2DIFF        W2BELT
+     C                   ELSE
+     C                   MOVE      *ZEROS        W2BELT
+     C                   END
+     C                   MOVE      *ZEROS        W2VKTB
+     C                   MOVE      *ZEROS        W2VKTN
+     C                   MOVE      *ZEROS        W2NTM
+     C                   MOVE      *BLANKS       AKD
+     C                   MOVE      *BLANKS       ASV
+     C                   MOVE      *ZEROS        ABL
+     C                   MOVE      *ZEROS        ASA
+     C                   MOVE      *ZEROS        AGR
+     C                   MOVE      *BLANKS       VFT
+     C                   MOVE      *ZEROS        VNT
+     C                   MOVE      *BLANKS       VEH
+     C                   MOVE      *BLANKS       VVT
+     C  N37              MOVE      *BLANKS       TOP
+     C  N37              MOVE      *BLANKS       TCR
+      *
+     C     *IN46         IFEQ      '1'
+     C                   MOVE      'F'           W2PVA
+     C                   MOVE      *ZEROS        W2AS
+     C                   MOVE      'F'           W2MFR
+     C                   END
+s32  C*    SIDP          IFEQ      57
+s32  C*                  MOVE      'F'           W2MFR
+s32  C*                  END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TATEST        BEGSR
+     C***********************************************
+     C     W2PVA         IFEQ      'F'
+     C                   MOVE      *ZEROS        W2AS
+     C                   ELSE
+     C                   MOVE      TAORDK        W2PVA
+     C                   MOVE      TAORDB        W2AS
+     C     W2PRE         IFEQ      'A'
+     C                   MOVE      TAEØSB        W2AS
+S42  C*                  IF        TAEØSK <> ' '
+S42  C*                  EVAL      W2PVA = TAEØSK
+S42  C*                  END
+N42  C                   SELECT
+N42  C                   WHEN      TAEØSK <> ' '
+N42  C                   EVAL      W2PVA = TAEØSK
+N42  C                   WHEN      TAEFK <> ' ' AND TAEFB = W2AS
+N42  C                   EVAL      W2PVA = TAEFK
+N42  C                   WHEN      TAEFTK <> ' ' AND TAEFTB = W2AS
+N42  C                   EVAL      W2PVA = TAEFTK
+N42  C                   ENDSL
+     C                   ELSE
+     C     W2PRE         IFEQ      'B'
+     C     W2PRE         OREQ      'F'
+     C                   MOVE      TAEFB         W2AS
+N15  C                   IF        TAEFK <> ' '
+N15  C                   EVAL      W2PVA = TAEFK
+N15  C                   END
+     C                   ELSE
+     C     W2PRE         IFEQ      'C'
+     C     W2PRE         OREQ      'E'
+     C                   MOVE      TAEFTB        W2AS
+N15  C                   IF        TAEFTK <> ' '
+N15  C                   EVAL      W2PVA = TAEFTK
+N15  C                   END
+     C                   ELSE
+     C     W2PRE         IFNE      'J'
+     C     W2PRE         ANDNE     'N'
+     C                   EXSR      TATES2
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+      *
+     C     W2AS          IFEQ      0
+     C                   MOVE      'F'           W2PVA
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TATES2        BEGSR
+     C***********************************************
+      * HELE SUBRUTINE ER OMSKREVET
+     C                   SELECT
+S26  C*    W2LK          WHENEQ    'HR'
+N26  C     W2LK          WHENEQ    'SZ'                                         SWAZILAND
+     C                   MOVE      TATSJB        W2AS
+N15  C                   IF        TATSJK <> ' '
+N15  C                   EVAL      W2PVA = TATSJK
+N15  C                   END
+     C     W2LK          WHENEQ    'TR'
+     C                   MOVE      TATYRB        W2AS
+N15  C                   IF        TATYRK <> ' '
+N15  C                   EVAL      W2PVA = TATYRK
+N15  C                   END
+     C     W2LK          WHENEQ    'IL'
+     C                   MOVE      TAISRB        W2AS
+N15  C                   IF        TAISRK <> ' '
+N15  C                   EVAL      W2PVA = TAISRK
+N15  C                   END
+     C     W2LK          WHENEQ    'SG'
+     C                   MOVE      TAELLB        W2AS
+N15  C                   IF        TAELLK <> ' '
+N15  C                   EVAL      W2PVA = TAELLK
+N15  C                   END
+     C     W2LK          WHENEQ    'CL'                                         CHILE
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TABULB        W2AS
+N15  C                   IF        TABULK <> ' '
+N15  C                   EVAL      W2PVA = TABULK
+N15  C                   END
+     C     W2LK          WHENEQ    'MK'
+     C                   MOVE      TAPOLB        W2AS
+N15  C                   IF        TAPOLK <> ' '
+N15  C                   EVAL      W2PVA = TAPOLK
+N15  C                   END
+     C     W2LK          WHENEQ    'KR'                                         SØR KOREA
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TAROMB        W2AS
+N15  C                   IF        TAROMK <> ' '
+N15  C                   EVAL      W2PVA = TAROMK
+N15  C                   END
+     C     W2LK          WHENEQ    'JO'
+     C                   MOVE      TAUNGB        W2AS
+N15  C                   IF        TAUNGK <> ' '
+N15  C                   EVAL      W2PVA = TAUNGK
+N15  C                   END
+     C     W2LK          WHENEQ    'TN'
+     C                   MOVE      TASLOB        W2AS
+N15  C                   IF        TASLOK <> ' '
+N15  C                   EVAL      W2PVA = TASLOK
+N15  C                   END
+     C     W2LK          WHENEQ    'GL'
+     C                   MOVE      TAGRLB        W2AS
+N15  C                   IF        TAGRLK <> ' '
+N15  C                   EVAL      W2PVA = TAGRLK
+N15  C                   END
+     C     W2LK          WHENEQ    'FO'
+     C                   MOVE      TAFÆRB        W2AS
+N15  C                   IF        TAFÆRK <> ' '
+N15  C                   EVAL      W2PVA = TAFÆRK
+N15  C                   END
+     C     W2LK          WHENEQ    'IN'
+     C     W2LK          OREQ      'LK'
+     C     W2LK          OREQ      'TH'
+     C                   MOVE      TAISTB        W2AS
+N15  C                   IF        TAISTK <> ' '
+N15  C                   EVAL      W2PVA = TAISTK
+N15  C                   END
+     C     W2LK          WHENEQ    'MA'
+     C                   MOVE      TAMARB        W2AS
+N15  C                   IF        TAMARK <> ' '
+N15  C                   EVAL      W2PVA = TAMARK
+N15  C                   END
+     C     W2LK          WHENEQ    'MX'
+     C                   MOVE      TAMEXB        W2AS
+N15  C                   IF        TAMEXK <> ' '
+N15  C                   EVAL      W2PVA = TAMEXK
+N15  C                   END
+     C     W2LK          WHENEQ    'PS'
+     C                   MOVE      TAVGAB        W2AS
+N15  C                   IF        TAVGAK <> ' '
+N15  C                   EVAL      W2PVA = TAVGAK
+N15  C                   END
+     C     W2LK          WHENEQ    'LN'                                         LIBANON
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TAN01B        W2AS
+N15  C                   IF        TAN01K <> ' '
+N15  C                   EVAL      W2PVA = TAN01K
+N15  C                   END
+     C     W2LK          WHENEQ    'EG'                                         EGYPT
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TAN03B        W2AS
+N15  C                   IF        TAN03K <> ' '
+N15  C                   EVAL      W2PVA = TAN03K
+N15  C                   END
+     C     W2LK          WHENEQ    'CA'                                         CANADA
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TAN04B        W2AS
+N15  C                   IF        TAN04K <> ' '
+N15  C                   EVAL      W2PVA = TAN04K
+N15  C                   END
+N26  C     W2LK          WHENEQ    'RS'                                         SERBIA
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN05B        W2AS
+N26  C                   IF        TAN05K <> ' '
+N26  C                   EVAL      W2PVA = TAN05K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'AL'                                         ALBANIA
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN06B        W2AS
+N26  C                   IF        TAN06K <> ' '
+N26  C                   EVAL      W2PVA = TAN06K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'UA'                                         UKRAINA
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN07B        W2AS
+N26  C                   IF        TAN07K <> ' '
+N26  C                   EVAL      W2PVA = TAN07K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'PE'                                         PERU
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN08B        W2AS
+N26  C                   IF        TAN08K <> ' '
+N26  C                   EVAL      W2PVA = TAN08K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'ME'                                         MONTENEGRO
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN09B        W2AS
+N26  C                   IF        TAN09K <> ' '
+N26  C                   EVAL      W2PVA = TAN09K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'HK'                                         HONG KONG
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN10B        W2AS
+N26  C                   IF        TAN10K <> ' '
+N26  C                   EVAL      W2PVA = TAN10K
+N26  C                   END
+N26  C     W2LK          WHENEQ    'BW'                                         BOTSWANA
+N26  C     PTFDT         ANDLE     SIDT
+N26  C     W2LK          OREQ      'NA'                                         NAMIBIA
+N26  C     PTFDT         ANDLE     SIDT
+N26  C     W2LK          OREQ      'SZ'                                         SWAZILAND
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN11B        W2AS
+N26  C                   IF        TAN11K <> ' '
+N26  C                   EVAL      W2PVA = TAN11K
+N26  C                   END
+     C     KS2MO         WHENEQ    'M'
+     C                   MOVE      TAMULB        W2AS
+N15  C                   IF        TAMULK <> ' '
+N15  C                   EVAL      W2PVA = TAMULK
+N15  C                   END
+     C     KS2MO         WHENEQ    'O'
+     C                   MOVE      TAOULB        W2AS
+N15  C                   IF        TAOULK <> ' '
+N15  C                   EVAL      W2PVA = TAOULK
+N15  C                   END
+     C     KS2MO         WHENEQ    'S'                                          SACU
+     C     PTFDT         ANDLE     SIDT
+     C                   MOVE      TAOULB        W2AS
+N15  C                   IF        TAOULK <> ' '
+N15  C                   EVAL      W2PVA = TAOULK
+N15  C                   END
+N26  C     KS2MO         WHENEQ    'L'                                          LAVERE M.INNT.LAND
+N26  C     PTFDT         ANDLE     SIDT
+N26  C                   MOVE      TAN12B        W2AS
+N26  C                   IF        TAN12K <> ' '
+N26  C                   EVAL      W2PVA = TAN12K
+N26  C                   END
+     C                   ENDSL
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     SØKDTA        BEGSR
+     C***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+     C   39              GOTO      STSØK
+      *
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDGE     7
+     C     POSNBR        ANDLE     8
+     C                   MOVE      'N'           USPED             1
+     C                   CALL      'SYFI10L'
+     C                   PARM                    W2LK
+     C                   PARM                    USPED
+     C                   Z-ADD     11            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDGE     11
+     C     POSNBR        ANDLE     18
+     C                   CALL      'SAD062A'
+     C                   PARM                    W2VNTI
+     C                   PARM      USIDT         USIDT2            8 0
+     C                   Z-ADD     20            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDEQ     20
+     C                   CALL      'SAD061L'
+     C                   PARM                    W2TN
+     C                   Z-ADD     23            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDEQ     23
+     C                   CALL      'SAD061N'
+     C                   PARM                    W2PRE
+     C                   Z-ADD     25            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      *
+     C     LINNBR        IFEQ      6
+     C     POSNBR        ANDEQ     66
+     C                   CALL      'SAD061F'
+     C                   PARM                    W2VAL
+     C                   PARM                    USIDT
+     C                   Z-ADD     7             POSNBR
+     C                   Z-ADD     6             POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      *
+     C     STSØK         TAG
+     C* KALKULATOR VERDI
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDGE     25
+S41  C*    POSNBR        ANDLE     36
+N41  C     POSNBR        ANDLE     38
+S33  C*                  Z-ADD     W2BELT        UNU132           13 2
+N33  C                   Z-ADD     W2BELT        UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        W2BELT
+N33  C                   Z-ADD(H)  UNU133        W2BELT
+S41  C*                  Z-ADD     38            POSNBR
+N41  C                   Z-ADD     40            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C* KALKULATOR BRUTTOVEKT
+     C     LINNBR        IFEQ      3
+S40  C*    POSNBR        ANDGE     38
+S40  C*    POSNBR        ANDLE     46
+N41  C     POSNBR        ANDGE     40
+N41  C     POSNBR        ANDLE     52
+S33  C*                  Z-ADD     W2VKTB        UNU132           13 2
+N33  C                   Z-ADD     W2VKTB        UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        W2VKTB
+N33  C                   Z-ADD(H)  UNU133        W2VKTB
+S41  C*                  Z-ADD     48            POSNBR
+N41  C                   Z-ADD     54            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C* KALKULATOR NETTOVEKT
+     C     LINNBR        IFEQ      3
+S41  C*    POSNBR        ANDGE     48
+S41  C*    POSNBR        ANDLE     56
+N41  C     POSNBR        ANDGE     54
+N41  C     POSNBR        ANDLE     66
+S33  C*                  Z-ADD     W2VKTN        UNU132           13 2
+N33  C                   Z-ADD     W2VKTN        UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        W2VKTN
+N33  C                   Z-ADD(H)  UNU133        W2VKTN
+S41  C*                  Z-ADD     58            POSNBR
+N41  C                   Z-ADD     68            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C* KALKULATOR ANTALL
+     C     LINNBR        IFEQ      3
+S25  C*    POSNBR        ANDGE     58
+S41  C*    POSNBR        ANDGE     66
+S25  C*    POSNBR        ANDLE     64
+S41  C*    POSNBR        ANDLE     74
+N41  C     POSNBR        ANDGE     68
+N41  C     POSNBR        ANDLE     77
+S33  C*                  Z-ADD     W2NTM         UNU132           13 2
+N33  C                   Z-ADD     W2NTM         UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        W2NTM
+N33  C                   Z-ADD(H)  UNU133        W2NTM
+ S25 C*                  Z-ADD     67            POSNBR
+S41  C*                  Z-ADD     77            POSNBR
+N41  C                   Z-ADD     79            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C* KALKULATOR AVGIFTSGRUNNLAG
+     C     LINNBR        IFGE      4
+     C     LINNBR        ANDLE     11
+     C     POSNBR        ANDGE     22
+     C     POSNBR        ANDLE     33
+     C     LINNBR        SUB       3             XN
+S33  C*                  Z-ADD     AGR(XN)       UNU132           13 2
+N33  C                   Z-ADD     AGR(XN)       UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        AGR(XN)
+N33  C                   Z-ADD(H)  UNU133        AGR(XN)
+S41  C*                  Z-ADD     35            POSNBR
+N41  C                   Z-ADD     37            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C* KALKULATOR ABL
+     C*
+     C     LINNBR        IFGE      4
+     C     LINNBR        ANDLE     11
+     C     POSNBR        ANDGE     35
+     C     POSNBR        ANDLE     46
+     C     LINNBR        SUB       3             XN
+S33  C*                  Z-ADD     ABL(XN)       UNU132           13 2
+N33  C                   Z-ADD     ABL(XN)       UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        ABL(XN)
+N33  C                   Z-ADD(H)  UNU133        ABL(XN)
+     C                   Z-ADD     6             POSNBR
+     C                   ADD       1             LINNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C*
+     C* KALKULATOR ANTALL
+     C*
+     C     LINNBR        IFGE      12
+S19  C*    LINNBR        ANDLE     24
+S19  C*    POSNBR        ANDGE     24
+S19  C*    POSNBR        ANDLE     29
+N19  C     LINNBR        ANDLE     18
+N19  C     POSNBR        ANDGE     35
+N19  C     POSNBR        ANDLE     40
+     C     LINNBR        SUB       11            XN
+S33  C*                  Z-ADD     VNT(XN)       UNU132           13 2
+N33  C                   Z-ADD     VNT(XN)       UNU133           13 3
+     C                   CALL      'SYGE11'
+S33  C*                  PARM                    UNU132
+N33  C                   PARM                    UNU133
+S33  C*                  Z-ADD     UNU132        VNT(XN)
+N33  C                   Z-ADD(H)  UNU133        VNT(XN)
+S19  C*                  Z-ADD     31            POSNBR
+N19  C                   Z-ADD     42            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFGE      4
+     C     LINNBR        ANDLE     11
+     C     POSNBR        ANDGE     6
+     C     POSNBR        ANDLE     11
+     C     LINNBR        SUB       3             XN
+     C                   MOVE      AKD(XN)       UKDAÆ             2
+     C                   MOVE      ASV(XN)       UKDSÆ             3
+     C     POSNBR        IFGE      6
+     C     POSNBR        ANDLE     7
+     C                   MOVE      'A'           UMOD              1            AVGIFTSKODE
+     C                   END
+     C     POSNBR        IFGE      9
+     C     POSNBR        ANDLE     11
+     C                   MOVE      'S'           UMOD              1            AVG.SEKVENS
+     C                   END
+     C                   CALL      'SAD061O'
+     C                   PARM                    UKDAÆ
+     C                   PARM                    UKDSÆ
+     C                   PARM                    UMOD
+     C                   MOVE      UKDAÆ         AKD(XN)
+     C                   MOVE      UKDSÆ         ASV(XN)
+     C                   Z-ADD     13            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      *
+     C     LINNBR        IFGE      19
+     C     LINNBR        ANDLE     23
+     C     POSNBR        ANDGE     30
+     C     POSNBR        ANDLE     32
+S21  C*    LINNBR        SUB       18            XN
+N21  C                   EVAL      XN = (LINNBR - 19) * 2 + 1
+     C                   MOVE      TCR(XN)       UCREF             3
+     C                   MOVE      'J'           UIMP              1
+     C                   CALL      'SAD061K'
+     C                   PARM                    UCREF3
+     C                   PARM                    UIMP
+     C                   MOVE      UCREF         TCR(XN)
+S21  C*    LINNBR        IFLT      23
+S21  C*                  ADD       1             LINNBR
+S21  C*                  Z-ADD     6             POSNBR
+S21  C*                  END
+N21  C                   Z-ADD     46            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+N21   *
+N21  C     LINNBR        IFGE      19
+N21  C     LINNBR        ANDLE     23
+N21  C     POSNBR        ANDGE     70
+N21  C     POSNBR        ANDLE     72
+N21  C                   EVAL      XN = (LINNBR - 19) * 2 + 2
+N21  C                   MOVE      TCR(XN)       UCREF             3
+N21  C                   MOVE      'J'           UIMP              1
+N21  C                   CALL      'SAD061K'
+N21  C                   PARM                    UCREF
+N21  C                   PARM                    UIMP
+N21  C                   MOVE      UCREF         TCR(XN)
+N21  C     LINNBR        IFLT      23
+N21  C                   ADD       1             LINNBR
+N21  C                   Z-ADD     6             POSNBR
+N21  C                   END
+N21  C                   GOTO      SLSØK
+N21  C                   END
+      *
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+      *
+     C     SLSØK         ENDSR
+      *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     KEYVAR        KLIST
+     C                   KFLD                    LEVENR
+     C                   KFLD                    VARENR
+     C     SADHK         KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C     SADVK         KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    UVLI
+     C     SADVJK        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    SJLI
+     C     KODS2K        KLIST
+     C                   KFLD                    XS2UNI
+     C                   KFLD                    W2LK
+     C     KODS5K        KLIST
+     C                   KFLD                    XS5UNI
+     C                   KFLD                    W2TN
+     C     KODS6K        KLIST
+     C                   KFLD                    XS6UNI
+     C                   KFLD                    KS2PRE
+     C     KODS8K        KLIST
+     C                   KFLD                    KS8AVG
+     C                   KFLD                    KS8SKV
+     C     KODS82        KLIST
+     C                   KFLD                    SDKDAÆ
+     C                   KFLD                    SDKDSÆ
+     C     KODS83        KLIST
+     C                   KFLD                    X_SVAKD           2
+     C                   KFLD                    X_SVASV           3
+     C     KOS82K        KLIST
+     C                   KFLD                    KS8AVG
+     C                   KFLD                    YKDSÆ             3
+     C     SADS3K        KLIST
+     C                   KFLD                    TATANR
+     C                   KFLD                    KS8AVG
+     C                   KFLD                    KS8SKV
+     C     KODVAK        KLIST
+     C                   KFLD                    W2VAL
+     C                   KFLD                    USIDT
+     C     CMAFK         KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    SIKNK
+     C                   KFLD                    SDKDAÆ
+     C     CMAFK2        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    SIKNK
+     C                   KFLD                    X_SVAKD
+     C     TARIK         KLIST
+     C                   KFLD                    TATANR
+     C                   KFLD                    X2TAR
+     C     TARIKM        KLIST
+     C                   KFLD                    TATANR
+     C                   KFLD                    X2TAR
+     C                   KFLD                    XADATO
+     C                   MOVE      99999999      XADATO            8 0
+     C     SADSDK        KLIST
+     C                   KFLD                    W2VNT
+     C                   KFLD                    XDKDAÆ            2
+     C                   MOVE      'MV'          XDKDAÆ
+     C     SADS2K        KLIST
+     C                   KFLD                    W2VNT
+     C                   KFLD                    XDKDAÆ            2
+     C                   KFLD                    XDKDSÆ            3
+     C     SADS4K        KLIST
+     C                   KFLD                    W2VNT
+     C                   KFLD                    XXKDAÆ
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UPARM1          512
+     C                   PARM                    FAKTVK            4 2
+      *
+     C                   OPEN      SAD061FU
+     C                   CLEAR                   BILDE
+     C                   MOVE      UPARM1        UPARM2
+     C     UVLI          IFGT      0
+     C                   MOVE      'J'           XENDRE            1
+     C                   MOVE      'N'           XSÆRAV            1
+     C                   MOVE      '1'           *IN27
+     C                   ELSE
+     C                   MOVE      'N'           XENDRE
+     C                   MOVE      'J'           XSÆRAV
+     C                   MOVE      '0'           *IN27
+     C                   END
+     C                   MOVE      'S2 '         XS2UNI            3
+     C                   MOVE      'S5  '        XS5UNI            4
+     C                   MOVE      'S6  '        XS6UNI            4
+     C                   MOVE      'S8 '         XS8UNI            3
+     C                   MOVE      *BLANKS       X2TAR             3
+     C                   MOVE      'N'           XNY               1
+     C                   MOVE      *ZEROS        XWORK            16 5
+      *
+     C                   MOVE      'DIV1954'     XMSGNR            7            MELDING-ID
+     C                   Z-ADD     3             XLEVEL            1 0          NIVÅ
+     C                   Z-ADD     0             XRETUR            1 0          RETURKODE
+     C                   Z-ADD     78            XMSGL             4 0          LENGDE PÅ MELDING
+     C                   CALL      'SUBR23R3'
+     C                   PARM                    XMSGNR
+     C                   PARM                    XTXT1            78
+     C                   PARM                    XLEVEL
+     C                   PARM                    XRETUR
+     C                   PARM                    XMSGL
+     C                   MOVE      'DIV1955'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     78            XMSGL
+     C                   CALL      'SUBR23R3'
+     C                   PARM                    XMSGNR
+     C                   PARM                    XTXT2            78
+     C                   PARM                    XLEVEL
+     C                   PARM                    XRETUR
+     C                   PARM                    XMSGL
+      *
+     C                   MOVE      UIN29         *IN29
+     C                   MOVE      UIN37         *IN37
+     C                   MOVE      UIN39         *IN39
+     C                   MOVE      UIN46         *IN46
+      * IN60 PÅ --> SJØ-DEKLARASJON
+     C                   MOVE      UIN60         *IN60
+     C   46              MOVE      'F'           W2PVA
+     C   46              MOVE      *ZEROS        W2AS
+     C   46              MOVE      'F'           W2MFR
+     C     SADHK         CHAIN     SADH                               33
+      *** FINN FAKTOR FOR VARELINJE
+     C     SIBEL3        IFNE      0
+     C     SIBEL4        DIV(H)    SIBEL3        XTVFAK           17 9
+     C                   END
+     C     SIBELR        IFNE      0
+     C     SIBEL3        ANDNE     0
+     C     SIBELS        DIV(H)    SIBEL3        XTVFA2           17 9
+     C                   ELSE
+     C                   MOVE      *ZEROS        XTVFA2
+     C                   END
+     C     SIBELR        IFEQ      0
+     C                   Z-ADD     SIBEL4        WSBEL4
+     C                   ELSE
+     C                   Z-ADD     SIBELS        WSBEL4
+     C                   END
+     C     'TVI00005'    CHAIN     SYPTFF                             33
+      *
+     C                   MOVE      SIKNK         LEVENR
+     C                   ENDSR
+      *
+     C******************************************
+     C     SÆRAVG        BEGSR
+     C******************************************
+      * INIT. ARBEIDSVARIABLER
+     C     XTVFA2        IFEQ      0
+     C     W2BELT        MULT(H)   XTVFAK        XPROGR            9 0
+     C                   ELSE
+     C     W2BELT        MULT(H)   XTVFA2        XPROGR            9 0
+     C                   END
+S21  C*                  Z-ADD     W2VKTN        XVEKGR            9 0
+N21  C                   Z-ADD     W2VKTN        XVEKGR           12 3
+     C                   Z-ADD     W2NTM         XSTKGR            9 0
+     C                   MOVE      *BLANKS       XXKDAÆ            2
+     C                   MOVE      *BLANKS       XXKDSÆ            3
+     C                   MOVE      *ZEROS        XXBLSÆ            7 2
+     C                   MOVE      *BLANKS       XXAKTK            1
+      *
+     C     W2VNT         SETLL     SADSD
+     C     STSA1         TAG
+      * LES SÆRAVGIFTSFIL FOR Å SJEKKE OM MAN TRENGER LAGE SÆRAVGIFTER.
+     C     W2VNT         READE     SADSD                                  33
+     C     *IN33         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     W2VNT         READE     SADSD                                  33
+     C  N33              ENDDO
+     C     *IN33         IFEQ      *OFF
+     C     SDAKTK        CABEQ     'I'           STSA1
+     C     SIKDDK        IFEQ      'K'
+     C     SIKTC         ANDEQ     '9'
+     C     SDKDAÆ        ANDEQ     'SU'
+     C     W2CRE1        CABEQ     'UTB'         STSA1
+     C     W2CRE2        CABEQ     'UTB'         STSA1
+     C     W2CRE3        CABEQ     'UTB'         STSA1
+     C     W2CRE4        CABEQ     'UTB'         STSA1
+     C     W2CRE5        CABEQ     'UTB'         STSA1
+     C                   END
+     C     STSA2         TAG
+     C     KODS82        CHAIN     KOS8R                              33
+     C  N33KS8MIL        IFEQ      'J'
+     C     CMAFK         CHAIN     CUNDMAF                            33
+     C     *IN33         CABEQ     '1'           STSA1
+     C                   END
+      * FINN RIKTIG HAVNEKODE OG VF
+      * FINN RIKTIG VERDIFASTSETTELSE
+     C     SDVF          IFNE      *BLANKS
+     C     SDVF          ANDNE     W2VF
+     C                   GOTO      STSA1
+     C                   ENDIF                                                  <SDVF
+      * FINN RIKTIG TRANPORTMÅTE
+     C     SDTRM         IFGT      *ZEROS
+     C     SDTRM         ANDNE     SITRM
+     C                   GOTO      STSA1
+     C                   ENDIF                                                  <SDTRM
+      *
+     C     XXKDAÆ        IFNE      *BLANKS
+     C     XXKDAÆ        IFEQ      SDKDAÆ
+     C     XXAKTK        OREQ      'V'
+      * HVIS DET FINNES FLERE LINJER MED SAMME SÆRAVGIFT, BES BRUKER
+      * TIL Å VELGE EN AV DEM.
+     C                   MOVE      *BLANKS       XXKDSÆ
+     C                   CALL      'SAD061D'
+     C     W2VNT         PARM      W2VNT         UVNTS             8 0
+     C                   PARM                    XXKDAÆ
+     C                   PARM                    XXKDSÆ
+     C                   PARM                    XXBLSÆ            7 2
+     C                   PARM      USIDT         USIDT2            8 0
+N07  C                   PARM                    UFIRM
+N07  C                   PARM      SIKNK         UKN               8 0
+     C     XXKDSÆ        IFEQ      *BLANKS
+     C                   MOVE      *BLANKS       XXKDAÆ
+     C                   GOTO      SLSA
+N28  C                   ELSE
+N30  C                   IF        SDKDAÆ <> XXKDAÆ
+N28  C                   EVAL      SDKDAÆ = XXKDAÆ
+N30  C     SADS4K        SETLL     SADSD
+N30  C                   END
+     C                   ENDIF
+     C     XXKDAÆ        IFNE      SDKDAÆ
+     C     XXKDAÆ        ANDNE     *BLANKS
+     C     XXAKTK        ANDNE     'V'
+     C     SADS4K        SETLL     SADSD
+     C                   MOVE      *BLANKS       XXKDAÆ
+     C                   GOTO      STSA1
+     C                   END
+     C                   ENDIF
+      * KOM HIT, HAR BRUKER FÅTT EN SPESIFSERT SÆRAVGIFT MED KODE,
+      * SEKVENS OG SATS. KALLE "SÆRAV2" FOR Å BEREGNE GR.LAG OG BELØP
+      * OG OPPDATERE SAD-FIL
+     C                   EXSR      SÆRAV2
+      * LES FORBI ALLE LINJER MED SAMME SÆRAVGIFTSKODE INNTIL NESTE
+      * SÆRAVGIFT
+     C                   IF        XXKDAÆ > SDKDAÆ
+     C                   MOVE      XXKDAÆ        SDKDAÆ
+     C     SADS4K        SETLL     SADSD
+     C                   END
+     C  N33XXKDAÆ        DOWEQ     SDKDAÆ
+     C     STSA3         TAG
+     C     W2VNT         READE     SADSD                                  33
+     C     *IN33         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C                   LEAVE
+     C                   END
+     C     W2VNT         READE     SADSD                                  33
+     C  N33              ENDDO
+     C  N33SDAKTK        CABEQ     'I'           STSA3
+     C  N33SIKDDK        IFEQ      'K'
+     C     SIKTC         ANDEQ     '9'
+     C     SDKDAÆ        ANDEQ     'SU'
+     C     W2CRE1        CABEQ     'UTB'         STSA3
+     C     W2CRE2        CABEQ     'UTB'         STSA3
+     C     W2CRE3        CABEQ     'UTB'         STSA3
+     C     W2CRE4        CABEQ     'UTB'         STSA3
+     C     W2CRE5        CABEQ     'UTB'         STSA3
+     C                   END
+     C  N33              ENDDO
+     C                   MOVE      *BLANKS       XXKDAÆ
+     C   33              GOTO      SLSA
+     C                   MOVE      *BLANKS       XXKDSÆ
+     C                   MOVE      *BLANKS       XXAKTK
+     C                   GOTO      STSA2
+     C                   ENDIF
+      *
+      * BEVARE INNLESTE SÆRAVGIFTSKODE/SEKVENS/SATS
+     C                   MOVE      SDKDAÆ        XXKDAÆ
+     C                   MOVE      SDKDSÆ        XXKDSÆ
+     C                   MOVE      SDBLSÆ        XXBLSÆ
+     C                   MOVE      SDAKTK        XXAKTK
+     C                   GOTO      STSA1
+     C                   ENDIF
+      *
+     C     SLSA          TAG
+      * HVIS XXKDAÆ<>BLANK --> SISTE LINJE MED SÆRAVGIFT ER LEST.
+     C     XXKDAÆ        IFNE      *BLANKS
+     C     XXAKTK        IFEQ      'V'
+     C                   CALL      'SAD061D'
+     C     W2VNT         PARM      W2VNT         UVNTS             8 0
+     C                   PARM                    XXKDAÆ
+     C                   PARM                    XXKDSÆ
+     C                   PARM                    XXBLSÆ            7 2
+     C                   PARM      USIDT         USIDT2            8 0
+N07  C                   PARM                    UFIRM
+N07  C                   PARM      SIKNK         UKN               8 0
+     C                   ENDIF
+     C     XXKDSÆ        IFNE      *BLANKS
+     C                   EXSR      SÆRAV2
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+     C******************************************
+     C     SÆRAV2        BEGSR
+     C******************************************
+     C     1             DO        8             XN
+     C     AKD(XN)       IFEQ      *BLANKS
+     C                   LEAVE
+     C                   END
+     C                   END
+     C     XN            CABGT     8             SLSÆR2
+      *
+     C                   MOVE      XXKDAÆ        AKD(XN)
+     C                   MOVE      XXKDSÆ        ASV(XN)
+     C                   MOVE      XXBLSÆ        ASA(XN)
+     C                   MOVE      AKD(XN)       KS8AVG
+     C                   MOVE      ASV(XN)       KS8SKV
+     C     KODS8K        CHAIN     KOS8R                              33
+     C   33KOS82K        CHAIN     KOS8R                              33
+     C  N33              IF        KS8AVG <> 'FK'
+     C  N33              SELECT
+     C     KS8STY        WHENEQ    '%'
+     C                   Z-ADD     XPROGR        AGR(XN)
+     C     KS8STY        WHENEQ    'P'
+     C     KS8STY        OREQ      'H'
+     C     KS8STY        OREQ      'K'
+S21  C*                  Z-ADD     XVEKGR        AGR(XN)
+N21  C                   Z-ADD(H)  XVEKGR        AGR(XN)
+     C     KS8STY        WHENEQ    'G'
+     C     XVEKGR        MULT      1000          AGR(XN)
+     C     KS8STY        WHENEQ    'D'
+     C                   EVAL(H)   AGR(XN) = XSTKGR / 12 + 0.5
+     C     KS8STY        WHENEQ    'T'
+     C                   EVAL(H)   AGR(XN) = XVEKGR / 1000 + 0.5
+     C                   OTHER
+     C     KS8STY        IFNE      'M'
+     C     KS8STY        ANDNE     'A'
+N10  C     KS8STY        ANDNE     'B'
+     C                   Z-ADD     XSTKGR        AGR(XN)
+     C                   END
+     C                   ENDSL
+     C                   END
+     C     ASA(XN)       IFEQ      0
+     C                   Z-ADD     KS8SAT        ASA(XN)
+     C                   END
+     C                   MOVE      KS8STY        XEH2Æ
+     C                   MOVE      KS8ØRE        XS8ØRE
+     C     XEH2Æ         COMP      ' '                                    33
+     C  N33XEH2Æ         COMP      'K'                                    33
+     C  N33XEH2Æ         COMP      'G'                                    33
+     C  N33XEH2Æ         COMP      'M'                                    33
+     C  N33XEH2Æ         COMP      'D'                                    33
+     C  N33XEH2Æ         COMP      'T'                                    33
+     C  N33XEH2Æ         COMP      'L'                                    33
+     C  N33XEH2Æ         COMP      'A'                                    33
+     C  N33XEH2Æ         COMP      'B'                                    33
+     C   33              EVAL      TMP15   = ASA(XN) * AGR(XN)
+     C   33TMP15         IFLT      999999999
+     C   33              EVAL      ABL(XN) = ASA(XN) * AGR(XN)
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C     XEH2Æ         COMP      '%'                                    33
+     C  N33XEH2Æ         COMP      'H'                                    33
+     C   33              EVAL      TMP15   = ASA(XN) * AGR(XN) / 100
+     C   33TMP15         IFLT      999999999
+     C   33              EVAL      ABL(XN) = ASA(XN) * AGR(XN) / 100
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C     XEH2Æ         COMP      'P'                                    33
+     C   33              EVAL      TMP15   = ASA(XN) * AGR(XN) / 1000
+     C   33TMP15         IFLT      999999999
+     C   33              EVAL      ABL(XN) = ASA(XN) * AGR(XN) / 1000
+     C                   ELSE
+     C                   exsr      SetBelInd
+     C                   END
+     C     XS8ØRE        COMP      '*'                                    33
+S05  C*  33              DIV       100           ABL(XN)
+N05  C   33              DIV(H)    100           ABL(XN)
+     C     ASA(XN)       IFEQ      99999,99
+     C     ASA(XN)       OREQ      999,99
+     C                   MOVE      *ZEROS        ABL(XN)
+     C                   END
+      *
+     C     SLSÆR2        TAG
+     C                   MOVE      '0'           *IN33
+     C                   ENDSR
+      *
+     C******************************************
+     C     OPDKMA        BEGSR
+     C******************************************
+      * OPPDATER MILJØAVGIFT PÅ KUNDE MILJØAVGIFTREGISTER
+     C     KODS83        CHAIN     KOS8R                              33
+     C  N33KS8MIL        IFEQ      'J'
+     C     SIKNK         ANDNE     0
+     C     CMAFK2        CHAIN     CUNDMAF                            33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      UFIRM         CMAFI
+     C                   MOVE      SIKNK         CMAKN
+     C                   MOVE      X_SVAKD       CMAKD
+     C     X_SVAKD       SETLL     KOS8R
+     C     X_SVAKD       READE     KOS8R                                  33
+     C                   MOVE      KS8FTX        CMATXT
+     C                   WRITE     CUNDMAFR
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C******************************************
+     C     VARESR        BEGSR
+     C******************************************
+S14  C*                  MOVE      SIKNK         LEVALF            8
+N29  C                   MOVEl     W2VNTI        VARENR
+N14  C                   MOVE      UKNVARE       LEVALF            8
+     C                   CALL      'SAD001B'
+     C                   PARM                    LEVALF
+     C                   PARM                    VARENR
+     C     VARENR        IFNE      *BLANKS
+N14  C                   MOVE      LEVALF        UKNVARE
+      *
+     C                   Z-ADD     1             WSANT
+     C                   EXFMT     ANTENH
+     C                   DOW       WSANT < 1
+     C                   EXFMT     ANTENH
+     C                   ENDDO
+      *
+     C                   MOVE      LEVALF        LEVENR
+     C     KEYVAR        CHAIN     SADVARE                            33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      'N'           XSÆRAV
+     C                   MOVE      *ZEROS        AGR
+     C                   EVAL      W2BELT = W2BELT * WSANT
+     C                   EVAL      W2VKTB = W2VKTB * WSANT
+     C                   EVAL      W2VKTN = W2VKTN * WSANT
+     C                   EVAL      W2NTM  = W2NTM  * WSANT
+     C                   END
+     C                   END
+     C                   ENDSR
+      *
+** TOLLBEREGNINGSREGEL
+AFPVW

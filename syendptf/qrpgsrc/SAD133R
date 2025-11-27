@@ -1,0 +1,471 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL PLUKK OPPDRAG TIL E.F. MANIFEST        ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 07 09-14 17-24             ***
+      *** LEDIGE INDIKATORER 29 31 32       52-75 78-89       ***
+      ***********************************************************
+      *
+     H DFTACTGRP(*NO)
+     FSADH      IF   E           K DISK
+     FSADEFL03  IF   E           K DISK
+     FSADEFCL2  UF   E           K DISK
+     FSADEFCL3  IF   E           K DISK    RENAME(SADEFCFR:SADEFCFR3)
+     FSADEFCL4  IF   E           K DISK    RENAME(SADEFCFR:SADEFCFR4)
+     FSADEFCL5  IF   E           K DISK    RENAME(SADEFCFR:SADEFCFR5)
+     FTRACKF    O  A E             DISK
+     FSAD133D   CF   E             WORKSTN SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                SDS
+     D  UUSR                 254    263
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SAD005A'
+     d SAD005A         pr                  extpgm('SAD005A')
+     d u_avd_                              like(u_avd)
+     d u_tdn_                              like(u_tdn)
+     d uflagg_                             like(uflagg)
+      *  Prototype for 'SAD134R'
+     d SAD134R         pr                  extpgm('SAD134R')
+     d upro_                               like(upro)
+     d u_avd_                              like(u_avd)
+     d u_tdn_                              like(u_tdn)
+     d xtype_                              like(xtype)
+     d uflagg_                             like(uflagg)
+      *  Prototype for SAD133R
+     d sad133r         pr
+     d uavd_                               like(uavd)
+     d upro_                               like(upro)
+     d uuuid_                              like(uuuid)
+     d uflagg_                             like(uflagg)
+      *  *ENTRY Interface for Main Procedure
+     d sad133r         pi
+     d uavd                           4  0
+     d upro                           8  0
+     d uuuid                         36a
+     d uflagg                         1  0
+      *
+     d i               s              3  0
+     d u_avd           s              4  0
+     d u_tdn           s              7  0
+     d wdt             s              8a
+     d wtm             s              6a
+     d xtype           s              3a
+     d xrecno          s              4  0
+     d x_eof           s              1a
+      *
+      /free
+
+         exsr init;
+
+         exsr srsok;
+
+         dow *in03 = *off;
+           exsr srvisopd;
+         enddo;
+
+         *inlr = *on;
+         return;
+
+      // ********************************************
+       begsr srvisopd;
+
+       *in93 = *on;
+       write subctl;
+       *in93 = *off;
+       *in94 = *off;
+       zrecno = 0;
+
+       dow *in03 = *off;            // START                                   // 1<b
+
+         exsr setkey;
+         exsr lesrec;
+
+         dow x_eof = 'N';                                                      // 2<b
+           zrecno = zrecno + 1;
+           write subfil;
+           exsr lesrec;
+         enddo;                                                                // 2<e
+
+         select;                                                               // 2<b
+         when zrecno = 0;                                                      // 2
+           linnbr = 5;
+           posnbr = 5;
+         when zrecno > 19;                                                     // 2
+           zrecno = 1;
+           linnbr = 6;
+           posnbr = 2;
+         other;                                                                // 2
+           linnbr = 6;
+           posnbr = 2;
+         endsl;                                                                // 2<e
+
+         dow *in03 = *off;          // START3                                  // 2<b
+           *in91 = *on;
+           *in92 = *on;
+           write bunn;
+           if zrecno = 0;                                                      // 3<b
+             exfmt nyvare;
+           else;                                                               // 3
+             exfmt subctl;
+           endif;                                                              // 3<e
+
+           *in30 = *off;
+           *in98 = *off;
+           *in99 = *off;
+           select;                                                             // 3<b
+           when *in03 or *in12;                                                // 3
+             *inlr = *on;
+             return;
+           when *in08;                                                         // 3
+             exsr srsok;      // handle om START0
+             leave;           // til start
+           when *in20;                                                         // 3
+             exsr plkalle;    // Plukk alle oppdrag
+             leave;           // til start
+           when w2avd <> 0 and w2tdn <> 0 or w23039e <> 0 or w2trid <> *blanks;// 3
+             select;                                                           // 4<b
+             when w2nr = 0;                                                    // 4
+               exsr nysok;
+             when w2tdn = 0;                                                   // 4
+               *in98 = *on;
+               *in30 = *on;
+               msgnr = 'YBC2098';
+             other;                                                            // 4
+               exsr nyopd;
+               w2tdn = 0;
+               w23039e = 0;
+               w2trid = *blanks;
+             endsl;                                                            // 4<e
+           when zrecno > 0;                                                    // 3
+             exsr hent;
+           endsl;                                                              // 3<e
+
+         enddo;                     // START3                                  // 2<e
+
+       enddo;                       // START                                   // 1<e
+
+       endsr;
+
+      // ********************************************
+       begsr nysok;
+
+       clear varel2;
+
+       if w2avd = 0;
+         w3avd = efavd;
+       else;
+         w3avd = w2avd;
+       endif;
+
+       select;
+       when w2tdn <> 0;
+         w3tdn = w2tdn;
+       when w23039e <> 0;
+         w33039e = w23039e;
+       when w2trid <> *blanks;
+         w3trid = w3trid;
+       endsl;
+
+       w2nr    = 0;
+       w2trid  = *blanks;
+       w23039e = 0;
+       w2avd   = 0;
+       w2tdn   = 0;
+
+       *in98 = *off;
+       *in99 = *off;
+
+       endsr;
+
+      // ********************************************
+       begsr nyopd;
+
+       if w2avd = 0;
+         w2avd = efavd;
+       endif;
+       chain (w2avd: w2tdn) sadefcl3;
+       if %found;
+         *in90 = *on;
+         select;
+         when w2nr = 2;
+           // exsr plkopd;
+         when w2nr = 4;
+           exsr rmvopd;
+         when w2nr = 5;
+           exsr dspopd;
+         when w2nr = 15;
+           exsr dspsad;
+         endsl;
+       else;
+         msgnr = 'YBC2099';
+       endif;
+
+       if *in98;
+         *in30 = *on;
+       else;
+         w2avd = 0;
+         w2tdn = 0;
+       endif;
+       *in90 = *off;
+       w2nr  = 0;
+
+       endsr;
+
+      // ********************************************
+       begsr srsok;
+
+       write nyvare;
+       w3trid  = *blanks;
+       w33039e = 0;
+       w3avd   = 0;
+       w3tdn   = 0;
+
+       dow *in12 = *off;
+         exfmt varel2;
+         if *in12 = *on;
+           leave;
+         endif;
+         select;
+         when w3trid <> *blanks;
+           *in41 = *on;
+           *in42 = *off;
+           *in43 = *off;
+           leave;
+         when w33039e <> 0;
+           *in41 = *off;
+           *in42 = *on;
+           *in43 = *off;
+           leave;
+         when w3tdn <> 0;
+           *in41 = *off;
+           *in42 = *off;
+           *in43 = *on;
+           leave;
+         endsl;
+       enddo;
+
+       if *in41 = *off and *in42 = *off and *in43 = *off;
+         *in43 = *on;
+       endif;
+       *in93 = *on;
+       *in94 = *off;
+       write subctl;
+       *in93 = *off;
+       *in94 = *off;
+       zrecno = 0;
+       exsr setkey;
+
+       endsr;
+
+      // ********************************************
+       begsr hent;
+
+       msgnr = *blanks;
+       *in90 = *off;
+       *in91 = *off;
+       *in92 = *off;
+       *in98 = *off;
+       *in99 = *off;
+       readc subfil;
+       dow not %eof;
+         if sinak <> '*PLUKKET*' and sinak <> '*SLETTET*';
+           select;
+           when wsnr = 1;
+             *in99 = *on;
+             exsr plkopd;
+           when wsnr = 4;
+             exsr rmvopd;
+           when wsnr = 5;
+             exsr dspopd;
+           when wsnr = 15;
+             exsr dspsad;
+           endsl;
+         endif;
+         readc subfil;
+       enddo;
+
+       if *in98 and *in99 = *off;
+         msgnr = 'DIV0012';
+         *in30 = *on;
+       endif;
+       *in99 = *off;
+
+       endsr;
+
+      // ********************************************
+       begsr plkopd;
+
+       xtype = 'PLK';
+       u_avd = clavd;
+       u_tdn = cltdn;
+       sad134r (upro: u_avd: u_tdn: xtype: uflagg);
+       if *in99;
+         if uflagg = 0;
+           sinak = '*PLUKKET*';
+         endif;
+         if *in90 = *off;
+           wsnr = 0;
+           update subfil;
+         endif;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr rmvopd;
+
+       chain (clavd: cltdn) sadefcl2;
+       clpro = -1;
+       clst = 'S';
+       update sadefcfr;
+       sinak = '*SLETTET*';
+       exsr ttsr;
+
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr dspopd;
+
+       xtype = 'DSP';
+       u_avd = clavd;
+       u_tdn = cltdn;
+       sad134r (upro: u_avd: u_tdn: xtype: uflagg);
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr dspsad;
+
+       u_avd = clavd;
+       u_tdn = cltdn;
+       sad005a (u_avd: u_tdn: uflagg);
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr plkalle;
+
+       xtype = 'PLA';
+       xrecno = 1;
+       chain xrecno subfil;
+       dow %found;
+         u_avd = clavd;
+         u_tdn = cltdn;
+         sad134r (upro: u_avd: u_tdn: xtype: uflagg);
+         xrecno = xrecno + 1;
+         chain xrecno subfil;
+       enddo;
+
+       endsr;
+
+      // ********************************************
+       begsr setkey;
+
+       select;
+       when *in41;
+         setll w3trid sadefcl4;
+       when *in42;
+         setll w33039e sadefcl5;
+       when *in43;
+         setll (w3avd: w3tdn) sadefcl3;
+       endsl;
+       x_eof = 'N';
+
+       endsr;
+
+      // ********************************************
+       begsr lesrec;
+
+       select;
+       when *in41;
+         reade w3trid sadefcl4;
+         dow not %eof;
+           if clst = ' ' or clst = 'S';
+             leave;
+           endif;
+           reade w3trid sadefcl4;
+         enddo;
+         if %eof;
+           x_eof = 'J';
+         else;
+           chain (clavd: cltdn) sadh;
+         endif;
+       when *in42;
+         reade w33039e sadefcl5;
+         dow not %eof;
+           if clst = ' ' or clst = 'S';
+             leave;
+           endif;
+           reade w33039e sadefcl5;
+         enddo;
+         if %eof;
+           x_eof = 'J';
+         else;
+           chain (clavd: cltdn) sadh;
+         endif;
+       when *in43;
+         reade w3avd sadefcl3;
+         dow not %eof;
+           if clst = ' ' or clst = 'S';
+             leave;
+           endif;
+           reade w3avd sadefcl3;
+         enddo;
+         if %eof;
+           x_eof = 'J';
+         else;
+           chain (clavd: cltdn) sadh;
+         endif;
+       endsl;
+
+       endsr;
+
+      // ********************************************
+       begsr ttsr;
+
+       syge15c (wdt: wtm);
+
+       ttavd  = clavd;
+       ttopd  = cltdn;
+       tttur  = 0;
+       ttacti = 'EFC';
+       ttdate = %dec(wdt:8:0);
+       tttime = %dec(wtm:6:0);
+       ttdatl = ttdate;
+       tttiml = tttime;
+       ttuser = uusr;
+       tttext = 'Oppdrag er slettet fra E.F. plukktorg.';
+       tttexl = tttext;
+       ttedev = 'DLT';
+
+       write trackfr;
+
+       endsr;
+
+      // ********************************************
+       begsr init;
+
+       chain uuuid sadefl03;
+
+       endsr;
+
+      /end-free

@@ -1,0 +1,444 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 YBC PTF11 STARTPOSISJON FOR AVSENDER/MOTTAKER/FAKTURANR
+11XXX * 02 YBC PTF11 AVSENDER OG MOTTAKER
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12161 * 03 YBC Fast edi-avsender/mottaker (EHF på begge sider)
+12XXX * 04 YBC Gi melding om org.nr ikke er registrert i ELMA.
+      * 04.1   Rett feil i endring 04
+      * 05     ytterligere feiltekst
+********************************************************************
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER EHF-KVITTERING               ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01-26                            ***
+      *** LEDIGE INDIKATORER 27-32 34-99                      ***
+      ***********************************************************
+      *
+     FFIRM      IF   E           K DISK
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCVF01 IF   E           K DISK    RENAME(XMLRCVFR:XMLRCVFR01)
+     FXMLRCLF   IF   E           K DISK
+     FFAIN      IF   E           K DISK
+     FEDII      IF   E           K DISK
+     FEDIS      IF   E           K DISK
+     FEDIM      O  A E             DISK
+     FEDIC      UF   E             DISK
+     FXMLUFL2   UF   E           K DISK
+     FTRACKF    O  A E             DISK
+     D                SDS
+     D  ZUSER                254    263
+N04  D*XTXT01          C                   CONST('not registered in SML.')
+N04  D*XTXT02          C                   CONST('-upis::0192:')
+N04.1D XTXT01          C                   CONST('is not registered in SML')
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+     C                   EVAL      X000_XRLEV1 = 1
+     C                   EVAL      X000_XRLEV2 = 0
+      *
+     C     XMLKEY00      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF
+     C                   SELECT
+     C                   WHEN      XRNV = 'cbc:IssueDate'
+     C                   EVAL      M0068 = XRVERD
+     C                   EVAL      XDATE = %SUBST(XRVERD:1:4)
+     C                             + %SUBST(XRVERD:6:2) + %SUBST(XRVERD:9:2)
+     C                   WHEN      XRNV = 'cbc:IssueTime'
+     C                   EVAL      M0068 = %TRIM(M0068) + 'T' + %TRIM(XRVERD)
+     C                   EVAL      XTIME = %SUBST(XRVERD:1:2)
+     C                             + %SUBST(XRVERD:4:2) + %SUBST(XRVERD:7:2)
+S02  C*                  WHEN      XRNV = 'cac:SenderParty'
+N02  C                   WHEN      XRNV = 'cac:ReceiverParty'
+N02  C                             OR XRNV = 'cac:IssuerParty'
+     C                   EXSR      SRXML2
+S02  C*                  WHEN      XRNV = 'cac:ReceiverParty'
+N02  C                   WHEN      XRNV = 'cac:SenderParty'
+N02  C                             OR XRNV = 'cac:RecipientParty'
+     C                   EXSR      SRXML3
+     C                   WHEN      XRNV = 'cac:DocumentResponse'
+     C                   EXSR      SRXML4
+     C                   EXSR      SRFIL
+     C                   END
+     C                   ADD       1             X000_XRLEV1
+     C     XMLKEY00      CHAIN     XMLRCVF                            33
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X001_XRLEV1 = XRLEV1
+     C                   EVAL      X001_XRLEV2 = 1
+     C                   EVAL      X001_XRLEV3 = 0
+      *
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cac:PartyIdentification'              2
+     C                   EXSR      SRXML2A
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X001_XRLEV2
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2A       BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X002_XRLEV1 = XRLEV1
+     C                   EVAL      X002_XRLEV2 = XRLEV2
+     C                   EVAL      X002_XRLEV3 = 1
+     C                   EVAL      X002_XRLEV4 = 0
+      *
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cbc:ID'                               2
+S03  C*                  EVAL      M0010 = XRVERD
+N03  C                   EVAL      M0010 = 'EHF'
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X002_XRLEV3
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML3        BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X001_XRLEV1 = XRLEV1
+     C                   EVAL      X001_XRLEV2 = 1
+     C                   EVAL      X001_XRLEV3 = 0
+      *
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cac:PartyIdentification'              2
+     C                   EXSR      SRXML3A
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X001_XRLEV2
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML3A       BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X002_XRLEV1 = XRLEV1
+     C                   EVAL      X002_XRLEV2 = XRLEV2
+     C                   EVAL      X002_XRLEV3 = 1
+     C                   EVAL      X002_XRLEV4 = 0
+      *
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cbc:ID'                               2
+S03  C*                  EVAL      M0004 = XRVERD
+N03  C                   EVAL      M0004 = 'EHF'
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X002_XRLEV3
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML4        BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X001_XRLEV1 = XRLEV1
+     C                   EVAL      X001_XRLEV2 = 1
+     C                   EVAL      X001_XRLEV3 = 0
+      *
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cac:Response'                         2
+     C                   EXSR      SRXML4A
+     C                   WHEN      XRNV = 'cac:DocumentReference'                2
+     C                   EXSR      SRXML4B
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X001_XRLEV2
+     C     XMLKEY01      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML4A       BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X002_XRLEV1 = XRLEV1
+     C                   EVAL      X002_XRLEV2 = XRLEV2
+     C                   EVAL      X002_XRLEV3 = 1
+     C                   EVAL      X002_XRLEV4 = 0
+      *
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cbc:ReferenceID'                      2
+     C                   EVAL      XFILREF = XRVERD
+     C                   WHEN      XRNV = 'cbc:ResponseCode'                     2
+     C                   EVAL      XRESKOD = XRVERD
+     C                   WHEN      XRNV = 'cbc:Description'                      2
+     C     XMLRCLFK      CHAIN     XMLRCLF                            33
+     C  N33              EVAL      XRESTXT = XRVRD
+     C   33              EVAL      XRESTXT = *BLANKS
+N04.1 *
+N04.1C                   IF        *IN33 = *OFF
+N04.1C     XTXT01        SCAN      XRVRD         XPOS              3 0    33
+N04.1C                   IF        *IN33
+N04.1C                   EVAL      XELMA = 'N'
+N04.1C                   EVAL      XORGNR = %SUBST(XRVRD:XPOS-11:9)
+N04.1C                   END
+N04.1C                   END
+N04.1 *
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X002_XRLEV3
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML4B       BEGSR
+      ***********************************************
+      *
+     C                   EVAL      X002_XRLEV1 = XRLEV1
+     C                   EVAL      X002_XRLEV2 = XRLEV2
+     C                   EVAL      X002_XRLEV3 = 1
+     C                   EVAL      X002_XRLEV4 = 0
+      *
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'cbc:ID'                               2
+     C                   EVAL      XFFN = 0
+     C     1             DO        7             XN                7 0            3<-B
+     C                   EVAL      XAN01 = %SUBST(XRVERD:XN:1)
+     C                   SELECT                                                    4<-B
+     C                   WHEN      XAN01 = ' '                                     4
+     C                   LEAVE
+     C                   WHEN      XAN01 >= '0' AND XAN01 <= '9'                   4
+     C                   EVAL      XFFN = XFFN * 10
+     C                   MOVE      XAN01         XFFN
+     C                   ENDSL                                                     4<-E
+     C                   ENDDO                                                    3<-E
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X002_XRLEV3
+     C     XMLKEY02      CHAIN     XMLRCVF                            33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRFIL         BEGSR
+      ***********************************************
+     C                   IF        XRESKOD = 'REJECT'                           1<-B
+S01  C*                  EVAL      M0004  = %SUBST(XFILREF:5:9)
+S01  C*                  EVAL      M0010  = %SUBST(XFILREF:15:9)
+S02  C*                  EVAL      M0004  = %SUBST(XFILREF:9:9)
+S02  C*                  EVAL      M0010  = %SUBST(XFILREF:19:9)
+S03  C*                  EVAL      M0010  = %SUBST(XFILREF:9:9)
+S03  C*                  EVAL      M0004  = %SUBST(XFILREF:19:9)
+N03  C                   EVAL      M0010  = 'EHF'
+N03  C                   EVAL      M0004  = 'EHF'
+     C                   EVAL      XFFN = 0
+S01  C*    25            DO        31            XN                7 0           2<-B
+N01  C     29            DO        35            XN                7 0           2<-B
+     C                   EVAL      XAN01 = %SUBST(XFILREF:XN:1)
+     C                   SELECT                                                   3<-B
+     C                   WHEN      XAN01 = ' ' OR XAN01 = '_'                     3
+     C                   LEAVE
+     C                   WHEN      XAN01 >= '0' AND XAN01 <= '9'                  3
+     C                   EVAL      XFFN = XFFN * 10
+     C                   MOVE      XAN01         XFFN
+     C                   ENDSL                                                    3<-E
+     C                   ENDDO                                                   2<-E
+      * SEND MELDING OM FEIL
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+     C     M0010         CHAIN     EDII                               33
+     C  N33              EVAL      XAVS = %TRIM(M0010) + ' ' + %TRIM(INNA)
+     C   33              EVAL      XAVS = %TRIM(M0010)
+     C     M0004         CHAIN     EDII                               33
+     C  N33              EVAL      XMOT = %TRIM(M0004) + ' ' + %TRIM(INNA)
+     C   33              EVAL      XMOT = %TRIM(M0004)
+     C     XRSN          CHAIN     EDIS                               33
+     C                   MOVE      XFFN          XAN07             7
+N04   *
+N04  C*                  MOVE      *BLANKS       XIKKEELMA        50
+N04  C*    XTXT01        SCAN      XRESTXT                                33
+N04  C*                  IF        *IN33                                         2<-B
+N04  C*                  Z-ADD     1             XPOS              3 0
+N04  C*    XTXT02        SCAN      XRESTXT:XPOS  XPOS                     33
+N04  C*                  IF        *IN33 AND XPOS < 490                           3<-B
+N04  C*                  ADD       12            XPOS
+N04  C*                  EVAL      XIKKEELMA = ' (org.nr '
+N04  C*                            + %SUBST(XRESTXT:XPOS:9)
+N04  C*                            + ' ikke er registrert i ELMA)'
+N04  C*                  END                                                      3<-E
+N04  C*                  END                                                     2<-E
+N04   *
+     C                   EVAL      XMSG = 'Feil ved EHF-faktura (' + XAN07 +
+     C                             '). Firma=' + %TRIM(FIFT) +
+N04  C*                            %TRIM(XIKKEELMA) +
+     C                             ', S.nr=' + USN +
+     C                             ', Avsender=' + %TRIM(XAVS) +
+     C                             ', Mottaker=' + %TRIM(XMOT) +
+     C                             ', Dato=' + %TRIM(%EDITW(SDT:'    .  .  ')) +
+E05  C                             ', Tid=' + %TRIM(%EDITW(STM:'  :  :  ')) +
+N05  C                             ', info:' + %TRIM(XRESTXT)
+N04.1 *
+N04.1C                   IF        XELMA = 'N'
+N04.1C                   EVAL      XMSG = %TRIM(XMSG) + '. '
+N04.1C                             + 'Org.nr ' + %trim(XORGNR)
+N04.1C                             + ' er ikke registrert i ELMA-reg. '
+N04.1C                   END
+N04.1 *
+S05  C*                  CALL      'EDIERRC'
+S05  C*                  PARM                    XMSG            256
+n05  C                   CALL      'EDIERREHFC'
+N05  C                   PARM                    XMSG            512
+      *
+     C                   END                                                    1<-E
+      *
+     C     XFFN          CHAIN     XMLUFL2                            33
+     C                   IF        *IN33 = *OFF
+     C                   IF        XRESKOD = 'REJECT'
+     C                   EVAL      XFST = 'E'
+     C                   ELSE
+     C                   EVAL      XFST = 'O'
+     C                   END
+     C                   UPDATE    XMLUFFR
+     C                   END
+      *
+      *
+     C                   MOVE      'XMLRST'      M0065
+     C                   MOVE      XFFN          XAN07             7
+     C                   IF        XRESKOD = 'REJECT'
+     C                   EVAL      M1001  = 'ERR'
+     C                   EVAL      TTACTI = 'ERR'
+     C                   EVAL      TTTEXL = 'EHF-faktura (' + XAN07
+     C                             + ') har syntaks feil'
+     C                   EVAL      TTTEXT = 'EHF-invoice (' + XAN07
+     C                             + ') has syntactial error'
+     C                   ELSE
+     C                   EVAL      M1001  = 'ACC'
+     C                   EVAL      TTACTI = 'ACC'
+     C                   EVAL      TTTEXL = 'EHF-faktura (' + XAN07
+     C                             + ') er levert til mottaker'
+     C                   EVAL      TTTEXT = 'EHF-invoice (' + XAN07
+     C                             + ') is deliveried to receiver'
+     C                   END
+     C                   MOVE      *BLANKS       M1004
+     C                   EVAL      M1N07 = M1001
+     C                   EVAL      M1225 = 'EHF'
+     C                   MOVE      XRSN          MSN
+     C                   MOVE      'R'           MSR
+     C                   MOVE      'C'           MST
+     C                   MOVE      WDT           MDT
+     C                   MOVE      WTM           MTM
+     C                   IF        XDATE = *ZEROS
+     C                   MOVE      WDT           TTDATE
+     C                   MOVE      WTM           TTTIME
+     C                   ELSE
+     C                   MOVE      XDATE         TTDATE
+     C                   MOVE      XTIME         TTTIME
+     C                   END
+     C                   MOVE      ZUSER         TTUSER
+     C                   MOVE      WDT           TTDATL
+     C                   MOVE      WTM           TTTIML
+     C                   MOVE      'E'           TTMANU
+      *
+     C     XFFN          CHAIN     FAIN                                 33
+     C                   IF        *IN33 = *OFF
+     C                   EVAL      TTAVD  = FIAVD
+     C                   EVAL      TTOPD  = FIOPD
+     C                   WRITE     TRACKFR
+     C     1             CHAIN     EDIC                               33
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+     C                   Z-ADD     CMN           MMN
+     C                   EVAL      MAVD   = FIAVD
+     C                   EVAL      MTDN   = FIOPD
+     C                   WRITE     EDIMR
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+      *
+     C     XMLKEY00      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X000_XRLEV1
+     C                   KFLD                    X000_XRLEV2
+     C     XMLKEY01      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X001_XRLEV1
+     C                   KFLD                    X001_XRLEV2
+     C                   KFLD                    X001_XRLEV3
+     C     XMLKEY02      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X002_XRLEV1
+     C                   KFLD                    X002_XRLEV2
+     C                   KFLD                    X002_XRLEV3
+     C                   KFLD                    X002_XRLEV4
+     C     XMLRCLFK      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    XRLEV1
+     C                   KFLD                    XRLEV2
+     C                   KFLD                    XRLEV3
+     C                   KFLD                    XRLEV4
+     C                   KFLD                    XRLEV5
+      *
+     C     *LIKE         DEFINE    XRLEV1        X000_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X000_XRLEV2
+     C     *LIKE         DEFINE    XRLEV1        X001_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X001_XRLEV2
+     C     *LIKE         DEFINE    XRLEV3        X001_XRLEV3
+     C     *LIKE         DEFINE    XRLEV1        X002_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X002_XRLEV2
+     C     *LIKE         DEFINE    XRLEV3        X002_XRLEV3
+     C     *LIKE         DEFINE    XRLEV4        X002_XRLEV4
+     C     *LIKE         DEFINE    XRVERD        XFILREF
+     C     *LIKE         DEFINE    XRVERD        XRESKOD
+     C     *LIKE         DEFINE    XRVRD         XRESTXT
+      *
+     C                   MOVE      USN           XRSN
+     C                   MOVE      *BLANKS       XAN01             1
+     C                   MOVE      *BLANKS       XAVS             50
+     C                   MOVE      *BLANKS       XMOT             50
+     C                   MOVE      *ZEROS        XDATE             8
+     C                   MOVE      *ZEROS        XTIME             6
+N04.1C                   MOVE      ' '           XELMA             1
+N04.1C                   MOVE      *BLANKS       XORGNR            9
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *
+     C                   ENDSR
+      *

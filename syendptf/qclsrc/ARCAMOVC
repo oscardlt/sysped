@@ -1,0 +1,140 @@
+/**************************************************************************/
+/*   FLYTTER OBJEKT TIL ENDELIG MAPPE (ARKIV SKANN MM)                    */
+/**************************************************************************/
+/*                                                                        */
+/* OBS! FØR KOMPILERING: CRTPF FILE(QTEMP/XIFSAUT) RCDLEN(132) AUT(*ALL)  */
+/*                                                                        */
+/*N01 - *PUBLIC - *ALL */
+/*N02 - INNDRA INDIVIDUELLE/PRIVATE AUTHORITIES.*/
+/*N03 - HOPP UT VED FEIL I MOV                  */
+/*N04 - OBJEKT IBRUK TESTER                     */
+/*N05 - TIL-OBJEKT FINNES ALLEREDE (OG ALLE ANDRE UKJENTE FEIL..) */
+             PGM   PARM(&FRA &TIL &OK)
+             DCL        VAR(&MSGTXT) TYPE(*CHAR) LEN(132)
+             DCL        VAR(&MSGLEN) TYPE(*DEC) LEN(5 0)
+             DCL        VAR(&MSGDTA) TYPE(*CHAR) LEN(512)
+             DCL        VAR(&MSGDTALEN) TYPE(*DEC) LEN(5 0)
+             DCL        VAR(&MSGID) TYPE(*CHAR) LEN(7)
+             DCL        VAR(&KEYVAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&SENDER) TYPE(*CHAR) LEN(720)
+             DCL        VAR(&FRA) TYPE(*CHAR) LEN(120)
+             DCL        VAR(&TIL) TYPE(*CHAR) LEN(120)
+             DCL        VAR(&OK) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&SPLF) TYPE(*CHAR) LEN(10) +
+                          VALUE(QPSYCDAU)
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&START) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&XIFSAUT) TYPE(*CHAR) LEN(132)
+             DCLF       FILE(QTEMP/XIFSAUT) RCDFMT(XIFSAUT)
+
+/* FORUTSETTER OK */
+             CHGVAR     VAR(&OK) VALUE('J')
+             CRTPF      FILE(QTEMP/XIFSAUT) RCDLEN(132) AUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+
+NYMOV:       MOV        OBJ(&FRA) TOOBJ(&TIL) TOCCSID(277)
+/***********************************************************************/
+/*     BEHANDLING HVIS MOV IKKE FUNGERER    ****************************/
+/***********************************************************************/
+             MONMSG     MSGID(CPF0000) EXEC(CALLSUBR SUBR(HANDLEERR))
+/***********************************************************************/
+/*     OBJEKT I BRUK                        ****************************/
+/***********************************************************************/
+             IF         COND(&MSGID = 'CPFA09E') THEN(DO)
+             DLYJOB     DLY(20)
+             GOTO       CMDLBL(NYMOV)
+             ENDDO
+/***********************************************************************/
+/*     OBJEKT FINNES IKKE                   ****************************/
+/***********************************************************************/
+             IF         COND(&MSGID = 'CPFA0A9') THEN(DO)
+                        CHGVAR VAR(&OK) VALUE('N')
+                        GOTO CMDLBL(EXIT)
+             ENDDO
+/***********************************************************************/
+/*     ANDRE FEIL?? (TIL-FIL FINNES MM..) ALT ANNET ENN BLANK I &MSGID */
+/***********************************************************************/
+/*N05*/      IF         COND(&MSGID *NE '       ') THEN(DO)
+/*N05*/                 CHGVAR VAR(&OK) VALUE('N')
+/*N05*/                 GOTO CMDLBL(EXIT)
+/*N05*/      ENDDO
+
+
+/***** ALT OK - ENDRE OBJ-AUTORISASJON MM  *****************/
+
+/*N01*/      CHGAUT     OBJ(&TIL) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+/*N01*/      MONMSG     MSGID(CPF0000)
+
+
+
+/***********************************************************************/
+/* INNDRA INDIVIDUELL AUTORISASJON (SOM IKKE TRENGS) NÅR *PUBLIC HAR *ALL   */
+/* Ingen APIer/kommandoer rett til fil - må gå via DSP->*print / RCVF ... */
+/* Burde heller være gjort i RPG ???                                      */
+/***********************************************************************/
+             OVRPRTF    FILE(&SPLF) HOLD(*YES)
+             DSPAUT     OBJ(&TIL) OUTPUT(*PRINT)
+             CPYSPLF    FILE(&SPLF) TOFILE(QTEMP/XIFSAUT) SPLNBR(*LAST)
+
+/***********************************************************************/
+/*     LES FIL                                                         */
+ /* Start leting etter reelle users først etter at 'Bruker'/'User' lest */
+/***********************************************************************/
+             CHGVAR     VAR(&START) VALUE('N')
+ READ:       RCVF       RCDFMT(*FILE)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(EXIT))
+
+             CHGVAR     VAR(&USER) VALUE(%SST(&XIFSAUT 2 11))
+
+             IF         COND(&START *EQ 'Y' *AND +
+                             &USER  *NE '*PUBLIC' *AND +
+                             &USER  *NE '          ') +
+                        THEN(DO)
+             CHGAUT     OBJ(&TIL) USER(&USER) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+                        ENDDO
+/***********************************************************************/
+ /* *PUBLIC ENDRER EIER OG SETTER ALLE RETTIGHETER                */
+/***********************************************************************/
+             IF         COND(&START *EQ 'Y' *AND +
+                             &USER  *EQ '*PUBLIC') +
+                        THEN(DO)
+             CHGOWN     OBJ(&TIL) NEWOWN(SY400USR)
+             MONMSG     MSGID(CPF0000)
+             CHGAUT     OBJ(&TIL) USER(&USER) DTAAUT(*RWX) OBJAUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+             CHGAUT     OBJ(&TIL) USER(SY400USR) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+                        ENDDO
+             IF         COND(&USER *EQ 'Bruker    ') +
+                        THEN(CHGVAR VAR(&START) VALUE('Y'))
+             IF         COND(&USER *EQ 'User      ') +
+                        THEN(CHGVAR VAR(&START) VALUE('Y'))
+
+             GOTO       CMDLBL(READ)
+/***********************************************************************/
+ /*  DELETE AV SPOOLFILER                                         */
+/***********************************************************************/
+ EXIT:       DLTSPLF    FILE(&SPLF) SPLNBR(*LAST)
+             MONMSG     MSGID(CPF0000)
+
+/***********************************************************************/
+/*  START SUBRUTINE  HANDLEERR  */
+/***********************************************************************/
+             SUBR       SUBR(HANDLEERR)
+
+             RCVMSG     MSGTYPE(*LAST) RMV(*NO) KEYVAR(&KEYVAR) +
+                          MSG(&MSGTXT) MSGLEN(&MSGLEN) +
+                          MSGDTA(&MSGDTA) MSGDTALEN(&MSGDTALEN) +
+                          MSGID(&MSGID) SENDER(&SENDER) +
+                          SENDERFMT(*LONG)
+             SNDPGMMSG  MSG('Feilkode = ' *CAT &MSGID *CAT '.')
+             ENDSUBR
+/***********************************************************************/
+/*  SLUTT SUBRUTINE  HANDLEERR  */
+/***********************************************************************/
+             ENDPGM

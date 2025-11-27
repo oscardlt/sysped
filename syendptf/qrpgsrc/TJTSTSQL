@@ -1,0 +1,357 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJTSTSQL MODULE(*LIBL/TJTSTSQL *LIBL/INCGI)
+CRTPGM*        ACTGRP(*new) AUT(*USE) tgtrls(V7R1M0)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+     d SqlStm          s          10000a
+     d WhereC          s          10000a
+     d SelectC         s           5000a
+     d FirstW          s              1A
+     d cQuote          c                   const('''')
+     d myrows          s             10i 0
+     D WSUSER          S             10
+     D WSSAVD          S              4
+     D WBSAVD          S              4  0
+     D WSSOPD          S              7
+     D WBSOPD          S              7  0
+     D WSDTF           S              8
+     D WBDTF           S              8  0
+     D WSDTT           S              8
+     D WBDTT           S              8  0
+     D WSNAS           S             30
+     D WSNAK           S             30
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d X               S             10  0
+      * Array/datastrukttur som mottar rows fra SQL mor HEADF
+     d HeadfDs         ds                  Qualified  dim(500)
+     d  heur                               like(heur    )
+     d  heavd                              like(heavd   )
+     d  heopd                              like(heopd   )
+     d  hesg                               like(hesg    )
+     d  hedtop                             like(hedtop  )
+     d  hedtr                              like(hedtr   )
+     d  hesdff                             like(hesdff  )
+     d  hesdf                              like(hesdf   )
+     d  hesdt                              like(hesdt   )
+     d  hesdvt                             like(hesdvt  )
+     d  hegn                               like(hegn    )
+     d  hegnn                              like(hegnn   )
+     d  hepro                              like(hepro   )
+     d  heplan                             like(heplan  )
+     d  trrund                             like(trrund  )
+     d  hepos1                             like(hepos1  )
+     d  hepos2                             like(hepos2  )
+     d  trknfa                             like(trknfa  )
+     d  henao                              like(henao   )
+     d  hekna                              like(hekna   )
+     d  henaa                              like(henaa   )
+     d  herfa                              like(herfa   )
+     d  hesaml                             like(hesaml  )
+     d  hehawb                             like(hehawb  )
+     d  henas                              like(henas   )
+     d  henak                              like(henak   )
+     d  hent                               like(hent    )
+     d  hevkt                              like(hevkt   )
+     d  hesnn                              like(hesnn   )
+     d  heunik                             like(heunik  )
+     d  hereff                             like(hereff  )
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+       exsr ParseSr;
+       exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"orderlistlandled" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+         if myrows > 0;
+           exsr LesSr;
+         endif;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+TMP    // ..........................................................................................
+TMP    // TMP - legg ut benytte sql Statement
+TMP    // ..........................................................................................
+TMP    jsonstring =', "sqlStm" : "'+%trim(SQLStm)+'"';
+TMP    updhtmlvar2('JSONstring'
+TMP               :%addr(jsonstring)
+TMP               :%len(jsonstring));
+TMP    wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       exsr Exit;
+
+       //*******************************************************************
+       begsr     SelSr;
+       //*******************************************************************
+       // Select fra fil via SQL
+       // div select where-vilkår ..  sr AddAnd legger til and mellom hver
+         if WBSAVD > 0;
+           WSSAVD = %editc(WBSAVD:'X');
+           Eval  WhereC = ' HEAVD  = ' + WSSAVD;
+         endIf;
+         if WBSOPD > 0;
+           WSSOPD = %editc(WBSOPD:'X');
+           Eval  WhereC =  %trim(WhereC)  +
+                        ' HEOPD  = ' + WSSAVD;
+         endIf;
+         If    WBDTF  > 0;
+           WSDTF = %editc(WBDTF:'X');
+           Exsr  AddAnd;
+           Eval  WhereC =  %trim(WhereC)  +
+                        ' HEDTOP  >= ' + WSDTF;
+         EndIf;
+         If    WBDTT  > 0;
+           WSDTT = %editc(WBDTT:'X');
+           Exsr  AddAnd;
+           Eval  WhereC =  %trim(WhereC)  +
+                        ' HEDTOP  <= ' + WSDTT;
+         EndIf;
+
+         // den endelige where-strengen
+         if WhereC <> *blanks;
+           eval      WhereC =  ' Where ' + %trim(WhereC);
+         endif;
+
+         // Hent kolonner (SelsectC  -  Select AAA, BBB, CCC, ... )
+         exsr SelCol;
+
+         SqlStm = %trim(SelectC)
+                + ' from HEADF '
+                +  %trim(WhereC)
+                + ' Order by HEOPD desc '
+                + 'FOR READ ONLY ';
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  HeadfCurs  cursor for DynSel;
+         Exec SQL OPEN HeadfCurs;
+         Myrows = %elem(HeadfDs);
+         exec sql FETCH HeadfCurs   for :MyRows rows
+                  INTO :HeadfDs;
+         Exec SQL CLOSE HeadfCurs;
+       endsr;
+
+       //*****************************************************************
+       begsr     SelCol;
+       //*****************************************************************
+       // kolonnene må samsvare 100 % med datastrukturen de skal inn i
+       // setter kun ett felt pr linje her da det lettet copy paste fra datastrukturen
+       SelectC = 'Select '
+               + 'heur   , '
+               + 'heavd  , '
+               + 'heopd  , '
+               + 'hesg   , '
+               + 'hedtop , '
+               + 'hedtr  , '
+               + 'hesdff , '
+               + 'hesdf  , '
+               + 'hesdt  , '
+               + 'hesdvt , '
+               + 'hegn   , '
+               + 'hegnn  , '
+               + 'hepro  , '
+               + 'heplan , '
+               + 'trrund , '
+               + 'hepos1 , '
+               + 'hepos2 , '
+               + 'trknfa , '
+               + 'henao  , '
+               + 'hekna  , '
+               + 'henaa  , '
+               + 'herfa  , '
+               + 'hesaml , '
+               + 'hehawb , '
+               + 'henas  , '
+               + 'henak  , '
+               + 'hent   , '
+               + 'hevkt  , '
+               + 'hesnn  , '
+               + 'heunik , '
+               + 'hereff';
+
+
+
+
+       endsr;
+       //*****************************************************************
+       begsr     AddAnd;
+       //*****************************************************************
+       // Set inn "AND" mellom where settninger
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+
+       //*****************************************************************
+       begsr     ParseSr;
+       //*****************************************************************
+       // hent input
+         wsuser  = zhbgetvar('USER');
+         WSSAVD  = zhbgetvar('WSSAVD');
+         WBSAVD  = c2n2(WSSAVD);
+         WSSOPD  = zhbgetvar('WSSOPD');
+         WBSOPD  = c2n2(WSSOPD);
+         // fradato
+         WSDTF   = zhbgetvar('WSDTF');
+         WBDTF   = c2n2(WSDTF);
+         // fradato
+         WSDTT   = zhbgetvar('WSDTT');
+         WBDTT   = c2n2(WSDTT);
+         WSNAS   = zhbgetvar('WSNAS');
+         WSNAK   = zhbgetvar('WSNAK');
+
+        endsr;
+
+        // **************************************************
+       begsr LesSr;
+        // **************************************************
+        // Læs array
+       for x = 1 to myrows;
+
+       if HeadfDs(x).HEAVD = *zeros;
+         leave;
+       endif;
+
+           if error = *blanks;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬heavd¬ : ¬'+%trim(%editc(HeadfDs(x).HEAVD:'Z'))+'¬, '
+          +'¬heopd¬ : ¬'+%trim(%editc(HeadfDs(x).HEOPD:'Z'))+'¬, '
+          +'¬hesg¬ : ¬'+%trim(HeadfDs(x).HESG)+'¬, '
+          +'¬hedtop¬ : ¬'+%trim(%editc(HeadfDs(x).HEDTOP:'X'))+'¬, '
+          +'¬henas¬ : ¬'+%trim(HeadfDs(x).HENAS)+'¬, '
+          +'¬henak¬ : ¬'+%trim(HeadfDs(x).HENAK)+'¬, '
+          +'¬hent¬ : ¬'+%trim(%editc(HeadfDs(x).HENT:'Z'))+'¬, '
+          +'¬hevkt¬ : ¬'+%trim(%editc(HeadfDs(x).HEVKT:'Z'))+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endif;
+
+        endfor;
+
+       endsr;
+
+       //********************************************************
+       begsr init;
+       //********************************************************
+       open bridf;
+       // Test innlogging
+       chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+             Monitor;
+                   Varpgm();                 // BILIBL
+             On-Error;
+                   //
+             EndMon;
+           endif;
+         else;
+           error = 'Invalid userID';
+         endif;
+
+         // Dummy for å få tilgang til alle feltdefinisjoner
+         if heavd=0 and heavd<>0;     // = aldri
+           open headf;
+         endif;
+         // initier array/numeriske felt
+         clear HeadfDs;
+
+       endsr;
+
+       // **************************************************
+       begsr exit;
+       // **************************************************
+       // Close output html and quit
+         // Lukk fil
+         close bridf;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free

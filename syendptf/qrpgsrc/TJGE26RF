@@ -1,0 +1,355 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE26RF MODULE(*LIBL/TJGE26RF *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+11XXX * 01 JOV PTF11 Feil på klasse mm .... / key
+11XXX * 02 JOV PTF11 DELETE av linje OG reorg skilt ut i eget prog
+11XXX * 03 JOV PTF11 Nytt felt FFINDX
+      *%%%%%%%%%%%%%%%%%%%%
+      * 04 JOV PTF12 Test om user har link til AS400user
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFERDL01   UF A E           K DISK    USROPN
+     FFAK4      IF   E           K DISK    USROPN
+     FSAML1     IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FCUSAAV    IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WMODE           S              2
+     D JSONstring      S          32000
+     D Error           S            150
+     D Status          S            150
+     D WA              S             15
+     D AVD             S              4  0
+     D OPD             S              7  0
+     D AntFerdSin      S              7  0
+     D AntFerdSam      S              7  0
+     D AntFerdNul      S              7  0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+N04  C                   if        Error = *blanks
+     C                   EXSR      TEST
+N04  C                   endif
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+          +'¬avd¬ : ¬'+%trim(%editc(avd:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(opd:'Z'))+'¬, '
+          +'¬mode¬ : ¬'+%trim(WMODE)+'¬, '
+          +'¬status¬ : ¬'+%trim(Status)+'¬, '
+          +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"invoiceReadyMark" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FAK4
+     C  N50              CLOSE     SAML1
+     C  N50              CLOSE     CUNDL01
+     C  N50              CLOSE     CUSAAV
+     C  N50              CLOSE     BRPARF
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WA         = zhbgetvar('AVD')
+     C                   EVAL      AVD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('OPD')
+     C                   EVAL      OPD        = c2n2(WA)
+      * Mode G = Get
+     C                   EVAL      WMODE  = zhbgetvar('MODE')
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HeaKey        KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C     KUND1K        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    FAKUNR
+     C     CUSAAK        KLIST
+     C                   KFLD                    FAKUNR
+     C                   KFLD                    FAAVD
+N02  C     BrParKey      klist
+N02  C                   kfld                    PABRID
+N02  C                   kfld                    PAKUNR
+N02  C                   kfld                    PAID
+N02  C                   MOVE      BIBRID        PABRID
+N02  C                   MOVE      *zeros        PAKUNR
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      FerdL01
+     C  N50              OPEN      FAK4
+     C  N50              OPEN      SAML1
+     C  N50              OPEN      CUNDL01
+     C  N50              OPEN      CUSAAV
+     C  N50              OPEN      BRPARF
+      *
+N02  C                   MOVE      'ASUSR'       PAID
+N02  C     BrParKey      chain     BRPARF                             33
+S04  C* N33              MOVE      PAVRDA        WUSER            10
+N04  C  N33              MOVEL     PAVRDA        WUSER            10
+N04  c                   IF        WUSER = *blanks
+N04  C                   eval      Error = 'Din esped User er IKKE koblet '
+N04  c                             + 'mot en Server-userId. Du kan ikke ferdig-'
+N04  c                             + 'melde. Kontat systemansvarlig.'
+N04  C                   ENDIF
+
+     c                   endsr
+      *
+      *********************************************************
+     C     TEST          BEGSR
+      *********************************************************
+      * nåstatus
+     C     Heakey        setll     FERDL01
+     C     Heakey        reade(N)  FERDL01                                33
+     C     *in33         doweq     '0'
+     c                   if        FESFAK=' ' or FESFAK='N'
+     c                   if        FESKX =' '
+     c                   add       1             AntFerdNul
+     C                   else
+     c                   add       1             AntFerdSin
+     C                   endif
+     C                   else
+     c                   add       1             AntFerdSam
+     C                   endif
+     C     Heakey        reade(N)  FERDL01                                33
+     C                   enddo
+      *
+     c                   exsr      SettTekst
+      *
+      * MODE G=Get status  annet er å 'SWITCHE'
+     C                   SELECT
+     C     WMODE         WHENEQ    'G'
+     C                   goto      UtTest
+     C                   OTHER
+     C                   EXSR      SRF
+     C                   ENDSL
+      *
+     C     UtTest        tag
+     c                   If        Status = *blanks
+     C     Heakey        chain     SAML1                              33
+     c  N33              eval      Status = 'I kø for samlefaktura'
+     c                   endif
+     C                   ENDSR
+      *
+      *********************************************************
+     C     SRF           BEGSR
+      *********************************************************
+      * switch Ferd-meld-status
+
+      * a) VAR ferdigmeldt =  Opphev
+     C                   If        Status <> *blanks
+     C     Heakey        setll     FERDL01
+     C     Heakey        reade     FERDL01                                33
+     C     *in33         doweq     '0'
+     C                   delete    FERDR
+     C     Heakey        reade     FERDL01                                33
+     C                   enddo
+     C                   eval      Status = *blanks
+     C                   goto      UtSrf
+     C                   endif
+
+      * b) VAR IKKE ferdigmeldt = Test / Fredigmeld
+     c                   exsr      TSTFER
+     C                   if        Error = *blanks
+     C                   exsr      OPDFER
+     C                   endif                                                     E4
+      *
+      *
+     C     UtSrf         ENDSR
+      *
+      *********************************************************
+     C     TSTFER        BEGSR
+      *********************************************************
+      ** OBS!!!  sjekk avBudsj / kundenummer / skekk mot kred-grense+ sjekk kar om fritekst
+      ** OBS!!!           er foreløpig skippet !!!!
+      * KAN IKKE FERDIGMELDE HVIS LINJER SOM SKAL BUDSJETTERES/SPLITTES
+     C* array            MOVE      *ZEROS        KN
+     C     Heakey        SETLL     FAK4
+     C     Heakey        READE     FAK4                                   33
+     C     *IN33         DOWEQ     '0'                                            B3
+     C     FAKDUK        IFNE      ' '                                             B4
+     C     FAKDUK        ANDNE     'N'
+N17  C     FAKDUK        ANDNE     'A'
+     C     FABELU        ANDEQ     *ZEROS
+     C*                  eval      Error='Gebyret '+ FAVK+ ' krever '
+     c*                            + 'budsjett/utgiftsbeløp'
+     C*                  goto      UtFerd
+     C                   END                                                       E4
+      * test om krav til tilleggsinfo
+N12  c*** :=)            exsr      KRAVFRI
+     C                   if        Error<>*blanks
+     C                   goto      UtFerd
+     C                   endif                                                     E4
+      * OBS - sikre rektt kundenr på linja (i forhold til S/K...)
+      *
+     C* kundr->array     EXSR      HENTKN
+     C                   if        Error<>*blanks
+     C                   goto      UtFerd
+     C                   endif                                                     E4
+      *
+     C     Heakey        READE     FAK4                                   33
+     C                   END                                                      E3
+      *
+     C** Test Kr-gren    EXSR      TESTKG
+     C                   if        Error<>*blanks
+     C                   goto      UtFerd
+     C                   endif                                                     E4
+      *
+      *
+     C     UtFerd        ENDSR
+      ***********************************************
+     C     OPDFER        BEGSR
+      ***********************************************
+     c                   move      *zeros        AntFerdSin
+     c                   move      *zeros        AntFerdSam
+     C                   MOVE      99999999      GMKUNR            8 0
+     C     Heakey        SETLL     FAK4
+     C     Heakey        READE     FAK4                                   33
+     C     *IN33         DOWEQ     '0'
+     C     FAKUNR        IFNE      GMKUNR
+     C     FAVK          ANDNE     'AME'
+     C     KUND1K        CHAIN(N)  CUNDL01                            33        *S.FAKTKODE
+     C     CUSAAK        CHAIN     CUSAAV                             33        *AVVIK SF.KO
+     C  N33              MOVE      CASFAK        SFAKT                           PÅ AVDNIVÅ?
+     C                   MOVE      AVD           FEAVD
+     C                   MOVE      OPD           FEOPD
+     C                   MOVE      WUSER         FEWS
+     C                   MOVE      FAKUNR        FEKN
+     C                   MOVE      FASK          FESKX
+     C                   MOVE      SFAKT         FESFAK
+     C     FESFAK        IFEQ      'N'
+     C                   MOVE      ' '           FESFAK
+     C                   END
+     C                   WRITE     FERDR
+      *
+     C     FESFAK        ifeq      ' '
+     C                   add       1             AntFerdSin
+     C                   else
+     C                   add       1             AntFerdSam
+     C                   endif
+     C                   END
+     C                   MOVE      FAKUNR        GMKUNR
+     C     Heakey        READE     FAK4                                   33
+     C                   END
+     C* INGEN(HVERKEN SINGLE/SAML)->MERK FOR 0-FAKTURA (INGEN UTSKRIFT)
+     C     AntFerdSin    IFEQ      *zeros
+     C     AntFerdSam    ANDEQ     *zeros
+     C                   MOVE      AVD           FEAVD
+     C                   MOVE      OPD           FEOPD
+     C                   MOVE      WUSER         FEWS
+     C                   MOVE      *ZEROS        FEKN
+     C                   MOVE      ' '           FESKX
+     C                   MOVE      ' '           FESFAK
+     C                   WRITE     FERDR
+     c                   eval      Status = 'Ferdigmeldt for nullfaktura'
+     C                   ELSE
+     c                   exsr      SettTekst
+     C                   END
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SettTekst     BEGSR
+      ***********************************************
+     c                   If        AntFerdNul > 0
+     c                   eval      Status = 'Ferdigmedlt som Nullfaktura'
+     c                   endif
+     c                   If        AntFerdSin > 0
+     c                   eval      Status = 'Ferdigmedlt Singlefaktura'
+     c                   endif
+     c                   If        AntFerdSam > 0
+     c                   If        Status = *blanks
+     c                   eval      Status = 'Ferdigmedlt Samlefaktura'
+     c                   else
+     c                   eval      Status = %trim(Status)+'/Samlefaktura'
+     c                   endif
+     c                   endif
+     C                   ENDSR

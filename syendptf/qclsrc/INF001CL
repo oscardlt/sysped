@@ -1,0 +1,197 @@
+/*                                                    */
+/* 01   VED HVER 50 RUNDE RESTART  MMAIL              */
+/* 02   SETT *RWX HVIS EIERSKAP IKKE KAN ENDRES       */
+/* 03   GOOGLETEST                                    */
+/* ENDRER AUTORITET PÅ OBJEKT FØR FLYTTING  SE NY2:   */
+/*                                                    */
+             PGM        PARM(&SPLF &QNBR &QUSER &QJOB &TILBAN)
+/*N03*/      DCL        VAR(&GOOGJN) TYPE(*CHAR) LEN(1)
+/*N03*/      DCL        VAR(&OK) TYPE(*CHAR) LEN(1)
+/*N03*/      DCL        VAR(&TMPDOC) TYPE(*CHAR) LEN(120)
+             DCL        VAR(&TILBAN) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&FRABAN) TYPE(*CHAR) LEN(90)
+             DCL        VAR(&RUNDE5) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&RUNDE50) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&NBR) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&SPLF) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&QJOB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&QUSER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&QNBR) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&NBRA) TYPE(*CHAR) LEN(6)
+
+             DCL        VAR(&KEYVAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&MSGTXT) TYPE(*CHAR) LEN(132)
+             DCL        VAR(&MSGLEN) TYPE(*DEC) LEN(5 0)
+             DCL        VAR(&MSGDTA) TYPE(*CHAR) LEN(512)
+             DCL        VAR(&MSGDTALEN) TYPE(*DEC) LEN(5 0)
+             DCL        VAR(&MSGID) TYPE(*CHAR) LEN(7)
+             DCL        VAR(&SENDER) TYPE(*CHAR) LEN(720)
+/* SKJEKK GOOGLE LAGRING  */
+             CHGVAR     VAR(&TMPDOC) VALUE(&TILBAN)
+/*N03*/      CALL       PGM(SYGE136) PARM(&GOOGJN &TMPDOC)
+
+             RLSSPLF    FILE(&SPLF) JOB(&QNBR/&QUSER/&QJOB) +
+                          SPLNBR(*LAST)
+             MONMSG     MSGID(CPF0000) EXEC(CALLSUBR SUBR(HANDLEERR))
+/* FINNES IKKE */
+             IF         COND(&MSGID = 'CPF3303') THEN(CHGVAR +
+                          VAR(&TILBAN) VALUE('ERROR'))
+             IF         COND(&MSGID = 'CPF3303') THEN(RETURN)
+/* FINNES MEN SLETTET */
+             IF         COND(&MSGID = 'CPF3309') THEN(CHGVAR +
+                          VAR(&TILBAN) VALUE('ERROR'))
+             IF         COND(&MSGID = 'CPF3309') THEN(RETURN)
+             GOTO NESTE
+/*                      */
+/* FINNER SPOOLFILENUMMER 01->9000     */
+/*                                     */
+ NESTE:
+/*                                                                   */
+             CHGVAR     VAR(&NBR) VALUE(&NBR + 1)
+             IF         COND(&NBR *GE 9000) THEN(RETURN)
+             CHGSPLFA   FILE(&SPLF) JOB(&QNBR/&QUSER/&QJOB) +
+                          SPLNBR(&NBR) OUTQ(MMAIL)
+                                                                  /**/
+/*     Hvis feilm. CPF3303, gå til NESTE og forsøk på nytt          */
+/*     Hvis feilm. CPF3341, SKREVET UT ALLEREDE                     */
+/*     Hvis feilm. CPF3344, FLYTTET UTKØ OG FORSØK på nytt          */
+/*     Ikke funnet gå til å sjekke neste  (NESTE)                   */
+                                                                  /**/
+             MONMSG     MSGID(CPF3303 CPF3341 CPF3344) EXEC(GOTO CMDLBL(NESTE))
+/*                                                          */
+/* legge spoolfilnummer i alfafelt                          */
+/*                                                          */
+             CHGVAR     VAR(&NBRA) VALUE(&NBR)
+/*                                                          */
+/* Releaser FOR SIKKERHETSSKYLD                             */
+/*                                                          */
+             RLSSPLF    FILE(&SPLF) JOB(&QNBR/&QUSER/&QJOB) +
+                          SPLNBR(&NBR)
+             MONMSG     MSGID(CPF0000)
+/*                                                          */
+/* Programmet lager banen til der PDF'en vil havne          */
+/*                                                          */
+             CALL       PGM(INF001R) PARM(&SPLF &QNBR &QUSER &QJOB +
+                          &NBRA &FRABAN)
+/*                                                          */
+/* PRØV SLETT TILOBJEKTET HVIS FINNES FRA FØR               */
+/*                                                          */
+             RMVLNK     OBJLNK(&TILBAN)
+             MONMSG     MSGID(CPF0000)
+             DLYJOB     DLY(1)
+             GOTO       CMDLBL(NY2)
+/*                                                             */
+/*                                                             */
+/*                                                             */
+NY:
+             DLYJOB     DLY(3)
+             CHGVAR     VAR(&RUNDE5) VALUE(&RUNDE5 + 1)
+             CHGVAR     VAR(&RUNDE50) VALUE(&RUNDE50 + 1)
+/***************************************************************/
+/*        PRØVER NY RELEASE FOR HVER 5. RUNDE                  */
+/*        OG START AV PRINTERWRITER                            */
+/***************************************************************/
+             IF         COND(&RUNDE5 *EQ 5) THEN(DO)
+             STRPRTWTR DEV(MMAIL)
+             MONMSG     MSGID(CPF0000)
+             DLYJOB     DLY(3)
+             CHGVAR     VAR(&RUNDE5) VALUE(0)
+             ENDDO
+/***************************************************************/
+/*        BEHANDLING VED HVER 50. RUNDE                        */
+/*        PRØVER FULL RESTART AV MMAIL                         */
+/***************************************************************/
+             IF         COND(&RUNDE50 *EQ 50) THEN(DO)
+/*           ENDWTR     WTR(MMAIL) OPTION(*IMMED)      */
+/*           MONMSG     MSGID(CPF0000)                 */
+             DLYJOB     DLY(5)
+             STRPRTWTR DEV(MMAIL)
+             MONMSG     MSGID(CPF0000)
+             DLYJOB     DLY(10)
+             RLSSPLF    FILE(&SPLF) JOB(&QNBR/&QUSER/&QJOB) +
+                          SPLNBR(&NBR)
+             MONMSG     MSGID(CPF0000)
+             CHGVAR     VAR(&RUNDE50) VALUE(0)
+             ENDDO
+/*                                                                    */
+/* ENDRER AUTORITY                                                    */
+/*                                                                    */
+NY2:         CHGAUT     OBJ(&TILBAN) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+             CHGAUT     OBJ(&FRABAN) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+ /**********************************************************************/
+ /* ENDRE OWNER                                                        */
+ /**********************************************************************/
+             IF         COND(&QUSER *NE 'SY400USR') THEN(DO)
+             CHGOWN     OBJ(&FRABAN) NEWOWN(SY400USR)
+/*S02        MONMSG     MSGID(CPF0000)  */
+/*N02*/      MONMSG     MSGID(CPF0000) EXEC(DO)
+/*N02*/      CHGAUT     OBJ(&FRABAN) USER(&QUSER) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+/*N02*/      MONMSG     MSGID(CPF0000)
+/*N02*/      GOTO       CMDLBL(NY3)
+/*N02*/      ENDDO
+             CHGAUT     OBJ(&FRABAN) USER(&QUSER) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+ NY3:
+             ENDDO
+ /*                                                                  */
+ /* Prøver å flytte hvis ikke laget gå opp til NY igjen              */
+ /*                                                                  */
+             MOVE       OBJ(&FRABAN) TOOBJ(&TILBAN)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(NY))
+ /*                                                                  */
+ /**********************************************************************/
+ /* GOOGLE LOGIKK                                                      */
+ /**********************************************************************/
+             IF         COND(&GOOGJN = 'J') THEN(DO)
+             COPY       OBJ(&TILBAN) TOOBJ(&TMPDOC)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(NY))
+             CALL       PGM(SYGE137) PARM(&FRABAN &TILBAN &OK)
+             RETURN
+             ENDDO
+ /**********************************************************************/
+ /* GOOGLE LOGIKK SLUTT                                                */
+ /**********************************************************************/
+ /*                                                                  */
+ /* Kommer hit når alt er ok   fikser da security                    */
+ /*                                                                  */
+             CHGAUT     OBJ(&TILBAN) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+             MONMSG     MSGID(CPF0000)
+/*                                  */
+/* PRØVER ALT PÅ TILMAPPEN          */
+/* ENDRE OWNER FOR SIKKERHETSSKYLD  */
+/*                                  */
+             IF         COND(&QUSER *NE 'SY400USR') THEN(DO)
+             CHGOWN     OBJ(&TILBAN) NEWOWN(SY400USR)
+/*S02        MONMSG     MSGID(CPF0000) */
+/*N02*/      MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(NY4))
+             CHGAUT     OBJ(&TILBAN) USER(&QUSER) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+ NY4:
+             ENDDO
+             CHGAUT     OBJ(&TILBAN) USER(SY400USR) DTAAUT(*NONE) +
+                          OBJAUT(*NONE)
+             MONMSG     MSGID(CPF0000)
+/*                              */
+/*  START SUBRUTINE  HANDLEERR  */
+/*                              */
+             SUBR       SUBR(HANDLEERR)
+
+             RCVMSG     MSGTYPE(*LAST) RMV(*NO) KEYVAR(&KEYVAR) +
+                          MSG(&MSGTXT) MSGLEN(&MSGLEN) +
+                          MSGDTA(&MSGDTA) MSGDTALEN(&MSGDTALEN) +
+                          MSGID(&MSGID) SENDER(&SENDER) +
+                          SENDERFMT(*LONG)
+/*           DMPCLPGM           */
+             ENDSUBR
+/*                              */
+/*  SLUTT SUBRUTINE  HANDLEERR  */
+/*                              */
+             ENDPGM

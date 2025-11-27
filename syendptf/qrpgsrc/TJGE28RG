@@ -1,0 +1,260 @@
+      *********************************************************************
+      * Liste Gyldige verdier for en Frisok-kode/kunde/avd
+      * Prio: 1=kode/kunde/avd 2=kode/kunde/0 (variant 3 Kode / 0 / 0 droppet i samråd med Bring)
+      * Pr 2017 - sjekker KUN MOT frakt/fakturabetaler (hvis de skal sjekkes mot fler - se tjge28r)
+      * Dersom inparameter cofri (fritekstverdi) også endes så er det gyldighetskontroll
+      *        Error ved minst en kode/ingen match  ( ingen koder = OK  / minste en+Match = OK)
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE28RG MODULE(*LIBL/TJGE28RG *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+     FCUOTIG    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D KODE            S              3
+     D AVD             S              4
+     D AVDN            S              4S 0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D WSFRI           S             35
+     D OKkod           S              1
+     D WA              S             15
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+      * strenger for conversion lowercase -> Uppercase
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬kode¬ : ¬'+%trim(kode)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬cofri¬ : ¬'+%trim(WSfri)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"gyldigliste" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      **
+      *****
+     C  N50              EXSR      SkrivListe
+      *****
+      **
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring ='],'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Error-etter lista
+      * ............................................................................................
+     c                   eval      JSONstring ='¬errMsg¬ : ¬'+%trim(Error)+'¬ '
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     CUOTIG
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     C                   EVAL      KODE   = zhbgetvar('KODE')
+     C                   EVAL      AVD    = zhbgetvar('AVD')
+     C                   EVAL      AVDN   = c2n2(AVD)
+     C                   EVAL      OPD    = zhbgetvar('OPD')
+     C                   EVAL      OPDN = c2n2(OPD)
+     C                   EVAL      WSFRI  = zhbgetvar('COFRI')
+     C     LO:UPC        XLATE     WSFRI         WSFRI
+      *
+     c                   endsr
+      *
+      *
+      ***********************************************
+     C     SkrivListe    BEGSR
+      ***********************************************
+     C     HEADFK        CHAIN     HEADF
+      * Liste over gyldige koder
+      * prio = 1 = Kode / kunde / avd
+      * prio = 2 = Kode / kunde / 0
+      * SOM KUNDE SJEKKES DET KUN MOT FRAKTBETALER ...  (etter dialog med Bring.)
+      * (men legger tester slik at det ikke MÅ være transp-modul for så slå til)
+     c                   move      HEKNSF        COKUNR
+     c                   if        COKUNR = *zeros
+     c                   move      HEKNKF        COKUNR
+     c                   endif
+     c                   if        trkdff='K' and
+     c                             HEKNKF <> *zeros
+     c                   move      HEKNKF        COKUNR
+     c                   endif
+      *
+     c                   eval      COAVD = HEAVD
+      *
+     c     StrLes        tag
+     C     CUOTIGkey     SETLL     CUOTIG
+     C     CUOTIGkey     READE     CUOTIG                                 55
+     C                   DOW       not %eof
+     C                   Add       1             AntLest
+      * kode er oppgitt = søk etter match (hvis mins en i lista )
+     c                   if        WSFRI <> *blanks
+     c                   if        WSFRI = cofri
+     c                   eval      OKkod = 'J'
+     c                   endif
+     c                   goto      NextRec
+     c                   endif
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬cokunr¬ : ¬'+%trim(%editc(cokunr:'Z'))+'¬, '
+          +'¬coavd¬ : ¬'+%trim(%editc(coavd:'Z'))+'¬, '
+          +'¬cofri¬ : ¬'+%trim(cofri)+'¬, '
+          +'¬cotxt¬ : ¬'+%trim(cotxt)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     c     NextRec       tag
+     C     CUOTIGkey     READE     CUOTIG
+     C                   ENDDO
+
+      * hvis inge tilslag på spesifik avdeling - les generelt på kunden
+     c                   if        AntLest = *zeros  and
+     c                             COAVD <> *zeros
+     c                   eval      COAVD = *zeros
+     c                   goto      StrLes
+     c                   endif
+      *
+     c                   if        WSFRI <> *blanks
+     c                   if        AntLest <> *zeros and
+     c                             OKkod <> 'J'
+     C                   eval      Error = 'Ugyldig verdi - sjekk liste'
+     c                   endif
+     c                   endif
+      *
+     C                   ENDSR
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HEADFK        KLIST
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C     CUOTIGKey     KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    COKUNR
+     C                   KFLD                    COAVD
+     C                   KFLD                    KODE
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      CUOTIG
+
+     c                   endsr

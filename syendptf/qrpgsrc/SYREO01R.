@@ -1,0 +1,219 @@
+     H DFTACTGRP(*NO)
+     FSYREO01D  CF   E             WORKSTN USROPN
+     FSYREO01F  UF A E           K DISK
+     FSYREO01F2 UF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRMSR    UF   E           K DISK
+
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SYREO01r2'
+     d syreo01r2       pr                  extpgm('SYREO01R2')
+     d uok_                                like(uok)
+      *  Prototype for 'SYREO02C'
+     d syreo02c        pr                  extpgm('SYREO02C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO03C'
+     d syreo03c        pr                  extpgm('SYREO03C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO04C'
+     d syreo04c        pr                  extpgm('SYREO04C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO05C'
+     d syreo05c        pr                  extpgm('SYREO05C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for syreo01r
+     d syreo01r        pr
+     d uauto_                              like(uauto)
+      *  *ENTRY Interface for Main Procedure
+     d syreo01r        pi
+     d uauto                          1a
+
+     d wdt             s              8a
+     d wtm             s              6a
+     d xavslutt        s              1a
+     d xaar1           s              4s 0
+     d xaar2           s              4s 0
+     d xmnd            s              2s 0
+     d uok             s              1a
+     d                 ds
+     d udtf                    1      8a
+     d udtfn                   1      8  0
+     d                 ds
+     d udtp                    1      8a
+     d udtpn                   1      8  0
+     d                 ds
+     d xdt                     1      8  0
+     d xdta                    1      4  0
+      /free
+
+       setll *loval firm;
+       read firm;
+       chain(n) fifirm firmsr;
+       if not %found;
+         *inlr = *on;
+         return;
+       endif;
+       wsaarf = srnoyf;
+       wsaarp = srnoyp;
+       wsjn   = 'N';
+       syge15c (wdt: wtm);
+       xdt = %float(wdt);
+       r01mod = 'NO-TOLL';
+
+       if uauto = 'N';
+         // ikke autostart -> start sletterutine på nytt
+         open SYREO01D;
+         dow xavslutt <> 'J';
+         // hent antall år fra skjerminput
+           exfmt BILDE;
+           *in99 = *off;
+           *in98 = *off;
+           if *in03;
+             close SYREO01D;
+             *inlr = *on;
+             return;
+           endif;
+           select;
+           when wsaarf < 5;
+             *in99 = *on;
+           when wsaarp < 10;
+             *in98 = *on;
+           when wsaarf >= 5 and wsaarp >= 10;
+             xavslutt = 'J';
+             chain fifirm firmsr;
+             srnoyf = wsaarf;
+             srnoyp = wsaarp;
+             update firmsrr;
+           endsl;
+         enddo;
+         close SYREO01D;
+         chain r01mod syreo01f;
+         if %found;
+           // post for sletting finnes fra før -> nullstille post
+           r01st  = ' ';
+           r01ar1 = wsaarf;
+           r01ar2 = wsaarp;
+           r01ars = %float(%subst(wdt:1:4));
+           r01dt1 = %float(wdt);
+           r01tm1 = %float(wtm);
+           r01dt2 = 0;
+           r01tm2 = 0;
+           r01pgm = 'SYREO02R';
+           r01fil = *blanks;
+           update syreo01fr;
+         else;
+           // post for sletting finnes ikke -> lag en startpost
+           r01ar1 = wsaarf;
+           r01ar2 = wsaarp;
+           r01ars = %float(%subst(wdt:1:4));
+           r01pgm = 'SYREO02R';
+           r01dt1 = %float(wdt);
+           r01tm1 = %float(wtm);
+           write syreo01fr;
+         endif;
+       else;
+         // autostart sletterutine
+         chain r01mod syreo01f;
+         if %found;
+           // post for sletting finnes fra før -> hent info. fra post
+           wsaarf = r01ar1;
+           wsaarp = r01ar2;
+           xaar1  = r01ars;
+           xaar2  = %float(%subst(wdt:1:4));
+           xmnd   = %float(%subst(wdt:5:2));
+           if xaar1 <> xaar2 and xmnd = 2;
+           // kjøringsår er ikke samme som start-år -> start sletting på nytt. nullstill post
+             r01st  = ' ';
+             r01ars = %float(%subst(wdt:1:4));
+             r01dt1 = %float(wdt);
+             r01tm1 = %float(wtm);
+             r01dt2 = 0;
+             r01tm2 = 0;
+             r01pgm = 'SYREO02R';
+             r01fil = *blanks;
+           endif;
+           update syreo01fr;
+         else;
+           // post for sletting finnes ikke -> lag en startpost
+           r01ar1 = wsaarf;
+           r01ar2 = wsaarp;
+           r01ars = %float(%subst(wdt:1:4));
+           r01pgm = 'SYREO02R';
+           r01dt1 = %float(wdt);
+           r01tm1 = %float(wtm);
+           write syreo01fr;
+         endif;
+       endif;
+
+       // beregn til og med dato for sletting
+       udtfn = (xdta - wsaarf - 1) * 10000 + 1231;
+       udtpn = (xdta - wsaarp - 1) * 10000 + 1231;
+
+
+       if r01st = ' ' and r01pgm = 'SYREO02R';
+       // Init. reorg.fil
+         exec sql
+         update syreo01f2
+         set r012st = ' ', r012dt = 0, r012tm = 0
+         where r012mod = 'NO-TOLL'
+         with NC;
+
+         syreo02c (udtf: udtp);              // SAD-import
+         chain r01mod syreo01f;
+         r01pgm = 'SYREO03R';
+         update syreo01fr;
+       endif;
+
+       if r01st = ' ' and r01pgm = 'SYREO03R';
+         syreo03c (udtf: udtp);              // SAD-eksmport
+         chain r01mod syreo01f;
+         r01pgm = 'SYREO04R';
+         update syreo01fr;
+       endif;
+
+       if r01st = ' ' and r01pgm = 'SYREO04R';
+         syreo04c (udtf: udtp);              // NCTS-import
+         chain r01mod syreo01f;
+         r01pgm = 'SYREO05R';
+         update syreo01fr;
+       endif;
+
+       if r01st = ' ' and r01pgm = 'SYREO05R';
+         syreo05c (udtf: udtp);              // NCTS-eksport
+         syge15c (wdt: wtm);
+         chain r01mod syreo01f;
+         if wsjn = 'J';
+           // Reorganisere filer etter sletting
+           r01pgm = 'SYREO01R2';
+         else;
+           // Ikke reorganisere filer etter sletting
+           r01st = 'F';
+           r01dt2 = %float(wdt);
+           r01tm2 = %float(wtm);
+         endif;
+         update syreo01fr;
+       endif;
+
+       if r01st = ' ' and r01pgm = 'SYREO01R2';
+         syreo01r2 (uok);                 // Reorg. filer
+         if uok = 'J';
+           syge15c (wdt: wtm);
+           chain r01mod syreo01f;
+           r01st = 'F';
+           r01dt2 = %float(wdt);
+           r01tm2 = %float(wtm);
+           update syreo01fr;
+         endif;
+       endif;
+
+       *inlr = *on;
+       return;
+
+      /end-free

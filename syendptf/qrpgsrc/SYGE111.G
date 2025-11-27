@@ -1,0 +1,151 @@
+*******   obs compiler med release *current
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 SH  PTF12 spesial ved "
+12XXX * 02 SH  PTF12 utteligere finpuss på nr 1
+********************************************************************
+      * INPUT SKILLETEGN
+      * INPUT SDV-RECORD 1024 LANG
+      * OUTPUT ARRAY MED 60 FELT A 300 TEGN
+      *
+      *
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  data                   1   1024
+     D  da                     1   1024
+     D                                     DIM(1024)
+     D                 DS
+     D  felta                  1   1024
+     D  fa                     1   1024
+     D                                     DIM(1024)
+     D                 DS
+     D  dta                    1  18000
+     D                                     DIM(60)
+     D  dtut                   1  18000
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyz')
+     D UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZ')
+      *________________________
+      *gjør om på tegn som er uleselige
+      *________________________
+      *
+      *  æ=C0 ø=6A å=D0 Æ=7B Ø=7C Å=5B
+      *                                      æ æ ø ø å Æ Æ Ø Ø Å Y e e ' "
+     D frah            c                   x'31243B24061A0A14391B3A222A15'
+      * byttes med
+     D tilh            c                   x'C0C06A6AD07B7B7C7C5BE8858540'
+      * INITIERER VARIABLE
+      *
+     c     *entry        plist
+     c                   parm                    skillet           1
+     c                   parm                    datinn         1024
+     c                   parm                    datut         18000
+      * konverterer særtegn
+     c     frah:tilh     xlate     datinn        datinn                         ikke skrivbar->blank
+     c                   movel     datinn        data
+     c                   exsr      dobbel
+     c     skillet       ifeq      ' '
+     c                   move      ';'           skillet
+     c                   end
+     c                   z-add     1             fra               4 0
+     c                   z-add     1             til               4 0
+     c                   z-add     0             DN                4 0
+      *
+      * leser til neste skilletegn
+      *
+n01  c                   move      skillet       uskill            1
+n01  c     da(fra)       ifeq      '"'
+n01  c                   move      '"'           skillet
+n02  c                   add       1             til
+n01  c                   end
+     c     til           dowlt     1024
+     C     da(til)       ifne      skillet
+     c                   add       1             til
+     c                   else
+      *
+      * fra og til er funnet
+      *
+n01  c     skillet       ifeq      '"'
+n01  c                   add       1             til
+n01  c                   end
+n01  c                   move      uskill        skillet
+     c                   exsr      dekod
+     c                   add       1             til
+     c                   z-add     til           fra
+n01  c     da(fra)       ifeq      '"'
+n01  c                   move      '"'           skillet
+n01  c                   add       1             til
+n01  c                   add       1             fra
+n01  c                   end
+     c                   endif
+     c                   enddo
+      *
+      * fra og til er funnet
+      *
+      *
+      * siste post
+      *
+     c                   move      1024          til
+     c                   exsr      dekod
+      *
+     c                   movel     dtut          datut
+     c                   seton                                        lr
+     c                   return
+      *
+     c***************************************************************
+     c     dekod         begsr
+     c***************************************************************
+      *
+      * dekoder innlest post
+      *
+     c     til           sub       fra           antp              4 0
+     c     antp          ifgt      0
+     c                   exsr      dokoda
+     c                   add       1             dn
+     c                   movel     felta         dta(dn)
+     C                   ELSE
+     c                   add       1             dn
+     c                   end
+     c                   endsr
+     c***************************************************************
+     c     DOKODA        begsr
+     c***************************************************************
+     c*    dekoder  TIL FELTA
+     c*
+     c                   move      *blanks       felta
+     c                   z-add     fra           nr                4 0
+     c                   z-add     1             n2                4 0
+     c                   do        antp
+N01  c     da(nr)        ifne      '"'
+     c                   move      da(nr)        fa(n2)
+     c                   add       1             n2
+N01  c                   end
+     c                   add       1             nr
+     c                   enddo
+     c                   endsr
+      *
+      *
+      *****************************************************************
+     c     dobbel        begsr
+      *****************************************************************
+     C                   eval      DATA = %ScanRpl(x'6615':'Å':DATA)
+     C                   eval      DATA = %ScanRpl(x'6640':'Å':DATA)
+     C                   eval      DATA = %ScanRpl(x'6636':'Ø':DATA)
+     C                   eval      DATA = %ScanRpl(x'6638':'Ø':DATA)
+     C                   eval      DATA = %ScanRpl(x'66D0':'Æ':DATA)
+     C                   eval      DATA = %ScanRpl(x'6606':'Æ':DATA)
+     C                   eval      DATA = %ScanRpl(x'6604':'Æ':DATA)
+     C                   eval      DATA = %ScanRpl(x'66C0':'Æ':DATA)
+     C                   eval      DATA = %ScanRpl(x'669D':'ø':DATA)
+     C                   eval      DATA = %ScanRpl(x'6670':'æ':DATA)
+     C                   eval      DATA = %ScanRpl(x'66B2':'å':DATA)
+     c                   endsr

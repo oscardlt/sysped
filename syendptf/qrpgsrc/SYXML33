@@ -1,0 +1,488 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SYXML33 MODULE(*LIBL/SYXML33 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 VIS MOTTATT XML (KVITTERING)
+12XXX * 02 YBC Ikke ta med kostnadsbilag med samme nummer
+12XXX * 03 YBC Hent standard antall dager tilbake for liste
+12XXX * 04 JOV Stor omskriving - ingen merking - se renamet gammel versjon
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FXMLUFL2   IF   E           K DISK    USROPN
+     FXMLUFL4   IF   E           K DISK    USROPN
+     F                                     RENAME(XMLUFFR:XMLUF4R)
+     FXMLUFL5   IF   E           K DISK    USROPN
+     F                                     RENAME(XMLUFFR:XMLUF5R)
+     FHEADF     IF   E           K DISK    USROPN
+     FEDIM2     IF   E           K DISK    USROPN
+     FEDIS      IF   E           K DISK    USROPN
+     FEDIS2     IF   E           K DISK    USROPN
+     F                                     RENAME(EDISR:EDISR2)
+     FEDISX     IF   E           K DISK    USROPN
+     FARKIVL06  IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+     FARKEXT    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D ST              S              1
+     D AVD             S              4
+     D AVDN            S              4S 0
+     D FKN             S              8
+     D FKNN            S              8S 0
+     D FN              S              7
+     D FNN             S              7S 0
+     D DTF             S              8
+     D DTFN            S              8S 0
+     D DTT             S              8
+     D DTTN            S              8S 0
+     D DTF_op          S              8
+     D DTFN_op         S              8S 0
+     D DTT_op          S              8
+     D DTTN_op         S              8S 0
+     D RFA             S             35
+     D RFAMAX          S             35
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D X_FraSted       S              8
+     D X_TilSted       S              8
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬st¬ : ¬'+%trim(ST)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬fkn¬ : ¬'+%trim(%editc(FKNN:'Z'))+'¬, '
+        +'¬fn¬ : ¬'+%trim(%editc(FNN:'Z'))+'¬, '
+        +'¬dtf¬ : ¬'+%trim(%editc(DTFN:'Z'))+'¬, '
+        +'¬dtt¬ : ¬'+%trim(%editc(DTTN:'Z'))+'¬, '
+        +'¬dtf_op¬ : ¬'+%trim(%editc(DTFN_op:'Z'))+'¬, '
+        +'¬dtt_op¬ : ¬'+%trim(%editc(DTTN_op:'Z'))+'¬, '
+        +'¬rfa¬ : ¬'+%trim(RFA)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"orderList" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Liste Angivelser
+      *
+     c     Error         ifeq      *blanks
+      * Ved søk på Fakturanr - dropp dato fra /til
+     C                   IF        FNN <> 0
+     C                   EVAL      DTFN = 0
+     C                   EVAL      DTTN = 0
+     C                   EVAL      DTFN_op = 0
+     C                   EVAL      DTTN_op = 0
+     C                   END
+      * alle andre søketyper er via dato-område
+      * Hvis ikke oppgitt hent via parameter DFTG, hvis DFTG mangler sett 7 dgr
+     C                   IF        FNN = 0 AND DTFN = 0                         fakt-dato
+     C                             and DTFN_op = 0                              Oppdr.dato
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C   33BRPARFKFI     CHAIN     BRPARF                             33
+     C                   if        *IN33 = *off
+     C                   Z-ADD     PAVRDN        XANTDG            5 0
+     C                   else
+     C                   z-add     7             XANTDG
+     C                   endif
+      * trekk fra x ant dager (fra dagens dato)
+     C                   call      'SYGE20'
+     C                   PARM      'SUB'         Ufunksjon         3
+     c                   parm      *zeros        UDato1            8 0
+     c                   parm      DTFN          Udtao2            8 0
+     c                   parm                    XANTDG
+     c                   eval      DTFN = Udtao2
+     C
+     C                   END
+      *
+      *
+      *  LESELOOP -
+      *
+     c                   select
+      * basert på fra fakturadato
+     c                   when      DTFN <> 0
+     C     DTFN          SETLL     XMLUFL4
+     C                   READ      XMLUFL4
+      * basert på fra oppdrags
+     c                   when      DTFN_op <> 0
+     C     DTFN_op       SETLL     XMLUFL5
+     C                   READ      XMLUFL5
+      * basert fakturanr
+     c                   when      FNN  <> 0
+     C     FNN           SETLL     XMLUFL2
+     C     FNN           READE     XMLUFL2
+     c                   endsl
+      *
+     C                   DOW       not %eof
+      *
+      * forbi tildato - hopp ut..
+     C                   if        (DTTN<>0 and XFDTFA>DTTN) or
+     c                             (DTTN_op<>0 and XFDTOP>DTTN_op)
+     C                   leave
+     C                   endif
+      *
+     C                   exsr      Filter
+     c                   if        VisRec = 'J'
+     C                   exsr      SkrivRec
+     c                   endif
+      *
+      *  Fotsett leseloop
+     c                   select
+     c                   when      DTFN <> 0                                    Fakturadato
+     C                   READ      XMLUFL4
+     c                   when      DTFN_op <> 0                                 Oppdragsdato
+     C                   READ      XMLUFL5
+     c                   when      FNN  <> 0                                    Fakt-nr, KUN EN!!
+     C                   Leave
+     c                   endsl
+      *
+     C                   ENDDO
+      *
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+      *************************************************'
+     C     Filter        begsr
+      *************************************************'
+     c                   move      'N'           VisRec            1
+      * søkt funnet ETT fakturanr - ikke test andre vilkår
+     c                   if        FNN  <> 0
+     c                   move      'J'           VisRec            1
+     c                   endif
+      * type
+     c                   if        XFTYPE<>'EHF'
+     c                   goto      UtFilter
+     c                   endif
+      * status
+     C                   IF        ST <> '*'
+     C                   SELECT
+     C                   WHEN      ST = ' ' OR                                  IKKE SENDT
+     C                             ST = 'C' OR                                  SENDT
+     C                             ST = 'E' OR                                  ERROR
+     C                             ST = 'A' OR                                  Aktiv, snart sendes
+     C                             ST = 'D' OR                                  Slettet
+     C                             ST = 'X' OR                                  Manuell satt
+     C                             ST = 'T' OR
+     C                             ST = 'O'                                     OK
+     C     XFST          CABNE     ST            UtFilter
+     C                   ENDSL
+     C                   ENDIF
+      *
+     C                   IF        AVDN > 0
+     C     HEAVD         CABNE     AVDN          UtFilter
+     C                   ENDIF
+     C                   IF        FKNN > 0
+     C     XFKN          CABNE     FKNN          UtFilter
+     C                   ENDIF
+     C                   IF        FNN > 0
+     C     XFFN          CABNE     FNN           UtFilter
+     C                   ENDIF
+     C                   IF        RFA <> *BLANKS
+     C     RFA           CABGT     HERFA         UtFilter
+     C     RFAMAX        CABLT     HERFA         UtFilter
+     C                   ENDIF
+      * Kommet gjennom alle tester - sett J i VisRec
+     c                   move      'J'           VisRec            1
+      *
+     C     UtFilter      TAG
+      *
+     c                   ENDSR
+      *
+      *************************************************'
+     C     SkrivRec      begsr
+      *************************************************'
+      * Hent info fra oppdraget
+     c     HEADFK        chain     Headf
+      *
+      * XML-lenke
+     C                   EVAL      XSIFS = *BLANKS
+     C                   EVAL      XRIFS = *BLANKS
+     C     EDIM2K        SETGT     EDIM2
+     C     EDIM2K        READPE    EDIM2                                  55
+     C                   DOW       *IN55 = *OFF
+     C                   SELECT
+     C                   WHEN      M0065 = 'INVXML' AND XSIFS = *BLANKS
+      * Utgående XML-faktura
+     C     MSN           CHAIN     EDIS                               55
+     C  N55              EVAL      XSIFS = SIFS
+     C                   LEAVE
+     C                   WHEN      M0065 = 'XMLRST' AND XRIFS = *BLANKS
+      * Innkommede XML-kvittering
+     C     MSN           CHAIN     EDIS                               55
+     C  N55              EVAL      XRIFS = SIFS
+     C                   ENDSL
+     C     EDIM2K        READPE    EDIM2                                  55
+     C                   ENDDO
+
+     C                   EVAL      XKIFS = *BLANKS
+     C                   MOVE      XFFN          XAN07             7
+     C                   EVAL      S0020 = XAN07
+     C     S0020         SETGT     EDIS2
+     C     S0020         READPE    EDIS2                                  33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        S0026 = 'SYXML32C'
+     C                   IF        SIFS = *BLANKS
+     C     SMBR          CHAIN     EDISX                              33
+     C  N33              EVAL      XKIFS = SXIFSOBJ
+     C                   ELSE
+     C                   EVAL      XKIFS = SIFS
+     C                   END
+     C                   LEAVE
+     C                   END
+     C     S0020         READPE    EDIS2                                  33
+     C                   ENDDO
+
+     C                   MOVE      *BLANKS       XPDF            100
+     C                   EVAL      ARTYPE = 'fa'
+     C     ARTYPE        CHAIN     ARKTXT                             33
+     C                   IF        *IN33 = *OFF
+     C                   MOVEL     XFFN          ARUNDE
+     C     ARKIVL06K     CHAIN     ARKIVL06                           33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      ARKLAG        ARCEXT
+     C     ARKEXTK       CHAIN     ARKEXT                             33
+     C   33FIFIRM        CHAIN     FIRMARC                            33
+     C                   EVAL      XPDF = '/' + %TRIM(ARCANE) + '/'
+     C                             + %TRIM(ARLINK)
+     C     '.pdf'        SCAN      XPDF                                   33
+     C  N33              CAT       '.pdf':0      XPDF
+     C                   END
+     C                   END
+
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       select;
+       when heur = 'H';
+          x_frasted = %trim(helka) + ' ' + %trim(hesdf);
+          x_tilsted = %trim(hetri) + ' ' + %trim(hesdt);
+       when heur = 'A' or heur = 'C' or heur = 'F';
+          x_frasted = %trim(filand) + ' ' + %trim(hesdf);
+          x_tilsted = %trim(helka) + ' ' + %trim(hesdt);
+       other;
+          x_frasted = %trim(helka) + ' ' + %trim(hesdf);
+          x_tilsted = %trim(filand) + ' ' + %trim(hesdt);
+       endsl;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬avd¬ : ¬'+%trim(%editc(HEAVD:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(HEOPD:'Z'))+'¬, '
+          +'¬xfkn¬ : ¬'+%trim(%editc(XFKN:'Z'))+'¬, '
+          +'¬xffn¬ : ¬'+%trim(%editc(XFFN:'Z'))+'¬, '
+          +'¬herfa¬ : ¬'+%trim(HERFA)+'¬, '
+          +'¬hedtop¬ : ¬'+%trim(%editc(HEDTOP:'Z'))+'¬, '
+          +'¬fadato¬ : ¬'+%trim(%editc(XFDTFA:'Z'))+'¬, '
+          +'¬hesdf¬ : ¬'+%trim(x_frasted)+'¬, '
+          +'¬hesdt¬ : ¬'+%trim(x_tilsted)+'¬, '
+          +'¬henas¬ : ¬'+%trim(HENAS)+'¬, '
+          +'¬henak¬ : ¬'+%trim(HENAK)+'¬, '
+          +'¬hekdpl¬ : ¬'+%trim(HEKDPL)+'¬, '
+          +'¬hent¬ : ¬'+%trim(%editc(HENT:'Z'))+'¬, '
+          +'¬hevkt¬ : ¬'+%trim(%editc(HEVKT:'Z'))+'¬, '
+          +'¬hem3¬ : ¬'+%trim(%editc(HEM3:'4'))+'¬, '
+          +'¬helm¬ : ¬'+%trim(%editc(HELM:'4'))+'¬, '
+          +'¬xfst¬ : ¬'+%trim(XFST)+'¬, '
+          +'¬xsifs¬ : ¬'+%trim(XSIFS)+'¬, '
+          +'¬xrifs¬ : ¬'+%trim(XRIFS)+'¬, '
+          +'¬xkifs¬ : ¬'+%trim(XKIFS)+'¬, '
+          +'¬xpdf¬ : ¬'+%trim(XPDF)+'¬, '
+          +'¬xfdts¬ : ¬'+%trim(%editc(XFDTS:'Z'))+'¬, '
+          +'¬xftds¬ : ¬'+%trim(%editc(XFTDS:'Z'))+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     c                   ENDSR
+      *
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     BRPARF
+     C  N50              CLOSE     XMLUFL2
+     C  N50              CLOSE     XMLUFL4
+     C  N50              CLOSE     XMLUFL5
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     ARKIVL06
+     C  N50              CLOSE     EDIM2
+     C  N50              CLOSE     EDIS
+     C  N50              CLOSE     EDIS2
+     C  N50              CLOSE     EDISX
+     C  N50              CLOSE     FIRMARC
+     C  N50              CLOSE     ARKTXT
+     C  N50              CLOSE     ARKEXT
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      ST      = zhbgetvar('ST')
+     C                   EVAL      AVD     = zhbgetvar('AVD')
+     C                   eval      AVDN    = c2n2(AVD)
+     C                   EVAL      FKN     = zhbgetvar('FKN')
+     C                   EVAL      FKNN    = c2n2(FKN)
+     C                   EVAL      FN      = zhbgetvar('FN')
+     C                   EVAL      FNN     = c2n2(FN)
+     C                   EVAL      DTF     = zhbgetvar('DTF')
+     C                   EVAL      DTFN    = c2n2(DTF)
+     C                   EVAL      DTT     = zhbgetvar('DTT')
+     C                   EVAL      DTTN    = c2n2(DTT)
+     C                   EVAL      DTF_op  = zhbgetvar('DTF_op')
+     C                   EVAL      DTFN_op = c2n2(DTF_op)
+     C                   EVAL      DTT_op  = zhbgetvar('DTT_op')
+     C                   EVAL      DTTN_op = c2n2(DTT_op)
+     C                   EVAL      RFA     = zhbgetvar('RFA')
+     C     LC:UC         XLATE     RFA           RFA
+     C                   EVAL      RFAMAX  = %TRIM(RFA) + '99999999999999999999'
+      *
+     c                   endsr
+
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C  N50BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+     C     HEADFK        klist
+     C                   kfld                    XFAVD
+     C                   kfld                    XFOPD
+     C     EDIM2K        klist
+     C                   kfld                    HEAVD
+     C                   kfld                    HEOPD
+     C                   kfld                    M0068A
+     C                   kfld                    M0068B
+     C                   kfld                    M0068C
+     C     ARKEXTK       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    ARCEXT
+     C     ARKIVL06K     KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    ARTYPE
+     C                   KFLD                    ARUNDE
+     C     BRPARFK       KLIST
+     C                   KFLD                    WSUSER
+     C                   KFLD                    PAKUNR
+     C                   KFLD                    PAID
+     C     BRPARFKFI     KLIST
+     C                   KFLD                    FI_BIBRID
+     C                   KFLD                    PAKUNR
+     C                   KFLD                    PAID
+
+     C     *LIKE         DEFINE    SIFS          XSIFS
+     C     *LIKE         DEFINE    SIFS          XRIFS
+     C     *LIKE         DEFINE    SIFS          XKIFS
+     C     *LIKE         DEFINE    BIBRID        FI_BIBRID
+     C                   EVAL      FI_BIBRID = '*KUNDFT*' + BIFIRM
+     C                   EVAL      PAID = 'DFTDG'
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      BRPARF
+     C  N50              OPEN      XMLUFL2
+     C  N50              OPEN      XMLUFL4
+     C  N50              OPEN      XMLUFL5
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      ARKIVL06
+     C  N50              OPEN      EDIM2
+     C  N50              OPEN      EDIS
+     C  N50              OPEN      EDIS2
+     C  N50              OPEN      EDISX
+     C  N50              OPEN      FIRM
+     C  N50              OPEN      FIRMARC
+     C  N50              OPEN      ARKTXT
+     C  N50              OPEN      ARKEXT
+
+     C                   IF        *IN50=*OFF
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+     C                   ENDIF
+
+     c                   endsr

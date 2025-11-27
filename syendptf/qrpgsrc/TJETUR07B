@@ -1,0 +1,402 @@
+     H debug(*yes)
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJETUR07B MODULE(*LIBL/TJETUR07B *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 utvide for å takle også oppdragsupload
+11XXX * 02 JOV PTF11 HVIS ZP=POD - loggfør i T&T - kopier til moroppdrag (dersom VF)
+11XXX * 03 JOV PTF11 BYTTER UT INTYERN MOVE MED CL - TILLAT LANGE FILNAVN
+11XXX * 04 JOV PTF11 dato/tid ved ZP/POD - BringMetode for filflytt(nasprobl) - ACTGRP(*NEW)
+      *%%%%%%%%%%%%%%%%%%%
+11XXX * 05 JOV PTF12 innfær upload til wsunik / = Zfiler / booking
+11XXX * 06 SH  PTF12 HISTORISK ARKIV
+11XXX * 07 PTF PTF12 Filnavn kan inneholde flere .  SR FINNSUF korrigert: finn SISTE
+      * 08 JOV PTF12 Hvis lagring i google cloud send rett dit (den rutinen sletter lokalt)
+      * 09 sh  PTF12 SPRER TIL ENKELTOPPDRAG I aRKIV
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+N08  FFIRMGOOG  IF   E           K DISK    USROPN
+N09  Fhead14    IF   E           K DISK    USROPN
+N09  F                                     RENAME(HEADFR:HEAD14R)
+     FARKTXT    IF   E           K DISK    USROPN
+     FARKEXT    IF   E           K DISK    USROPN
+     FARKIVP    O  A E             DISK    USROPN
+N02  FHEADF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WSTYPE          S              2
+     D WSTUR           S              8
+     D WBTUR           S              8S 0
+N01  D WSAVD           S              7
+N01  D WBAVD           S              7S 0
+N01  D WSOPD           S              7
+N01  D WBOPD           S              7S 0
+N05  D WSUNIK          S              9
+N05  D WBUNIK          S              9S 0
+N04  D WSDATE          S              8
+N04  D WBDATE          S              8S 0
+N04  D WSTIME          S              4
+N04  D WBTIME          S              6S 0
+     D WSDOKN          S            512A
+     D FIL             S             40A
+     D SUF             S             10A
+     D JSONSTRING      S          32000
+     D ERROR           S            150
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+     c                   dump
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      * Teste input og utfør
+     C                   IF        ERROR=*BLANKS
+     C                   EXSR      TEST
+     C                   ENDIF
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONSTRING='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬wstur¬ : ¬'+%trim(WSTUR)+'¬, '
+        +'¬wsavd¬ : ¬'+%trim(WSAVD)+'¬, '
+        +'¬wsopd¬ : ¬'+%trim(WSOPD)+'¬, '
+n05     +'¬wsunik¬ : ¬'+%trim(WSUNIK)+'¬, '
+        +'¬wsdokn¬ : ¬'+%trim(WSDOKN)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ERROR)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONSTRING
+     C                   CALLP     updHTMLvar('JSONSTRING':JSONSTRING)
+     C                   CALLP     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     C                   EVAL      JSONSTRING ='"movupload" : ['
+     C                   CALLP     updHTMLvar('JSONSTRING':JSONSTRING)
+     C                   CALLP     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     C                   EVAL      JSONSTRING =']'
+     C                   CALLP     updHTMLvar('JSONSTRING':JSONSTRING)
+     C                   CALLP     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     C                   EVAL      JSONSTRING ='}'
+     C                   CALLP     updHTMLvar('JSONSTRING':JSONSTRING)
+     C                   CALLP     wrtsection('JSONlin')
+
+      * Quit
+     C                   EXSR      Exit
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FIRM
+     C  N50              CLOSE     FIRMARC
+N08  C  N50              CLOSE     FIRMGOOG
+N09  C  N50              CLOSE     HEAD14
+     C  N50              CLOSE     ARKTXT
+     C  N50              CLOSE     ARKEXT
+     C  N50              CLOSE     ARKIVP
+N02  C  N50              CLOSE     HEADF
+
+      * Do not delete the CALL to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   CALLP     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   ENDSR
+      *
+      *********************************************************
+     C     Parse         BEGSR
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+N01  C                   EVAL      WSTYPE  = zhbgetvar('WSTYPE')
+N01  C                   IF        WSTYPE = *BLANKS
+N01  C                   EVAL      WSTYPE = 'ZO'
+N01  C                   ENDIF
+     C                   EVAL      WSTUR  = zhbgetvar('WSTUR')
+     C                   EVAL      WBTUR  = c2n2(WSTUR)
+N01  C                   EVAL      WSAVD  = zhbgetvar('WSAVD')
+N01  C                   EVAL      WBAVD  = c2n2(WSAVD)
+N01  C                   EVAL      WSOPD  = zhbgetvar('WSOPD')
+N01  C                   EVAL      WBOPD  = c2n2(WSOPD)
+N05  C                   EVAL      WSUNIK = zhbgetvar('WSUNIK')
+N05  C                   EVAL      WBUNIK = c2n2(WSUNIK)
+     C                   EVAL      WSDOKN  = zhbgetvar('WSDOKN')
+N04  C                   EVAL      WSDATE = zhbgetvar('WSDATE')
+N04  C                   EVAL      WBDATE = c2n2(WSDATE)
+N04  C                   EVAL      WSTIME = zhbgetvar('WSTIME')
+N04  C                   EVAL      WBTIME = c2n2(WSTIME)*100
+     C                   ENDSR
+      *********************************************************
+     C     INIT          BEGSR
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        IFEQ      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C                   CALL      BILIBL
+     C                   end
+
+     C     ARKLAGK       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    ARKLAG
+
+N02  C     HeaKey        KLIST
+N02  C                   KFLD                    ARAVD
+N02  C                   KFLD                    AROPD
+
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+
+     C   50              EVAL      ERROR = 'Invalid userID'
+     C  N50              OPEN      FIRM
+     C  N50              OPEN      FIRMARC
+N08  C  N50              OPEN      FIRMGOOG
+N09  C  N50              OPEN      HEAD14
+     C  N50              OPEN      ARKTXT
+     C  N50              OPEN      ARKEXT
+     C  N50              OPEN      ARKIVP
+N02  C  N50              OPEN      HEADF
+     C                   IF        *IN50=*OFF
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+S01  C*    'ZO'          CHAIN     ARKTXT                             33
+N01  C     WSTYPE        CHAIN     ARKTXT                             33
+     C                   IF        ARKLAG = *BLANKS
+     C     FIFIRM        CHAIN     FIRMARC                            33
+     C                   ELSE
+     C     ARKLAGK       CHAIN     ARKEXT                             33
+     C                   ENDIF
+N06  c  n33arbhis        ifne      *blanks
+N06  c                   eval      arcane=arbhis
+N06  c                   end
+     C                   IF        *IN33
+     C                   EVAL      *IN50=*ON
+     C   50              EVAL      ERROR = 'Company record not found'
+     C                   ENDIF
+     C                   ENDIF
+      * hent tid
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+
+     C                   ENDSR
+      *______________________________________________________
+      * TEST                                             TEST
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     TEST          BEGSR
+      * Extraher filnavn uten katalogsti
+     C                   EXSR      FINNFIL
+      * Extraher suffix
+     C                   EXSR      FINNSUFF
+      * Hent random nummer
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN           10
+      * Init av arkivpost
+     C                   CLEAR                   ARKIVR
+N09  C                   MOVE      'N'           TURJN             1
+     C                   MOVE      'A'           ARSTAT
+S01  C*                  EVAL      ARTYPE = 'ZO'
+N01  C                   EVAL      ARTYPE = WSTYPE
+     C                   EVAL      ARFIRM = BIFIRM
+     C                   EVAL      ARUSER = WSUSER
+     C                   MOVE      WDT           ARDATE
+     C                   MOVE      WTM           ARTIME
+S01  C*                  EVAL      ARLINK = 'ZO'
+N01  C                   EVAL      ARLINK = WSTYPE
+     C                   MOVEL     WDT           XAN04             4
+     C                   CAT       XAN04:0       ARLINK
+N01  c     WBOPD         IFNE      *ZEROS
+N01  C                   MOVE      WBAVD         ARAVD
+N01  C                   MOVE      WBOPD         AROPD
+N01  C                   CAT       WSAVD:0       ARLINK
+N01  C                   CAT       WSOPD:0       ARLINK
+N01  C                   ELSE
+     C                   MOVE      *ZEROS        ARAVD
+     C                   MOVE      *ZEROS        AROPD
+N05  c                   if        WSUNIK <>     *blanks
+N05  C                   MOVEL     'Z'           ARUNDE
+N05  C*                  MOVE      WSUNIK        ARUNDE
+N05  C                   MOVE      WBUNIK        ARUNDE
+N05  C                   CAT       WSUNIK:0      ARLINK
+N05  c                   else
+N09  C                   MOVE      'J'           TURJN             1
+     C                   MOVEL     'T:'          ARUNDE
+     C                   MOVE      WSTUR         ARUNDE
+     C*                  MOVE      WSTUR         XAN08             8
+     C*                  CAT       XAN08:0       ARLINK
+N01  C                   CAT       WSTUR:0       ARLINK
+N05  c                   endif
+N01  C                   ENDIF
+     C                   CAT       NEWRAN:0      ARLINK
+     C     SUF           IFNE      *BLANKS
+     C                   CAT       '.':0         ARLINK
+     C                   CAT       SUF:0         ARLINK
+     C                   ENDIF
+     C                   EVAL      ARRFK = FIL
+     C                   WRITE     ARKIVR
+N09  C     TURJN         IFEQ      'J'
+N09  C                   EXSR      SPRESR
+N09  C                   END
+N02   *
+N02   * Hvis ZP = POD - loggfør i T&T  - kopier også til moroppdrag dersom utkjøring
+N02  c                   IF        ARTYPE = 'ZP'
+N05  c                             and AROPD <> *zeros
+N02   * bør pgså ta hensyn til om det er tidsoppfølging/avvikende kode mm (se ARCA003R..)
+N02  C                   MOVE      ' '           TidsOppf
+N02  c                   move      'POD'         TTACTI
+N02  C                   MOVE      *BLANKS       TTEDRE
+N04  C                   IF        WBDATE <> *ZEROS
+N04  C                   eval      ARDATE = WBDATE
+N04  C                   eval      ARTIME = WBTIME
+N04  C                   ENDIF
+N02  C                   call      'ARCAPOD'
+N02  C                   parm                    ARAVD
+N02  C                   parm                    AROPD
+N02  C                   parm                    ARDATE
+N02  C                   parm                    ARTIME
+N02  C                   parm                    ARUSER
+N02  C                   parm                    TTACTI            3
+N02  C                   parm                    TTEDRE            3
+N02  C                   parm                    TidsOppf          1
+N02   * Oppdater med kopi av POD på OVERORDNET - dersom dette er utkjøringsoppdrag
+N02  C                   MOVE      'KOP'         TTEDRE
+N02  c     Heakey        chain     Headf                              33
+N02  c     *in33         ifeq      *off
+N02  c     TRSLAG        andeq     'VF'
+N02  c     TROPD0        andne     *zeros
+N02  C                   Movel     TRAVD0        ARAVD
+N02  C                   Move      TROPD0        AROPD
+N02  C                   WRITE     ARKIVR
+N02  C                   call      'ARCAPOD'
+N02  C                   parm                    ARAVD
+N02  C                   parm                    AROPD
+N02  C                   parm                    ARDATE
+N02  C                   parm                    ARTIME
+N02  C                   parm                    ARUSER
+N02  C                   parm                    TTACTI            3
+N02  C                   parm                    TTEDRE            3
+N02  C                   parm                    TidsOppf          1
+N02  C                   endif
+N02  c                   ENDIF
+      *
+      * Flytt fil fra tmp til prod
+     C                   EXSR      MOVFIL
+      *
+     C                   ENDSR
+      *______________________________________________________
+      * FINNFIL                                       FINNFIL
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     FINNFIL       BEGSR
+     C                   Z-ADD     1             X                 3 0
+     C     NEXT          TAG
+     C     '/'           SCAN      WSDOKN:X      Y                 3 0    33
+     C   33Y             ADD       1             X
+     C   33              GOTO      NEXT
+     C                   EVAL      FIL = %SUBST(WSDOKN:X)
+     C                   ENDSR
+      *______________________________________________________
+      * FINNSUFF                                     FINNSUFF
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     FINNSUFF      BEGSR
+S07  C*                  EVAL      X=*ZEROS
+S07  C*    '.'           SCAN      WSDOKN:1      X                        33
+S07  C*  33              ADD       1             X
+N07  C                   Z-ADD     1             X
+N07  C     NEXTdot       TAG
+N07  C     '.'           SCAN      WSDOKN:X      Y                        33
+N07  C   33Y             ADD       1             X
+N07  C   33              GOTO      NEXTdot
+     C                   EVAL      SUF = %SUBST(WSDOKN:X)
+     C                   ENDSR
+      *______________________________________________________
+      * MOVFIL                                         MOVFIL
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     MOVFIL        BEGSR
+      * Katalogstien for tmp ligger i variabel WSDOKN
+      * Flytt
+      *
+n04  C                   MOVE      'J'           OkMov             1
+n04  C                   MOVEl     WSDOKN        FRA             512
+n04  C                   MOVE      *BLANKS       Til             512
+n04  C                   EVAL      TIL = '/'+%TRIM(ARCANE)+'/'+ %TRIM(ARLINK)
+n04  C                   CALL      'ARCAMOVCT'
+n04  C                   PARM                    FRA
+n04  C                   PARM                    TIL
+n04  C                   PARM                    OkMov
+N08   * Hvis google cloud benyttes - send det videre til skyen med en gang
+N08  C     FIFIRM        chain     FIRMGOOG
+N08  C                   if        %found and GOBUID <> *blanks
+N08  c                   eval      Companyid = GOBUID
+N08  c                   eval      UlocalPath= '/'+%TRIM(ARCANE)+'/'            slash i begge ender
+N08  c                   eval      USrcFile  = ARLINK
+N08  c                   eval      UNewFile  = *blanks
+N08  c                   eval      Udelete   = 'J'
+N08  c                   call      'ARC99WSU1'
+N08  c                   parm                    Companyid        10
+N08  c                   parm                    UlocalPath      100
+N08  c                   parm                    uSrcFile        120
+N08  c                   parm                    udelete           1
+N08  c                   parm                    uNewFile         60
+N08  c                   parm                    OkMov             1
+N08  c                   endif
+n08   *
+     C                   ENDSR
+N09   **************************************************************************
+N09  C     SPRESR        BEGSR
+N09   **************************************************************************
+N09   *Det skal legges ut en arkivpost pr avd oppdrag som er berørt
+N09  C                   MOVEL     WSTUR         HEPRO
+N09  C     HEPRO         setll     HEAD14
+N09  C     HEPRO         reade     HEAD14                                 33
+N09  C     *in33         doweq     *OFF
+N09  C                   EVAL      ARAVD  = HEAVD
+N09  C                   EVAL      AROPD  = HEOPD
+N09  C                   WRITE     ARKIVR
+N09  C     HEPRO         reade     HEAD14                                 33
+N09  C                   END
+N09  C                   ENDSR

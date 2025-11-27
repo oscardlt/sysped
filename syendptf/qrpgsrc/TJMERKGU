@@ -1,0 +1,346 @@
+      *********************************************************************
+      * MERKE Gods levert - POD + Eksp.enhet/løpenr/nytt GN
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJMERKGU MODULE(*LIBL/TJMERKGU *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 oppdater kundes kundenummer
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     UF   E           K DISK    USROPN
+     FTRACKT    UF   E           K DISK    USROPN
+     FSADH      UF   E           K DISK    USROPN
+     FFRISOK    UF A E           K DISK    USROPN
+     FTRACKl02  O  A E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WMODE           S              2
+     D JSONstring      S          32000
+     D Error           S            150
+     D WA              S             15
+     D AVD             S              4  0
+     D OPD             S              7  0
+     D wsSGM           S             10
+     D wsDTMO          S              8  0
+     D wsKLMO          S              4  0
+     D wsKLMOA         S              4
+     D wsTLE           S              6
+     D wsTLL           S             10
+     D wsTLKU          S              1
+     D wsDTG           S              8  0
+     D wsGNN           S             15
+     D LogPOD          S              1
+
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C                   EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+     C                   if        HEKLMO <> *zeros
+     C                   move      HEKLMO        WSKLMOA
+     C                   else
+     C                   move      *blanks       WSKLMOA
+     C                   endif
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+          +'¬avd¬ : ¬'+%trim(%editc(avd:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(opd:'Z'))+'¬, '
+          +'¬mode¬ : ¬'+%trim(WMODE)+'¬, '
+          +'¬wsSGM¬ : ¬'+%trim(HESGM)+'¬, '
+          +'¬wsDTMO¬ : ¬'+%trim(%editc(WSDTMO:'Z'))+'¬, '
+          +'¬wsKLMO¬ : ¬'+%trim(WSKLMOA)+'¬, '
+          +'¬wsTLE¬ : ¬'+%trim(HETLE)+'¬, '
+          +'¬wsTLL¬ : ¬'+%trim(HETLL)+'¬, '
+          +'¬wsTLKU¬ : ¬'+%trim(HETLKU)+'¬, '
+          +'¬wsDTG¬ : ¬'+%trim(%editc(wsDTG:'Z'))+'¬, '
+          +'¬wsGNN¬ : ¬'+%trim(HEGNN)+'¬, '
+          +'¬errMsg¬ : ¬'+%trim(Error)+'¬} ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     TRACKT
+     C  N50              CLOSE     SADH
+     C  N50              CLOSE     FRISOK
+     C  N50              CLOSE     TRACKl02
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WA         = zhbgetvar('avd')
+     C                   EVAL      AVD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('opd')
+     C                   EVAL      OPD        = c2n2(WA)
+     C                   EVAL      WMODE      = zhbgetvar('MODE')
+      * WMODE = G --> Hent Info
+      *         U --> Update
+     C                   EVAL      wsSGM      = zhbgetvar('wsSGM')
+     C                   EVAL      WA         = zhbgetvar('wsDTMO')
+     C                   EVAL      wsDTMO     = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('wsKLMO')
+     C                   EVAL      wsKLMO     = c2n2(WA)
+     C                   EVAL      wsTLE      = zhbgetvar('wsTLE')
+     C                   EVAL      wsTLL      = zhbgetvar('wsTLL')
+     C                   EVAL      wsTLKU     = zhbgetvar('wsTLKU')
+     C                   EVAL      WA         = zhbgetvar('wsDTG')
+     C                   EVAL      wsDTG      = c2n2(WA)
+     C                   EVAL      wsGNN      = zhbgetvar('wsGNN')
+      *
+     C                   ENDSR
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HeaKey        KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C     FriKey        KLIST
+     C                   KFLD                    FSAVD
+     C                   KFLD                    FSOPD
+     C                   KFLD                    FSKODE
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      TRACKT
+     C  N50              OPEN      SADH
+     C  N50              OPEN      FRISOK
+     C  N50              OPEN      TRACKl02
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C
+     c                   endsr
+      *
+      *********************************************************
+     C     TEST          BEGSR
+      *********************************************************
+     C                   IF        WMODE = 'G'
+     C     HeaKey        CHAIN(N)  HEADF
+     c                   if        not %found
+     C                   eval      Error = 'Invalid order'
+     c                   else
+     C     HeaKey        CHAIN(N)  SADH
+     C                   exsr      FixDT
+     c                   endif
+     C                   ELSE
+     C     HeaKey        CHAIN     HEADF
+     c                   if        not %found
+     C                   eval      Error = 'Invalid order'
+     c                   else
+     C                   exsr      WStoHE
+     c                   endif
+     C                   ENDIF
+      *
+     C     UtTest        ENDSR
+      *
+      *********************************************************
+     C     FixDT         BEGSR
+      *********************************************************
+     C                   if        %subst(HEDTMO:1:8)>='00000000' and
+     C                             %subst(HEDTMO:1:8)<='99999999'
+     C                   movel     HEDTMO        wsDTMO
+     C                   else
+     C                   movel     *zeros        wsDTMO
+     C                   endif
+     C                   if        %subst(SIDTG:1:8)>='00000000' and
+     C                             %subst(SIDTG:1:8)<='99999999'
+     C                   movel     SIDTG         wsDTG
+     C                   else
+     C                   movel     *zeros        wsDTG
+     C                   endif
+      *
+     C                   ENDSR
+      *
+      *********************************************************
+     C     WStoHE        BEGSR
+      *********************************************************
+     c                   eval      LogPOD = 'N'
+     c                   if        wsSGM <> *blanks  and
+     c                             wsSGM <> HESGM
+     c                   eval      LogPOD = 'J'
+     C                   endif
+      * Oppdater i HEADF
+     C                   if        %found(headf)
+     C                   move      wsSGM         HESGM
+     C                   movel     wsDTMO        HEDTMO                         8 num -> 10 alfa
+     C                   move      wsKLMO        HEKLMO
+     C                   move      wsTLE         HETLE
+     C                   move      wsTLL         HETLL
+     C                   move      wsTLKU        HETLKU
+     C                   move      wsGNN         HEGNN
+     C                   IF        HEUR = 'H'
+     C                   movel     wsDTMO        TRSDTD
+     C                   movel     wsKLMO        TRSDTK
+     C     HeaKey        CHAIN     TRACKT
+     C                   if        %found(trackt)
+     c                   move      TTDATE        TXATAD
+     c                   movel     TTTIME        TXATAK                         kun 4 første tegn
+     c                   update    tracktr
+     C                   endif
+     C                   endif
+     C                   UPDATE    HEADFR
+     C                   endif
+      *
+      *
+      * Oppdater i SADH
+     C     HeaKey        CHAIN     SADH
+     C                   if        %found(sadh)
+     C                   move      wsTLE         SITLE
+     C                   move      wsTLL         SITLL
+     C                   movel     wsDTG         SIDTG                          8 num -> 10 alfa
+     C                   UPDATE    SADHR
+     C                   endif
+      *
+      * Oppdater i FRISOK  TLE / TLØ
+      * fjen gamle / legg til nye (hvis ulik blank)
+     c                   eval      FSAVD  = AVD
+     c                   eval      FSOPD  = OPD
+      * fjern gammel
+     c                   eval      FSKODE = 'TLE'
+     C     FriKey        CHAIN     FRISOK
+     C                   if        %found(frisok)
+     C                   DELETE    FRISOKR
+     C                   endif
+     c                   eval      FSKODE = 'TLØ'
+     C     FriKey        CHAIN     FRISOK
+     C                   if        %found(frisok)
+     C                   DELETE    FRISOKR
+     C                   endif
+      * legg til ny
+     C                   if        wsTLE <> *blanks
+     c                   eval      FSKODE = 'TLE'
+     c                   eval      FSSOK  = wsTLE
+     C                   WRITE     FRISOKR
+     C                   endif
+     C                   if        wsTLL <> *blanks
+     c                   eval      FSKODE = 'TLØ'
+     c                   eval      FSSOK  = wsTLL
+     C                   WRITE     FRISOKR
+     C                   endif
+
+     c                   if        LogPOD = 'J'
+     c                   exsr      TTSR
+     C                   endif
+
+     C                   ENDSR
+      *********************************************************
+     C     FixData       BEGSR
+      *********************************************************
+      *
+
+     C                   ENDSR
+      *
+      *********************************************************
+     C     TTSR          BEGSR
+      *********************************************************
+     C                   CLEAR                   trackfr
+     C                   eval      TTAVD  = HEAVD
+     C                   eval      TTOPD  = HEOPD
+     C                   MOVE      'POD'         TTACTI
+     C                   MOVE      WDT           TTDATL
+     C                   MOVE      WTM           TTTIML
+     C                   TESTN                   HEDTMO               34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      HEDTMO        TTDATE
+     C                   ELSE
+     C                   MOVE      TTDATL        TTDATE
+     C                   END
+     C                   MOVE      *ZEROS        TTTIME
+     C                   MOVEL     HEKLMO        TTTIME
+     C                   MOVEL     HESGM         TTNAME
+     c                   eval      TTTEXL = 'Dato: ' +%subst(HEDTMO:1:8)
+     c                                    + ' Ti: ' + %editc(HEKLMO:'X')
+     c                                    + ' Av: ' + HESGM
+     c                   eval      TTTEXT = 'Date: ' +%subst(HEDTMO:1:8)
+     c                                    + ' Ti: ' + %editc(HEKLMO:'X')
+     c                                    + ' By: ' + HESGM
+     C                   MOVE      WSUSER        TTUSER
+     C                   eval      TTMANU = 'S'
+     c                   if        TROPD0 <> *zeros
+     C                   eval      TTMANU = ' '
+     c                   endif
+     C                   write     TRACKFR
+      *
+      * hvis utført på VF - merk også MOR (evt IFTSTA mm kommer da fra MOR )
+     c                   if        TRSLAG = 'VF' and
+     c                             TROPD0 <> *zeros
+     C                   eval      TTAVD  = TRAVD0
+     C                   eval      TTOPD  = TROPD0
+     C                   eval      TTEDRE = 'KOP'
+     C                   eval      TTMANU = 'S'
+     C                   write     TRACKFR
+     c                   endif
+
+     C                   ENDSR
+      *

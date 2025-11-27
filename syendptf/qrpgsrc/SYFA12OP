@@ -1,0 +1,1241 @@
+********************************************************************
+      * Send EDI basert på kun oppdrag (web mm - friggjøre seg fra DOKUF..)
+      *      Opprinnelig basert på funksjon hos TOTEN for forenklet EDI - hovedsaklig internt
+      * Må betraktes som halvfabrikata der en justere besert på kundespesialer
+********************************************************************
+BHR   * Ramberg benytter kode H = Hentesystemet
+********************************************************************
+      * EDIFACT IFTMIN (FRAKTBREV) fra oppdrag
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Basert på ramberg-spaisl Tatt inn i standard / utvidet med Prod-kode i param..
+********************************************************************
+     FDOKUFM    IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FFAK13     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FKODTTR    IF   E           K DISK
+     FFREETXT2  IF   E           K DISK
+     FFRISOK    IF A E           K DISK
+     FEDIIF     IF   E           K DISK
+     FDOKUFE    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIM      IF A E             DISK
+     FTRACKF    O  A E             DISK
+     FECNT93A   O  A E             DISK
+     FEDTM93A   O  A E             DISK
+     FEEQD93A   O  A E             DISK
+     FEEQN93A   O  A E             DISK
+     FEFTX93A   O  A E             DISK
+     FEGID93A   O  A E             DISK
+     FELOC93A   O  A E             DISK
+     FEMEA93A   O  A E             DISK
+     FENAD93A   O  A E             DISK
+     FECTA93A   O  A E             DISK
+     FECOM93A   O  A E             DISK
+     FEPCI93A   O  A E             DISK
+     FEPIA93A   O  A E             DISK
+     FERFF93A   O  A E             DISK
+     FETDT93A   O  A E             DISK
+     FETSR93A   O  A E             DISK
+     FEUNH      O  A E             DISK
+     D                SDS
+     D  ZUSER                254    263
+      *"""""""""""""""""""""""""""
+     D TX              S             70    DIM(26)
+      *"""""""""""""""""""""""""""
+      * standalone variabler
+     D FRBNR           S             17
+     D CN_ADR          S            150
+     D DP_ADR          S            150
+      *"""""""""""""""""""""""""""
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  WDATO                  1      8  0
+     D  WÅ                     1      4  0
+     D  WM                     5      6  0
+     D  WD                     7      8  0
+      *____________________________________
+      * DS for leftjustify numericel fields
+      *""""""""""""""""""""""""""""""""""""
+     D                 DS
+     D  ØN152                  1     15S 2
+     D  ØA152H                 1     13
+     D  ØA152X                 5     13
+     D  ØA152D                14     15
+     D                 DS
+     D  ØA12                   1     12
+     D  Ø12                    1     12
+     D                                     DIM(12)
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+     C                   EXSR      SRINIT
+     C                   EXSR      SRA
+     C                   MOVE      '1'           *INLR
+      */////////////////////////////////////////////////////////////////////////
+      *// HOVEDRUTINE                                                         //
+      */////////////////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *
+      * Hent oppdrag
+     C     HEAKEY        CHAIN     HEADF                              51
+     C     *IN51         CABEQ     *ON           SRA9
+      * Hent avsendende avdeling
+     C     KODTAK        CHAIN     KODTA                              33
+      * Hent fraktbrevsnr - om det ikke finnes - tildel nå
+     C     HXSNDN        ifne      *blanks
+     C                   if        %subst(HXSNDN:20:1)<>' '
+     C                   eval      FSSOK = %subst(HXSNDN:4:17)                  langt / ean
+     C                   else
+     C                   eval      FSSOK = HXSNDN
+     C                   endif                                                  kort
+     C                   else
+     C                   MOVE      'IFB'         FSKODE
+     C     FRIKEY        CHAIN     FRISOK                             33
+     C     *IN33         IFEQ      '1'
+     C                   CALL      'SYGE15'
+     C                   PARM                    Sndn20           20
+     C                   eval      FSSOK =%subst(Sndn20:4:17)
+     C                   eval      FSDTOP = HEDTOP
+     C                   eval      FSDOKK = 'B'
+     C                   WRITE     FRISOKR
+     C                   endif
+     c                   endif
+     C                   eval      FRBNR = FSSOK
+      *
+      * GET RECORDNUMBER FOR EDIM
+     C     1             CHAIN     EDIC                               51
+     C     *IN51         CABEQ     *ON           SRA9
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+     C                   Z-ADD     CMN           WMN
+      * ADD TO EDI-DB
+     C                   EXSR      DTM00                                        Fritekst
+     C                   EXSR      FTX00                                        Fritekst
+     C                   EXSR      TSR00                                        Fritekst
+     C                   EXSR      RFF03                                        Referanser
+     C                   EXSR      TDT08                                        Transportdetaljer
+     C                   EXSR      NAD10CZ                                      Avsender
+     C                   EXSR      NAD10PW                                      Henteadresse
+     C                   EXSR      NAD10CN                                      Mottaker
+BHR  C                   if        WFHENT='H'
+BHR  C                   eval      DP_ADR = 'xxx'                               Trigge skriv DP
+BHR  C                   endif
+     C                   if        DP_ADR<>CN_ADR
+     C                   EXSR      NAD10DP                                      Leveringsadresse
+     C                   endif
+     C                   EXSR      NAD10OS                                      Original sender
+     C                   EXSR      LOC08                                        Lokasjoner
+     C                   EXSR      GID16                                        Varelinjer
+     C                   EXSR      EQD34                                        Transp.utstyr
+     C                   EXSR      CNT00                                        Kontrolltotaler
+      * WRITE TO EUNH
+     C                   CLEAR                   UNHR
+     C                   Z-ADD     WMN           UMN
+     C                   MOVEL     WMN           U0062A
+     C                   MOVEL     'IFTMIN'      U0065
+     C                   MOVEL     'S'           U0052
+     C                   MOVEL     '93A'         U0054
+     C                   MOVEL     'UN'          U0051
+     C                   MOVEL     'NOSM12'      U0057
+     C                   MOVEL     FRBNR         U0068
+     C                   MOVEL     '700'         U1001
+     C                   MOVEL     FRBNR         U1004
+     C                   MOVEL     U0062A        U0062B
+     C                   WRITE     UNHR
+      * WRITE TO EDIM
+     C                   CLEAR                   EDIMR
+     C                   MOVEL     VM0004        M0004
+     C                   MOVEL     VM0010        M0010
+     C                   MOVE      VM0035        M0035
+     C                   MOVEL     U0062A        M0062
+     C                   MOVE      U0065         M0065
+     C                   MOVEL     U0068         M0068
+     C                   MOVEL     U1001         M1001
+     C                   MOVEL     U1004         M1004
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     WMN           MMN
+     C                   MOVE      'S'           MSR
+     C                   Z-ADD     WDATO         MDT
+     C                   MOVEL     WTID          MTM
+     C                   Z-ADD     WFAVD         MAVD
+     C                   Z-ADD     WFOPD         MTDN
+     C*                  Z-ADD     WFFBNR        MFFBNR
+     C                   MOVE      ' '           MVEN
+     C                   WRITE     EDIMR
+      * WRITE TO TRACKF
+     C                   EXSR      TTSR
+
+     C     SRA9          TAG
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Kontrolltotaler                                    CNT00 /
+      *////////////////////////////////////////////////////////////
+     C     CNT00         BEGSR
+     C                   Z-ADD     0             WREP0
+     C                   Z-ADD     0             WREP1
+      *
+     C                   CLEAR                   CNTR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     0             CGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         CREP0
+      *
+     C                   MOVEL     '11'          C6069
+     C                   Z-ADD     HENT          ØN152
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           C6066
+     C                   MOVEL     'PCE'         C6411
+     C                   WRITE     CNTR
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         CREP0
+     C                   MOVEL     '7 '          C6069
+     C                   Z-ADD     HEVKT         ØN152
+     C                   EXSR      SRNE
+     C                   MOVE      *BLANKS       C6066
+     C                   MOVEL     ØAN           C6066
+     C                   MOVEL     'KGM'         C6411
+     C                   WRITE     CNTR
+
+     C     HEM3          IFGT      0
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         CREP0
+     C                   MOVEL     '15'          C6069
+     C     HEM3          MULT      1000          ØN152
+     C                   EXSR      SRNE
+     C                   MOVE      *BLANKS       C6066
+     C                   MOVEL     ØAN           C6066
+     C                   MOVEL     'DMQ'         C6411
+     C                   WRITE     CNTR
+     C                   ENDIF
+      *
+     C     HELM          IFGT      0
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         CREP0
+     C                   MOVEL     'ZLM'         C6069
+     C                   Z-ADD     HELM          ØN152
+     C                   EXSR      SRNE
+     C                   MOVE      *BLANKS       C6066
+     C                   MOVEL     ØAN           C6066
+     C                   MOVEL     'MTR'         C6411
+     C                   WRITE     CNTR
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Sendningsdato                                      DTM00 /
+      *////////////////////////////////////////////////////////////
+     C     DTM00         BEGSR
+     C                   Z-ADD     0             WREP0
+      *
+     C                   CLEAR                   DTMR
+     C                   Z-ADD     WMN           DMN
+     C                   Z-ADD     0             DGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         DREP0
+      * dokumentdato
+     C                   MOVEL     '137'         D2005
+     C                   MOVEL     WDATO         D2380
+     C                   MOVEL     '102'         D2379
+      *
+     C                   WRITE     DTMR
+      * Hentedato (Pick-up/collection date/time of cargo..)
+     C     TRSDFD        ifne      *zeros
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         DREP0
+     C                   MOVEL     '200'         D2005
+     C                   MOVEL     TRSDFD        Tmp12            12
+     C                   MOVE      TRSDFK        Tmp12
+     C                   MOVEL     Tmp12         D2380
+     C                   MOVEL     '203'         D2379
+     C                   WRITE     DTMR
+     C                   endif
+      * Leveringsdato (Delivery date/time, requested..)
+     C     TRSDTD        ifne      *zeros
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         DREP0
+     C                   MOVEL     '2  '         D2005
+     C                   MOVEL     TRSDTD        Tmp12
+     C                   MOVE      TRSDTK        Tmp12
+     C                   MOVEL     Tmp12         D2380
+     C                   MOVEL     '203'         D2379
+     C                   WRITE     DTMR
+     C                   endif
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Utstyrsdetaljer                                    EQD34 /
+      *////////////////////////////////////////////////////////////
+     C     EQD34         BEGSR
+      * MIDLERT. INTERNDEF FOR KOMPILERING
+     C                   MOVE      *ZEROS        DFNTEU            2 0
+     C                   MOVE      *ZEROS        DFNTAU            2 0
+
+     C                   Z-ADD     0             WREP0
+     C                   Z-ADD     0             WREP1
+      * EUR Paller
+     C     DFNTEU        IFGT      0
+     C                   CLEAR                   EQDR
+     C                   Z-ADD     WMN           EMN
+     C                   Z-ADD     34            EGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         EREP0
+     C                   MOVEL     'EFP'         E8053                          Palle
+     C                   WRITE     EQDR
+
+     C                   EXSR      EQN34
+
+     C                   ENDIF
+
+      * Andre paller
+     C     DFNTAU        IFGT      0
+     C                   CLEAR                   EQDR
+     C                   Z-ADD     WMN           EMN
+     C                   Z-ADD     34            EGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         EREP0
+     C                   MOVEL     'PA'          E8053                          Palle
+     C                   WRITE     EQDR
+
+     C                   EXSR      EQN34
+
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Antall utstyr                                      EQN34 /
+      *////////////////////////////////////////////////////////////
+     C     EQN34         BEGSR
+     C                   Z-ADD     0             WREP1
+      *
+     C                   CLEAR                   EQNR
+     C                   Z-ADD     WMN           EMN
+     C                   Z-ADD     34            EGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         EREP0
+     C                   Z-ADD     WREP1         EREP1
+      *
+     C                   SELECT
+     C     E8053         WHENEQ    'EFP'
+     C                   Z-ADD     DFNTEU        ØN152
+     C     E8053         WHENEQ    'PA'
+     C                   Z-ADD     DFNTAU        ØN152
+     C                   ENDSL
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           E6350
+      *
+     C                   WRITE     EQNR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Fritekst                                           FTX00 /
+      *////////////////////////////////////////////////////////////
+     C     FTX00         BEGSR
+      *
+     C                   Z-ADD     0             WREP0
+      *
+     C                   CLEAR                   TX
+      * Hent faste tekster til R-38
+     C                   CALL      'SYFA12F'
+     C                   PARM                    WFIRM
+     C                   PARM                    WFAVD
+     C                   PARM                    WFOPD
+     C                   PARM                    NullFB            3 0
+     C                   PARM                    U38TXT          700
+     C                   MOVEA     U38TXT        TX
+      * Finn antall brukte array-element
+     C                   Z-ADD     10            X                 3 0
+     C     TX(X)         DOWEQ     *BLANKS
+     C                   SUB       1             X
+     C     X             CABEQ     0             UTFAS
+     C                   END
+     C     UTFAS         TAG
+      *
+      * fra oppdragets notisblokk kode R
+     C                   MOVE      'R'           FRTKOD
+     C     Free2Key      SETLL     Freetxt2
+     C     Free2Key      READE     Freetxt2                               90
+     C     *IN90         DOWEQ     *OFF
+     C                   ADD       1             X
+     C     X             cabgt     26            FtxTag1
+     C                   MOVEL     FRTTXT        TX(X)
+     C     Free2Key      READE     Freetxt2                               90
+     C                   ENDDO
+      * Klargjør felt for å legge ut FTX-ICN_segment
+     C     FtxTag1       tag
+     C                   CLEAR                   FTXR
+     C                   Z-ADD     WMN           FMN
+     C                   Z-ADD     0             FGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         FREP0
+     C                   MOVEL     'ICN'         F4451
+      * Legg ut segment
+     C     X             IFGT      0
+     C                   EXSR      FTX00B
+     C                   END
+     C     X             cabgt     26            FtxTag1
+      *
+     C                   Z-ADD     0             X
+     C                   CLEAR                   TX
+      * fra oppdragets notisblokk kode G = meldint til Transp
+     C                   MOVE      'G'           FRTKOD
+     C     Free2Key      SETLL     Freetxt2
+     C     Free2Key      READE     Freetxt2                               90
+     C     *IN90         DOWEQ     *OFF
+     C                   ADD       1             X
+     C     X             cabgt     26            FtxTag2
+     C                   MOVEL     FRTTXT        TX(X)
+     C     Free2Key      READE     Freetxt2                               90
+     C                   ENDDO
+      * Klargjør felt for å legge ut FTX-ICN_segment
+     C     FtxTag2       tag
+     C                   CLEAR                   FTXR
+     C                   Z-ADD     WMN           FMN
+     C                   Z-ADD     0             FGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         FREP0
+     C                   MOVEL     'SIC'         F4451
+      * Legg ut segment
+     C     X             IFGT      0
+     C                   EXSR      FTX00B
+     C                   END
+      *
+     C     UtFTX         ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv fritekst fra array til segment (5 og 5)      FTX00B/
+      *////////////////////////////////////////////////////////////
+     C     FTX00B        BEGSR
+      * Når SR er kalt - Alltid minst ett segment a 5. linjer,
+     C                   Z-ADD     1             XA                3 0
+     C     STRFTX        TAG
+     C     XA            ADD       1             XB                3 0
+     C     XA            ADD       2             XC                3 0
+     C     XA            ADD       3             XD                3 0
+     C     XA            ADD       4             XE                3 0
+     C*
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         FREP0
+     C     TX(XA)        IFEQ      *BLANKS
+     C                   EVAL      TX(XA) = '.'
+     C                   ENDIF
+     C                   MOVEL     TX(XA)        F4440A
+     C                   MOVEL     TX(XB)        F4440B
+     C                   MOVEL     TX(XC)        F4440C
+     C                   MOVEL     TX(XD)        F4440D
+     C                   MOVEL     TX(XE)        F4440E
+     C                   WRITE     FTXR
+      * Flere??
+     C     XE            IFLT      X
+     C                   ADD       5             XA
+     C                   GOTO      STRFTX
+     C                   END
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Godsdetaljer                                       GID16 /
+      *////////////////////////////////////////////////////////////
+     C     GID16         BEGSR
+      *____________
+      * Varelinje-1
+      *""""""""""""
+     C                   Z-ADD     0             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   ADD       1             WREP0
+      * Other segments
+     C                   EXSR      PIA16
+     C                   EXSR      FTX16
+     C                   EXSR      PCI22
+      *
+     C                   CLEAR                   GIDR
+     C                   Z-ADD     WMN           GMN
+     C                   Z-ADD     16            GGN
+     C                   Z-ADD     WREP0         GREP0
+      *
+     C                   MOVEL     '99999'       G1496
+     C                   Z-ADD     HENT          ØN152
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           G7224A
+     C     ' '           SCAN      HEVS1         BlPos             3 0
+     C                   if        BlPos >1
+     C                   eval      G7065A=%subst(HEVS1:1:BlPos-1)
+     C                   else
+     C                   endif
+      *
+     C                   WRITE     GIDR
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Ekstra vareinformasjon                             PIA16 /
+      *////////////////////////////////////////////////////////////
+     C     PIA16         BEGSR
+
+      * serienr sendes som PIA
+     C                   Z-ADD     0             WREP1
+     C                   MOVE      'SER'         FSKODE
+     C     FRIKEY        SETLL     FRISOK
+     C     FRIKEY        READE     FRISOK                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   CLEAR                   PIAR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     16            PGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   MOVEL     '5'           P4347
+     C                   MOVEL     FSSOK         P7140A
+     C                   MOVEL     'SN '         P7143A
+     C                   WRITE     PIAR
+     C     FRIKEY        READE     FRISOK                                 33
+     C                   END
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Fritekst                                           FTX16 /
+      *////////////////////////////////////////////////////////////
+     C     FTX16         BEGSR
+      *
+     C                   Z-ADD     0             WREP1
+      *
+     C                   CLEAR                   FTXR
+     C                   Z-ADD     WMN           FMN
+     C                   Z-ADD     16            FGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         FREP0
+     C                   Z-ADD     WREP1         FREP1
+     C                   MOVEL     'AAA'         F4451
+     C                   MOVEL     HEVS1         F4440A
+     C                   MOVEL     HEVS2         F4440B
+     C                   WRITE     FTXR
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Mål                                                MEA19 /
+      *////////////////////////////////////////////////////////////
+     C     MEA19         BEGSR
+      *___________
+      * Bruttovekt
+      *"""""""""""
+     C                   Z-ADD     0             WREP1
+      *
+     C                   CLEAR                   MEAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     19            MGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+      *
+     C                   MOVEL     'GRO'         M6311
+     C                   MOVEL     'KGM'         M6411
+     C                   Z-ADD     HEVKT         ØN152
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M6314
+      *
+     C                   WRITE     MEAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Navn og adresser Avsender                         NAD10CZ/
+      *////////////////////////////////////////////////////////////
+     C     NAD10CZ       BEGSR
+      * AVSENDER er  bestillende Firma(avdeling)uansett...
+     C                   Z-ADD     0             WREP0
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     10            NGN
+     C                   Z-ADD     WREP0         NREP0
+      *
+     C                   MOVE      KOAKNR        WUNDNR
+     C     CUNKEY        CHAIN     CUNDL01                            51
+     C                   MOVEL     'CZ'          N3035                          Godsavsender
+     c     Kodttrk       chain     kodttr                             33
+     c  N33              movel     ktrak3        N3039                          KNR hos transp.
+     C  N33              MOVEL     '87'          N3055
+     C   33              MOVEL     koaknr        N3039                          Knr internt/TT
+     C   33              MOVEL     '91'          N3055
+      *
+     C                   eval      N3036A=KNAVN                                 NAVN
+     C                   eval      N3042A=ADR1                                  ADR1
+     C                   MOVEL     POSTNR        N3251                          Postnr
+     C                   eval      N3164 =ADR3                                  sted
+     C                   eval      AVSLOC=N3251
+     C                   WRITE     NADR
+      *
+     C                   EXSR      CTA11
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Navn og adresser Henteadresse                     NAD10PW/
+      *////////////////////////////////////////////////////////////
+     C     NAD10PW       BEGSR
+      * HENTEADRESSE er avhengig av type bestilling...
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     10            NGN
+     C                   Z-ADD     WREP0         NREP0
+      *
+     C                   MOVE      KOAKNR        WUNDNR
+     C     CUNKEY        CHAIN     CUNDL01                            51
+     C                   MOVEL     'PW'          N3035                          Henteadresse
+      *
+     c                   select
+     c     WFHENT        wheneq    'A'
+      * Hentetype = A = Advisering = Godset er klart på edimottakes terminal.
+      *  Frit.8,9,10 EDIpart: TermNavn: TVT AS/TermAdr1: HJORTLANDSVEIEN 1/TermAdr3: 5135 FLAKTVEDT
+     C                   MOVEL     HESDF         AVSLOC            5
+     c     HESDFF        ifne      *blanks
+     C                   MOVEL     HESDFF        AVSLOC
+     c                   endif
+     C                   MOVEL     VM0010        N3036A
+     C     VM0010        chain     EDIIF                              33
+     c                   if        %subst(INFTX08:1:9)='TermNavn:'
+     C                   eval      N3036A=%subst(INFTX08:11:30)                 NAVN
+     C                   eval      N3042A=%subst(INFTX09:11:30)                 ADR1
+     C                   eval      N3251 =%subst(INFTX10:11:4)                  postnr
+     C                   eval      N3164 =%subst(INFTX10:16:30)                 sted
+     C                   eval      AVSLOC=N3251
+     c                   endif
+     c     WFHENT        wheneq    'T'
+      * Hentetype = T = Hentes Terminal = på ediAVsenders terminal (men kun dersom def. i EDIIF)
+      *  Frit.8,9,10 EDIpart: TermNavn: TVT AS/TermAdr1: HJORTLANDSVEIEN 1/TermAdr3: 5135 FLAKTVEDT
+      *  Hvis NAD+PW IKKE sendes er henting pr def. lik NAD+CZ=avsender(=bestillende firma/avdeling)
+     C     VM0004        chain     EDIIF                              33
+     c     *in33         cabeq     '1'           UTPW
+     c                   if        %subst(INFTX08:1:9)='TermNavn:'
+     C                   eval      N3036A=%subst(INFTX08:11:30)                 NAVN
+     C                   eval      N3042A=%subst(INFTX09:11:30)                 ADR1
+     C                   eval      N3251 =%subst(INFTX10:11:4)                  postnr
+     C                   eval      N3164 =%subst(INFTX10:16:30)                 sted
+     C                   eval      AVSLOC=N3251
+     c                   else
+     c                   goto      UTPW
+     c                   endif
+     c                   other
+      * Hentetype = K (annet enn A/T)= hentes hos avsender - oppdragets henteadresse
+     C                   eval      N3036A=HENAS                                 NAVN
+     C                   eval      N3042A=HEADS1                                ADR1
+     C                   eval      N3251 =%subst(HEADS3:1:4)                    postnr
+     C                   eval      N3164 =%subst(HEADS3:6:23)                   sted
+     C                   eval      AVSLOC=N3251
+     c                   endsl
+     C                   WRITE     NADR
+      *
+     C                   EXSR      CTA11
+
+     C     UTPW          ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Navn og adresser Mottaker                         NAD10CN/
+      *////////////////////////////////////////////////////////////
+     C     NAD10CN       BEGSR
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     10            NGN
+     C                   Z-ADD     WREP0         NREP0
+      *
+     C                   MOVEL     'CN'          N3035
+      * enten motaker fra lev-adr..
+     C                   eval      N3036A=HENAK                                 NAVN
+     C                   eval      N3042A=HEADK1                                ADR1
+     C                   eval      N3251 =%subst(HEADK3:1:4)                    postnr
+     C                   eval      N3164 =%subst(HEADK3:6:23)                   sted
+      * Hjelpevariabel for å se om PD skal sendes..- kun hvis ulik CN
+     C                   EVAL      DP_ADR=%trim(N3036A)+%trim(N3042A)+
+     C                                    %trim(N3251)+%trim(N3164)
+      * eller mottaker via kundenr
+     C     HEKNK         IFGT      0
+BHR  C     WFHENT        andne     'H'                                          =NAD+CN=HEKNK+...
+     C                   MOVEL     HEKNK         N3039
+     C                   MOVEL     '91'          N3055
+     C                   MOVE      HEKNK         WUNDNR
+     C     CUNKEY        CHAIN     CUNDL01                            33
+     C     *in33         ifeq      '0'
+     C                   eval      N3036A=KNAVN                                 NAVN
+     C                   eval      N3042A=ADR1                                  ADR1
+     C                   MOVEL     POSTNR        N3251                          Postnr
+     C                   eval      N3164 =ADR3                                  sted
+     C                   endif
+     C                   ENDIF
+      *
+     C                   WRITE     NADR
+      *
+     C                   MOVEL     N3251         MOTLOC            5
+     C                   EVAL      CN_ADR=%trim(N3036A)+%trim(N3042A)+
+     C                                    %trim(N3251)+%trim(N3164)
+      *
+     C                   EXSR      CTA11
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Navn og adresser Avvikende Leveringsadresse       NAD10DP/
+      *////////////////////////////////////////////////////////////
+     C     NAD10DP       BEGSR
+      *
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     10            NGN
+     C                   Z-ADD     WREP0         NREP0
+      *
+     C                   MOVEL     'DP'          N3035
+     C                   eval      N3036A=HENAK                                 NAVN
+     C                   eval      N3042A=HEADK1                                ADR1
+     C                   eval      N3251 =%subst(HEADK3:1:4)                    postnr
+     C                   eval      N3164 =%subst(HEADK3:6:23)                   sted
+      * Ved Henting til terminal er det Terminaladresse som Lev-adr
+     C     VM0004        chain     EDIIF                              33
+     c                   if        *in33='0' and %subst(INFTX08:1:9)='TermNavn:'
+     C                   eval      N3036A=%subst(INFTX08:11:30)                 NAVN
+     C                   eval      N3042A=%subst(INFTX09:11:30)                 ADR1
+     C                   eval      N3251 =%subst(INFTX10:11:4)                  postnr
+     C                   eval      N3164 =%subst(INFTX10:16:30)                 sted
+     c                   endif
+BHR   * Drammen
+BHR  C                   select
+BHR  C                   when      WFAVD >= 200  and  WFAVD <= 299
+BHR  C                   eval      N3036A= %subst(HENAA:1:9)
+BHR  C                                   + ' C/O RAMBERG TERMINAL'
+BHR  C                   eval      N3042A= 'SVEND HAUGS GT 11'
+BHR  C                   eval      N3251 = '3013'
+BHR  C                   eval      N3164 = 'DRAMMEN'
+BHR   * Skedsmo
+BHR  C                   when      WFAVD >= 8200 and  WFAVD <= 8299
+BHR  C                   eval      N3036A= %subst(HENAA:1:9)
+BHR  C                                   + ' C/O RAMBERG TERMINAL'
+BHR  C                   eval      N3042A= 'GNEISV. 4 '
+BHR  C                   eval      N3251 = '2020'
+BHR  C                   eval      N3164 = 'SKEDSMOKORSET'
+BHR   * Langhus
+BHR  C                   when      WFAVD >= 3200 and  WFAVD <= 3299
+BHR  C                   eval      N3036A= %subst(HENAA:1:9)
+BHR  C                                   + ' C/O RAMBERG TERMINAL'
+BHR  C                   eval      N3042A= 'SNIPTJERNVEIEN 2'
+BHR  C                   eval      N3251 = '1405'
+BHR  C                   eval      N3164 = 'LANGHUS'
+BHR  C                   endsl
+      *
+     C                   WRITE     NADR
+     C                   MOVEL     N3251         MOTLOC            5
+      *
+     C                   EXSR      CTA11
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Navn og adresser Original Sender                  NAD10OS/
+      *////////////////////////////////////////////////////////////
+     C     NAD10OS       BEGSR
+     C                   MOVE      TRKNFA        WUNDNR                         OPPDRAGSGIVER
+     C     HEKNS         IFGT      0
+     C                   MOVE      HEKNS         WUNDNR                         SELGER
+     C                   ENDIF
+     C     WUNDNR        CABEQ     *ZEROS        UTOS
+     C
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     10            NGN
+     C                   Z-ADD     WREP0         NREP0
+      *
+     C                   MOVEL     'OS'          N3035
+      * eller mottaker via kundenr
+     C                   MOVEL     WUNDNR        N3039
+     C                   MOVEL     '91'          N3055
+     C     CUNKEY        CHAIN     CUNDL01                            33
+     C     *in33         ifeq      '0'
+     C                   eval      N3036A=KNAVN                                 NAVN
+     C                   eval      N3042A=ADR1                                  ADR1
+     C                   MOVEL     POSTNR        N3251                          Postnr
+     C                   eval      N3164 =ADR3                                  sted
+     C                   endif
+      *
+     C                   WRITE     NADR
+      *
+     C                   EXSR      CTA11
+      *
+     C     UTOS          ENDSR
+      *
+      *******************************************************
+     C     CTA11         BEGSR
+      *******************************************************
+      *
+      *  KONTAKTPERSON HOS AKTUELL hentes fra DOKUFE..
+     C                   EVAL      WE_N3035=N3035
+      *
+     C     DOKUFEKEY     CHAIN     DOKUFE                             33
+     C     *in33         ifeq      '0'
+     C                   CLEAR                   CTAR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     11            CGN
+     C                   Z-ADD     NREP0         CREP0
+     C                   Z-ADD     1             CREP1
+
+     C                   MOVEL     'IC'          C3139
+     C                   MOVEL     FE_C3412      C3412
+     C                   WRITE     CTAR
+
+     C                   EXSR      COM11
+
+     c                   end
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *            teleofnnr                                COM11 /
+      *////////////////////////////////////////////////////////////
+     C     COM11         BEGSR
+      * COMM-DETALJER
+      * Hvis sms blank flytter over mobil                                       FE_C3148A  Telefon
+     C     FE_C3148D     ifeq      *blanks                                      FE_C3148B  Mobil
+     C                   move      FE_C3148B     FE_C3148D                      FE_C3148C  Fax
+     C                   move      *blanks       FE_C3148B                      FE_C3148D  Sms
+     C                   end                                                    FE_C3148D  Epost
+      * TELEFON
+      * Hvis blank flytter over mobil
+     C     FE_C3148A     ifeq      *blanks
+     C                   move      FE_C3148B     FE_C3148A
+     C                   end
+
+     C                   CLEAR                   COMR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     11            CGN
+     C                   Z-ADD     NREP0         CREP0
+     C                   Z-ADD     1             CREP1
+     C                   MOVE      *ZEROS        CREP2
+      * Telefon
+     C     FE_C3148A     ifne      *blanks
+     C                   ADD       1             CREP2
+     C                   MOVEL     FE_C3148A     C3148
+     C                   MOVEL     'TE'          C3155
+     C                   WRITE     COMR
+     C                   END
+      * sms
+     C     FE_C3148D     ifne      *blanks
+     C                   ADD       1             CREP2
+     C                   MOVEL     FE_C3148D     C3148
+     C                   MOVEL     'SM'          C3155
+     C                   WRITE     COMR
+     C                   END
+      * epost
+     C     FE_C3148E     ifne      *blanks
+     C                   ADD       1             CREP2
+     C                   MOVEL     FE_C3148E     C3148
+     C                   MOVEL     'EP'          C3155
+     C                   WRITE     COMR
+     C                   END
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      *  Kolli ID                                           PCI22 /
+      *////////////////////////////////////////////////////////////
+     C     PCI22         BEGSR
+     C                   Z-ADD     0             WREP1
+      *
+      * Gosdsmerking generelt
+     C     HEGM1         IFNE      *BLANKS
+     C     HEGM2         ORNE      *BLANKS
+      *
+     C                   CLEAR                   PCIR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     22            PGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+      *
+     C     HEGM1         IFEQ      *BLANKS
+     C                   MOVEL     'FORTS'       HEGM1
+     C                   ENDIF
+     C                   MOVEL     '24'          P4233
+     C                   MOVEL     HEGM1         P7102A
+     C     HEGM2         IFNE      *BLANKS
+     C                   MOVEL     HEGM2         P7102B
+     C                   ENDIF
+      *
+     C                   WRITE     PCIR
+      *
+     C                   ENDIF
+      *
+      * KOLLI-ID...
+     C                   MOVE      'F'           FMRI
+     C                   MOVE      WFAVD         FMAVD
+     C                   MOVE      WFOPD         FMOPD
+     C                   MOVE      WFFBNR        FMFBNR
+     C                   MOVE      *ZEROS        FMLINR
+      *
+      * henter eventuelt kolliid
+      *
+      *
+     C     DOKUFMKEY     SETLL     DOKUFM
+     C     DOKUFMKEY     READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C     FMST          IFEQ      'I'
+     C     FMST          oreq      'E'
+     C                   CLEAR                   PCIR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     22            PGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   MOVEL     '18'          P4233
+     C                   MOVEL     FMMRK1        P7102A
+     C                   WRITE     PCIR
+     C                   END
+     C     DOKUFMKEY     READE     DOKUFM                                 33
+     C                   END
+      *
+      * TT LAGRER KOLLI-ID SOM CID - men ikke dersom de alt ligger i DOKUFM-fare for dobbbelt
+     C     P4233         IFNE      '18'
+     C                   MOVE      'CID'         FSKODE
+     C     FRIKEY        SETLL     FRISOK
+     C     FRIKEY        READE     FRISOK                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   CLEAR                   PCIR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     22            PGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   MOVEL     '18'          P4233
+     C                   MOVEL     FSSOK         P7102A
+     C                   WRITE     PCIR
+     C     FRIKEY        READE     FRISOK                                 33
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Referanser                                         RFF03 /
+      *////////////////////////////////////////////////////////////
+     C     RFF03         BEGSR
+     C                   Z-ADD     0             WREP0
+      * udefinert pr 28.okt 2013:
+      *           CO = Ordrenr
+      *           AAO= Mottakers ref
+      * Senders referanse
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         RREP0
+     C                   MOVEL     'CU'          R1153
+     C                   MOVEL     HEAVD         R1154
+     C     R1154         CAT       '/':0         R1154
+     C                   MOVEL     HEOPD         WFOPDA            7
+     C     R1154         CAT       WFOPDA:0      R1154
+     C     R1154         CAT       '/':0         R1154
+     C     R1154         CAT       HESG:0        R1154
+     C                   WRITE     RFFR
+      * SENDINGENS REFERANSE
+     C     HERFA         IFNE      *BLANKS
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         RREP0
+     C                   MOVEL     'SRN'         R1153
+     C                   MOVEL     HERFA         R1154
+     C                   WRITE     RFFR
+     C                   ENDIF
+      * FRAKTBREVSNR
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         RREP0
+     C                   MOVEL     'AAM'         R1153
+     C                   MOVEL     FRBNR         R1154
+     C                   WRITE     RFFR
+      * Godsnummer
+     C     HEGN          IFNE      *BLANKS
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         RREP0
+     C                   MOVEL     'XC'          R1153
+     C                   MOVEL     HEGN          R1154
+     C                   WRITE     RFFR
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for init                                        SRINIT /
+      *////////////////////////////////////////////////////////////
+     C     SRINIT        BEGSR
+      * HENTE DAGENS DATO OG TID
+     C                   TIME                    WTIME
+     C                   Z-ADD     WÅÅ           WÅ
+     C                   Z-ADD     WDD           WD
+     C                   Z-ADD     WMM           WM
+      * INIT AV ARBEIDSFELT
+     C                   Z-ADD     0             ØX                2 0
+     C                   MOVE      *BLANKS       ØAN              12
+     C     *LIKE         DEFINE    CMN           WMN
+     C     *LIKE         DEFINE    DREP0         WREP0
+     C     *LIKE         DEFINE    DREP1         WREP1
+     C     *LIKE         DEFINE    DREP2         WREP2
+     C     *LIKE         DEFINE    KUNDNR        WUNDNR
+
+      * DEF AV KEYS
+     C     KODTAK        KLIST
+     C                   KFLD                    XAUNI
+     C                   KFLD                    WFAVD
+     C                   move      'A'           XAUNI             1
+     C     KODTTRK       KLIST
+     C                   KFLD                    WFIRM
+     C                   KFLD                    KOAKNR
+     C                   KFLD                    VMTRAN
+     C     CUNKEY        KLIST
+     C                   KFLD                    WFIRM
+     C                   KFLD                    WUNDNR
+     C     HEAKEY        KLIST
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+     C     FRIKEY        KLIST
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+     C                   KFLD                    FSKODE
+     C     FREE2KEY      KLIST
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+     C                   KFLD                    FRTKOD
+     C     DOKUFEKEY     KLIST
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+     C                   KFLD                    WFFBNR
+     C                   KFLD                    WE_N3035
+     C     *LIKE         DEFINE    FE_N3035      WE_N3035
+      *
+     C     DOKUFMKEY     KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+      * Input parameters
+     C     *ENTRY        PLIST
+     C                   PARM                    WFIRM             2
+     C                   PARM                    WFAVD             4 0
+     C                   PARM                    WFOPD             7 0
+     C                   PARM                    WFFBNR            3 0
+     C                   PARM                    VMTRAN            8 0          TranspNr
+     C                   PARM                    VM0004           35            ID avs
+     C                   PARM                    VM0010           35            ID mot
+     C                   PARM                    VM0035            1            TestIndikator
+     C                   PARM                    WFHENT            1            K=kunde,T=Term,A=Adv
+     C                   PARM                    WFPROK            5
+     C                   PARM                    WFPRO1           30
+     C                   PARM                    WFPRO2           30
+BHR   * Ramberg benytter kode H = Hentesystemet
+      *
+      * Hentekode - Hvor står godset
+      *           K=Hos Kunden, T=På egen terminal, A=Advisering (på edimottakes terminal)
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Venstrestill numeriske verdier                      SRNE /
+      *////////////////////////////////////////////////////////////
+     C     SRNE          BEGSR
+      * Minus value ?
+     C     ØN152         IFLT      0                                            <-------------I
+     C                   Z-SUB     ØN152         ØN152                                        I
+     C                   MOVE      '-'           ØSIGN             1                          I
+     C                   ELSE                                                   <-------------I
+     C                   MOVE      '+'           ØSIGN                                        I
+     C                   ENDIF                                                  <-------------I
+      * Flytte in rett verdi i Alfa 12-felt
+     C                   MOVE      *ZEROS        ØA12
+     C     ØA152D        IFEQ      '00'                                         <-------------I
+     C                   MOVE      ØA152H        ØA12                                         I
+     C                   ELSE                                                   <-------------I
+     C                   MOVEL     ØA152X        ØA12                                         I
+     C                   MOVE      ',  '         ØA12                                         I
+     C                   MOVE      ØA152D        ØA12                                         I
+     C                   END                                                    <-------------I
+      * lete fra venstre og finn foerste siffer over 0
+     C     1             DO        11            ØX                             <-------------I
+     C     Ø12(ØX)       IFNE      '0'                                           <-----------II
+     C     Ø12(ØX)       IFEQ      ','                                           <-----------II
+     C                   SUB       1             ØX
+     C                   ENDIF                                                   <-----------II
+     C                   GOTO      SRNE1                                                     II
+     C                   END                                                     <-----------II
+     C                   END                                                    <-------------I
+     C     SRNE1         TAG
+      * Venstrestill til et nytt felt
+     C                   MOVE      *BLANKS       ØAN
+     C     ØSIGN         IFEQ      '-'                                          <-------------I
+     C                   SUB       1             ØX                                           I
+     C                   MOVE      '-'           Ø12(ØX)                                      I
+     C                   ENDIF                                                  <-------------I
+     C                   MOVEA     Ø12(ØX)       ØAN
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Transportdetaljer                                  TDT08 /
+      *////////////////////////////////////////////////////////////
+     C     TDT08         BEGSR
+     C                   Z-ADD     0             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   ADD       1             WREP0
+      *
+     C                   CLEAR                   TDTR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     8             TGN
+     C                   Z-ADD     WREP0         TREP0
+      *
+     C                   MOVEL     '20'          T8051
+      *
+     C                   WRITE     TDTR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Steder                                             LOC08 /
+      *////////////////////////////////////////////////////////////
+     C     LOC08         BEGSR
+      *LOC   er undersegment til TDT i grp-8
+      * OBS! kalles ETTER NADxx- derfor hardkodet 1 i TDT (kun en TDT uansett)
+      *_____________
+      * avgangssted  (terminal eller kundes pnr)
+      *"""""""""""""
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+      *
+     C                   CLEAR                   LOCR
+     C                   Z-ADD     WMN           LMN
+     C                   Z-ADD     8             LGN
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP0         LREP0
+     C                   Z-ADD     WREP1         LREP1
+      *
+     c                   if        WFHENT='T' or WFHENT='A'
+     C                   MOVEL     '5  '         L3227                          HenteTerm
+     c                   else
+     C                   MOVEL     '80 '         L3227                          Hentested/kunde
+     c                   endif
+     C                   MOVEL     AVSLOC        L3225                          Lastested
+     C                   MOVEL     '16'          L1131A                         Lastested
+      *
+     C                   WRITE     LOCR
+      * mottaker-sted
+     C                   ADD       1             WREP1
+     C                   Z-ADD     WREP1         LREP1
+     c                   if        WFHENT='H'
+     C                   MOVEL     '8  '         L3227                          Anskomst-terminal
+     C                   else
+     C                   MOVEL     '83 '         L3227                          Utlev-sted
+     C                   endif
+     C                   MOVEL     MOTLOC        L3225                          Leveringssted
+     C                   WRITE     LOCR
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Transportprodukt                                   TSR00 /
+      *////////////////////////////////////////////////////////////
+     C     TSR00         BEGSR
+     C                   Z-ADD     0             WREP0
+     C                   Z-ADD     0             WREP1
+      * Stykkgods
+      * Produkt ?
+     C                   CLEAR                   TSRR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     0             TGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         TREP0
+     C                   MOVEL     '9'           T4065                          Stckgods
+     C                   SELECT
+     C                   WHEN      WFPROK = 'TG71'
+     C                   eval      T4065 = '7'
+     C                   WHEN      WFPROK = 'TG91'
+     C                   eval      T4065 = '9'
+     C                   WHEN      %subst(WFPROK:1:2)='TG'
+     C                   eval      T4065 = %subst(WFPROK:3)
+     C                   WHEN      %subst(WFPROK:1:2)='LG'
+     C                   eval      T4065 = %subst(WFPROK:3)
+      * kundespesialer ??
+     C*                  WHEN      HEOT = 'PG'
+     C*                  eval      T4065 = '8'
+     C*                  WHEN      HEOT = 'xx'
+     C*                  eval      T4065 = 'yyy'
+     C                   ENDSL
+      *
+     C                   WRITE     TSRR
+      * produktkoder i HEKDPL til tag 4219 - priority
+      * V= Ekspress    - > priority tag
+     C     HEKDPL        IFEQ      'V'
+     C                   CLEAR                   TSRR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     0             TGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         TREP0
+     C                   MOVEL     '1'           T4219                          4219=priority
+      *
+     C                   WRITE     TSRR
+     C                   ENDIF
+      * produktkoder i HEKDPL til tag 7085 - Nature of cargo
+     c                   if        HEKDPL='W'
+     c*                            or HEKDPL='x' or HEKDPL='y' or HEKDPL='z'
+     c*                            or HEKDPL='x' or HEKDPL='y' or HEKDPL='z'
+     c*                            or HEKDPL='x' or HEKDPL='y' or HEKDPL='z'
+     C                   CLEAR                   TSRR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     0             TGN
+     C                   ADD       1             WREP0
+     C                   Z-ADD     WREP0         TREP0
+      *
+      * basis for kundespesial utfra oppdragets produkt-kode...
+     c                   select                                                 7085=Nature of cargo
+     C*                  when      HEKDPL= 'x
+     C*                  MOVEL     'RMD'         T7085                          Farlig gods
+     C*                  when      HEKDPL= 'y
+     C*                  MOVEL     'ZHO'         T7085                          Varmegods
+     C*                  when      HEKDPL= 'z
+     C*                  MOVEL     'ZCO'         T7085                          Kjølegods
+     C*                  when      HEKDPL= 'x
+     C*                  MOVEL     'ZPR'         T7085                          Embalasje i retur
+     C*                  when      HEKDPL= 'y
+     C*                  MOVEL     'ZZZ'         T7085                          Spesialgods
+     C*                  when      HEKDPL= 'x
+     C*                  MOVEL     'ZZV'         T7085                          Volumgods
+     C*                  when      HEKDPL= '.
+     C*                  MOVEL     'ZKR'         T7085                          Kranlevering
+     C*                  when      HEKDPL= '.
+     C*                  MOVEL     'ZLI'         T7085                          Levering m/Lift
+     C                   when      HEKDPL= 'W'
+     C                   MOVEL     'ZWA'         T7085                          Walking floor
+     C*                  when      HEKDPL= '.
+     C*                  MOVEL     'ZWA'         T7085                          Uno-X prosjekt ??
+     c                   endsl
+      *
+     C                   WRITE     TSRR
+     C                   endif
+      *
+     C                   ENDSR
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+     C                   MOVE      HEAVD         TTAVD
+     C                   MOVE      HEOPD         TTOPD
+     C                   MOVE      001           TTFBNR
+     C                   MOVE      'PRW'         TTACTI
+     C                   MOVE      WDATO         TTDATE
+     C                   MOVE      WTID          TTTIME
+     C                   MOVE      TTDATE        TTDATL
+     C                   MOVE      TTTIME        TTTIML
+     C                   MOVEL     'SY400USR'    TTUSER
+     C                   EVAL      TTTEXT = 'Printed Waybill/EDI sent to '
+     C                                      + %trim(%editc(VMTRAN:'Z'))
+     c                   move      *blank        TTTEXL           70
+     C                   EVAL      TTTEXL = 'Printet fraktbr/EDI sendt til '
+     C                                      + %trim(%editc(VMTRAN:'Z'))
+     C                   WRITE     TRACKFR
+     C                   ENDSR

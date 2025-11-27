@@ -1,0 +1,464 @@
+      *
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      ****************************************************************************************
+      * Ramberg - Send mail etter Feltkontroll
+      ****************************************************************************************
+     FWRKCGI    UF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+     FCUNDC04   IF   E           K DISK
+     FTURER     IF   E           K DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D SDATA           S           1000
+     D WFilNam         S            256
+     D AntPost         S              5  0
+     D                 ds
+     D WKEY2                   1     30
+     D  WKEY2_TYPE             1      5
+     D  WKEY2_AVD              7     10
+     D  WKEY2_OPD             12     18
+     D                 ds
+     D WDATA                   1    220
+     D  HXSNDN                 1     20
+     D  WDAT_tx1              22     26    INZ('Send:')
+     D  HENAS                 28     57
+     D  WDAT_tx2              59     63    INZ('Mott:')
+     D  HENAK                 65     94
+     D  WDAT_tx3              96     99    INZ('Kll:')
+     D  HENT_A               101    107
+     D  WDAT_tx4             109    112    INZ('Vkt:')
+     D  HEVKT_A              114    122
+     D  WDAT_Merk            124    200
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                SDS
+     D  ZUSER                254    263
+     D  ZJOBNR               264    269  0
+      *
+     D MailSMS         S             70
+     D Emne            S             70
+     D AvAd            S             50
+     D AvNa            S             50
+     D Madr            S             70
+     D timedata1       S               z                                        z=Timestamfield
+      *
+     C                   EXSR      INIT
+      **
+      * Mail til BHR terminal
+     c                   exsr      GetTermMail
+      ** Minst en finnes til denne terminal  - loop gjennom på ny for å sende til alle
+     C                   if        Madr <> *blanks
+     C                   EXSR      LagMail
+     C     MailKey       setll     CUNDC04
+     C     MailKey       reade     CUNDC04
+     c                   dow       not %eof
+     c                   if        CCONTA  =   UTERM
+     C                   EVAL      Madr = CEMAIL
+TMP  C                   EXSR      SendMail
+     C                   endif
+     C     MailKey       reade     CUNDC04
+     C                   enddo
+      *
+TMP   * Midlertidig fast til ...
+TMP  c*                  eval      Madr = 'joValderhaug@gmail.com'
+TMP  C*                  EXSR      SendMail
+TMP   * Midlertidig fast til ...
+TMP  c                   eval      Madr = 'beate.teigen@ramberg.no'
+TMP  C                   EXSR      SendMail
+     C                   endif
+      *
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     LagMail       BEGSR
+      ******************************************************************************
+      * Lag fil og set codepage (pc)
+     C                   time                    Timedata1
+     C                   movel     timedata1     TS26             26            må være 26 lang
+     C                   movel     TS26          TS               22
+      *                                                 typisk TS er nå  2012-09-08-17.39.49.73
+     C                   move      UTURNR        KUNDNRA           8
+     C                   EVAL      WFilNam ='/SYSPEDDEV/TEMP/'
+     C                                     + TS + '_'
+     C                                     + %trim(KUNDNRA)+ '.html'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     C                   EXSR      HOVED
+      * close file
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     HOVED         BEGSR
+      ******************************************************************************
+      *
+      * LEGG UT HTML TOP / STYLE MM  (se f.esk SYSPED/HTMLSRC.EISO15 for inlin css.)
+     C                   EVAL      SDATA  = '<HTML>'
+     C                             + '<style type="text/css"> '
+     c                             + 'th {font-size: 15pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'td {font-size: 10pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'BODY {'
+     c                             + '  font-size:10pt;'
+     c                             + '  font-family: arial,'
+     c                             + '  helvetica, helv;'
+     c                             + '  background-color: #E6E6FA;'
+     c                             + '  margin-top: 50px;'
+     c                             + '  margin-right: 5px;'
+     c                             + '  margin-bottom: 5px;'
+     c                             + '  margin-left: 50px;'
+     c                             + '} '
+     c                             + '</style>  '
+     c                             + '<Body><table>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)       Skriv til IFS-fil
+      *
+      * MAIL TIL AVSENDER / ANNEN (IKKE TRANSP.)
+      *
+     C                   Eval      EMNE  = 'Feltkontroll for felt ' + UFELT +' '
+     C                                    +  %trim(%editw(WDTN:'    .  .  '))
+      *
+     C                   EVAL      SDATA  = '<tr><td><b>'
+     C                                    + 'Feltkontroll for felt '+UFELT
+     C                                    + ' på terminal '+ %trim(UTERM)
+     C                                    + ' ble fullført '
+     C                                    +  %trim(%editw(WDTN:'    .  .  '))
+     C                                    + ' kl '
+     C                                    +  %trim(%editw(WTIN4:'  :  '))
+     C                                    + '.'
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+      ***************
+      *  På tur, men dinnes fulltallig på felt FJERNET FRA TUR / satt udisponert
+      ***************
+      *
+     C                   EVAL      SDATA  = '<tr><td><b>'
+     C                                    + 'Følgende oppdrag stod komplette '
+     C                                    + 'igjen på feltet (er fullskutte '
+     C                                    + 'i feltkontrollen), og er derfor '
+     C                                    + 'fjernet fra utgående tur/lagt '
+     C                                    + 'tilbake som udisponert:'
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *  Liste
+     C                   eval      AntPost = *zeros
+     C     WINTEG        SETLL     WRKCGI
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   if        WKEY2_TYPE = 'FJERN'
+     c                   move      HENT_A        HENTN             7 0
+     c                   eval      HENT_A = %trimr(%editc(HENTN:'3'))
+     c                   move      HEVKT_A       HEVKTN            9 0
+     c                   eval      HEVKT_A = %trimr(%editc(HEVKTN:'3'))
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + WDATA
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   eval      AntPost = AntPost + 1
+     C                   endif
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C                   END
+      * ingen poster - aktivt gi beskjed om det..
+     C                   If        AntPost = *zeros
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + '(Ingen oppdrag i denne kategori)'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     c                   endif
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      ************
+      *  Udisponeret som ikke (ingen kolli) finnes på felt = SETT på tu
+      ************
+      *
+     C                   EVAL      SDATA  = '<tr><td><b>'
+     C                                    + 'Følgende oppdrag VAR udisponerte '
+     C                                    + '(og burde stå på felt), men er '
+     C                                    + 'totalt USKUTT i feltkontroll. '
+     C                                    + 'De antas å være medtatt og er '
+     C                                    + 'derfor etterkartert: '
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *  Liste
+     C                   eval      AntPost = *zeros
+     C     WINTEG        SETLL     WRKCGI
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   if        WKEY2_TYPE = 'PÅTUR'
+     c                   move      HENT_A        HENTN             7 0
+     c                   eval      HENT_A = %trimr(%editc(HENTN:'3'))
+     c                   move      HEVKT_A       HEVKTN            9 0
+     c                   eval      HEVKT_A = %trimr(%editc(HEVKTN:'3'))
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + WDATA
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   eval      AntPost = AntPost + 1
+     C                   endif
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C                   END
+      * ingen poster - aktivt gi beskjed om det..
+     C                   If        AntPost = *zeros
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + '(Ingen oppdrag i denne kategori)'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     c                   else
+      * det er utført etterkartering..
+      * list avsluttede turer siste døgn
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + '(Nylig avgåtte tur(er): '
+     C                   eval      AntPost = *zeros
+     C     MaxKey        setgt     TURER
+     C     UAVDN         readpe    TURER
+     c                   dow       not %eof (TURER)
+     c                   if        TUST='A' or TUST='B' or TUST='C'
+     c                   if        TUDT=WDTN
+      *
+     c                   move      TUPRO         TUPROA            8
+     C                   EVAL      SDATA  = %trim(SDATA)
+     C                                    + '&nbsp;&nbsp;&nbsp;'
+     c                                    + TUPROA +' / ' + %trim(TUBILN)
+     C                                    + '&nbsp;&nbsp;&nbsp;'
+     c                   endif
+     c                   endif
+     C                   eval      AntPost = AntPost + 1
+     C                   If        AntPost > 10
+     C                   leave
+     C                   endif
+     C     UAVDN         readpe    TURER
+     c                   enddo
+      * avslutt linja / skriv
+     C                   EVAL      SDATA  = %trim(SDATA)
+     C                                    + '&nbsp;&nbsp;)'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     c                   endif
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+      *********************
+      *  Udisponeret som delvis (noen kolli men ikke alle) finnes på felt = List for oppfølging
+      *********************
+      *
+     C                   EVAL      SDATA  = '<tr><td><b>'
+     C                                    + 'Følgende oppdrag VAR udisponerte '
+     C                                    + '(og burde stå på felt), men er '
+     C                                    + 'DELVIS USKUTT i feltkontroll. '
+     C                                    + 'Disse må sjekkes (Reell manko? '
+     C                                    + 'Skal sendes eller på ventelager?)'
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *  Liste
+     C                   eval      AntPost = *zeros
+     C     WINTEG        SETLL     WRKCGI
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   if        WKEY2_TYPE = 'DELVI'
+     c                   move      HENT_A        HENTN             7 0
+     c                   eval      HENT_A = %trimr(%editc(HENTN:'3'))
+     c                   move      HEVKT_A       HEVKTN            9 0
+     c                   eval      HEVKT_A = %trimr(%editc(HEVKTN:'3'))
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + WDATA
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   eval      AntPost = AntPost + 1
+     C                   endif
+     C     WINTEG        READE(N)  WRKCGI                                 33
+     C                   END
+      * ingen poster - aktivt gi beskjed om det..
+     C                   If        AntPost = *zeros
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + '(Ingen oppdrag i denne kategori)'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     c                   endif
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EXSR      BUNN
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     BUNN          BEGSR
+      ******************************************************************************
+      *
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Med vennlig hilsen'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + FIFT
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<img src="http://'+%trim(ARCPAE)
+     c                                    + '/syspeddev/systematop1.jpg">'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Denne eposten er skapt'
+     C                             + ' automatisk av skanne-systemet.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Vennligst ikke svar på den.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '</table></Body></HTML>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        plist
+     C                   parm                    UTURNR            8            Tur/løpenr i STSXXX
+     C                   parm                    UAVD              4
+     C                   parm                    UTERM             5
+     C                   parm                    UFELT             5
+     C                   MOVE      UTURNR        WINTEG                         6 SISTE AV LØPENR
+     C                   MOVE      UAVD          UAVDN             4 0
+      * finne siste turer
+     C     MaxKey        KLIST
+     C                   KFLD                    uavdN
+     C                   KFLD                    TURMAX            8 0
+     C                   Z-ADD     99999999      TURMAX
+      *
+     C     MailKey       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    CCOMPN            8 0
+     C                   KFLD                    XXFUNK           30
+     c                   eval       XXFUNK = '*KJØREKONTOR'
+     C                   EVAL      AvNa ='noreply@ramberg.no'
+     C                   EVAL      AvAd ='noreply@ramberg.no'
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+     C     FIFIRM        CHAIN     FIRMARC                            33
+      *
+      *
+     c                   CALL      'SYGE15C'
+     c                   PARM                    WDT               8
+     c                   PARM                    WTI               6
+     c                   MOVE      WDT           WDTN              8 0
+     c                   MOVEL     WTI           WTIN4             4 0
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SendMail      BEGSR
+      ******************************************************************************
+      * Send via MMAIL
+     C                   EVAL      CmdLine = 'ADDLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   EVAL      CmdLine = 'EMLHTML SUBJECT('+ X'7D'
+     C                             + %trimr(Emne) + X'7D' + ') '
+     C                             + 'FROMNAME(' + X'7D'
+     C                             + %trimr(AvNa) + X'7D' + ') '
+     C                             + 'FROMADDR('  + X'7D'
+     C                             + %trimr(AvAd) + X'7D' + ') '
+     C                             + 'TO('+ X'7D'+%trimr(Madr)+ X'7D'+'/'+ X'7D'
+     C                             + %trimr(Madr)+ X'7D'+'/*TO) '
+     C                             + 'STMF('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   EVAL      CmdLine = 'RMVLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     GetTermMail   BEGSR
+      ******************************************************************************
+      * terminals mailadresse fra kunde 2 - k.pers *KJØREKONTOR
+     C                   eval       CCOMPN = 2
+      * finnes K.pers/mailadresse på gitt kundenr.. (minst 1...)
+     C     MailKey       setll     CUNDC04
+     C     MailKey       reade     CUNDC04
+     c                   dow       not %eof
+     c                   if        CCONTA  =   UTERM
+     C                   EVAL      Madr = CEMAIL
+     C                   leave
+     C                   endif
+     C     MailKey       reade     CUNDC04
+     C                   enddo
+      *
+     C                   ENDSR

@@ -1,0 +1,309 @@
+      *****************************************************************
+      *** PROGRAM SKAL KONVERTERE INNGÅENDE IE55                    ***
+      *** Guarantee Not Valid                                       ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER          ***
+      *** LEDIGE INDIKATORER 01-26                                  ***
+      *** LEDIGE INDIKATORER 28-32 34-97                            ***
+      *****************************************************************
+     H DFTACTGRP(*NO)
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCLF   IF   E           K DISK
+     FTRACKF    O  A E           K DISK
+     FNCTSEH05  UF   E           K DISK
+     FNCTSERR   IF A E           K DISK
+     FTVINF     O  A E           K DISK
+     FTRKODL01  IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIM      O  A E             DISK
+     FEDIM2     IF   E           K DISK    RENAME(EDIMR:EDIMR2)
+     F                                     PREFIX(X_)
+     D                sds
+     D ZUSER                 254    263
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for ncts104r6
+     d ncts104r6       pr
+     d usn_                                like(usn)
+      *  *ENTRY Interface for Main Procedure
+     d ncts104r6       pi
+     d usn                            9
+      *----------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *----------------------------------------------------------------------
+     d x1_xrlev1       s                   like(xrlev1)
+     d x1_xrlev2       s                   like(xrlev2)
+     d x2_xrlev1       s                   like(xrlev1)
+     d x2_xrlev2       s                   like(xrlev2)
+     d x2_xrlev3       s                   like(xrlev3)
+     d x3_xrlev1       s                   like(xrlev1)
+     d x3_xrlev2       s                   like(xrlev2)
+     d x3_xrlev3       s                   like(xrlev3)
+     d x3_xrlev4       s                   like(xrlev4)
+     d xn              s              3s 0
+     d x_thtrnr        s                   like(thtrnr)
+     d x_thgft1        s                   like(thgft1)
+     d x_IE55          s              1a
+     d x_sn            s              3s 0
+     d x_opdft         s              1a
+     d wdt             s              8
+     d wtm             s              6
+     d                 ds
+     d x_gdt                   1      8  0
+     d x_gdta                  1      8
+     d                 ds
+     d f0078a                  1     70a
+     d f0078b                 71    140a
+     d f0078c                141    210a
+     d f0078d                211    280a
+     d f0078e                281    350a
+     d ft                      1    350a   dim(5)
+      *----------------------------------------------------------------------
+      /free
+
+       exsr init;
+
+       exsr srxml;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************
+       begsr srxml;
+       //**********************************************
+
+         x1_xrlev1 = 0;
+         x1_xrlev2 = 0;
+
+         chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'messageSender';
+             m0004  = xrverd;
+           when xrnv = 'messageRecipient';
+             m0010  = xrverd;
+           when xrnv = 'preparationDateAndTime';
+           when xrnv = 'messageIdentification';
+             m0062  = xrverd;
+             m1004  = xrverd;
+           when xrnv = 'messageType' and xrverd = 'CC055C';
+             x_ie55 = 'J';
+             chain 1 edic;
+             cmn = cmn + 1;
+             update edicr;
+             fmn = cmn;
+             mmn = cmn;
+           when xrnv = 'correlationIdentifier';
+           when xrnv = 'TransitOperation';
+             exsr srxml1;
+           when xrnv = 'CustomsOfficeOfDeparture';
+           when xrnv = 'HolderOfTheTransitProcedure';
+           when xrnv = 'GuaranteeReference';
+             exsr srxml2;
+           endsl;
+
+           x1_xrlev1 = x1_xrlev1 + 1;
+           chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         enddo;
+
+         if x_opdft = 'J';
+           ft     = *blanks;
+           fln    = fln + 1;
+           ft(1)  = 'GRN: ' + %trim(x_thgft1) + ' '
+                  + 'Code: ' + %trim(f0077);
+           tkunik = '252';
+           tkkode = f0077;
+           chain (tkunik: tkkode) trkodl01;
+           if not %found;
+             tktxtn = *blanks;
+           endif;
+           ft(2) = tktxtn;
+           write tvinff;
+         endif;
+
+         if x_ie55 = 'J';
+           exsr opdopd;
+           exsr ttsr;
+         endif;
+
+         endsr;
+
+       //**********************************************
+       begsr srxml1;
+       //**********************************************
+
+         x_opdft = 'N';
+
+         ft    = *blanks;
+         fln   = fln + 1;
+         xn    = 0;
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'MRN';
+             x_thtrnr = xrverd;
+           when xrnv = 'declarationAcceptanceDate';
+             x_gdta = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                   + %subst(xrverd:9:2);
+           endsl;
+
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srxml2;
+       //**********************************************
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'sequenceNumber';
+           when xrnv = 'GRN';
+             x_thgft1 = xrverd;
+             x_opdft = 'J';
+           when xrnv = 'InvalidGuaranteeReason';
+             exsr srxml21;
+           endsl;
+
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srxml21;
+       //**********************************************
+
+         x3_xrlev1 = xrlev1;
+         x3_xrlev2 = xrlev2;
+         x3_xrlev3 = 1;
+         x3_xrlev4 = 0;
+
+         chain (xrsn:x3_xrlev1:x3_xrlev2:x3_xrlev3:x3_xrlev4) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'code';
+             f0077  = xrverd;
+           when xrnv = 'text';
+             ft     = *blanks;
+             fln    = fln + 1;
+             if xrverd = '*EXT, TILLEGGSFIL';
+               chain (xrsn:x3_xrlev1:x3_xrlev2:x3_xrlev3:x3_xrlev4:xrlev5)
+                    xmlrclf;
+             else;
+               xrvrd = xrverd;
+             endif;
+             ft(1)  = 'GRN: ' + %trim(x_thgft1) + ' '
+                    + 'Code: ' + %trim(f0077);
+             ft(2)  = %subst(xrvrd:1:70);
+             ft(3)  = %subst(xrvrd:71:70);
+             ft(4)  = %subst(xrvrd:141:70);
+             ft(5)  = %subst(xrvrd:211:70);
+             write tvinff;
+             x_opdft = 'N';
+           endsl;
+
+           x3_xrlev3 = x3_xrlev3 + 1;
+           chain (xrsn:x3_xrlev1:x3_xrlev2:x3_xrlev3:x3_xrlev4) xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr opdopd;
+       //**********************************************
+
+         chain x_thtrnr nctseh05;
+         if %found;
+           thst = 'M';
+           thst055 = 'J';
+           update nctsehr;
+           setgt (thavd: thtdn) edim2;
+           readpe (thavd: thtdn) edim2;
+           dow not %eof;
+             if x_m0068a <> 0;
+               leave;
+             endif;
+             readpe (thavd: thtdn) edim2;
+           enddo;
+         else;
+           temf = *blanks;
+           setll (' ': x_thtrnr) nctserr;
+           reade (' ': x_thtrnr) nctserr;
+           dow not %eof;
+             if temf = '055';
+               leave;
+             endif;
+             reade (' ': x_thtrnr) nctserr;
+           enddo;
+           if temf <> '055';
+             testat = *blanks;
+             temf   = '055';
+             tetrnr = x_thtrnr;
+             tesn   = xrsn;
+             write nctserrr;
+           endif;
+           *inlr = *on;
+           return;
+         endif;
+
+         m0065  = 'XMLRES';
+         m0068  = x_thtrnr;
+         m1001  = 'TET';
+         m1225  = '055';
+         msn    = xrsn;
+         msr    = 'R';
+         mst    = 'C';
+         mdt    = %float(wdt);
+         mtm    = %float(wtm);
+         m0068a = x_m0068a;
+         m0068b = x_m0068b;
+         m1n07  = '055';
+         mavd   = thavd;
+         mtdn   = thtdn;
+         write edimr;
+
+       endsr;
+
+       //**********************************************
+       begsr ttsr;
+       //**********************************************
+
+         ttavd  = thavd;
+         ttopd  = thtdn;
+         ttacti = 'T55';
+         ttdate = %float(wdt);
+         tttime = %float(wtm);
+         ttuser = zuser;
+         tttext = 'Guarantee Not Valid: '
+                  + %trim(%editw(x_gdt:'    .  .  '));
+         tttexl = 'Garanti er ikke gyldig: '
+                  + %trim(%editw(x_gdt:'    .  .  '));
+         write trackfr;
+
+       endsr;
+
+       //**********************************************
+       begsr init;
+       //**********************************************
+
+         xrsn = %dec(usn:9:0);
+         syge15c ( wdt : wtm );
+
+       endsr;
+
+      /end-free

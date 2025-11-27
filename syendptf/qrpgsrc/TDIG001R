@@ -1,0 +1,638 @@
+      *********************************************************************
+CRTPG *  CRTPGM SYSPED/TDIG001R MODULE(*LIBL/TDIG001R *LIBL/INCGI)
+CRTPG *        ACTGRP(*NEW) AUT(*USE)
+      *
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FTURER1    IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     F                                     RENAME(TURERR:TURER14R)
+N02  FTURER22   IF   E           K DISK    USROPN
+N02  F                                     RENAME(TURERR:TURER22R)
+     FKODTA     IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D user            s             10
+     D WTUBILN         s             10    varying
+     D WSSAVD          S              4
+     D WBSAVD          S              4  0
+     D WSSTUR          S              8
+     D WBSTUR          S              8  0
+     D WSSST           S              1
+     D WTUSTEF         S              5    varying
+     D WTUSTET         S              5    varying
+     D WTUDT           S              8
+     D WTUDTN          S              8  0
+     D WTUDT2          S              8
+     D WTUDT2N         S              8  0
+     D WTUDTT          S              8
+     D WTUDTTN         S              8  0
+     D WTUDTT2         S              8
+     D WTUDTT2N        S              8  0
+     D WTUSG           S              3
+     D TstSte          S              8
+     D MaxSte          S              8
+     D Error           S            150
+     D JSONstring      s          64000
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     D AntLest         S              9  0
+     D AntVist         S              9  0
+     D MaxLes          S              9  0
+     D MaxVis          S              9  0
+N05  D sAv             S              4  0 DIM(99)
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬wssst¬ : ¬'+%trim(WSSST)+'¬, '
+        +'¬wssavd¬ : ¬'+%trim(WSSAVD)+'¬, '
+        +'¬wsstur¬ : ¬'+%trim(WSSTUR)+'¬, '
+        +'¬wtubiln¬ : ¬'+%trim(WTUBILN)+'¬, '
+        +'¬wtustef¬ : ¬'+%trim(WTUSTEF)+'¬, '
+        +'¬wtustet¬ : ¬'+%trim(WTUSTET)+'¬, '
+        +'¬wtudt¬ : ¬'+%trim(WTUDT)+'¬, '
+        +'¬wtudt2¬ : ¬'+%trim(WTUDT2)+'¬, '
+        +'¬wtudtt¬ : ¬'+%trim(WTUDTT)+'¬, '
+        +'¬wtudtt2¬ : ¬'+%trim(WTUDTT2)+'¬, '
+        +'¬wtusg¬ : ¬'+%trim(WTUSG)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"wrktriplist" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+     c     Error         ifeq      *blanks
+      * HOVEDRUTINE
+      * a) kun en tur ??
+     C                   IF        WBSTUR <> *zeros
+     C                   EXSR      SETROW
+     c                   goto      UtLes
+     C                   ENDIF
+      * b) søk via dato
+     C                   IF        WTUDTN <> *zeros
+     C                   EXSR      DATOLES
+     c                   goto      UtLes
+     C                   ENDIF
+      * c) så via alle avdelinger/gitt status  evt med filter
+     C                   IF        MangeAvd='J'
+     C     *loval        SETLL     KODTA
+     C                   READ      KODTA                                  35
+     C                   DOW       *IN35 = *OFF
+     C                   EXSR      AVDFILTER
+     C                   IF        XVIS = 'J'
+     c                   move      KOAAVD        XAVD
+     c                   EXSR      Enavd
+     c                   IF        AntLest >= MaxLes or
+     c                             AntVist >= MaxVis
+     c                   goto      UtLes
+     c                   ENDIF
+     c                   ENDIF
+     C                   READ      KODTA                                  35
+     C                   ENDDO
+     C                   ELSE
+      * en avd
+     c                   EXSR      Enavd
+     C                   ENDIF
+      *
+     c                   endif                                                  end error=*blank
+     c     UtLes         tag
+
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      * hoppet ut pga for mange - =gi warning
+     c                   IF        AntLest >= MaxLes or
+     c                             AntVist >= MaxVis
+     c                   IF        AntVist >= MaxVis
+     c                   EVAL      JSONstring =',"maxWarning" : "Max '
+     c                             +%trim(%editc(MaxVis:'Z'))+ ' is shown. '
+     c                             +'Please limit your search."'
+     c                   else
+     c                   EVAL      JSONstring =',"maxWarning" : "Max '
+     c                             +%trim(%editc(MaxLes:'Z'))+ ' is searched.'
+     c                             +'Please limit your search."'
+     c                   endif
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+     c                   endif
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   exsr      Exit
+      *
+      *
+     ******************************************************
+     C     DatoLes       BEGSR
+     ******************************************************
+      * Vis turer fra-til dato (Fra-dato)
+     C     WTUDTN        SETll     TURER22
+     C                   READ      TURER22                                35
+     C                   DOW       *IN35 = *OFF
+     C                   Add       1             AntLest
+     c                   IF        AntLest >= MaxLes or
+     c                             AntVist >= MaxVis
+     c                   leave
+     c                   endif
+     c                   IF        WTUDT2N <> 0 and TUDT > WTUDT2N              Lest for lagt= UT
+     c                   leave
+     c                   endif
+     c                   IF        WSSST <> ' '
+     c                   IF        WSSST <> 'Z' and WSSST  <> TUST              Staus-filter/skipp
+     c                   GOTO      NextDtLes
+     c                   ENDIF
+     c                   ENDIF
+     c                   IF        WBSAVD <> 0 and WBSAVD <> TUAVD              Avd-filter/skipp
+     c                   GOTO      NextDtLes
+     c                   ENDIF
+      * Burde også ha filter på IN/OUT/DOM sov - men den blir tung (hanin kodta for hver) avventer
+     C                   EXSR      SRFILTER
+     C                   IF        XVIS = 'N'
+     c                   GOTO      NextDtLes                                    Andre Filter/skipp
+     c                   ENDIF
+     C                   EXSR      SETROW                                       SKRIV POST
+     C     NextDtLes     TAG
+     C                   READ      TURER22                                35
+     C                   ENDDO
+      *
+     c                   endsr
+     ******************************************************
+     C     EnAvd         BEGSR
+     ******************************************************
+      * Vis turer i danne avd
+     C     TURER1K       SETGT     TURER1
+     C     TURER1K       READPE    TURER1                                 35
+     C                   DOW       *IN35 = *OFF
+     C                   Add       1             AntLest
+     C                   EXSR      SRFILTER
+     C                   IF        XVIS = 'J'
+     C                   EXSR      SETROW
+     C                   ENDIF
+     c                   IF        AntLest >= MaxLes or
+     c                             AntVist >= MaxVis
+     c                   leave
+     c                   endif
+     C     TURER1K       READPE    TURER1                                 35
+     C                   ENDDO
+      *
+     c                   endsr
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      user     = zhbgetvar('user')
+     C                   eval      WSSST    = zhbgetvar('WSSST')
+     C     LC:UC         XLATE     WSSST         WSSST
+     C                   eval      WSSAVD   = zhbgetvar('WSSAVD')
+     C     LC:UC         XLATE     WSSAVD        WSSAVD                         I fall all,in,out..
+     C                   EVAL      WBSAVD   = c2n2(WSSAVD)
+     C                   eval      WSSTUR   = zhbgetvar('WSSTUR')
+     C                   EVAL      WBSTUR   = c2n2(WSSTUR)
+     C                   eval      WTUBILN  = zhbgetvar('WTUBILN')
+N02  C     LC:UC         XLATE     WTUBILN       WTUBILN
+     C                   eval      WTUSTEF  = zhbgetvar('WTUSTEF')
+N02  C     LC:UC         XLATE     WTUSTEF       WTUSTEF
+     C                   eval      WTUSTET  = zhbgetvar('WTUSTET')
+N02  C     LC:UC         XLATE     WTUSTET       WTUSTET
+     C                   eval      WTUDT    = zhbgetvar('WTUDT')
+     C                   EVAL      WTUDTN   = c2n2(WTUDT)
+     C                   eval      WTUDT2   = zhbgetvar('WTUDT2')
+     C                   EVAL      WTUDT2N  = c2n2(WTUDT2)
+     C                   eval      WTUDTT   = zhbgetvar('WTUDTT')
+     C                   EVAL      WTUDTTN  = c2n2(WTUDTT)
+     C                   eval      WTUDTT2  = zhbgetvar('WTUDTT2')
+     C                   EVAL      WTUDTT2N = c2n2(WTUDTT2)
+     C                   eval      WTUSG    = zhbgetvar('WTUSG')
+     C     LC:UC         XLATE     WTUSG         WTUSG
+
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     BRPARF
+     C                   CLOSE     TURER1
+     C                   CLOSE     TURER14
+N02  C                   CLOSE     TURER22
+     C                   CLOSE     KODTA
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+
+     C                   endsr
+      ****************************************************
+     C     SRFILTER      begsr
+      ****************************************************
+      *  TEST OM TUR SKAL VISES
+
+     C                   MOVE      'N'           XVIS              1
+     C                   IF        XTURTYPE = 'O'
+     C                   IF        ((TUSG = 'WEB') AND (TUATA = 0))
+     C                   MOVE      'J'           XVIS
+     C                   ENDIF
+     C                   ELSE
+     C                   IF        TURUND <> 0
+     C                   MOVE      'J'           XVIS
+     C                   ENDIF
+     C                   ENDIF
+      * feil type sjø/land (eller sjø som har ATA) = ut
+     C     XVIS          IFEQ      'N'
+     C*                  GOTO      UtFilter
+     C                   MOVE      'J'           XVIS
+     C                   ENDIF
+      *BilNr
+     C     WTUBILN       IFNE      *BLANKS
+     C     WTUBILN       SCAN      TUBILN                                 34
+     C  N34              MOVE      'N'           XVIS
+     C  N34              GOTO      UtFilter
+     C                   ENDIF
+      *Frasted
+     C     WTUSTEF       IFNE      *BLANKS
+     C                   EVAL      MaxSte=%trim(WTUSTEF)+'99999999'
+     C                   IF        TUSTEF<WTUSTEF or TUSTEF>MaxSte
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+     C                   ENDIF
+      *Tilsted
+     C     WTUSTET       IFNE      *BLANKS
+     C                   EVAL      MaxSte=%trim(WTUSTET)+'99999999'
+     C                   IF        TUSTET<WTUSTET or TUSTET>MaxSte
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+     C                   ENDIF
+      * FraDato  (er vel unødig nå / leser da alltid TURER22 men lar den ligge ...)
+      *   F.o.m
+     C     WTUDTN        IFNE      *ZEROS
+     C     TUDT          ANDLT     WTUDTN
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+      *   T.o.m
+     C     WTUDT2N       IFNE      *ZEROS
+     C     TUDT          ANDGT     WTUDT2N
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+      * TilDato
+      *   F.o.m
+     C     WTUDTTN       IFNE      *ZEROS
+     C     TUDTT         ANDLT     WTUDTTN
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+      *   T.o.m
+     C     WTUDTT2N      IFNE      *ZEROS
+     C     TUDTT         ANDGT     WTUDTT2N
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+      * signatur
+     C     WTUSG         IFNE      *BLANKS
+     C     WTUSG         ANDNE     TUSG
+     C                   MOVE      'N'           XVIS
+     C                   GOTO      UtFilter
+     C                   ENDIF
+      *
+     C     UtFilter      endsr
+      ****************************************************
+     C     AVDFILTER     begsr
+      ****************************************************
+
+     C                   MOVE      'J'           XVIS              1
+N05   * skrevet om fra individuell IF.. til Select - ingen merking
+N05  C                   select
+N05   *  Array med avdelinger (selve avdelingslesen skulle kanskje vært en og en ??)
+N05  C                   when      anr <> *zeros
+N05  c                   if        %lookup(KOAAVD:sAv:1:anr) = *zeros           Avd finnes IKKE
+N05  C                   eval      XVIS='N'
+N05  C                   endif
+      *  IMP- kun import
+     C                   when      WSSAVD = 'IMP'
+     C                   if        KOAIE <> 'I'
+     C                   eval      XVIS='N'
+     C                   endif
+
+N05  C                   endsl
+      *
+     C     SlavdFilt     endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+     C                   move      *blanks       TurClose        100
+     c                   if        XTURTYPE = 'L'
+     c                   if        TUST = ' '
+     c                   eval      TurClose='close'
+     c                   else
+     c                   eval      TurClose='open'
+     c                   endif
+     c                   endif
+     C                   MOVE      TUPRO         TUPRO2            8
+     c                   if        TUBILN = '.' and TUHENG<>' '
+     c                   eval      TUBILN = TUHENG
+     c                   endif
+     C                   MOVEL     TUSONF        TULKF             2
+     C                   MOVEL     TUSONT        TULKT             2
+
+      * klokke med foranstilt  0
+     c                   move      TUTM          TUTMA             4
+     c                   if        TUTM = *zeros
+     c                   move      *blanks       TUTMA
+     c                   endif
+     c                   move      TUTMT         TUTMTA            4
+     c                   if        TUTMT= *zeros
+     c                   move      *blanks       TUTMTA
+     c                   endif
+     C                   Add       1             AntVist
+      /free
+       if AntVist =1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬xturtype¬ : ¬'+%trim(XTURTYPE)+'¬, '
+          +'¬tupro2¬ : ¬'+%trim(TUPRO2)+'¬, '
+          +'¬tulkf¬ : ¬'+%trim(TULKF)+'¬, '
+          +'¬tulkt¬ : ¬'+%trim(TULKT)+'¬, '
+          +'¬turclose¬ : ¬'+%trim(TURCLOSE)+'¬, '
+          +'¬tust¬ : ¬'+%trim(TUST)+'¬, '
+          +'¬tuavd¬ : ¬'+%trim(%editc(TUAVD:'Z'))+'¬, '
+          +'¬tupro¬ : ¬'+%trim(%editc(TUPRO:'Z'))+'¬, '
+          +'¬tudt¬ : ¬'+%trim(%editc(TUDT:'Z'))+'¬, '
+          +'¬tukna¬ : ¬'+%trim(%editc(TUKNA:'Z'))+'¬, '
+          +'¬tuknt¬ : ¬'+%trim(%editc(TUKNT:'Z'))+'¬, '
+          +'¬tunat¬ : ¬'+%trim(TUNAT)+'¬, '
+          +'¬tuad1t¬ : ¬'+%trim(TUAD1T)+'¬, '
+          +'¬tuad2t¬ : ¬'+%trim(TUAD2T)+'¬, '
+          +'¬tuad3t¬ : ¬'+%trim(TUAD3T)+'¬, '
+          +'¬tubiln¬ : ¬'+%trim(TUBILN)+'¬, '
+          +'¬tutarf¬ : ¬'+%trim(TUTARF)+'¬, '
+          +'¬tulk¬ : ¬'+%trim(TULK)+'¬, '
+          +'¬tusdf¬ : ¬'+%trim(TUSDF)+'¬, '
+          +'¬tusdt¬ : ¬'+%trim(TUSDT)+'¬, '
+          +'¬tuao¬ : ¬'+%trim(%editc(TUAO:'Z'))+'¬, '
+          +'¬tuts¬ : ¬'+%trim(%editc(TUTS:'Z'))+'¬, '
+          +'¬tutvkt¬ : ¬'+%trim(%editc(TUTVKT:'Z'))+'¬, '
+          +'¬tutlm¬ : ¬'+%trim(%editc(TUTLM:'Z'))+'¬, '
+          +'¬tutm3¬ : ¬'+%trim(%editc(TUTM3:'Z'))+'¬, '
+          +'¬tulast¬ : ¬'+%trim(%editc(TULAST:'Z'))+'¬, '
+          +'¬tubusj¬ : ¬'+%trim(%editc(TUBUSJ:'Z'))+'¬, '
+          +'¬tuxxx2¬ : ¬'+%trim(TUXXX2)+'¬, '
+          +'¬tutst1¬ : ¬'+%trim(TUTST1)+'¬, '
+          +'¬tutst2¬ : ¬'+%trim(TUTST2)+'¬, '
+          +'¬tutst3¬ : ¬'+%trim(TUTST3)+'¬, '
+          +'¬tutst4¬ : ¬'+%trim(TUTST4)+'¬, '
+          +'¬tutst5¬ : ¬'+%trim(TUTST5)+'¬, '
+          +'¬tuavre¬ : ¬'+%trim(TUAVRE)+'¬, '
+          +'¬tuavnr¬ : ¬'+%trim(%editc(TUAVNR:'Z'))+'¬, '
+          +'¬turund¬ : ¬'+%trim(%editc(TURUND:'Z'))+'¬, '
+          +'¬turacc¬ : ¬'+%trim(%editc(TURACC:'Z'))+'¬, '
+          +'¬turaar¬ : ¬'+%trim(%editc(TURAAR:'Z'))+'¬, '
+          +'¬turmnd¬ : ¬'+%trim(%editc(TURMND:'Z'))+'¬, '
+          +'¬tuopdt¬ : ¬'+%trim(TUOPDT)+'¬, '
+          +'¬tutrma¬ : ¬'+%trim(%editc(TUTRMA:'Z'))+'¬, '
+          +'¬tuheng¬ : ¬'+%trim(TUHENG)+'¬, '
+          +'¬tulkh¬ : ¬'+%trim(TULKH) +'¬, '
+          +'¬tucon1¬ : ¬'+%trim(TUCON1)+'¬, '
+          +'¬tulkc1¬ : ¬'+%trim(TULKC1)+'¬, '
+          +'¬tucon2¬ : ¬'+%trim(TUCON2)+'¬, '
+          +'¬tulkc2¬ : ¬'+%trim(TULKC2)+'¬, '
+          +'¬tutara¬ : ¬'+%trim(%editc(TUTARA:'Z'))+'¬, '
+          +'¬tubilk¬ : ¬'+%trim(TUBILK)+'¬, '
+          +'¬tuknt2¬ : ¬'+%trim(%editc(TUKNT2:'Z'))+'¬, '
+          +'¬tusja1¬ : ¬'+%trim(%editc(TUSJA1:'Z'))+'¬, '
+          +'¬tusjn1¬ : ¬'+%trim(TUSJN1)+'¬, '
+          +'¬tusja2¬ : ¬'+%trim(%editc(TUSJA2:'Z'))+'¬, '
+          +'¬tusjn2¬ : ¬'+%trim(TUSJN2)+'¬, '
+          +'¬tustef¬ : ¬'+%trim(TUSTEF)+'¬, '
+          +'¬tusonf¬ : ¬'+%trim(TUSONF)+'¬, '
+          +'¬tudtt¬ : ¬'+%trim(%editc(TUDTT:'Z'))+'¬, '
+          +'¬tutm¬ : ¬'+%trim(%editc(TUTM:'Z'))+'¬, '
+          +'¬tutmt¬ : ¬'+%trim(%editc(TUTMT:'Z'))+'¬, '
+          +'¬tustet¬ : ¬'+%trim(TUSTET)+'¬, '
+          +'¬tusont¬ : ¬'+%trim(TUSONT)+'¬, '
+          +'¬tukvkt¬ : ¬'+%trim(%editc(TUKVKT:'3'))+'¬, '
+          +'¬tukam3¬ : ¬'+%trim(%editc(TUKAM3:'3'))+'¬, '
+          +'¬tukalm¬ : ¬'+%trim(%editc(TUKALM:'3'))+'¬, '
+          +'¬tuto1a¬ : ¬'+%trim(TUTO1A)+'¬, '
+          +'¬tuto1b¬ : ¬'+%trim(TUTO1B)+'¬, '
+          +'¬tutval¬ : ¬'+%trim(TUTVAL)+'¬, '
+          +'¬tutako¬ : ¬'+%trim(TUTAKO)+'¬, '
+          +'¬tutbel¬ : ¬'+%trim(%editc(TUTBEL:'3'))+'¬, '
+          +'¬tutref¬ : ¬'+%trim(%editc(TUTREF:'Z'))+'¬, '
+          +'¬tuhøyb¬ : ¬'+%trim(%editc(TUHØYB:'3'))+'¬, '
+          +'¬tuhøyh¬ : ¬'+%trim(%editc(TUHØYH:'3'))+'¬, '
+          +'¬tusg¬ : ¬'+%trim(TUSG)+'¬, '
+          +'¬tuant1¬ : ¬'+%trim(%editc(TUANT1:'Z'))+'¬, '
+          +'¬tuenh1¬ : ¬'+%trim(TUENH1)+'¬, '
+          +'¬tuant2¬ : ¬'+%trim(%editc(TUANT2:'3'))+'¬, '
+          +'¬tuenh2¬ : ¬'+%trim(TUENH2)+'¬, '
+          +'¬tukm¬ : ¬'+%trim(%editc(TUKM:'Z'))+'¬, '
+          +'¬tublnr¬ : ¬'+%trim(TUBLNR)+'¬, '
+          +'¬tubkd¬ : ¬'+%trim(TUBKD)+'¬, '
+          +'¬tubnv¬ : ¬'+%trim(TUBNV)+'¬, '
+          +'¬tuetd¬ : ¬'+%trim(%editc(TUETD:'Z'))+'¬, '
+          +'¬tueta¬ : ¬'+%trim(%editc(TUETA:'Z'))+'¬, '
+          +'¬tuatd¬ : ¬'+%trim(%editc(TUATD:'Z'))+'¬, '
+          +'¬tuata¬ : ¬'+%trim(%editc(TUATA:'Z'))+'¬, '
+          +'¬tuckd1¬ : ¬'+%trim(TUCKD1)+'¬, '
+          +'¬tuckd2¬ : ¬'+%trim(TUCKD2)+'¬, '
+          +'¬tupoen¬ : ¬'+%trim(%editc(TUPOEN:'Z'))+'¬, '
+          +'¬tutlm2¬ : ¬'+%trim(%editc(TUTLM2:'Z'))+'¬, '
+          +'¬tustn1¬ : ¬'+%trim(TUSTN1)+'¬, '
+          +'¬tustn2¬ : ¬'+%trim(TUSTN2)+'¬, '
+          +'¬tustn3¬ : ¬'+%trim(TUSTN3)+'¬, '
+          +'¬tustn4¬ : ¬'+%trim(TUSTN4)+'¬, '
+          +'¬tustn5¬ : ¬'+%trim(TUSTN5)+'¬, '
+          +'¬tustn6¬ : ¬'+%trim(TUSTN6)+'¬, '
+          +'¬tustn7¬ : ¬'+%trim(TUSTN7)+'¬, '
+          +'¬tustn8¬ : ¬'+%trim(TUSTN8)+'¬, '
+          +'¬tustn9¬ : ¬'+%trim(TUSTN9)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C   50              eval      Error = 'Invalid userID ' + USER
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   OPEN      BRPARF
+     C                   OPEN      TURER1
+     C                   OPEN      TURER14
+     C                   OPEN      TURER22
+     C                   OPEN      KODTA
+      *
+     C     TURER1K       klist
+     C                   kfld                    WSSST
+     C                   kfld                    XAVD
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     KOAkey        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    TUAVD
+     C                   MOVEL     'A'           KOAUNI
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * Bruke oversjø eller landtransport
+     C                   MOVE      'TURPL'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        XTURTYPE          1
+S06  C*  33              MOVE      'O'           XTURTYPE
+N06  C   33              MOVE      'L'           XTURTYPE
+      * Brukeren kan kun
+     C                   IF        XTURTYPE = 'O'
+     C                   MOVE      'OSAVD'       PAID
+     C                   ELSE
+     C                   MOVE      'LTAVD'       PAID
+     C                   END
+     C     BrParKey      chain     BRPARF                             33
+     C  N33              Z-ADD     PAVRDN        XAVD              4 0
+     C                   IF        WBSAVD <> 0
+     C                   EVAL      XAVD = WBSAVD
+     C                   END
+N05  c                   IF        WSSAVD <> *blanks and
+N05  c                             WSSAVD  < '0000'                             alfa
+     C                   IF        WSSAVD='ALL' OR
+     C                             WSSAVD='IN ' OR WSSAVD='OUT' OR
+     C                             WSSAVD='IMP' OR WSSAVD='EXP' OR
+     C                             WSSAVD='DOM'
+     C                   EVAL      XAVD=0
+     C                   MOVE      'J'           MANGEAVD          1
+N05  C                   ELSE
+N05   * Alfa utenom de faste = avd-gruppe
+N05  c                   exsr      AvdGruppe
+N05  c                   if        aNr <> *zeros
+N05  C                   eval      MANGEAVD = 'J'
+N05  c                   endif
+N05  C                   ENDIF
+     C                   ENDIF
+      *kun en tur ??
+     c                   if        WBSTUR <> 0
+     C     WBSTUR        CHAIN     TURER14                            33
+     C   33              eval      Error = 'Ukjent turnummer '
+     C                                   + %trim(%editc(WBSTUR:'Z'))
+     c                   endif
+      * hardkodede maxverdier
+     C                   z-add     5000          MaxLes
+     C                   z-add     200           MaxVis
+     C                   endsr
+N05   ****************************************************************
+N05  c     AvdGruppe     BEGSR
+N05   ****************************************************************
+N05  c                   move      *zeros        aNr               2 0
+N05   * MYDP = My Departments - alle av type
+N05  c                   if        WSSAVD = 'MYDP'
+N05  C                   MOVE      'LTAVD'       PAID
+N05  C     BrParKey      setll     BRPARF
+N05  C     BrParKey      reade     BRPARF                                 33
+N05  c     *in33         doweq     '0'
+N05  c                   add       1             aNr
+N05  C                   Z-ADD     PAVRDN        sAv(aNr)
+N05  C     BrParKey      reade     BRPARF                                 33
+N05  c                   enddo
+N05  c                   ELSE
+      * .. navngitt avd-gruppe, primært på User/sekundært på Firma
+N05  C                   MOVE      'LTAGD'       PAID
+N05  C     StrLes        tag
+N05  C     BrParKey      setll     BRPARF
+N05  C     BrParKey      reade     BRPARF                                 33
+N05  c     *in33         doweq     '0'
+N05  c                   add       1             aNr
+N05  C                   Z-ADD     PAVRDN        sAv(aNr)
+N05  C     BrParKey      reade     BRPARF                                 33
+N05  c                   enddo
+N05   * ingen på user-nivå - prøv firmanivå
+N05  c                   if        aNr = *zeros and
+N05  c                             %subst(PABRID:1:8) <> '*KUNDFT*'
+N05  C                   eval      PABRID    = '*KUNDFT*'+BIFIRM
+N05  C                   goto      StrLes
+N05  c                   endif
+N05  c
+N05  c                   ENDIF
+N05  C                   ENDSR

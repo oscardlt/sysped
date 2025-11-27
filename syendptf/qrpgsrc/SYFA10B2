@@ -1,0 +1,225 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 Nye felt for Hentet hos avsender i header av bilde
+11XXX * 02 JOV PTF11 Vis Term-tekst også på IN... og OU... egen terminal
+      *                    avventer - bør utvide dokufm også med TERMK IN / OUT (lvlchk NO)
+      *%%%%%%%%%%%%%%%%%%%
+11XXX * 03 JOV PTF12 Vis skade/avvik
+11XXX * 04 SH  PTF12 Endre logg
+11XXX * 05 JOV PTF12 Liten feil i PTF 04
+11XXX * 06 JOV PTF12 ev ukjent skadekode vis kode + IUKJENT
+      * 07 JOV PTF12 DOKUFM-info i toppen fjernet - UPDATE mulighet dermed også fjernet
+      *              SLETTET mye !!!!!
+      * 08 JOV PTF12 Hvis avvikskode = BILDE hvit farge
+      * 09 JOV PTF12 egen retningskode for Feltkontroll - F=F.k
+********************************************************************
+     FDOKUFN    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+     FSYFA10B2D CF   E             WORKSTN
+     F                                     SFILE(SUBFIL:ZRECNO)
+      * lookup-table for terminalkoder - max 100 a 5 tegn
+     D                 DS
+     D  TK                     1    500
+     D                                     DIM(100)
+      * lookup-table for terminaltekst - max 100 a 25 tegn
+     D                 DS
+     D  TT                     1   2500
+     D                                     DIM(100)
+N03   * lookup-table for avviks-koder - max 100 a 5 tegn
+N03  D                 DS
+N03  D  AK                     1    500
+N03  D                                     DIM(100)
+N03   * lookup-table for avviks-tekst - max 100 a 25 tegn
+N03  D                 DS
+N03  D  AT                     1   2500
+N03  D                                     DIM(100)
+     D                 DS
+     D  PAVRDA                 1     50
+     D  PAVRDA1_5              1      5
+     D  PAVRDA7_46             7     46
+      * DSer for datokonvertering
+      * Fremmed DATE
+     D                 DS
+     D  FNDATE                 1      8  0
+     D  FNEDTÅ                 1      4  0
+     D  FNEDTM                 5      6  0
+     D  FNEDTD                 7      8  0
+     D                 DS
+     D  FNDATE6                1      6  0
+     D  FNEDTD6                1      2  0
+     D  FNEDTM6                3      4  0
+     D  FNEDTÅ6                5      6  0
+     D                 DS
+     D  FNTIME                 1      6  0
+     D  FNTIME4                1      4  0
+      * Fremmed DATL - DATE LOGGED
+     D                 DS
+     D  FNDATL                 1      8  0
+     D  FNLDTÅ                 1      4  0
+     D  FNLDTM                 5      6  0
+     D  FNLDTD                 7      8  0
+     D                 DS
+     D  FNDATL6                1      6  0
+     D  FNLDTD6                1      2  0
+     D  FNLDTM6                3      4  0
+     D  FNLDTÅ6                5      6  0
+     D                 DS
+     D  FNTIML                 1      6  0
+     D  FNTIML4                1      4  0
+N04   *____
+      * Inz
+      *""""
+     c
+     C                   exsr      INIT
+      *______________
+      * Clear Subfile
+      *""""""""""""""
+     C     START1        TAG
+      * Info om inn/ut /Pod skal i header
+
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   Z-ADD     *ZEROS        ZRECNO
+      *_____________
+      * Fyll Subfile (andre hendelser/fremmede terminaler  fra DOKUFN)
+      *"""""""""""""
+     C     FNCLID        SETLL     DOKUFN
+     C     FNCLID        READE     DOKUFN                                 94
+
+     C     *IN94         DOWEQ     '0'
+     C                   exsr      fixdat2
+     c                   select
+     c                   when      FNSTAT = 'I'
+     C                   eval      Retning = 'Inn'
+     c                   when      FNSTAT = 'L'
+     C                   eval      Retning = 'InLoc'
+     c                   when      FNSTAT = 'U'
+     C                   eval      Retning = 'Ut '
+N09  c                   when      FNSTAT = 'F'
+N09  C                   eval      Retning = 'F.k'
+     C                   endsl
+     C                   eval      TermTxt = *blanks
+     c                   if        FNTEXT <> *blanks
+     C                   eval      TermTxt = FNTEXT
+     c                   else
+     C                   Z-ADD     1             XN
+     C     FNTERM        LOOKUP    TK(XN)                                 75
+     C   75              eval      TermTxt = TT(XN)
+     c                   endif
+N03  C                   Z-ADD     1             XN
+N03  C     FNAVKO        LOOKUP    AK(XN)                                 75
+N03  C   75              eval      TermAvv = AT(XN)
+N06  C                   if        TermAvv = *blanks and FNAVKO <> *blanks
+N06  C                   eval      TermAvv = FNAVKO + ' *Unknown code'
+N06  c                   endif
+N08  c     FNAVKO        comp      'BILDE'                                51
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SUBFIL
+     C     FNCLID        READE     DOKUFN                                 94
+     C  N94              ENDDO
+     C                   IF        ZRECNO>0
+     C                   EVAL      ZRECNO=1
+     C                   ENDIF
+      *________________
+      * Display Subfile
+      *""""""""""""""""
+     C     START2        TAG
+
+     C                   MOVE      *OFF          *IN51
+     C                   MOVEA     '11'          *IN(91)
+     C* KOMMER HIT VED TOM FIL
+     C     ZRECNO        IFEQ      0
+     C                   MOVE      *OFF          *IN94
+     C                   ADD       1             ZRECNO
+     C                   MOVE      *ON           *IN51
+     C                   WRITE     SUBFIL
+     C                   SETON                                        94
+     C                   ENDIF
+     C                   WRITE     WIND01
+     C                   WRITE     BUNN
+     C     STBUNN        TAG
+     C                   EXFMT     SUBCTL
+
+      * FORRIGE
+     C   12              GOTO      SLUTT
+      * F5 - Refresg
+     C   05              GOTO      START1
+      * ANNET
+     C                   GOTO      START2
+
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+
+      **************************************************************************
+     c     FIXDAT2       BEGSR
+      **************************************************************************
+      * DATE - EVENT DATE
+     C                   MOVE      FNEDTÅ        FNEDTÅ6
+     C                   MOVE      FNEDTM        FNEDTM6
+     C                   MOVE      FNEDTD        FNEDTD6
+      * DATL - DATE LOGGED
+     C                   MOVE      FNLDTÅ        FNLDTÅ6
+     C                   MOVE      FNLDTM        FNLDTM6
+     C                   MOVE      FNLDTD        FNLDTD6
+     c                   endsr
+      **************************************************************************
+     c     INIT          BEGSR
+      **************************************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    UUCLID           18
+N04  C                   PARM                    UMODE             1
+     c                   movel     UUCLID        FNCLID
+     c     *loval        setll     firm
+     c                   read      firm
+      * Clear numeriske DS-er
+      *
+     c                   clear                   FNDATE
+     c                   clear                   FNDATE6
+     c                   clear                   FNTIME
+      *
+     c                   clear                   FNDATL
+     c                   clear                   FNDATL6
+     c                   clear                   FNTIML
+      *
+      * Legg terminalkoder / tekster i lookuptable
+     C     BrParKey      KLIST
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      *zeros        PAKUNR
+     C                   MOVEL     'TERMK'       PAID
+     C                   MOVE      '*KUNDFT*  '  PABRID
+     C                   MOVE      FIFIRM        PABRID
+     C                   move      *zeros        XN                3 0
+     c     BrParKey      setll     BRPARF
+     c     BrParKey      reade     BRPARF                                 33
+     c     *in33         doweq     '0'
+     C                   add       1             XN
+     c                   eval      TK(XN) = Pavrda1_5
+     c                   eval      TT(XN) = Pavrda7_46
+     c     XN            ifeq      100
+     C                   leave
+     c                   end
+     c     BrParKey      reade     BRPARF                                 33
+     c                   enddo
+     c*
+N03  c* Avvikskoder / tekster
+N03  C                   MOVEL     'TKTKA'       PAID
+N03  C                   move      *zeros        XN                3 0
+N03  c     BrParKey      setll     BRPARF
+N03  c     BrParKey      reade     BRPARF                                 33
+N03  c     *in33         doweq     '0'
+N03  C                   add       1             XN
+N03  c                   eval      AK(XN) = Pavrda1_5
+N03  c                   eval      AT(XN) = Pavrda7_46
+N03  c     XN            ifeq      100
+N03  C                   leave
+N03  c                   end
+N03  c     BrParKey      reade     BRPARF                                 33
+N03  c                   enddo
+N03  c
+     c                   endsr

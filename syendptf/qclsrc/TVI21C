@@ -1,0 +1,137 @@
+/* *********************************************************************   */
+/*       * RETTINGER I DETTE PROGRAM:                                      */
+/* PTFnr:*Sek Sig Vers  Beskrivelse..........................              */
+/* """"""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""    */
+/* 11105 * 01 YBC PTF11 SEND EPOST PÅ TVINN-MELDING                        */
+/* 11105 * 02 SH  PTF12 ARKIVER DOKUMENTKONTROLL                           */
+/* 11105 * 03 SH  PTF12 KALL ARKIV FOR DIREKTEKJØRINGER                    */
+/* ********************************************************************    */
+             PGM        PARM(&FILE &LIBRARY &MEMBER)
+             DCL        VAR(&FINS) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&ATYPE) TYPE(*CHAR) LEN(2) VALUE('si')
+             DCL        VAR(&ATYPEE) TYPE(*CHAR) LEN(2) VALUE('se')
+             DCL        VAR(&ATYPED) TYPE(*CHAR) LEN(2) VALUE('sd')
+/*N03*/      DCL        VAR(&ATYPEDI) TYPE(*CHAR) LEN(2) VALUE('sl')
+             DCL        VAR(&AVD) TYPE(*DEC) LEN(4 0) /* Avdeling */
+             DCL        VAR(&DEVIT) TYPE(*CHAR) LEN(10) /* Printer +
+                          Device for Intern Tollattest */
+             DCL        VAR(&FILE) TYPE(*CHAR) LEN(10) /* File    */
+             DCL        VAR(&OK) TYPE(*CHAR) LEN(1) /* Status fra +
+                          program, N=Nei(Ikke OK), J=Ja(OK) */
+             DCL        VAR(&OKPRT) TYPE(*CHAR) LEN(1) /* Printerdata+
+                          finnes for avdelingen J/N         */
+             DCL        VAR(&IN39) TYPE(*CHAR) LEN(1) VALUE('1') /* +
+                          Print av TK kalles fra TVINN eller +
+                          registrering */
+             DCL        VAR(&LIBRARY) TYPE(*CHAR) LEN(10) /* Library */
+             DCL        VAR(&MEMBER) TYPE(*CHAR) LEN(10) /* Member  */
+             DCL        VAR(&MRKP) TYPE(*CHAR) LEN(10) /* Printer +
+                          Device for Merknader */
+             DCL        VAR(&UTLP) TYPE(*CHAR) LEN(10) /* Printer +
+                          Device for Utleveringsattest */
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10) VALUE(TVINR) /* +
+                          "Skjerm ID"= Membernavn arbeidsfil*/
+             DCL        VAR(&LENGTH) TYPE(*DEC) LEN(5 0) VALUE(128)
+             DCL        VAR(&DTA) TYPE(*CHAR) LEN(128)
+             DCL        VAR(&PRT1) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&PRT2) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&PRT3) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+/* N01 START */
+             DCL        VAR(&PRTFIL) TYPE(*CHAR) LEN(10) +
+                          VALUE('TVINME')
+             DCL        VAR(&EPOST) TYPE(*CHAR) LEN(70)
+             DCL        VAR(&SLUTT) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&EMNE) TYPE(*CHAR) LEN(70)
+/* N01 SLUTT */
+
+           /*______________________________________________*/
+           /* Konvertere meldinger.                        */
+           /* - Oppdatere SAD-Import register med en unik  */
+           /*   status for: Mottatt men ikke utskrevet.    */
+           /* - Hvis det er noe feil med datane skrives    */
+           /*   det ut en feillogg.                        */
+           /*""""""""""""""""""""""""""""""""""""""""""""""*/
+             CALL       PGM(TVI21R) PARM(&LIBRARY &FILE &MEMBER &WS +
+                          &OK)
+             IF         COND(&OK *EQ N) THEN(GOTO CMDLBL(END))
+           /*_________________________________________________*/
+           /* Skriv ut Tollkvittering (TK)                    */
+           /*"""""""""""""""""""""""""""""""""""""""""""""""""*/
+             RTVUSRPRF  RTNUSRPRF(&USER)
+             CHGVAR     VAR(&DTA) VALUE(&WS *CAT &USER *CAT &IN39 +
+                          *CAT &PRT1 *CAT &PRT2 *CAT &PRT3)
+             CALL       PGM(QSNDDTAQ) PARM(SAD61PQ *LIBL &LENGTH &DTA)
+           /*RMVM       FILE(&LIBRARY/&FILE) MBR(&MEMBER)  */
+           /*______________________________________________*/
+           /* Hente avdelingsopplysninger for å overstyre  */
+           /* printerfiler. Ingen med A/B/Å i staus-OK=N   */
+           /*""""""""""""""""""""""""""""""""""""""""""""""*/
+ GETAVD:     CALL       PGM(TVI22R) PARM(&AVD &DEVIT &MRKP &UTLP +
+                                    &WS &OK &OKPRT)
+             IF         COND(&OK *EQ N) THEN(GOTO CMDLBL(EXPORT))
+
+             IF         COND(&OKPRT *EQ N) THEN(DO)
+             CHGVAR     VAR(&DEVIT) VALUE(*SYSVAL)
+             CHGVAR     VAR(&MRKP) VALUE(*SYSVAL)
+             CHGVAR     VAR(&UTLP) VALUE(*SYSVAL)
+             ENDDO
+
+           /*______________________________________________*/
+           /* PRINTERSTYRING INTERN-TOLLATTEST             */
+           /*   OBS!      OBS!             OBS!            */
+           /* - INNTIL EGEN PRINTERSTYRING BLIR LAGT I     */
+           /*   SAD-AVDELINGSVEDLIKEHOLD, SKJER STYRING    */
+           /*   DIREKTE HER I CL !!!!!!!!!!!!!!!!!!!!!!    */
+           /*   OBS!      OBS!             OBS!            */
+           /*""""""""""""""""""""""""""""""""""""""""""""""*/
+             CHGVAR     VAR(&DEVIT) VALUE(S2)
+             OVRPRTF    FILE(TVINME) PAGESIZE(72 80) OVRFLW(66) +
+                          OUTQ(&MRKP)
+             OVRPRTF    FILE(TVINUA) PAGESIZE(72 80) OVRFLW(66) +
+                          OUTQ(&UTLP)
+             OVRPRTF    FILE(TVINIT) OUTQ(&DEVIT) PAGESIZE(72 80) +
+                          CPI(10) OVRFLW(72)
+           /*_________________________*/
+           /* Skriv ut Merknader (ME) */
+           /*"""""""""""""""""""""""""*/
+/* N01 START */
+/*           CALL       PGM(TVI23R) PARM(&AVD &WS)  */
+ STME:       CALL       PGM(TVI23R) PARM(&AVD &WS &SLUTT &EPOST &EMNE)
+             IF         COND(&SLUTT *NE 'J') THEN(DO)
+             IF         COND(&EPOST *NE ' ') THEN(DO)
+             CALL       PGM(PDF037CL) PARM(&PRTFIL &EPOST &EMNE)
+             ENDDO
+             GOTO       CMDLBL(STME)
+             ENDDO
+/* N01 SLUTT */
+           /*__________________________________*/
+           /* Skriv ut Utleverinsattester (UA) */
+           /*""""""""""""""""""""""""""""""""""*/
+             CALL       PGM(TVI24R) PARM(&AVD &WS)
+           /*_________________________________________________*/
+           /* Gå i loop for å hente neste avdeling.           */
+           /*"""""""""""""""""""""""""""""""""""""""""""""""""*/
+             GOTO       CMDLBL(GETAVD)
+           /*_________________________________________________*/
+           /* Skriv ut tolldek. (eksport)                     */
+           /*"""""""""""""""""""""""""""""""""""""""""""""""""*/
+ EXPORT:     CALL       PGM(TVI91C)
+           /*_________________________________________________*/
+           /* FJERNER OVERSTYRINGER     )                     */
+           /*"""""""""""""""""""""""""""""""""""""""""""""""""*/
+             DLTOVR     FILE(*ALL) LVL(*JOB)
+
+             SBMJOB     CMD(CALL PGM(ARC002CL) PARM(&ATYPE &USER +
+                          &FINS)) JOB(ARKIV) JOBD(*USRPRF) +
+                          JOBQ(SYJOBQARK)
+             SBMJOB     CMD(CALL PGM(ARC002CL) PARM(&ATYPEE &USER +
+                          &FINS)) JOB(ARKIV) JOBD(*USRPRF) +
+                          JOBQ(SYJOBQARK)
+             SBMJOB     CMD(CALL PGM(ARC002CL) PARM(&ATYPED &USER +
+                          &FINS)) JOB(ARKIV) JOBD(*USRPRF) +
+                          JOBQ(SYJOBQARK)
+/*N03*/      SBMJOB     CMD(CALL PGM(ARC002CL) PARM(&ATYPEDI &USER +
+                          &FINS)) JOB(ARKIV) JOBD(*USRPRF) +
+                          JOBQ(SYJOBQARK)
+ END:        ENDPGM

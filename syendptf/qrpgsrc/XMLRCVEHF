@@ -1,0 +1,138 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12268 * 01 YBC PTF12 Flere vedlegg
+********************************************************************
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI':'BASE64')
+
+      /copy httpapi_h
+      /copy base64_h
+      /copy ifsio_h
+
+     D Element_Val_t   ds                  qualified
+     D                                     based(Template)
+     D    buf                          *
+     D    len                        10i 0
+
+
+     D GetPdfImage     PR
+     D   info                              likeds(ParseInfo)
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                             likeds(Element_Val_t)
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D ParseInfo       ds                  qualified
+     D  count                        10i 0 inz(0)
+     D  id                           50a   varying inz('UNKNOWN')
+     D  size                         10i 0 inz(0)
+
+     D UFILNVN         s            256a
+     D USN             s              9a
+     D Filename        s            256a   varying
+     D Pdfname         s            256a   varying
+     D rc              s             10i 0
+N01
+N01  D                 ds
+N01  D  XNR                    1      2S 0
+N01  D  XAN                    1      2A
+
+     C     *ENTRY        PLIST
+     C                   PARM                    UFILNVN
+     C                   PARM                    USN
+N01
+N01  C                   MOVE      *ZEROS        XNR
+      /free
+
+         // http_debug(*ON: DIR + '/PdfKonv_log.txt');
+         http_xmlReturnPtr(*ON);
+
+         filename = %trim(UFILNVN);
+
+         rc = http_parse_xml_stmf( filename
+                                 : HTTP_XML_CALC
+                                 : *NULL
+                                 : %paddr(GetPdfImage)
+                                 : %addr(ParseInfo));
+         // unlink(filename);
+         if (rc < 0);
+            http_crash();
+         endif;
+
+         // /http_comp('No errors. ' + %char(ParseInfo.count)
+         //         + ' images decoded.');
+         *inlr = *on;
+
+      /end-free
+
+
+
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      * GetPdfImage():  The payload of the SOAP message is an XML
+      *                  document like this:
+      *   ...
+      *     <cbc:ID>1162648</cbc:ID>
+      *     <cbc:DocumentType>Commercial invoice</cbc:DocumentType>
+      *     <cac:Attachment>
+      *       <cbc:EmbeddedDocumentBinaryObject filename="1162648.pdf" mimeCode="application/pdf">
+      *       xxxxxxxxx
+      *       </cbc:EmbeddedDocumentBinaryObject>
+      *   ...
+      *  This routine saves every image to an IFS file using the
+      *  ID number as the filename.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P GetPdfImage     B                   export
+     D GetPdfImage     PI
+     D   info                              likeds(ParseInfo)
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                             likeds(Element_Val_t)
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D fd              s             10i 0
+     D data            s          65535a   based(p_data)
+     D len             s             10i 0
+     D outbuf          s               *
+
+      /free
+         select;
+         when value.len <= 0;
+           // skip any elements that have no value...
+
+         when name = 'cbc:ID';
+           p_data = value.buf;
+           info.ID = %subst(data:1:value.len);
+
+         when name = 'cbc:EmbeddedDocumentBinaryObject';
+
+           outbuf = %alloc( value.len );
+           len = base64_decode( value.buf
+                              : value.len
+                              : outbuf
+                              : value.len );
+           // lagre PDF-fil i /tmp med EHF_sendingsnr.pdf som navn
+S01        //pdfName = '/tmp/EHF_' + USN + '.pdf';
+N01        xnr = xnr + 1;
+N01        pdfName = '/tmp/EHF_' + USN + '_' + %trim(xan)+ '.pdf';
+           unlink(pdfName);
+           fd = open( pdfName
+                    : O_WRONLY + O_CREAT + O_EXCL
+                    : S_IRUSR + S_IWUSR + S_IRGRP + S_IROTH );
+           // FIXME: Add error handling.
+           callp write( fd: outbuf: len);
+           callp close(fd);
+           dealloc outbuf;
+
+           info.count = info.count + 1;
+           info.size  = 0;
+           info.id    = 'UNKNOWN';
+         endsl;
+
+      /end-free
+     P                 E

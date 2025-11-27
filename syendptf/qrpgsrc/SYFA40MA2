@@ -1,0 +1,261 @@
+********************************************************************
+      *  Sjekke om vilkår er til stede for å sende ank-meld, i så fall kall på sendeprog
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Sjekk også grunnvilkår (Bevkode/oty/mm) IKKE lenger ANK = Sts=S=autoslettemerke
+12XXX * 02 JOV PTF12 MÅ inn i rutine test også om Ank.M.data ulik 0 - kan endre status til O mm...
+********************************************************************
+      *
+     FRUCKDFT   IF   E             DISK
+     FRUCKPL01  UF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FCUNDC03   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FARKIVL02  IF   E           K DISK
+      *Bevillingskode
+     D                 DS
+     D  HEGN                   1     15
+     D  HEGN5_9                5      9
+      *Array Bevillingskoder
+     D                 DS
+     D  BV                     1     45
+     D                                     DIM(9)
+     D  RDBEV1                 1      5
+     D  RDBEV2                 6     10
+     D  RDBEV3                11     15
+     D  RDBEV4                16     20
+     D  RDBEV5                21     25
+     D  RDBEV6                26     30
+     D  RDBEV7                31     35
+     D  RDBEV8                36     40
+     D  RDBEV9                41     45
+      *Array Oppdragstypr
+     D                 DS
+     D  OT                     1     40
+     D                                     DIM(20)
+     D  RDOT                   1     40
+      *
+      *Array over adresser en vil sende mail til
+     D MoNa            S             50    DIM(5)
+     D MoAd            S             50    DIM(5)
+     D MoSMS           S             50    DIM(5)
+      *
+     C                   exsr      INIT
+      *
+     C* Les alle poster med status A - sjekk om de nå kan sendes
+     C     'A'           setll     RUCKPL01
+     C     'A'           READE     RUCKPL01                               35
+     C     *in35         DOWEQ     '0'
+S02  C*                  if        RUDTAM = *zeros                              Dato 0/ennå ik sendt
+     C                   exsr      TstSend
+S02  C*                  endif
+     c                   update    RUCKPR
+     C     'A'           READE     RUCKPL01                               35
+     C                   END
+      *
+     C     Slutt         Tag
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      *
+      ******************************************************************************
+     C     TstSend       BEGSR
+      ******************************************************************************
+     C                   move      *ON           *IN30
+      *
+N02   *------------------
+N02   * Først diverse som kan medføre sletting/endring av status ....
+N02   *------------------
+     c     HEAKEY        chain     HEADF
+      * Oppdraget har alt fått løpenr eller nytt godsnr
+     c     HETLL         ifne      *blanks
+     c     HEGNN         orne      *blanks
+S01  c*    HEGN          oreq      *blanks
+S01  c*    HEST          oreq      'S'
+     C                   eval      RUST = 'O'
+     c                   goto      UtTst
+     c                   end
+      *
+N01   * Godsnummer blanket eller oppdraget slette - sett S = (kan reåpnes)
+N01  c     HEGN          ifeq      *blanks
+N01  c     HEST          oreq      'S'
+N01  C                   eval      RUST = 'S'
+N01  c                   goto      UtTst
+N01  c                   end
+N01   * Oppdragstype/godsnr mm KAN  være gjort om, - ENNÅ ankomstmelding ??
+N01  c                   exsr      AnkEnnaa
+N01   * Hvis ikke lenger ANK - sett S = (kan reåpnes)
+N01  c     AnkEnn        ifeq      'N'
+N01  C                   eval      RUST = 'S'
+N01  c                   goto      UtTst
+N01  c                   end
+N02   *
+N02   *------------------
+N02   * Så ta stilling til om den skal sendes
+N02   *------------------
+      *
+N02   * Ank.meld ER ALT sendt (venter da bare på purring A -> P)
+N02  C     RUDTAM        CABgt     *zeros        UtTst
+      *
+      * Finnes skannet handelsfaktura
+     c     arkivkeyZH    chain     arkivl02                           30
+     C     *in30         CABeq     '1'           UtTst
+      * sjekk om både avd/mottakes (minst 1)  mail-adr finnes
+     c                   exsr      MailAdr
+      * Både avsender/motaker må finnes (k.pers med funksjon *RUCKATTEST )
+     C     XXavNa        CABeq     *blanks       UtTst
+     C     mn            CABeq     0             UtTst
+      *
+      *  Kommet gjennom alle tester - posten skal sendes
+     c                   exsr      Send
+      *
+     C     UtTst         ENDSR
+      *
+      *
+N01   ******************************************************************************
+N01  C     AnkEnnaa      BEGSR
+N01   ******************************************************************************
+N01   * Oppdragstype/godsnr KAN  være gjort om, Hvis ikke lenger ANK - sett S = (kan reåpnes)
+N01   * DFT = anta at noe er galt IKKE lenger Ank,  men hvis OK alle teter så blankes 'N'
+N01  c                   move      'N'           AnkEnn            1
+N01   * Godsnr
+N01   *   utfylt...
+N01  C     HEGN5_9       cabeq     *blanks       UtAnkE
+N01   *  /innen aktuell bevillingskode ...
+N01   * Begrepet MÅ finnes i -arrayet   (treff ved lookup = 80 ON)
+N01  C     HEGN5_9       LOOKUP    BV                                     80
+N01  C     *IN80         cabeq     '0'           UtAnkE
+N01   *
+N01   * Oppdragstype  INCLUDE / OMIT ..  (treff ved lookup = 80 ON)
+N01  C     RDOTIO        IFEQ      'I'
+N01   * Ved include må begrepet finnes i -arrayet
+N01  C     HEOT          LOOKUP    OT                                     80
+N01  C     *IN80         cabeq     '0'           UtAnkE
+N01  C                   END
+N01  C     RDOTIO        IFEQ      'O'
+N01   * Ved omit måbegrepet IKKE finnes i-arrayet
+N01  C     HEOT          LOOKUP    OT                                     80
+N01  C     *IN80         cabeq     '1'           UtAnkE
+N01  C                   END
+N01  c
+N01   * ALT OK = ER ANOMSTMELDING  ENNÅ
+N01  c                   move      ' '           AnkEnn            1
+N01  c
+N01  C     UtAnkE        ENDSR
+      *
+      ******************************************************************************
+     C     Send          BEGSR
+      ******************************************************************************
+      * Oppdatere Ryckattest-log med info om at Ank-melding er sent
+     c                   move      WDT           RUDTAM
+     c                   movel     WTM           RUKLAM
+      *
+     C                   move      HEAVD         UAVD
+     C                   move      HEOPD         UOPD
+     C                   eval      mn = 1
+     c                   dow       mn <= 5
+     c                   if        mona(mn) = *blanks
+     c                   leave
+     c                   endif
+     C                   CALL      'SYFA40M'
+     C                   PARM                    UAVD              4
+     C                   PARM                    UOPD              7
+     C                   PARM                    XXavNa           50
+     C                   PARM                    XXavAd           50
+     C                   PARM      moNa(mn)      UmoNa            50
+     C                   PARM      moAd(mn)      UmoAd            50
+     C                   PARM      moSMS(mn)     USMS             15
+     C                   PARM      'X'           UDummy            1
+     C                   eval      mn = mn+1
+     c                   enddo
+     c
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    UIN01             1
+      * Dersom record ikke finnes eller ant dager ikke gitt - hopp ut.
+     C     1             CHAIN     RUCKDFT                            33
+     C  N33RDDGF         comp      *zeros                                 33
+     C  N33RDDGT         comp      *zeros                                 33
+     C     *IN33         ifeq      *ON
+     C                   MOVE      '1'           UIN01
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     c                   end
+      * Key i RUCKP
+     C     HEAKey        KLIST
+     C                   KFLD                    RUAVD
+     C                   KFLD                    RUOPD
+     C     arkivkeyZH    KLIST
+     C                   KFLD                    ARSTAT
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    ARTYPE
+     c                   move      'A'           ARSTAT
+     c                   move      'ZH'          ARTYPE
+     C     AvdKey        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    HEAVD
+     C                   MOVE      'A'           KOAUNI
+     C     KunKEY        KLIST
+     C                   KFLD                    FIFIRM
+n02  C                   KFLD                    YYRUKU
+     C     CONKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    YYTYPE           30
+     C                   KFLD                    YYRUKU            8 0
+     C                   eval      YYTYPE     =  '*RUCKATTEST'
+      *
+     c     *loval        setll     FIRM
+     c                   read      FIRM
+     c                   CALL      'SYGE15C'
+     c                   parm                    WDT               8
+     c                   parm                    WTM               6
+     c                   move      wdt           Idag              8 0
+      *
+     C                   ENDSR
+      ******************************************************************************
+     C     MailAdr       BEGSR
+      ******************************************************************************
+      * sjekk om det finnes kontaktpersoner på avdelingens kundenummer (avsender)
+     c                   Movel     *blanks       XXavNa
+     c                   movel     *blanks       XXavAD
+     c     AvdKey        chain     KODTA                              33
+     c                   move      KOAKNR        YYRUKU
+     C     KUNKEY        chain     CundL01                            33
+     c  n33              eval      fift=knavn
+     C     CONKEY        chain     Cundc03                            33
+     C  n33CEMAIL        COMP      *Blanks                                33
+     C  n33CCONTA        COMP      *Blanks                                33
+     c     *in33         cabeq     '1'           UtMaila
+     c                   Movel     CCONTA        XXavNa
+     c                   movel     CEMAIL        XXavAD
+      * sjekk om det finnes kontaktpersoner Kj.f.mot kundenummer (avsender)
+     c                   clear                   moad
+     c                   clear                   moad
+     c                   clear                   mosms
+     c                   move      *zeros        mn                2 0
+     c                   move      RUKU          YYRUKU
+     C     CONKEY        setll     Cundc03
+     C     CONKEY        reade     Cundc03                                34
+     C     *in34         DOWEQ     '0'
+     C     Mn            andlt     5
+     C     CEMAIL        Ifne      *Blanks
+     C     CCONTA        andne     *Blanks
+     c                   add       1             mn
+     c                   movel     CCONTA        mona(mn)
+     c                   movel     CEMAIL        moad(mn)
+     c                   movel     CMOBIL        moSMS(mn)
+     c                   end
+     C     CONKEY        reade     Cundc03                                34
+     C                   END
+      *
+     C     UtMaila       ENDSR

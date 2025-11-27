@@ -1,0 +1,272 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKPDFH MODULE(*LIBL/ESTKPDFH *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF12 Nytt prog ved overgang til javabasert TKpdfHandøler
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FFIRMARCSI IF   E           K DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D HomeMappe       S            150
+     D LogMappe        S            150
+     D NumTrueFalse    S              5
+     D TSTrueFalse     S              5
+     D Fjern1Page      S              5
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      * RO = Rotmappe
+      /free
+        chain ( 'RO' ) FIRMARCSI;
+        if %found;
+          HomeMappe= ASIANE;
+          if %subst(HomeMappe:1:1)<>'/';
+            HomeMappe= '/'+ASIANE;
+          endif;
+        else;
+          HomeMappe='/sysca';
+        endif;
+        LogMappe=%trim(Homemappe)+'/Log_JavaVersjon';
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬name¬ : ¬'+%trim(FIFT)+'¬, '
+        +'¬homeFolder¬ : ¬'+%trim(homeMappe)+'¬, '
+        +'¬logFolder¬ : ¬'+%trim(logMappe)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      *
+      * Innmappeliste.
+     C                   exsr      GetInnFldr
+      *
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"rules" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Liste Ærende
+      *
+     c     Error         ifeq      *blanks
+     C                   move      *zeros        AntLest
+     C     *loval        SETLL     ARKTXT
+     C                   READ      ARKTXT                                 55
+     C     *IN55         DOWEQ     '0'
+      * Skal denne med med hensyn til part, f.eksempel S=Selger K=Kjøper.........
+     C     ARSBAN        CABEQ     *blanks       READNEXT
+     C                   Add       1             AntLest
+      * fix gitte data
+      * også ved prefixregler - send pattern --
+     c                   if        %subst(ARTYPE:1:1)<>'*'
+     c                   eval      ARSRPA = ARTYPE
+     c                   endif
+     C                   IF        ARSFSK = 'J'                                 Fjene skilleark/1.pa
+     c                   eval      Fjern1Page   = 'true'
+     c                   else
+     c                   eval      Fjern1Page   = 'false'
+     c                   endif
+     C                   IF        ARSCTS = 'J'                                 Append Timestamp
+     c                   eval      TSTrueFalse  = 'true'
+     c                   else
+     c                   eval      TSTrueFalse  = 'false'
+     c                   endif
+     C                   IF        ARSRNO = 'J'                                 SpesRegel Num.only?
+     c                   eval      NumTrueFalse = 'true'
+     c                   else
+     c                   eval      NumTrueFalse = 'false'
+     c                   endif
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬prefix¬ : ¬'+%trim(ARTYPE)+'¬, '
+          +'¬outPath¬ : {¬path¬: ¬'+%trim(ARSBAN)+'¬} , '
+          +'¬comment¬ : ¬'+%trim(ARTXT)+'¬, '
+          +'¬pattern¬ : ¬'+%trim(ARSRPA)+'¬, '
+          +'¬length¬ : '+%trim(%editc(ARSRLE:'3'))+', '
+          +'¬startPos¬ : '+%trim(%editc(ARSRST:'3'))+', '
+          +'¬onlyNumerical¬ : '+%trim(NumTrueFalse)+', '
+          +'¬remove1Page¬ : '+%trim(Fjern1Page)+', '
+          +'¬appendTimestamp¬ : '+%trim(TSTrueFalse)+'}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+
+     C     READNEXT      TAG
+     C                   READ      ARKTXT                                 55
+     C                   ENDDO
+     c                   ENDIF
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     ARKTXT
+     C  N50              CLOSE     FIRMARCSI
+     C  N50              CLOSE     FIRM
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      ARKTXT
+     C  N50              OPEN      FIRMARCSI
+     C  N50              OPEN      FIRM
+     C  N50BIFIRM        chain     FIRM
+
+     c                   endsr
+      *********************************************************
+     C     GetInnFldr    Begsr
+      *********************************************************
+      * listeheader
+     C                   eval      JSONstring ='"innFolders" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * 6
+      * leseloop / hent mapper
+     C                   move      *zeros        AntLest
+     C     'IN'          setll     FIRMARCSI
+     C     'IN'          reade     FIRMARCSI
+     C                   dow       not %eof
+     C                   add       1             AntLest
+     C                   if        AntLest=1
+     C                   eval      JSONstring=*blanks
+     C                   else
+     C                   eval      JSONstring=','
+     C                   endif
+      *
+     c                   eval      JSONstring = %trim(JSONstring)
+     c                                        +'{"path" : "' + %trim(HomeMappe)
+     c                                        + '/'+%trim(ASIANE)+'"}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+     C     'IN'          reade     FIRMARCSI
+     c                   enddo
+      *
+      * fant ingen = legg default
+     c                   if        AntLest = *zeros
+     c                   eval      JSONstring ='{"path" : "' + %trim(HomeMappe)
+     c                                        + '/InnTKpdf"}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+     C                   endif
+      * Listebunn
+     c                   eval      JSONstring ='], '
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   ENDSR

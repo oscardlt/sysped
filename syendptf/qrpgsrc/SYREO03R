@@ -1,0 +1,526 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 SAEHMO
+********************************************************************
+     H DFTACTGRP(*NO)
+     FEDIM      UF   E           K DISK
+     FEDIS      UF   E           K DISK
+     FEDISE     UF   E           K DISK
+     FEDIRE     UF   E           K DISK
+     FEDISE1K   UF   E           K DISK    RENAME(EDISER:EDISER1K)
+     F                                     PREFIX(K_)
+     FEDIRE1K   UF   E           K DISK    RENAME(EDIRER:EDIRER1K)
+     F                                     PREFIX(K_)
+     FEDISX     UF   E           K DISK
+     FXMLRCVF   UF   E           K DISK
+     FXMLRCAF   UF   E           K DISK
+     FXMLRCLF   UF   E           K DISK
+     FSAEF      UF   E           K DISK
+     FSAEH      UF   E           K DISK
+N01  FSAEHMO    UF   E           K DISK
+     FSAEHTL    UF   E           K DISK
+     FSADEUF    UF   E           K DISK
+     FSAEV      UF   E           K DISK
+     FSAEVCN    UF   E           K DISK
+     FSAEHOM    UF   E           K DISK    RENAME(SAEHR:SAEHOMR)
+     FSAEOMT    UF   E           K DISK
+     FSAEOMTF   UF   E           K DISK
+     FSAEOMTH   UF   E           K DISK
+     FSAEOMTV   UF   E           K DISK
+     FSAEOMTVCN UF   E           K DISK
+     FSAEHKO    UF   E           K DISK
+     FSAEVKO    UF   E           K DISK
+     FSAEVCNKO  UF   E           K DISK
+     FSAEFKO    UF   E           K DISK
+     FTVINF     UF   E           K DISK
+     FFRISOK    UF   E           K DISK
+     FTRACKF    UF   E           K DISK
+     FARKTXT    IF   E           K DISK
+     FARKEXT    IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FARKIVL17  UF   E           K DISK
+
+     d                 ds
+     d  usn_n                  1      9  0
+     d  usn                    1      9
+     d                 ds
+     d  smbr                   1     10A
+     d  smbr_1                 1      1A
+     d  smbr_2                 2      8A
+     d  smbr_3                 9     10A
+     d  smbr_4                 4     10A
+     d                 ds
+     d  uavd                   1      4A
+     d  xavd                   1      4  0
+     d                 ds
+     d  utdn                   1      7A
+     d  xtdn                   1      7  0
+
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          C                   const('''')
+     d SqlStm          s            512a
+     d myrows0         s             10i 0
+     d myrows          s             10i 0
+     d myrows2         s             10i 0
+     D XDTF            S              8  0
+     D XDTP            S              8  0
+     D XPOS            S              3  0
+     d XAPS            C                   const(X'7D')
+     D XMBR            S             10A
+     D Error           S            150
+     d X               S             10  0
+     d X2              S             10  0
+     D ufil            S            256A
+     D utyp            S              5A
+     D uok             S              1A
+     D XSLUTT          S              1
+     D XSLUTT2         S              1
+      *
+      *  Prototype for 'SYREO01C3'
+     d SYREO01C3       pr                  extpgm('SYREO01C3')
+     d ufil_                               like(ufil)
+      *  Prototype for 'SYREO01R3'
+     d SYREO01R3       pr                  extpgm('SYREO01R3')
+     d uavd_                               like(uavd)
+     d utdn_                               like(utdn)
+     d utyp_                               like(utyp)
+     d uok_                                like(uok)
+      *  Prototype for 'SYREO03R2'
+     d syreo03r2       pr                  extpgm('SYREO03R2')
+     d usn_                                like(usn)
+     d udtp_                               like(udtp)
+     d uok_                                like(uok)
+      *  Prototype for syreo03r
+     d syreo03r        pr
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  *ENTRY Interface for Main Procedure
+     d syreo03r        pi
+     d udtf                           8
+     d udtp                           8
+      *
+     d MyPoDS0         ds                  Qualified  dim(1)
+     d  FIFIRM                        2A
+     d MyPoDS          ds                  Qualified  dim(10000)
+     d  SEAVD                         4S 0
+     d  SETDN                         7S 0
+     d  SESG                          3A
+     d  SEDT                          8S 0
+     d  SERG                         11A
+     d  SEGN                         15A
+     d MyPoDS2         ds                  Qualified  dim(1000)
+     d  MAVD                          4S 0
+     d  MTDN                          7S 0
+     d  MSR                           1A
+     d  MMN                           9S 0
+     d  MSN                           9S 0
+      /free
+
+         exsr init;
+
+         dow xslutt <> 'J';
+           exsr srhoved;
+         enddo;
+
+       *inlr = *on;
+       return;
+
+       //=====================================================================
+       // Hoved logikk
+       //=====================================================================
+       begsr srhoved;
+
+       clear MyPoDS;
+       SqlStm = 'Select SEAVD, SETDN, SESG, SEDT, SERG, SEGN ' +
+                'from SAEH ' +
+                'Where SETDN > 0 AND SEDT <= ' + %trim(udtf);
+       Exec SQL PREPARE DynSel from :SqlStm;
+       EXEC SQL DECLARE  A33  cursor for DynSel;
+       Exec SQL OPEN A33;
+       Myrows = %elem(MyPoDS);
+       exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       Exec SQL CLOSE A33;
+
+       if myrows > 0;
+         for x = 1 to myrows;
+           seavd = mypods(x).seavd;
+           sesg  = mypods(x).sesg;
+           if sesg = *blanks and seavd = 0;
+             xslutt = 'J';
+             leave;
+           endif;
+
+           if %subst(mypods(x).serg:10:2) = *blanks or                          //Firma 5 år
+              %subst(mypods(x).serg:10:2) <> *blanks and mypods(x).sedt < xdtp; //Personkunde 10 år
+             setdn = mypods(x).setdn;
+             segn  = mypods(x).segn;
+
+             exsr sra;
+             exsr srb;
+             xslutt2 = 'N';
+             dow xslutt2 <> 'J';
+               exsr src;
+             enddo;
+             exsr srf;
+
+             exec sql
+E01          delete from SAEHMO     // SAEHMD ER ENDRET TIL SAEHMO
+             where seavd = :seavd and setdn = :setdn
+             with NC;
+             exec sql
+             delete from SAEHTL
+             where seavd = :seavd and setdn = :setdn
+             with NC;
+             exec sql
+             delete from SADEUF
+             where heavd = :seavd and heopd = :setdn
+             with NC;
+
+             if setdn > 0;
+            // OMBEREGNING
+               setdn = setdn * -1;
+               chain (seavd: setdn) SAEH;
+               if %found;
+
+                 exsr sra;
+                 exsr srb;
+                 xslutt2 = 'N';
+                 dow xslutt2 <> 'J';
+                   exsr src;
+                 enddo;
+                 exsr srd;
+                 exsr srf;
+
+                 exec sql
+E01              delete from SAEHMO     // SAEHMD ER ENDRET TIL SAEHMO
+                 where seavd = :seavd and setdn = :setdn
+                 with NC;
+                 exec sql
+                 delete from SAEHTL
+                 where seavd = :seavd and setdn = :setdn
+                 with NC;
+                 exec sql
+                 delete from SADEUF
+                 where heavd = :seavd and heopd = :setdn
+                 with NC;
+
+                 delete saehr;
+               endif;  // if %found;
+
+               setdn = setdn * -1;
+             endif;   // if setdn > 0;
+
+           // slett hovedpost
+             exec sql
+             delete from SAEHKO
+             where seavd = :seavd and setdn = :setdn
+             with NC;
+             exec sql
+             delete from SAEH
+             where seavd = :seavd and setdn = :setdn
+             with NC;
+           endif;  // End of "if %subst(mypods(x).serg:10:2) = *blanks or"
+
+         endfor;
+       endif;
+
+       endsr;
+       //*_________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM SAEV
+       //*"""""""""""""""""""""""""""""""""""""""""
+       begsr sra;
+
+       exec sql
+       delete from saev
+       where svavd=:seavd and svtdn=:setdn
+       with NC;
+
+       exec sql
+       delete from saevcn
+       where svavd=:seavd and svtdn=:setdn
+       with NC;
+
+       if setdn > 0;
+         exec sql
+         delete from saevko
+         where svavd=:seavd and svtdn=:setdn
+         with NC;
+         exec sql
+         delete from saevcnko
+         where svavd=:seavd and svtdn=:setdn
+         with NC;
+       endif;
+
+       endsr;
+
+       //*_________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM SAEF
+       //*"""""""""""""""""""""""""""""""""""""""""
+       begsr srb;
+
+       exec sql
+       delete from saef
+       where sfavd = :seavd and sfopdn = :setdn
+       with NC;
+
+       if setdn > 0;
+         exec sql
+         delete from saefko
+         where sfavd = :seavd and sfopdn = :setdn
+         with NC;
+       endif;
+
+       endsr;
+
+       //*_____________________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM EDIM/EDIS/TVINF
+       //*"""""""""""""""""""""""""""""""""""""""""""""""""""""
+       begsr src;
+
+       clear MyPoDS2;
+       SqlStm = 'Select MAVD, MTDN, MSR, MMN, MSN ' +
+                'from EDIM ' +
+                'Where MAVD = ' + %trim(%editc(seavd:'Z')) +
+                ' and MTDN = ' + %trim(%editc(setdn:'Z')) +
+                ' and M1001 <> ' + xaps + '929' + xaps +
+                ' and M1001 <> ' + xaps + 'TEI' + xaps +
+                ' and M1001 <> ' + xaps + 'TET' + xaps +
+                ' and M1001 <> ' + xaps + 'SVI' + xaps +
+                ' and M1001 <> ' + xaps + 'SVE' + xaps +
+                ' and M1001 <> ' + xaps + 'STI' + xaps +
+                ' and M1001 <> ' + xaps + 'STE' + xaps +
+                ' and M1001 <> ' + xaps + 'DKI' + xaps +
+                ' and M1001 <> ' + xaps + 'DKE' + xaps;
+       Exec SQL PREPARE DynSel2 from :SqlStm;
+       EXEC SQL DECLARE  A34  cursor for DynSel2;
+       Exec SQL OPEN A34;
+       Myrows2 = %elem(MyPoDS2);
+       exec sql FETCH A34 for :MyRows2 rows
+                  INTO :MyPoDs2;
+       Exec SQL CLOSE A34;
+
+       if myrows2 > 0;
+         for x2 = 1 to myrows2;
+           if mypods2(x2).msr = *blanks;
+             xslutt2 = 'J';
+             leave;
+           endif;
+
+           mmn = mypods2(x2).mmn;
+           msn = mypods2(x2).msn;
+
+           exec sql
+           delete from TVINF
+           where fmn = :mmn
+           with NC;
+           exec sql
+           delete from XMLRCVF
+           where xrsn = :msn
+           with NC;
+           exec sql
+           delete from XMLRCAF
+           where xrsn = :msn
+           with NC;
+           exec sql
+           delete from XMLRCLF
+           where xrsn = :msn
+           with NC;
+
+           usn_n = msn;
+           syreo03r2 (usn: udtp: uok); //Test om samme fil inneholder oppdrag til privatkunde
+           if uok ='J';
+             chain (msn) edis;
+             if %found;
+              // slett komponent
+               exsr src2;
+              // slett fil i IFS
+               if sifs <> *blanks;
+                 if %subst(sifs:1:1) <> '/';
+                   sifs = '/' + %trim(sifs);
+                 endif;
+                 ufil = sifs;
+                 syreo01c3 (ufil);
+               endif;
+               delete edisr;
+             endif;
+           endif;
+
+         // slett hovedpost
+           exec sql
+           delete from EDIM
+           where mmn = :mmn
+           with NC;
+
+         endfor;
+       endif;
+
+       endsr;
+
+       //*_____________________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM EDIRE/EDISE/EDIRE1K/EDISE1K/XMLRCVF/AF/LF/EDISX
+       //*"""""""""""""""""""""""""""""""""""""""""""""""""""""
+       begsr src2;
+
+       exec sql
+       delete from edire
+       where rembr = :smbr
+       with NC;
+
+       exec sql
+       delete from edise
+       where sembr = :smbr
+       with NC;
+
+       exec sql
+       delete from edire1k
+       where rembr = :smbr
+       with NC;
+
+       exec sql
+       delete from edise1k
+       where sembr = :smbr
+       with NC;
+
+       chain smbr edisx;
+       if %found;
+         if sxifsobj <> *blanks and %subst(sxifsobj:1:1) <> '/';
+           sxifsobj = '/' + %trim(sxifsobj);
+         endif;
+         syreo01c3 (sxifsobj);
+         delete edisxr;
+       else;
+         if smbr_3 = ' ';
+         // MBR = R1234567 -> PRØV R001234567
+           xmbr = smbr_1 + '00' + smbr_2;
+         else;
+         // MBR = R001234567 -> PRØV R1234567
+           xmbr = smbr_1 + smbr_4 + '  ';
+         endif;
+         chain xmbr edisx;
+         if %found;
+           if sxifsobj <> *blanks and %subst(sxifsobj:1:1) <> '/';
+             sxifsobj = '/' + %trim(sxifsobj);
+           endif;
+           syreo01c3 (sxifsobj);
+           delete edisxr;
+         endif;
+       endif;
+
+       endsr;
+
+       //*___________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM OMBEREGNING
+       //*"""""""""""""""""""""""""""""""""""""""""""
+       begsr srd;
+
+       exec sql
+       delete from saehom
+       where seavd = :seavd and setdn = :setdn
+       with NC;
+
+       exec sql
+       delete from saeomt
+       where seavd = :seavd and setdn = :setdn
+       with NC;
+
+       exec sql
+       delete from saeomtf
+       where sfavd = :seavd and sfopdn = :setdn
+       with NC;
+
+       exec sql
+       delete from saeomth
+       where seavd = :seavd and setdn = :setdn
+       with NC;
+
+       exec sql
+       delete from saeomtv
+       where svavd = :seavd and svtdn = :setdn
+       with NC;
+
+       exec sql
+       delete from saeomtvcn
+       where svavd = :seavd and svtdn = :setdn
+       with NC;
+
+       endsr;
+
+       //*_________________________________________
+       //* SETLL, READ AND DELETE RECORDS FROM FRISOK/TRACKF
+       //*"""""""""""""""""""""""""""""""""""""""""
+       begsr srf;
+
+       exec sql
+       delete from frisok
+       where fsavd = :seavd and fsopd = :setdn
+       with NC;
+
+       exec sql
+       delete from trackf
+       where ttavd = :seavd and ttopd = :setdn
+       with NC;
+
+       // Sjekk om oppdrag ligger i andre modul. Ved N sletter KUN SAD-export.
+       xavd = seavd;
+       xtdn = setdn;
+       syreo01r3 (uavd: utdn: utyp: uok);
+       setll (seavd:setdn) arkivl17;
+       reade (seavd:setdn) arkivl17;
+       dow not %eof;
+         if artype = 'se' or artype = 'sg' or artype = 'sf' or uok = 'J';
+           chain (fifirm) firmarc;
+           chain (artype) arktxt;
+           if %found and arklag <> *blanks;
+             chain (fifirm:arklag) arkext;
+           endif;
+           if arbhis <> *blanks;
+           // Bane for historikk
+             arcane = arbhis;
+           endif;
+           xpos = %scan ('.' : arlink : 1);
+           if xpos = 0;
+             ufil = '/' + %TRIM(ARCANE) + '/' + %TRIM(ARLINK) + '.pdf';
+           else;
+             ufil = '/' + %TRIM(ARCANE) + '/' + %TRIM(ARLINK);
+           endif;
+           syreo01c3 (ufil);
+
+           delete arkivr;
+         else;
+           update arkivr;
+         endif;
+         reade (seavd:setdn) arkivl17;
+       enddo;
+
+       endsr;
+
+       //***********************************************
+       begsr init;
+       //***********************************************
+       xdtf = %float(udtf);
+       xdtp = %float(udtp);
+       utyp = 'SAD-E';
+
+       //exec sql
+       //select *
+       //from firm;
+       SqlStm = 'Select * ' +
+                'from FIRM ' +
+                'FOR READ ONLY ';
+       Exec SQL PREPARE DynSel0 from :SqlStm;
+       EXEC SQL DECLARE  A30  cursor for DynSel0;
+       Exec SQL OPEN A30;
+       Myrows0 = %elem(MyPoDS0);
+       exec sql FETCH A30   for :MyRows0 rows
+                  INTO :MyPoDs0;
+       Exec SQL CLOSE A30;
+       FIFIRM = mypods0(1).fifirm;
+
+       endsr;
+
+      /end-free

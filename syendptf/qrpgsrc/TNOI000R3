@@ -1,0 +1,284 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TNOI000R3 MODULE(*LIBL/TNOI000R3 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FFRISOK    IF   E           K DISK    USROPN
+     FSADH      IF   E           K DISK    USROPN
+     FSADHO     IF   E           K DISK    USROPN
+     F                                     PREFIX(O2_)
+     F                                     RENAME(SADHR:SADHRO2)
+     FWRKR31F   UF A E           K DISK    USROPN
+     FARKLOGH4  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+
+     d qcmdexc         Pr                  extpgm('QCMDEXC')
+     d cmdline_                            like(cmdline)
+     d cmdlen_                             like(cmdlen)
+
+     d TNOI000R3A      Pr                  extpgm('TNOI000R3A')
+     d UsrSpcname_                         like(UsrSpcname)
+     d Wr31_                               like(Wr31)
+
+     d TNOI000R3B      Pr                  extpgm('TNOI000R3B')
+     d UsrSpcname_                         like(UsrSpcname)
+     d Wr31_                               like(Wr31)
+
+     D WSUSER          S             10
+     D UsrSpcName      s             10
+     D Wr31            s             30
+     D CmdLine         s            512
+     D CmdLen          s             15  5
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D Jn043           S              1
+     d X               S             10  0
+     d wspll           S              1
+     d EPJN            S              1
+     d pos             S              5U 0
+     d wpabrid         s                   like(pabrid)
+     d wpakunr         s                   like(pakunr)
+     d wpasort         s                   like(pasort)
+     d wsitdn          s                   like(o2_sitdn)
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+         exsr ParseSr;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬usrspcname¬ : ¬'+%trim(USRSPCNAME)+'¬, '
+        +'¬r31¬ : ¬'+%trim(WR31)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"orderList" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+           exsr LesSr;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+         exsr Exit;
+
+       //-----------------------------------------------------------------
+       // Select fra filer
+       //-----------------------------------------------------------------
+       begsr     SelSr;
+           Setll usrSpcName Wrkr31f;
+           reade usrSpcName Wrkr31f;
+             dow not %eof(Wrkr31f);
+                 delete wrkr31fr;
+               reade usrSpcName Wrkr31f;
+             enddo;
+
+           tnoi000r3a ( UsrSpcName : Wr31 );
+           tnoi000r3b ( UsrSpcName : Wr31 );
+       endsr;
+       //-----------------------------------------------------------------
+       // hent input
+       //-----------------------------------------------------------------
+       begsr     ParseSr;
+         wsuser  = zhbgetvar('USER');
+         usrspcname = zhbgetvar('USRSPCNAME');
+         wr31    = zhbgetvar('r31');
+
+        endsr;
+        // __________________________________________________
+        // Læs array                                    LESSR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr LesSr;
+           Setll usrSpcName Wrkr31f;
+           reade usrSpcName Wrkr31f;
+           dow not %eof(Wrkr31f);
+
+           chain (wrkavd: wrktdn) SADH;
+
+           chain (wrkavd: wrktdn: '*CR') FRISOK;
+           if not %found;
+              fssok = *blanks;
+           endif;
+
+        // Finnes omberegning ?
+
+           wsitdn = wrktdn * -1;
+           chain (wrkavd: wsitdn) SADHO;
+           if not %found;
+              O2_SIST = *BLANKS;
+              O2_SIMF = *BLANKS;
+              O2_SITLL = *BLANKS;
+              O2_SIDT = 0;
+           else;
+              if O2_SITLL = sitll;
+                O2_SITLL = *BLANKS;
+              endif;
+           endif;
+
+        // Er e-post sendt ?
+           chain (wrkavd: wrktdn) ARKLOGH4;
+           if %found;
+              epjn = 'E';
+           else;
+              epjn = *BLANKS;
+           endif;
+
+        // Videre hvis ikke noen feil !
+
+           if error = *blanks;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬avd¬ : ¬'+%trim(%editc(SIAVD:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(SITDN:'Z'))+'¬, '
+          +'¬tst¬ : ¬'+%trim(SI0035)+'¬, '
+          +'¬sitll¬ : ¬'+%trim(SITLL)+'¬, '
+          +'¬sitle¬ : ¬'+%trim(SITLE)+'¬, '
+          +'¬aart¬ : ¬'+%trim(SIDTY)+'¬, '
+          +'¬sg¬ : ¬'+%trim(SISG)+'¬, '
+          +'¬datum¬ : ¬'+%trim(%editc(SIDT:'Z'))+'¬, '
+          +'¬sivkb¬ : ¬'+%trim(%editc(SIVKB:'4'))+'¬, '
+          +'¬status¬ : ¬'+%trim(SIST)+'¬, '
+          +'¬avsNavn¬ : ¬'+%trim(SINAS)+'¬, '
+          +'¬motNavn¬ : ¬'+%trim(SINAK)+'¬, '
+          +'¬sign¬ : ¬'+%trim(SIGN)+'¬, '
+          +'¬simi¬ : ¬'+%trim(SIMI)+'¬, '
+          +'¬h_xref¬ : ¬'+%trim(FSSOK)+'¬, '
+          +'¬r31¬ : ¬'+%trim(wrkr31)+'¬, '
+          +'¬epjn¬ : ¬'+%trim(epjn)+'¬, '
+          +'¬o2_sist¬ : ¬'+%trim(o2_sist)+'¬, '
+          +'¬o2_simf¬ : ¬'+%trim(o2_simf)+'¬, '
+          +'¬o2_sitll¬ : ¬'+%trim(o2_sitll)+'¬, '
+          +'¬o2_sidt¬ : ¬'+%trim(%editc(o2_sidt:'Z'))+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endif;
+           reade usrSpcName Wrkr31f;
+        enddo;
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+         open brparf;
+         open frisok;
+         open wrkr31f;
+         open sadh;
+           cmdline = 'OVRDBF FILE(SADHO) TOFILE(SADH)';
+           cmdlen = %len(%trim(cmdline));
+           qcmdexc ( cmdline : cmdlen );
+         open sadho;
+         open arklogh4;
+
+       endsr;
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close brparf;
+         close frisok;
+         close wrkr31f;
+         close sadh;
+         close sadho;
+         close arklogh4;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free

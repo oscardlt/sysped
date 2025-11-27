@@ -1,0 +1,248 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL VEDLIKEHOLDE KURERMANIFEST - DEFAULT   ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 07 09-14 17-24             ***
+      *** LEDIGE INDIKATORER 29 31 32       52-75 78-89       ***
+      ***********************************************************
+      *
+     H DFTACTGRP(*NO)
+     FSADKMDEF  IF   E           K DISK
+     FTELL      IF   E           K DISK
+     FSAD118D   CF   E             WORKSTN SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+      *  Prototype for 'SAD119R'
+     d SAD119R         pr                  extpgm('SAD119R')
+     d u_avd_                              like(u_avd)
+     d xtype_                              like(xtype)
+     d uflagg_                             like(uflagg)
+      *  Prototype for SAD118R
+     d sad118r         pr
+      *  *ENTRY Interface for Main Procedure
+     d sad118r         pi
+      *
+     d u_avd           s              4  0
+     d uflagg          s              1  0
+     d xrecn2          s              5  0
+     d xtype           s              3a
+      *
+      /free
+
+         exsr init;
+
+         dow *in03 = *off;          // START                                   // 1<b
+
+           if *in94 = *off;                                                    // 2<b
+           // Les og vis alle avdelinger
+             *in93 = *on;
+             write subctl;
+             *in93 = *off;
+             zrecno = 0;
+
+             setll w3avd sadkmdef;
+             read sadkmdef;
+             dow not %eof;                                                     // 3<b
+               chain kmavd tell;
+               if %found;                                                      // 4<b
+                 kmpro = teturn;
+               else;                                                           // 4
+                 kmpro = 0;
+               endif;                                                          // 4<e
+               zrecno = zrecno + 1;
+               write subfil;
+               xrecn2 = zrecno;
+               read sadkmdef;
+             enddo;                                                            // 3<e
+             *in94 = *on;
+
+             if zrecno > 19;                                                   // 3<b
+               zrecno = 1;
+             endif;                                                            // 3<e
+
+           endif;                                                              // 2<e
+
+           dow *in03 = *off;             // START3                             // 2<b
+           // vis subfil og få input
+             *in91 = *on;
+             *in92 = *on;
+             write bunn;
+             if zrecno = 0;                                                    // 3<b
+               exfmt nyvare;
+             else;                                                             // 3
+               exfmt subctl;
+             endif;                                                            // 3<e
+
+             *in30 = *off;
+             *in98 = *off;
+             *in99 = *off;
+             select;                                                           // 3<b
+             when *in03;                                                       // 3
+               leave;
+             when *in05;                                                       // 3
+               *in94 = *off;
+               leave;       // ut dow *in03 = *off;
+             when *in06;                                                       // 3
+               exsr crttur;
+             when *in08;                                                       // 3
+               exsr srsok;
+               if *in12 = *off;                                                // 4<b
+                 *in94 = *off;
+                 leave;       // ut dow *in03 = *off;
+               endif;                                                          // 4<e
+             when *in12;                                                       // 3
+               *in03 = *on;
+               leave;
+             other;                                                            // 3
+               if zrecno <> 0;                                                 // 4<b
+                 exsr hent;
+               endif;                                                          // 4<e
+             endsl;                                                            // 3<e
+
+           enddo;          // end dow *in03 = *off;                            // 2<e
+
+         enddo;                                                                // 1<e
+
+         *inlr = *on;
+         return;
+
+       //***********************************************
+       begsr hent;
+
+       msgnr = *blanks;
+       *in90 = *off;
+       *in91 = *off;
+       *in92 = *off;
+       *in99 = *off;
+       readc subfil;
+       dow not %eof;
+         select;
+         when wsnr = 2;
+           *in99 = *on;
+           exsr chgtur;
+         when wsnr = 3;
+           *in99 = *on;
+           exsr cpytur;
+         when wsnr = 5;
+           *in99 = *on;
+           exsr dsptur;
+         endsl;
+         readc subfil;
+       enddo;
+
+       if *in99 = *off;
+         msgnr = 'DIV0012';
+         *in30 = *on;
+       endif;
+       *in99 = *off;
+
+       endsr;
+
+      // ********************************************
+       begsr cpytur;
+
+       xtype = 'CPY';                // KOPIERING
+       u_avd = kmavd;
+       sad119r (u_avd: xtype: uflagg);
+
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       if u_avd <> 0 and u_avd <> kmavd;
+         chain u_avd sadkmdef;
+         if %found;
+           chain u_avd tell;
+           if %found;
+             kmpro = teturn;
+           else;
+             kmpro = 0;
+           endif;
+           xrecn2 = xrecn2 + 1;
+           zrecno = xrecn2;
+           write subfil;
+         endif;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr crttur;
+
+       xtype = 'CRT';                // LAGE NY AVDELING
+       u_avd = 0;
+       sad119r (u_avd: xtype: uflagg);
+
+       if u_avd > 0;
+         chain u_avd sadkmdef;
+         if %found;
+           chain u_avd tell;
+           if %found;
+             kmpro = teturn;
+           else;
+             kmpro = 0;
+           endif;
+           xrecn2 = xrecn2 + 1;
+           zrecno = xrecn2;
+           write subfil;
+         endif;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr dsptur;
+
+       xtype = 'DSP';            // SPØRRING
+       u_avd = kmavd;
+       sad119r (u_avd: xtype: uflagg);
+       if uflagg = 3;
+         *inlr = *on;
+         return;
+       endif;
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr chgtur;
+
+       xtype = 'CHG';                // ENDRING
+       u_avd = kmavd;
+       sad119r (u_avd: xtype: uflagg);
+
+       chain u_avd sadkmdef;
+       chain u_avd tell;
+       if %found;
+         kmpro = teturn;
+       else;
+         kmpro = 0;
+       endif;
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr srsok;
+
+       w3avd = 0;
+
+       exfmt varel2;
+
+       endsr;
+
+      // ********************************************
+       begsr init;
+
+       endsr;
+
+       /end-free

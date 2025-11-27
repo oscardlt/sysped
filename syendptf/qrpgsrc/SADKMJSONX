@@ -1,0 +1,636 @@
+     H*debug(*yes)
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *
+     FSADKML02  IF   E           K DISK                                         Turheader
+     FSADKMCL1  IF   E           K DISK                                         House/SAD-X-ref
+     FSADH      IF   E           K DISK
+     FSADV      IF   E           K DISK
+     FSADF      IF   E           K DISK
+     FECMSG1    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E           K DISK
+     FEDIS2     IF   E           K DISK    RENAME(EDISR:EDISR2)
+     F                                     PREFIX(S2_)
+     D                 DS
+     D  SVCRE1                 1      3
+     D  SVCRE2                 4      6
+     D  SVCRE3                 7      9
+     D  SVCRE4                10     12
+     D  SVCRE5                13     15
+     D  SVCRE6                16     18
+     D  SVCRE7                19     21
+     D  SVCRE8                22     24
+     D  SVCRE9                25     27
+     D  SVCRE10               28     30
+     D  CRE                    1     30    DIM(10)
+     D                 DS
+     D  SVTOP1                 1     17
+     D  SVTOP2                18     34
+     D  SVTOP3                35     51
+     D  SVTOP4                52     68
+     D  SVTOP5                69     85
+     D  SVTOP6                86    102
+     D  SVTOP7               103    119
+     D  SVTOP8               120    136
+     D  SVTOP9               137    153
+     D  SVTOP10              154    170
+     D  TOP                    1    187    DIM(11)
+     D                 DS
+     D  MCAVD                  1      4  0
+     D  XSTREKK                5      5
+     D  MCTDN                  6     12  0
+     D  SYSPEDREF              1     12
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+      *
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D LF              c                   x'25'
+      *
+     D DeclCom         s            200
+     D TranCom         s            200
+     D AvseCom         s            200
+     D MottCom         s            200
+     D VOECno          s             17
+     D Role            s              6
+     D RefType         s              6
+     D TypeOfGoods     s              2
+     D HouseNo         s              5i 0
+     D ItemNo          s              5i 0
+      * Status = Pre-alert  / On-Arrival / Cancelled
+     D Status          s             20
+     D JSONstring      s          32000
+     D WFILNAM         S            200
+     D WFILNAM1        S            200
+     D WFILNAM2        S            200
+     D WFILNAM3        S            200
+     D WFILNAM4        S            200
+     D WMAPPE          S            100
+     D WMAPPE2         S            100
+     D XLIB            S             11
+     D WFilback        S            512
+     D WFIL            S            512
+     D timeData        S               Z                                        Z=Timestamfield
+      *
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *   EDIDTA data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+      *
+     c                   exsr      init
+      *
+      * tEMPORÆRE HARDKODEDE VERDIER
+     c*                  eval      Status='Pre-alert'
+     c*                  eval      VOECno='987654'
+     c*                  eval      TypeOfGoods='11'
+     c                   eval      Role ='FR5'
+     c                   eval      RefType='N740'
+      *
+     c                   exsr      LagFil
+      *
+     c                   exsr      OpdEDIS
+      *
+     c                   seton                                        lr
+     c                   return
+      *
+      ***************************************************************
+     C     LagFil        BEGSR
+      ***************************************************************
+     C                   time                    Timedata
+     C                   movel     timedata      TS               26            må være 26 lang
+     c
+      *
+      * Lag fil og set codepage (pc)
+      *
+     C*                  EVAL      WFil     = KMUUID
+     c*                  select
+     C*                  when      KMST = 'u'                                   TMP
+     C*                  EVAL      WFil     = 'U_'+KMUUID
+     C*                  when      KMST = 'd'                                   TMP
+     C*                  EVAL      WFil     = 'D_'+KMUUID
+     c*                  endsl
+     C                   EVAL      WFil = KMUUID                                1. GANG SENDING
+     C                   MOVE      KMPRO         XAN08             8
+     C                   EVAL      S0020 = 'KM' + XAN08
+     C     S0020         SETLL     EDIS2
+     C     S0020         READE     EDIS2                                  33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        S2_SSR = 'S' AND S2_S0026 = 'SADKMJSON'
+     C                             AND S2_SST = 'C'
+     C                   EVAL      WFil = 'U_' + KMUUID                         UPDAET
+     C                   LEAVE
+     C                   END
+     C     S0020         READE     EDIS2                                  33
+     C                   ENDDO
+      *
+     C**                 EVAL      XLIB = '/' + 'A53SYSPEDF'
+     C                   EVAL      XLIB = '/' + UELIBF
+      * ByggFlr kan gjerne flyttes til annet prog. men det er gjort på millisekunder..
+     c                   exsr      ByggFlr
+     C                   EVAL      WFilNam  = %TRIM(XLIB) + '/KURERMANIFEST/'   Fil i backup
+     C                             + 'json_Ut/Backup/' + %TRIM(TS)
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam1 = %TRIM(XLIB) + '/KURERMANIFEST/'   Fil i temp med stemp
+     C                             + 'json_Ut/Temp/' + %TRIM(TS)
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam2 = %TRIM(XLIB) + '/KURERMANIFEST/'   Fil i temp uten stem
+     C                             + 'json_Ut/Temp/'
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam3 = %TRIM(Wfil) + '.json'             Filnavn uten stempel
+     C                   EVAL      WFilNam4 = %TRIM(XLIB) + '/KURERMANIFEST/'   Sjekk tidligere ver.
+     C                             + 'json_Ut/'
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WMAPPE   = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                             + 'json_Ut/Temp'
+     C                   EVAL      WMAPPE2  = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                             + 'json_Ut'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=865' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     c                   exsr      LagJson
+      *
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   CALL      'SADKMJSONC'
+     C                   PARM                    WFILNAM
+     C                   PARM                    WFILNAM1
+     C                   PARM                    WFILNAM2
+     C                   PARM                    WFILNAM3
+     C                   PARM                    WFILNAM4
+     C                   PARM                    WMAPPE
+     C                   PARM                    WMAPPE2
+      * Kopiert til endelig mappe ..
+     C                   ENDSR
+      *
+      *********************************************************************
+     c     LagJson       begsr
+      *********************************************************************
+      /free
+        // fiks div felt
+        // Declaranst comunication
+        if  KMCMD <> *blanks;
+           DeclCom='{¬identifier¬:¬'+%trim(KMCMD)+'¬,'
+                  +'¬type¬:¬'+%trim(KMCMDT)+'¬}';
+        endif;
+        // Carrier/Transporør comunication
+        if  KMCMC <> *blanks;
+           DeclCom='{¬identifier¬:¬'+%trim(KMCMC)+'¬,'
+                  +'¬type¬:¬'+%trim(KMCMCT)+'¬}';
+        endif;
+
+
+        // Start JSON
+        jsonstring ='{';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Messatge / UUID
+        jsonstring ='¬id¬:¬'+%trim(KMUUID)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Declarant
+        jsonstring =
+           '¬declarant¬:{'
+            +'¬name¬:¬'+%trim(KMNAD)+'¬,'
+            +'¬identificationNumber¬:¬'+%trim(KMRGD)+'¬,'
+            +'¬address¬:{'
+              +'¬country¬:¬'+%trim(KMLKD)+'¬,'
+              +'¬city¬:¬'+%trim(KMADD3)+'¬,'
+              +'¬postcode¬:¬'+%trim(KMPND)+'¬,'
+              +'¬streetNameLine1¬:¬'+%trim(KMADD1)+'¬,'
+              +'¬streetNameLine2¬:¬'+%trim(KMADD2)+'¬,'
+              +'¬number¬:¬¬,'
+              +'¬POBox¬:¬¬'
+            +'},'                                            // slutt Address
+            +'¬communication¬:['+%trim(DeclCom)+']'          // slutt communication
+          +'},';                                             // slutt Declarant
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+        //
+        //*******************
+        // Consignment Master
+        //*******************
+        exsr ConsMaster;
+        jsonstring = '}';                                    // slutt Hele meldingen
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+      /end-free
+     C                   ENDSR
+
+
+      ***************************************************************
+     C     ConsMaster    BEGSR
+      ***************************************************************
+      /free
+        // Consignment Master start / consignment List-start
+        jsonstring =
+           '¬consignmentMaster¬:{'
+            +'¬consignmentHouse¬:[';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        //*********************
+        // Leseloop for oppdrag/SADer...= consignmentHouse
+        exsr ReadHouse;
+
+        //*********************
+        // Slutt consignmentListe
+        jsonstring =
+             '],';                                           // slutt consignment House/
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        //*********************
+        // De videre segmentgrupper er også en del av Master, men ETTER cosn-liste
+        //*********************
+        // Transport Means
+        jsonstring =
+           '¬activeBorderTransportMeans¬:{'
+            +'¬modeOfTransport¬:¬'+%trim(%editc(KMTM:'X'))+'¬,'
+            +'¬actualDateAndTimeOfDeparture¬:¬'
+               +%trim(%editc(KMATDD:'X'))+'T'+%trim(%editc(KMATDT:'X'))+'¬,'
+            +'¬conveyanceReferenceNumber¬:¬'+%trim(KMTRRF)+'¬'
+          +'},';                                             // slutt Entry office
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Entry office
+        jsonstring =
+           '¬entryOffice¬:{'
+            +'¬customsOfficeOfFirstEntryCode¬:¬'+%trim(KMTD1)+'¬,'
+            +'¬actualCustomsOfficeOfFirstEntryCode¬:¬'+%trim(KMTDA)+'¬'
+          +'},';                                             // slutt Entry office
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Carrier
+        jsonstring =
+           '¬carrier¬:{'
+            +'¬name¬:¬'+%trim(KMNAC)+'¬,'
+            +'¬identificationNumber¬:¬'+%trim(KMRGC)+'¬,'
+            +'¬address¬:{'
+              +'¬country¬:¬'+%trim(KMLKC)+'¬,'
+              +'¬city¬:¬'+%trim(KMADC3)+'¬,'
+              +'¬postcode¬:¬'+%trim(KMPNC)+'¬,'
+              +'¬streetNameLine1¬:¬'+%trim(KMADC1)+'¬,'
+              +'¬streetNameLine2¬:¬'+%trim(KMADC2)+'¬,'
+              +'¬number¬:¬¬,'
+              +'¬POBox¬:¬¬'
+            +'},'                                            // slutt Address
+            +'¬communication¬:['+%trim(TranCom)+']'          // slutt communication
+          +'}';                                              // slutt Carrier
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring = '}';                                    // slutt Consignment Master
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+      /end-free
+     C                   ENDSR
+      *
+
+      ***************************************************************
+     C     readhouse     BEGSR
+      ***************************************************************
+     c     MCPRO         setll     SADKMCL1
+     c     MCPRO         reade     SADKMCL1
+     c                   dow       not %eof
+     c     SadKey        chain     SADH
+     c                   if        %found
+     c                   exsr      OneHouseHead
+     c                   endif
+     c     MCPRO         reade     SADKMCL1
+     c                   enddo
+     C                   ENDSR
+      *
+
+      ***************************************************************
+     C     OneHouseHead  BEGSR
+      ***************************************************************
+      /free
+        // fiks div felt
+        // consignee/mottaker  comunication
+        if  MCCMK <> *blanks;
+           MottCom='{¬identifier¬:¬'+%trim(MCCMK)+'¬,'
+                  +'¬type¬:¬'+%trim(MCCMKT)+'¬}';
+        endif;
+        // consignor/Avsender comunication
+        if  MCCMS <> *blanks;
+           AvseCom='{¬identifier¬:¬'+%trim(MCCMS)+'¬,'
+                  +'¬type¬:¬'+%trim(MCCMST)+'¬}';
+        endif;
+
+        HouseNo = HouseNo+1;
+        // Start House-tager
+        if HouseNo = 1;
+          jsonstring ='{';
+        else;
+          jsonstring =',{';
+        endif;
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        select;
+        when mcst = 'S';   // kansellert
+        Status='Cancelled';
+        when kmtda = ' ';  // gods har ikke passert grense
+        Status='Pre-alert';
+        other;             // gods har passert grense
+        Status='On-arrival';
+        endsl;
+
+        jsonstring =
+             '¬countryOfOrigin¬:¬'+%trim(SILKA)+'¬,'
+            +'¬totalGrossMass¬:'+%trim(%editc(SIVKB:'3'))+','
+            +'¬status¬:¬'+%trim(STATUS)+'¬,'
+            +'¬totalAmountInvoiced¬:{'
+              +'¬value¬:'+%trim(%editw(SIBEL3:'           .  '))+','         //13,2
+              +'¬currency¬:¬'+%trim(SIVAL3)+'¬},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Consignee / mottaker
+        jsonstring =
+             '¬consignee¬:{'
+            +'¬name¬:¬'+%trim(MCNAK)+'¬,'
+            +'¬identificationNumber¬:¬'+%trim(MCRGK)+'¬,'
+            +'¬address¬:{'
+              +'¬country¬:¬'+%trim(MCLKK)+'¬,'
+              +'¬city¬:¬'+%trim(MCADK3)+'¬,'
+              +'¬postcode¬:¬'+%trim(MCPNK)+'¬,'
+              +'¬streetNameLine1¬:¬'+%trim(MCADK1)+'¬,'
+              +'¬streetNameLine2¬:¬'+%trim(MCADK2)+'¬,'
+              +'¬number¬:¬¬,'
+              +'¬POBox¬:¬¬'
+            +'},'                                            // slutt Address
+            +'¬communication¬:['+%trim(MottCom)+']'          // slutt communication
+          +'},';                                             // slutt Consignee
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Consignor / sender
+        jsonstring =
+             '¬consignor¬:{'
+            +'¬name¬:¬'+%trim(MCNAS)+'¬,'
+            +'¬identificationNumber¬:¬'+%trim(MCRGS)+'¬,'
+            +'¬address¬:{'
+              +'¬country¬:¬'+%trim(MCLKS)+'¬,'
+              +'¬city¬:¬'+%trim(MCADS3)+'¬,'
+              +'¬postcode¬:¬'+%trim(MCPNS)+'¬,'
+              +'¬streetNameLine1¬:¬'+%trim(MCADS1)+'¬,'
+              +'¬streetNameLine2¬:¬'+%trim(MCADS2)+'¬,'
+              +'¬number¬:¬¬,'
+              +'¬POBox¬:¬'+%trim(SYSPEDREF)+'¬'
+            +'},'                                            // slutt Address
+            +'¬communication¬:['+%trim(AvseCom)+']'          // slutt communication
+          +'},';                                             // slutt Consignor
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Transport document
+        jsonstring =
+             '¬transportDocument¬:{'
+            +'¬referenceNumber¬:¬'+%trim(MCTRF)+'¬,'
+            +'¬type¬:¬'+%trim(MCTRFT)+'¬},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        exsr      GoodsItems;
+
+        // Slutt House-tager
+        jsonstring ='}';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+      /end-free
+     C                   ENDSR
+      ***************************************************************
+     C     GoodsItems    BEGSR
+      ***************************************************************
+      /free
+        ItemNo = *zeros;
+        // item list start
+        jsonstring ='¬goodsItem¬:[';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        //les  SADV..
+     c     SadKey        setll     SADV
+     c     SadKey        reade     SADV
+     c                   dow       not %eof
+     c                   eval      VOECno = *blanks
+     c     1             do        10            xn                3 0
+     c                   if        cre(xn) = 'VEC'
+     c                   eval      VOECno = top(xn)
+     c                   leave
+     c                   end
+     c                   enddo
+     c                   exsr      OneItem
+     c     SadKey        reade     SADV
+     c                   enddo
+
+        // item list slutt
+        jsonstring = ']';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+      /end-free
+     C                   ENDSR
+      *
+      ***************************************************************
+     C     OneItem       BEGSR
+      ***************************************************************
+     C                   MOVEL     SVVNT         SVVNT_A           6            6 første
+     C                   MOVE      SVVNT         SVVNT_B           2            2 siste
+      /free
+        ItemNo = ItemNo+1;
+
+        // Start Item line tager
+        if itemNo = 1;
+          jsonstring ='{';
+        else;
+          jsonstring =',{';
+        endif;
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+         //  Type of goods
+               //  11 - Sale of goods
+               //  21 - Returned goods
+               //  31 - Gift
+               //  32 - Commercial sample
+               //  91 - Documents
+        jsonstring =
+             '¬goodsItemNumber¬:'+%trim(%editc(ItemNo:'3'))+','
+            +'¬typeOfGoods¬:¬'+%trim(mctype)+'¬,'
+            +'¬itemAmountInvoiced¬:{'
+              +'¬value¬:'+%trim(%editw(SVBELT:'           .  '))+','         //13,2
+              +'¬currency¬:¬'+%trim(SIVAL3)+'¬},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+             '¬commodity¬:{'
+            +'¬descriptionOfGoods¬:¬'+%trim(SVVT01)+'¬,'
+            +'¬commodityCode¬:{'
+              +'¬harmonizedSystemSubHeadingCode¬:¬'+%trim(SVVNT_A)+'¬,'
+              +'¬combinedNomenclatureCode¬:¬'+%trim(SVVNT_B)+'¬}'
+              +'},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+             '¬weight¬:{'
+              +'¬grossMass¬:'+%trim(%editw(SVVKTB:'         .   '))+','         //12,3
+              +'¬netMass¬:'+%trim(%editw(SVVKTN:'         .   '))             //12,3
+              +'},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+             '¬packages¬:{'
+              +'¬numberOfPackages¬:'+%trim(%editc(SVNTM:'3'))
+              +'},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+             '¬additionalFiscalReferences¬:{'
+            +'¬VATIdentificationNumber¬:¬'+%trim(VOECno)+'¬,'
+            +'¬role¬:¬'+%trim(Role)+'¬'
+            +'}';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Start item line tager
+        jsonstring ='}';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+      /end-free
+     C                   ENDSR
+      *
+      ***************************************************************
+     C     OpdEDIS       BEGSR
+      ***************************************************************
+     C     ECMSG1K       CHAIN     ECMSG1                             32
+     C     1             CHAIN     EDIC                               32
+     C                   ADD       1             CSN
+     C                   UPDATE    EDICR
+     C                   eval      s0004 = ECIIDI
+     C                   eval      s0010 = ECIIDC
+     C                   eval      s0020 = 'KM' + %TRIM(UPRO)
+     C                   eval      s0026 = 'SADKMJSON'
+     C                   eval      ssn   = CSN
+     C                   eval      ssr   = 'S'
+     C                   eval      sst   = 'B'
+     C                   move      wdt           sdt
+     C                   move      wtm           stm
+     C                   eval      slib  = '*LIB'
+     C                   eval      sfile = '*IFS'
+     C                   eval      smbr  = *BLANKS
+     C                   eval      sifs  = WFilNam
+     C                   write     edisr
+      *
+     C                   ENDSR
+      *
+      ***************************************************************
+     C     init          BEGSR
+      ***************************************************************
+     c     *entry        plist
+     c                   parm                    UPRO              8
+     c                   move      Upro          MCPRO
+      *
+      * hent turheader
+     c     MCPRO         chain     SADKML02
+      *
+      *
+      * hent  consingment / xref   - MINST 1 må finnes
+     c     MCPRO         chain     SADKMCL1
+     c                   if        not %found
+     c                   eval      *INLR = *on
+     c                   return
+     c                   endif
+      * hent  sad header-data
+      *
+     C     ECMSG1K       KLIST
+     C                   KFLD                    ECSR
+     C                   KFLD                    EC0065
+     C                   EVAL      ECSR   = 'S'
+     C                   EVAL      EC0065 = 'KURERM'
+      *
+     C     SadKey        KLIST
+     C                   KFLD                    MCavd
+     C                   KFLD                    MCtdn
+     c     SadKey        chain     SADH
+     c                   if        not %found
+     c                   eval      *INLR = *on
+     c                   return
+     c                   endif
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *
+     C                   EVAL      XSTREKK = '/'
+      *
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+     C
+     c                   endsr
+      *
+      **********************************************
+     C     ByggFlr       begsr
+      **********************************************
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut/Temp'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut/Backup'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      * for Oscar/Java-bruk
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut/error'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut/sent'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      * BAT = Batch / for Java sende motoren
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'BAT'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *  automatistere også denne (lage egen CL ?)
+      *  også kopiere  /apache/kurer-client/upload-engine-kurermanif-client.jar
+      *           til  .../BAT/upload-engine-kurermanif-client.jar
+      *
+     c                   endsr
+      *

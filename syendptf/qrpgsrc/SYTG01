@@ -1,0 +1,409 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11064 * 01 CB  PTF11 Fjernet key fra TPSERV + ny URL
+12272 * 02 YBC PTF12 URL er endret
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+S01  F*PSERV    IF A E           K DISK
+N01  FTPSERV    IF A E             DISK
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+     D XUSRID          s             30A
+     D XPASWRD         s             30A
+     D XADR            s             30A
+     D XPNR            s              4A
+     D XSTE            s             24A
+     D XXDayOfW        s             10A
+     D XXOpen          s              5A
+     D XXClose         s              5A
+      * midlertideige for test..
+     D Nav             s             30A
+     D Adr             s             30A
+     D Pnr             s              4A
+     D Ste             s             24A
+
+     C                   EXSR      INIT
+     c     Start         tag
+
+      /free
+
+        *inlr = *on;
+
+        // ****************************************************
+        //  Bygg parametrene...
+        //  System iNetwork to a temporary file in the IFS
+        // ****************************************************
+          Enc = http_url_encoder_new();
+
+S01    //http_url_encoder_addvar_s(Enc : 'connector'
+S01    //                              : 'tollpostServicepartnerProximity');
+S01    //http_url_encoder_addvar_s(Enc : 'username'
+S01    //                              : %TRIM(XUSRID));
+S01    //http_url_encoder_addvar_s(Enc : 'password'
+S01    //                              : %TRIM(XPASWRD));
+S01    //http_url_encoder_addvar_s(Enc : 'format'
+S01    //                              : %TRIM('xml'));
+S01    //http_url_encoder_addvar_s(Enc : 'countrycode'
+S01    //                              : %TRIM('no'));
+S01    //http_url_encoder_addvar_s(Enc : 'DZipCode'
+S01    //                              : %TRIM(XPNR));
+N01    http_url_encoder_addvar_s(Enc : 'returnType'
+N01                                  : %TRIM('xml'));
+N01    http_url_encoder_addvar_s(Enc : 'countryCode'
+N01                                  : %TRIM('NO'));
+N01    http_url_encoder_addvar_s(Enc : 'agreementCountry'
+N01                                  : %TRIM('NO'));
+       if XPNR <> *blanks;
+N01    http_url_encoder_addvar_s(Enc : 'postalCode'
+N01                                  : %TRIM(XPNR));
+       endif;
+       if XADR <> *blanks;
+N01    http_url_encoder_addvar_s(Enc : 'streetName'
+N01                                  : %TRIM(XADR));
+       endif;
+N01    http_url_encoder_addvar_s(Enc : 'numberOfServicePoints'
+N01                                  : %TRIM('5'));
+N01    http_url_encoder_addvar_s(Enc : 'srId'
+N01                                  : %TRIM('EPSG:3A4326'));
+N01    http_url_encoder_addvar_s(Enc : 'contextf'
+N01                                  : %TRIM('optionalservicepoint'));
+N01    http_url_encoder_addvar_s(Enc : 'responseFilter'
+N01                                  : %TRIM('public'));
+N01    http_url_encoder_addvar_s(Enc : 'typeId'
+N01                                  : %TRIM('37'));
+N01    http_url_encoder_addvar_s(Enc : 'apikey'
+N01                           : %TRIM('43fc3f8567bc38f5321fafc70555c408'));
+N01    // 43fc3f8567bc38f5321fafc70555c408 er Systema sin Apikey
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+
+S01       //url = 'http://www.postnordlogistics.no/api/privatedelivery/v2/'
+S01       //     + '?'
+N01       url = 'https://api2.postnord.com/rest/businesslocation/v5'
+N01            + '/servicepoints/nearest/byaddress?'
+               + http_url_encoder_getstr(Enc);
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+           unlink(filename);
+        // dsply result ' ' wait;
+        // return;
+
+      /end-free
+      *  HER KOMMER VURDERING AV RESuLTAT / NYTT FORSØK MM...
+     C*                  MOVE      xxxxx         yyyy
+     C*                  xxxxx
+     c*    EngangTil     ifeq      'Y'
+     c*                  goto      Start
+     c*                  end
+     C                   DUMP
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UNAV             30
+     C                   PARM                    UADR             30
+     C                   PARM                    UPNR              4
+     C                   PARM                    USTE             25
+      * Dersom en returnerer med noe i Unav, da er butikk valgt
+     c                   eval      Unav    = *blanks
+      *
+     c   99              read      tpserv
+     c                   setoff                                       99
+     c
+S01  C*                  eval      XUSRID  = 'stb@systema.no'
+S01  C*                  eval      XPASWRD = 'systema1'
+     C                   eval      XADR    = UADR
+     C                   eval      XPNR    = UPNR
+     C                   eval      XSTE    = USTE
+      *
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+
+      /free
+
+            select;
+
+        // ServicepartnerID
+
+S01     //  when name = 'ServicepartnerID';
+N01         when name = 'servicePointId';
+               TPSEID  =  value;
+               Result  = Result + 1;
+
+
+        //  CompanyID
+
+S01     //  when name = 'CompanyID';
+N01         when name = 'servicePointId';
+               TPCOID  =  %float(value);
+
+
+        // TollpostDepot
+
+S01     //   when name = 'TollpostDepot';
+S01     //   TPDEPO    = value;
+
+
+        // CompanyName1
+
+S01     //   when name = 'CompanyName1';
+N01          when name = 'name' and depth = 4;
+             TPNAVN    = value;
+
+
+        // StreetAddress1
+N01     // streetName
+
+S01     //   when name = 'StreetAddress1';
+N01          when name = 'streetName';
+             TPADR1    = value;
+
+N01     // streetNumber
+N01          when name = 'streetNumber';
+N01          TPADR1    = %trim(TPADR1) + ' ' + %trim(value);
+
+
+        //  PostalCode
+
+S01     //   when name = 'PostalCode';
+N01          when name = 'postalCode';
+             TPPONR    =  %float(value);
+
+
+        // City
+
+S01     //   when name = 'City';
+N01          when name = 'city';
+             TPSTED    = value;
+
+        // CouncilNbr
+
+S01     //   when name = 'CouncilNbr';
+S01     //   TPKONO    =  %float(value);
+
+
+        // CouncilName
+
+S01     //   when name = 'CouncilName';
+S01     //   TPKONA    = value;
+
+
+        // CountyNbr
+
+S01     //   when name = 'CountyNbr';
+S01     //   TPFYNO    =  %float(value);
+
+
+        // CountyName
+
+S01     //   when name = 'CountyName';
+S01     //   TPFYNA    =  value;
+
+
+        // UTM33X
+
+S01     //   when name = 'UTM33X';
+S01     //   TPM33X    =  %float(value);
+
+
+        // UTM33Y
+
+S01     //   when name = 'UTM33Y';
+S01     //   TPM33Y    =  %float(value);
+
+
+        // Distance
+
+S01     //   when ((name = 'Distance')
+S01     //    and  (depth = 5));
+N01          when ((name = 'routeDistance')
+N01           and  (depth = 4));
+             TPDIST    =  %float(value);
+
+
+        //  DayOfWeek - husk sist leste (etterfølgende open/close tilhører den)
+
+             when name = 'openDay';
+             XXDayOfW  =  value;
+
+
+        //  Open
+S01     //   when name = 'Open';
+N01          when name = 'openTime';
+             XXOpen    =  value;
+
+
+        //  Close
+S01    //    when name = 'Close';
+N01          when name = 'closeTime';
+             XXClose   =  value;
+
+                 select;
+S01      //      when  XXDayOfW = 'Mandag';
+N01              when  XXDayOfW = 'Monday';
+                       TPAMAF   =  XXOpen;
+                       TPAMAT   =  XXClose;
+S01      //      when  XXDayOfW = 'Tirsdag';
+N01              when  XXDayOfW = 'Tuesday';
+                       TPATIF   =  XXOpen;
+                       TPATIT   =  XXClose;
+S01      //      when  XXDayOfW = 'Onsdag';
+N01              when  XXDayOfW = 'Wednesday';
+                       TPAONF   =  XXOpen;
+                       TPAONT   =  XXClose;
+S01      //      when  XXDayOfW = 'Torsdag';
+N01              when  XXDayOfW = 'Thursday';
+                       TPATOF   =  XXOpen;
+                       TPATOT   =  XXClose;
+S01      //      when  XXDayOfW = 'Fredag';
+N01              when  XXDayOfW = 'Friday';
+                       TPAFRF   =  XXOpen;
+                       TPAFRT   =  XXClose;
+S01      //      when  XXDayOfW = 'Lørdag';
+N01              when  XXDayOfW = 'Saturday';
+                       TPALOF   =  XXOpen;
+                       TPALOT   =  XXClose;
+S01      //      when  XXDayOfW = 'Søndag';
+N01              when  XXDayOfW = 'Sunday';
+                       TPASOF   =  XXOpen;
+                       TPASOT   =  XXClose;
+
+                 endsl;
+
+
+        // MapTerminal
+
+S01     //   when name = 'MapTerminal';
+S01     //   TPMAPT    =  value;
+
+
+        // MapBig
+
+S01     //   when name = 'MapBig';
+S01     //   TPMAPB    =  value;
+
+
+
+
+        // MapMedium
+
+S01     //   when name = 'MapMedium';
+S01     //   TPMAPM    =  value;
+
+
+        // MapSmall
+
+S01     //   when name = 'MapSmall';
+S01     //   TPMAPS    =  value;
+
+
+        // TollpostServicepartner
+
+             when name = 'typeName';
+             WRITE TPSERVR;
+             CLEAR TPSERVR;
+
+            endsl;
+
+      /end-free
+     P                 E

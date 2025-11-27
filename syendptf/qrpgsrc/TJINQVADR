@@ -1,0 +1,255 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQVADR MODULE(*LIBL/TJINQVADR *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 innføre AKT-kod    .....
+      *%%%%%%%%%%%%%%%%%%%%%%%
+11XXX * 02 ??? PTF12 alfasøket gjort om til scan på navn  (CB ??)
+11XXX * 03 JOV PTF12 søk via VAKURE =kunderef/kundes kundenr - returner EN eller tom liste
+********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FVADR      IF   E           K DISK    USROPN
+     FVADR1     IF   E           K DISK    USROPN
+     F                                     RENAME(VADRR:VADRR1)
+N03  FVADR3     IF   E           K DISK    USROPN
+N03  F                                     RENAME(VADRR:VADRR3)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D WSVARNV         S             20
+     D WKUNDNR         S              8
+     D WKUNDNRN        S              8S 0
+     D WVADRNR         S              5
+     D WVADRNRN        S              5S 0
+     D WVADRNA         S             10    varying
+     D WVADRNA2        S             10
+N03  D WVAKURE         S             17
+     D USER            S             10
+     D MaxV            S              5
+     D MaxVis          S              5  0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+     D Error           S            150
+     D JSONstring      s          32000
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      *
+N02  c                   IF        WKUNDNRN= *zeros
+N02  c                   move      BIKUNR        WKUNDNR
+N02  c                   move      BIKUNR        WKUNDNRN
+N02  c                   endif
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬wkundnr¬ : ¬'+%trim(WKUNDNR)+'¬, '
+        +'¬wvadrnr¬ : ¬'+%trim(WVADRNR)+'¬, '
+        +'¬wvadrna¬ : ¬'+%trim(WVADRNA)+'¬, '
+        +'¬maxv¬ : ¬'+%trim(MAXV)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"inqdeladdr" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C     ERROR         IFEQ      *blanks
+     C                   EXSR      LINES
+     C                   ENDIF
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   EXSR      EXIT
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     PARSE         BEGSR
+     C                   EVAL      USER    = zhbgetvar('USER')
+     C                   EVAL      WKUNDNR = zhbgetvar('WKUNDNR')
+     C                   EVAL      WKUNDNRN= c2n2(WKUNDNR)
+     C                   EVAL      WVADRNR = zhbgetvar('WVADRNR')
+     C                   EVAL      WVADRNRN= c2n2(WVADRNR)
+     C                   EVAL      WVADRNA = zhbgetvar('WVADRNA')
+     C     LO:UPC        XLATE     WVADRNA       WVADRNA
+N03  C                   EVAL      WVAKURE = zhbgetvar('WVAKURE')
+N03  C     LO:UPC        XLATE     WVAKURE       WVAKURE
+     C                   EVAL      MaxV    = zhbgetvar('MaxV')
+     C                   EVAL      MaxVis  = c2n2(MaxV)
+     C     MaxVis        IFEQ      *ZEROS
+     C                   Z-ADD     50            MaxVis
+     C                   ENDIF
+     C                   ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     VADR
+     C  N50              CLOSE     VADR1
+N03  C  N50              CLOSE     VADR3
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   ENDSR
+      *=====================================================================
+      * Fine lins - send to browser
+      *=====================================================================
+     C     Lines         BEGSR
+     C                   EVAL      WVADRNA2   = WVADRNA
+     C                   MOVE      *ZEROS        AntVist           5 0
+S02  C*    WVADRNRN      IFEQ      *ZEROS
+S02  C*    WVADRNA       ANDEQ     *BLANKS
+S02  C*                  GOTO      UTLES
+S02  C*                  ENDIF
+
+N03  C                   SELECT
+S03  C*    WVADRNRN      IFNE      *ZEROS
+N03   * 1. Via gitt vareadr.nummer
+N03  C     WVADRNRN      WHENNE    *ZEROS
+     C     VARKEY        SETLL     VADR
+     C     VARKEY        READE     VADR                                   33
+N03   * 2. Via gitt kundes kundenummer
+N03  C     WVAKURE       WHENNE    *BLANKS
+N03  C     KUREKEY       SETLL     VADR3
+N03  C     KUREKEY       READE     VADR3                                  33
+S03  C*                  ELSE
+N03   * 3. ellers ALLE / filtrer (evt) på navn
+N03  C                   OTHER
+     C     NVNKEY        SETLL     VADR1
+     C     NVNKEY        READE     VADR1                                  33
+N02  C                   IF        WVADRNA<>*BLANKS
+     C     WVADRNA       SCAN      VADRNA                                 34
+     C     *IN34         CABEQ     *OFF          UtLes
+N02  C                   ENDIF
+N03  C                   ENDSL
+S03  C*                  ENDIF
+
+     C     *IN33         DOWEQ     *OFF
+
+     C                   ADD       1             AntVist           5 0
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+N01       +'¬aktkod¬ : ¬'+%trim(AKTKOD)+'¬, '
+          +'¬vadrnr¬ : ¬'+%trim(%editc(VADRNR:'3'))+'¬, '
+          +'¬vadrna¬ : ¬'+%trim(VADRNA)+'¬, '
+          +'¬vadrn1¬ : ¬'+%trim(VADRN1)+'¬, '
+          +'¬vadrn2¬ : ¬'+%trim(VADRN2)+'¬, '
+          +'¬vadrn3¬ : ¬'+%trim(VADRN3)+'¬, '
+          +'¬valand¬ : ¬'+%trim(VALAND)+'¬, '
+          +'¬vakure¬ : ¬'+%trim(VAKURE)+'¬, '
+          +'¬vatlf¬ : ¬'+%trim(VATLF)+'¬, '
+          +'¬vafax¬ : ¬'+%trim(VAFAX)+'¬, '
+          +'¬vamail¬ : ¬'+%trim(VAMAIL)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     AntVist       CABGE     MaxVis        UtLes
+
+N03  C                   SELECT
+S03  C*    WVADRNRN      IFNE      *ZEROS
+N03  C     WVADRNRN      WHENNE    *ZEROS
+     C     VARKEY        READE     VADR                                   33
+N03  C     WVAKURE       WHENNE    *BLANKS
+N03  C     KUREKEY       READE     VADR3                                  33
+S03  C*                  ELSE
+N03  C                   OTHER
+     C     NVNKEY        READE     VADR1                                  33
+N02  C                   IF        WVADRNA<>*BLANKS
+     C     WVADRNA       SCAN      VADRNA                                 34
+     C     *IN34         CABEQ     *OFF          UTLES
+N02  C                   ENDIF
+N03  C                   ENDSL
+S03  C*                  ENDIF
+     C                   ENDDO
+
+     C     UTLES         TAG
+
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på USER - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      VADR
+     C  N50              OPEN      VADR1
+N03  C  N50              OPEN      VADR3
+      * Key for VADR
+     C     VARKEY        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    WKUNDNRN
+     C                   KFLD                    WVADRNRN
+      * Key for VADR1
+     C     NVNKEY        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    WKUNDNRN
+N03   * Key for VADR3
+N03  C     KUREKEY       KLIST
+N03  C                   KFLD                    BIFIRM
+N03  C                   KFLD                    WKUNDNRN
+N03  C                   KFLD                    WVAKURE
+
+     C                   ENDSR

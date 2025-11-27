@@ -1,0 +1,375 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STSW03Rm  MODULE(*LIBL/STSW03Rm *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 oppdater dokufm ved fullfør
+10XXX * 02 JOV PTF10 kode S = send iFTSTA(kanskje).. i T&T
+10XXX * 03 JOV PTF10 oppdater også evt mor-oppdrag
+10172 * 04 SH  PTF10 norsk text til Track and trace
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 05 JOV PTT12 Ignorer generelt godsmerke (kun I/E)
+      * 06 JOV PTT12 Husk å frigi lest record når det er godsmerke...
+      *********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FSTSCLI    UF   E           K DISK    usropn
+     FSTSfbr    UF   E           K DISK    usropn
+     FSTSopd    UF   E           K DISK    usropn
+     FSTStur    UF   E           K DISK    usropn
+     FTURER14   UF   E           K DISK    usropn
+N01  FDOKUFM1   UF   E           K DISK    USROPN
+     Ffirm      IF   E           K DISK    USROPN
+     FTRACKF    O  A E           K DISK    USROPN
+     FKODTP     if   e           k disk    usropn
+N03  FHEADF     if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Array for konv. av alfa til numerisk
+     D FE              S              1    DIM(15)
+      * Variables received from the input string
+     D wspro           s              8  0
+     DTN1              s              8
+     DwsPro1           s              8  0
+     DTN2              s              8
+     DwsPro2           s              8  0
+     DTN3              s              8
+     DwsPro3           s              8  0
+     D User            s             10
+     D FullF           s              1
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D SEMI            s              1
+n01  D                 DS
+n01  D  SCCLID                 1     20
+n01  D  SCCLID18               3     37
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D  XULDDMM                7     10  0
+     D  XULÅÅ2                13     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs   (C-specs)
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      *
+     C                   eval      USER   = zhbgetvar('user')
+     C                   eval      TN1    = zhbgetvar('TN1')
+     C                   eval      wspro1 = c2n2(TN1)
+     C                   eval      TN2    = zhbgetvar('TN2')
+     C                   eval      wspro2 = c2n2(TN2)
+     C                   eval      TN3    = zhbgetvar('TN3')
+     C                   eval      wspro3 = c2n2(TN3)
+     C                   eval      Fullf  = zhbgetvar('fullf')
+     C                   eval      SEMI    = zhbgetvar('SEMI')
+      *
+     C                   open      BRIDF
+     C     User          CHAIN     BRIDF                              30
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * INITIERING...
+N03  C     HEAKEY        KLIST
+N03  C                   KFLD                    SOAVD
+N03  C                   KFLD                    SOOPD
+     C     *LIKE         DEFINE    SCTYPE        YTYPE
+     C     TURKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   MOVE      *BLANKS       YTYPE
+     C     KODTPK        KLIST
+     C                   KFLD                    WSPUNI
+     C                   KFLD                    TUAVD
+     C                   KFLD                    WSPLNR
+     C                   MOVE      'P'           WSPUNI            1
+     C                   Z-ADD     113           WSPLNR            3 0
+      *
+     c                   open      stscli
+     c                   open      stsfbr
+     c                   open      stsopd
+     c                   open      ststur
+     c                   open      firm
+     c                   open      trackf
+     c                   open      turer14
+     c                   open      KODTP
+n01  c                   open      DOKUFM1
+N03  c                   open      HEADF
+      *
+     c     *loval        setll     firm
+     c                   read      firm
+      *
+     C     wspro1        ifne      *zeros
+     C     wspro2        orne      *zeros
+     C     wspro3        orne      *zeros
+      *-Sett fullført-merke
+     c     Fullf         Ifeq      'Y'
+     C                   exsr      FULL
+     C                   else
+      *-Delete fra workfiles
+     C                   exsr      DCLI
+     C                   end
+     C                   end
+      *
+      * Set html output skeleton member
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C     SEMI          IFNE      'Y'
+     c     user          ifeq      'NN'
+     C                   eval      Mbr = 'STS01B'
+     c                   else
+     C                   eval      Mbr = 'STS02'
+     c                   end
+     C                   else
+     C                   eval      Mbr = 'STSW03T'
+     C                   end
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('user':user)
+     c     user          ifeq      'NN'
+     C                   callp     updhtmlvar('user':spaces)
+     c                   end
+     C                   callp     updHTMLvar('besk':BIBESK)
+     C                   callp     updHTMLvar('kunr':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   callp     updHTMLvar('FEILTXT':spaces)
+      *
+     C                   callp     wrtsection('all')
+     C                   callp     wrtsection('*fini')
+      *
+     c                   close     stscli
+     c                   close     stsfbr
+     c                   close     stsopd
+     c                   close     ststur
+     c                   close     bridf
+     c                   close     firm
+     c                   close     trackf
+     c                   close     turer14
+     c                   close     KODTP
+n01  c                   close     DOKUFM1
+N03  c                   close     HEADF
+     C                   eval      *inlr = *on
+     C                   RETURN
+     C***********************************************
+     C     FULL          BEGSR
+     C***********************************************
+     c     wspro1        ifne      *zeros
+     c                   move      wspro1        wspro
+     c                   exsr      fullb
+     C                   end
+     c     wspro2        ifne      *zeros
+     c                   move      wspro2        wspro
+     c                   exsr      fullb
+     C                   end
+     c     wspro3        ifne      *zeros
+     c                   move      wspro3        wspro
+     c                   exsr      fullb
+     C                   end
+     C                   endsr
+     C***********************************************
+     C     FULLB         BEGSR
+     C***********************************************
+      * Set status Fullført manuelt...
+     C     TurKey        chain     STStur                             30
+     C     *in30         IFEQ      '0'
+     C                   Move      'N'           Nattport          1
+     C     wspro         Chain     Turer14                            33
+      * X=fullført lest, M=avsluttet m/manko, N=Nattportmanko
+     C     STANOK        IFGE      STANOP                                           5<-B
+     C                   move      'X'           ststat
+     C                   ELSE                                                       5<-E
+     C                   move      'M'           ststat
+     C     TUTST3        IFEQ      '1'
+     C                   move      'N'           ststat
+     C                   END                                                        5<-E
+     C                   END                                                        5<-E
+     C                   UPDATE    STSTURR
+      *  Flagg på turen - ved manko NATTPORT-> 2, syfa55 -> N
+     C     *in33         IFEQ      '0'
+     C     TUTST3        IFEQ      '1'
+     C                   Move      'J'           Nattport
+     C     STSTAT        IFEQ      'X'
+     C                   move      'X'           TUTST3
+     C                   else
+     C                   move      '2'           TUTST3
+     C                   end
+     C                   end
+     C                   update    turerR
+     C     NATTPORT      IFEQ      'J'
+     C                   MOVE      WSPRO         WSPROA            8
+     C                   MOVEL     'QPRINT'      XXPRT            10
+     C     KODTPK        CHAIN     KODTP                              33
+     C  N33              MOVE      KOPNVN        XXPRT
+     C                   CALL      'SYFA55ICLP'
+     C                   PARM                    WSPROA
+     C                   PARM                    BIBRID
+     C                   PARM                    XXPRT
+     C                   end
+     C                   end
+     C                   end
+      *
+      * Oppdrag som er komplette  logges.
+     c     FIURBL        IFEQ      'J'
+     C     TurKey        SETLL     STSopd
+     C     TurKey        READE     STSopd                                 94
+     C     *IN94         DOWEQ     '0'
+     c     SOSTAT        IFNE      ' '
+     C                   EXSR      TTSR
+     C                   END
+     C     TurKey        READE     STSopd                                 94
+     C  N94              ENDDO
+     C                   END
+      *
+      * oppdater på dokufm..
+n01  C     TurKey        SETLL     STSCLI
+n01  C     TurKey        READE(N)  STSCLI                                 94
+n01  C     *IN94         DOWEQ     '0'
+S05  c*    SCCLID18      chain     dokufm1                            33
+N05  c     SCCLID18      setll     dokufm1
+N05  c     NxtDokufm     tag
+N05  c     SCCLID18      READE     dokufm1                                33
+N05  C  N33              if        FMST<>'I' and  FMST<>'E'
+N06  c                   update    dokufmr
+N05  C                   goto      NxtDokufm
+N05  C                   endif
+n01  C     *IN33         ifeq      '0'
+n01  c                   move      scstat        FMUTER
+n01  c                   move      SCDT          FMUTDT
+n01  c                   move      *zeros        FMUTTM
+n01  c                   movel     SCTID         FMUTTM
+n01  c                   move      SCUSER        FMUTUS
+n01  c                   update    dokufmr
+n01  C                   endif
+n01  C     TurKey        READE(N)  STSCLI                                 94
+n01  C                   ENDdo
+      *
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     DCLI          BEGSR
+     C***********************************************
+     c     wspro1        ifne      *zeros
+     c                   move      wspro1        wspro
+     c                   exsr      dclib
+     C                   end
+     c     wspro2        ifne      *zeros
+     c                   move      wspro2        wspro
+     c                   exsr      dclib
+     C                   end
+     c     wspro3        ifne      *zeros
+     c                   move      wspro3        wspro
+     c                   exsr      dclib
+     C                   end
+     C                   endsr
+     C***********************************************
+     C     DCLIB         BEGSR
+     C***********************************************
+      *
+     C     TurKey        SETLL     STSCLI
+     C     TurKey        READE     STSCLI                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsclir
+     C     TurKey        READE     STSCLI                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STSfbr
+     C     TurKey        READE     STSfbr                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsfbrr
+     C     TurKey        READE     STSfbr                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STSopd
+     C     TurKey        READE     STSopd                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsopdr
+     C     TurKey        READE     STSopd                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STStur
+     C     TurKey        READE     STStur                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    ststurr
+     C     TurKey        READE     STStur                                 94
+     C  N94              ENDDO
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+      * HENT DATO/KLOKKESLETT
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      SOAVD         TTAVD
+     C                   MOVE      SOOPD         TTOPD
+     C                   MOVE      'TEU'         TTACTI
+     C                   MOVE      ULDT          TTDATE
+     C                   MOVE      XULTM         TTTIME
+     C                   MOVE      TTDATE        TTDATL
+     C                   MOVE      TTTIME        TTTIML
+     C                   MOVE      BIBRID        TTUSER
+     C                   EVAL      TTTEXT = 'Departed terminal ' + FIKRTN
+N04  C                   EVAL      TTTEXL = 'Avgått terminal ' + FIKRTN
+     C                   MOVEL     FIKRTN        TTDEPO
+N02  c                   move      'S'           TTMANU
+      * SJEKK OM MOROPPDRAG FINNES - I SÅ FALL LOGG OGSÅ DER - IKKE SEND STAUS PÅ DUP-OPPDRAGET
+N03  C     HEAKEY        chain     HEADF                              33
+N03  C     *in33         ifeq      *off
+N03  C     TROPD0        andne     *ZEROS
+N03  c                   move      ' '           TTMANU
+N03  c                   endif
+     C                   WRITE     TRACKFR
+      *
+N03  C     *in33         ifeq      *off
+N03  C     TROPD0        andne     *ZEROS
+N03  C                   MOVE      TRAVD0        TTAVD
+N03  C                   MOVE      TROPD0        TTOPD
+N03  C                   MOVEL     'S'           TTMANU                         A13-SENDE IFTSTA ??
+N03  C                   WRITE     TRACKFR
+N03  C                   endif
+     C                   ENDSR

@@ -1,0 +1,172 @@
+      *********************************************************************
+      *  PRINT godsliste
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT12 MODULE(*LIBL/ESTKT12 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           k disk    usropn
+N04  FTURER14   IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Varibles
+     D WSUSER          S             10
+     D TYPE            s              1
+     D TurNrA          s              8
+     D TurNr           s              8  0
+     D JSONstring      s          32000
+N02  D ErrMsg          S            150
+N02  D InfoMsg         S            150
+N02  D SuccessMsg      S            150
+     D Cmd             S             70
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs   (C-specs)
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      *
+      *=====================================================================
+      * MAIN PROCESS LINE
+      *=====================================================================
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      ************************************************
+     C     Parse         begsr
+      ************************************************
+     C                   EVAL      WSUSER   = zhbgetvar('user')
+     C                   EVAL      TurNrA   = zhbgetvar('tur')
+     C                   eval      TurNr   = c2n2(TurNra)
+     C                   EVAL      Type     = zhbgetvar('type')
+      *
+     c                   endsr
+      *
+      *****************************************************
+     C     LoadHtml      begsr
+      *****************************************************
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *****************************************************
+     C     SetAll        begsr
+      *****************************************************
+      * Send section top
+     C                   callp     wrtsection('top')
+      * Param LABTY må finnes på USER
+     C                   if        errMsg = *blanks  and
+     C                             LASOUTQ = *blanks
+     C                   Eval      ErrMsg = 'Det er ikke knyttet printer '+
+     C                             'til din bruker - Kontakt systemansvarlig.'
+     C                   endif
+      *
+     c                   if        errMsg= *blanks and turnr = *zeros
+     C                   Eval      ErrMsg = 'BLANK input - må være gyldig '
+     C                             +'turnummer'
+     C                   endif
+      *
+     c     turnr         chain     turer14
+     C                   if        errMsg = *blanks  and
+     C                             tupro = *zeros
+     C                   Eval      ErrMsg = %trim(turnra)+ ' er ikke gyldig '
+     C                             +'turnummer'
+     c                   endif
+      * Ingen feil - kjør
+     C                   if        errMsg = *blanks
+N05  C                   MOVE      TUPRO         TUPROA            8
+N05  C                   call      'SYFA55ICLP'
+N05  C                   parm                    TUPROA
+N05  C                   parm                    WSUSER
+N05  C                   parm                    LASOUTQ
+N05  C                   Eval      SuccessMsg = 'Godsliste er skrevet på '
+N05  c                             +  LASOUTQ
+     c                   endif
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ErrMsg)+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬successMsg¬ : ¬'+%trim(SuccessMsg)+'¬}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   endsr
+      ******************************************************
+     C     Exit          begsr
+      ******************************************************
+      * dummy fini-section
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   close     BRIDF
+     C                   IF        %found ( BRIDF )
+     C                   close     BRPARF
+N04  C                   close     TURER14
+     c                   endif
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      ************************************************
+     C     INIT          begsr
+      ************************************************
+      * Sett libr.list etter UserID
+     C                   open      BRIDF
+     C     WSUSER        CHAIN     BRIDF
+      *
+     C                   IF        not %found ( BRIDF )
+     c                   eval      ErrMsg='Feil user-ID eller ugyldig innlogget'
+     C                   else
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     c                   end
+N04  C                   open      TURER14
+     C                   OPEN      BRPARF
+      * hent printerstyring
+     C     BrParKey      klist
+     C                   kfld                    BIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+N05  C                   MOVE      'LASPR'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+N05  C                   MOVEL     PAVRDA        LASOUTQ          10
+      *
+     c                   endif
+      *
+     c                   endsr

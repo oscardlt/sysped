@@ -1,0 +1,587 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12018 * 01 CB  PTF12 Loop på ZADVL04 ved lange fakturanummer
+12018 * 02 CB  PTF12 Loop på ZADVL04 ved lange fakturanummer
+12018 * 03 sh  PTF12 SVNT01 OPPDATERES
+12018 * 04 sh  PTF12 kun ulik blanks     sv_W2ASV1 / sv_W2AKD1
+12018 * 05 sh  PTF12 artikkelnummer kommer inn
+12018 * 06 sh  PTF12 default preferanse
+12018 * 07 sh  PTF12 mere date fra lev.vareregister
+12018 * 08 sh  PTF12 tillater - verdiervareregister
+12XXX * 09 YBC PTF12 Nummerteller i ZTELL er neste nummer, ikke siste brukt nummer
+12XXX * 10 SH  PTF12 testn  av  tariffnummer
+12XXX * 11 SH  PTF12 lager arkivpost for PDF
+12XXX * 12 SH  PTF12 tar mfr fra sadvare og top cre1
+12147 * 13 SH  PTF12 legger levenr i SFXXX
+12147 * 14 SH  PTF12 syge111 ENDRET TIL FLERE FELT I FIL
+12147 * 15 SH  PTF12 forhold netto bruttovekt
+12147 * 16 SH  PTF12 fakturanr KNR  til edis
+12147 * 17 SH  PTF12 GENERELL BESKRIVELSE
+12147 * 18 SH  PTF12 spesial CHF
+12147 * 19 SH  PTF12 spesial ved upload
+12147 * 20 SH  PTF12 ike skrive til arkiv hvis filpdf = blank
+********************************************************************
+N11  FARKIVP    o  a e             DISK
+N17  Fautokund  IF   E           K DISK
+N11  FFIRMNA    IF   E           K DISK
+N16  FEDIS4     UF   E           K DISK
+     FNAVAUTK   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FEDIRE1K   IF   E           K DISK
+s11  F*TELL     UF   E           K DISK
+n11  FZTELL     UF A E           K DISK
+     FSADVARE   UF A E           K DISK    PREFIX(SV_)
+     FTARI      IF   E           K DISK
+     FKODTVAL2  IF   E           K DISK
+     FKODTS2    IF   E           K DISK
+     FZADF      IF A E             DISK
+     FZADV      O    E             DISK
+     FZADVL04   IF   E           K DISK    PREFIX(Z_)
+     F                                     RENAME(SADVR:SADVR4)
+     FFRISOL01  IF A E           K DISK
+     D                 DS
+N01  D  dtafld                 1  54000
+N01  D                                     DIM(180)
+S01  D* dtafld                 1  18000
+S01  D*                                    DIM(60)
+     D                 DS
+     D  RDATA                  1   1024
+     D  RTYP                   1      6
+     D  RTYP4                  1      4
+N19  D  RTYP4B                 4      7
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+N05  D                 DS
+N05  D  UNDER                  1     40
+N05  D  UNDERT                 1      5
+N05  D  UNDER1                 1      4
+N05  D  UNDER2                 6     40
+     D                 DS
+     D  A                      1     79
+     D                                     DIM(79)
+     D                 DS
+     D  B                      1     18
+     D                                     DIM(18)
+      * gjør om blanke til 0
+N10  D TIL             C                   CONST('0')
+N10  D FRA             C                   CONST(' ')
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+     C                   EXSR      INIT
+      *
+     C     UMBR          SETLL     EDIRE1K
+     C     UMBR          READE     EDIRE1K                                91
+     C     *IN91         DOWEQ     *OFF
+
+     C     RTYP4         IFEQ      'Impo'
+n19  C     RTYP4B        OREQ      'Impo'
+     C                   EXSR      SRFAK
+     C                   ELSE
+     C                   EXSR      SRVAR
+     C                   end
+
+     C     UMBR          READE     EDIRE1K                                91
+     C                   ENDDO
+     C                   exsr      arksr
+
+     C     LR            TAG
+     C                   MOVE      '1'           *INLR
+      *
+      *****************************************************************
+     C     INIT          BEGSR
+      *****************************************************************
+      *
+     C     *LIKE         DEFINE    KVADT         WKVADT
+     C     *LIKE         DEFINE    SVLI          WVLI
+     C     *LIKE         DEFINE    KS2UNI        WS2UNI
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UMBR             10
+      * Hente dagens dato og tid
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+      * Init av arbetsfelt
+     C                   MOVEL     WDATO         WKVADT
+     C                   MOVEL     'S2'          WS2UNI
+     C     SADVAREK      KLIST
+     C                   KFLD                    SV_LEVENR
+     C                   KFLD                    SV_VARENR
+      *
+      *
+      * tariff
+     C     TARIK         KLIST
+     C                   KFLD                    SVVNT
+     C     KODVAK        KLIST
+     C                   KFLD                    SFVK28
+     C                   KFLD                    WKVADT
+     C     KODTS2K       KLIST
+     C                   KFLD                    WS2UNI
+     C                   KFLD                    SVLK
+     C     FRISOKK       KLIST
+     C                   KFLD                    FSKODE
+     C                   KFLD                    FSSOK
+     C                   MOVE      '*CR'         FSKODE
+     c                   read      firm                                   33
+N11  C     FIFIRM        CHAIN     FIRMNA                             33
+      * Hent unikt nummer for Z-filer
+s11  C*    FIFIRM        CHAIN     ZTELL
+n11  C     FIFIRM        CHAIN     ZTELL                              33
+     C                   ADD       1             ZUNIK
+N11  C     *in33         ifeq      '0'
+     C                   UPDATE    ZTELLR
+N11  C                   ELSE
+N11  C                   MOVE      FIFIRM        FIRMA
+N11  C                   WRITE     ZTELLR
+N11  C                   END
+N09  C                   SUB       1             ZUNIK
+     C     ENDINI        ENDSR
+      *
+      **************************************************************
+     C     SRFAK         BEGSR
+      **************************************************************
+      *
+      * Kaller eksternt program og legger felt i array
+      *
+S01  C*                  MOVEL     RDATA         UDATA          1024
+N01  C                   MOVEL     RDATA         UDATA          4096
+S01  C*                  MOVEL     *BLANKS       UARRA         18000
+n01  C                   MOVEL     *BLANKS       UARRA         54000
+     C                   MOVE      ';'           SKILLET           1
+     C                   CALL      'SYGE111'
+     C                   PARM                    SKILLET
+     C                   PARM                    UDATA
+     C                   PARM                    UARRA
+     c                   movea     uarra         dtafld
+      *
+      * leser fakturatotaler linje 1
+      *
+     C                   CLEAR                   SADFR
+      *
+      *
+      *
+      * 1. fast tekst Imp...
+      *
+      *
+      * 2. kundenummer
+      *
+     C                   MOVEA     dtafld(2)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SV_LEVENR         8 0
+N13  C                   MOVE      SV_LEVENR     SFXXX
+     C     SV_LEVENR     CHAIN     NAVAUTK                            33
+N17  C                   Z-ADD     0             NULLKU            8 0
+N17  C     SV_LEVENR     CHAIN     AUTOKUND                           44
+N17  C   44NULLKU        CHAIN     AUTOKUND                           44
+      *
+      * 3. Fakturanummer
+      *
+      *
+      *
+     C                   EVAL      SFTXT=dtafld(3)
+     C                   EVAL      SFTXT = %TRIM(SFTXT)
+N16  c                   move      *blanks       s0020n           30
+N16  C                   EVAL      S0020N = %TRIM(SFTXT) + ':' +
+N16  c                             %trim(%editc(SV_LEVENR:'Z'))
+N16  c     umbr          chain     edis4                              66
+N16  c     *in66         ifeq      '0'
+N16  c                   movel     s0020n        s0020
+N16  c                   update    edisr
+N16  c                   end
+      *
+      * finnes samme nummer uplukket
+      *
+     c                   setoff                                       33
+     c                   z-add     0             nr                2 0
+     c                   MOVE      sftxt         sftxtt           17
+     c                   MOVE      sftxt         sftxti           17
+     c     *in33         doweq     '0'
+     c     SFTXTT        chain     ZADVL04                            33
+     c     *in33         ifeq      '0'
+     c                   add       1             nr
+     c                   eval      sftxtt=sftxti
+     c     SFTXTT        CAT       '-':0         SFTXTT
+     c                   move      nr            nra               2
+     c     SFTXTT        CAT       NRA:0         SFTXTT
+     c                   end
+N01  C                   IF        NR > 98
+N01  C                   EVAL      *IN33=*ON
+N01  C                   ENDIF
+     c                   enddo
+     c
+     c                   move      sftxtt        sftxt
+     c
+     C                   EVAL      SFREFF=SFTXT
+      *
+      * 4. Fakturadato
+      *
+     C                   MOVEA     dtafld(4)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SFDT
+      *
+      * 5. Valutakode
+      *
+     C                   EVAL      SFVK28=dtafld(5)
+     C     SFVK28        IFEQ      *blanks
+     C                   MOVE      'NOK'         SFVK28
+     c                   end
+      *
+      * 6. valutabeløp
+      *
+     C                   MOVEA     dtafld(6)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SFBL28
+      *
+      * 7. Unik Dachserreferanse 11 numerisk
+      *
+     C                   MOVEA     dtafld(7)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          DACREF           11 0
+     C                   MOVEL     DACREF        FSSOK
+     C     FRISOKK       CHAIN     FRISOL01                           33
+     C  N33              EXSR      FRISR
+N11  C                   movel     dtafld(9)     filpdf           60
+      *
+      * Overfør variabler til SADF
+      *
+     C                   EVAL      SFUNIK=ZUNIK
+     C                   EVAL      SFTXT = %TRIM(SFTXT)
+     C                   EVAL      SFREFF=SFTXT
+      *
+      * hent omregningskurser
+      *
+     C     KODVAK        SETGT     KODTVAL2
+     C     SFVK28        READPE    KODTVAL2                               33
+     C     *IN33         IFEQ      *OFF
+N18  C                   IF        SFVK28 = 'CHF'
+N18  C                   EVAL      SFKR28 = KVAKRS / 10
+N18  C                   EVAL      SFOM28  = 10
+N18  C                   ELSE
+     C                   EVAL      SFKR28=KVAKRS
+     C                   EVAL      SFOM28=KVAOMR
+N18  C                   END
+     C                   ENDIF
+     C                   WRITE     SADFR
+     C                   ENDSR
+      *
+      **************************************************************
+     C     SRVAR         BEGSR
+      **************************************************************
+      *
+      * SAD Varelinjer                                      SRVAR /
+      *
+      * Kaller eksternt program og legger felt i array
+      *
+S08  C*                  MOVEL     RDATA         UDATA          1024
+S08  C*                  MOVEL     *BLANKS       UARRA         18000
+N08  C                   MOVEL     RDATA         UDATA          4096
+N08  C                   MOVEL     *BLANKS       UARRA         54000
+     C                   MOVE      ';'           SKILLET           1
+     C                   CALL      'SYGE111'
+     C                   PARM                    SKILLET
+     C                   PARM                    UDATA
+     C                   PARM                    UARRA
+     c                   movea     uarra         dtafld
+      *
+      *
+     C                   EVAL      SVUNIK = SFUNIK
+     C                   EVAL      SVREFF = SFREFF
+s06  C*                  EVAL      SVPRE = 'N'
+n06  C                   EVAL      SVPRE = NAVPRE
+      *
+      *
+      * 1. opprinnelseskode
+S17  C*                  MOVEL     dtafld(1)     SVLK
+N17  C                   MOVEL     dtafld(LKN)   SVLK
+      * 2. Tariffnummer
+S17  c*                  movel     dtafld(2)     tar008            8
+N17  c                   movel     dtafld(TAN)   tar008            8
+N10  c                   testn                   tar008               33
+N10  C  N33FRA:TIL       XLATE     tar008        tar008
+N10  c  N33              testn                   tar008               33
+n10  c  N33              move      *zeros        tar008
+S17  c* n33              movel     tar008        dtafld(2)
+N17  c  n33              movel     tar008        dtafld(TAN)
+s17  C*                  MOVEL     dtafld(2)     SVVNT
+n17  C                   MOVEL     dtafld(TAN)   SVVNT
+      *
+      * 3. tollverdi
+      *
+S17  C*                  MOVEA     dtafld(3)     A
+N17  C                   MOVEA     dtafld(VER)   A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SVBELT
+      *
+      * 4. Bruttovekt KG
+S17  C*                  MOVEA     dtafld(4)     A
+N17  C                   MOVEA     dtafld(BRV)   A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SVVKTB
+      * 5. Nettovekt
+S17  C*                  MOVEA     dtafld(5)     A
+N17  C                   MOVEA     dtafld(NEV)   A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SVVKTN
+      *
+      * hvis verdi vekt netto brutta alle er 0 skipp linjen
+      *
+     c     svbelt        ifeq      0
+     c     svvktb        andeq     0
+     c     svvktn        andeq     0
+     c                   goto      feilimp
+     c                   end
+n15  c     navnb         ifne      0
+n15   * nettovekt mangler
+n15  c     svvktb        ifne      0
+n15  c     svvktn        andeq     0
+n15  c     svvktb        mult      navnb         svvktn
+n15  c                   end
+n15   * bruttovekt mangler
+n15  c     svvktn        ifne      0
+n15  c     svvktb        andeq     0
+n15  c     svvktn        div       navnb         svvktb
+n15  c                   end
+n15  c                   end
+      * 6. Antall
+S17  C*                  MOVEA     dtafld(6)     A
+N17  C                   MOVEA     dtafld(ANT)   A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          SVNTM
+n03  C                   Z-ADD     ZNUM          SVNT01
+      * 7. Artikkenummer
+S17  C*                  EVAL      SV_VARENR=dtafld(7)
+S17  C*                  EVAL      SVEXR03=dtafld(7)
+S17  C*                  EVAL      SVFT01=dtafld(7)
+N17  C                   EVAL      SV_VARENR=dtafld(ART)
+N17  C                   EVAL      SVEXR03=dtafld(ART)
+N17  C                   EVAL      SVFT01=dtafld(ART)
+     c     SV_VARENR     ifeq      *blanks
+S17  C*                  MOVEL     dtafld(2)     SV_VARENR
+N17  C                   MOVEL     dtafld(TAN)   SV_VARENR
+S17  C*                  EVAL      SVEXR03=dtafld(2)
+N17  C                   EVAL      SVEXR03=dtafld(TAN)
+     C                   END
+      *
+      * evt landkode i artikkelnummer
+      *
+     c     navlka        ifeq      'J'
+     c                   move      svlk          SV_VARENR
+     c                   end
+     c
+      * 8. Varebeskrivelse
+S17  C*                  MOVEL     dtafld(8)     SVVT01
+N17  C                   MOVEL     dtafld(BES)   SVVT01
+      *
+     C                   ADD       1             WVLI
+     c                   z-add     wvli          svli
+     c                   z-add     wvli          svlN
+      *
+      *
+      * sjekker tariffnummer før vi skriver til fil
+      *
+      * sjekker tariff ved norskt tariffnr
+      *
+     c     NAVNTA        IFEQ      'J'
+     c     tarik         chain     tari                               33
+     c                   end
+      * feil
+     c     SV_VARENR     ifne      *blanks
+     c     SV_LEVENR     andne     0
+     c                   exsr      tarisr
+     c                   end
+     c*
+N05   *
+N05   * 9. Understellsreferanse
+N05   *
+N05  C                   MOVE      *BLANKS       sveh01
+S17  C*                  MOVEL     dtafld(9)     UNDER
+N17  C                   MOVEL     dtafld(UND)   UNDER
+N05  C     undert        ifeq      'U.NR:'
+N05  C                   eval      sveh01=under1
+N05  c                   eval      svft01=under2
+N05  c                   end
+     c*
+     c                   EVAL      SVVF   = '1'
+      * Skriv post til Arbetsfil
+     C                   WRITE     sadvr
+     C     feilimp       ENDSR
+      *
+      *************************************************************
+     C     GETNUM        BEGSR
+      *************************************************************
+      *
+n08  c                   move      'N'           minus             1
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+n08   * minus
+n08  c     A(AX)         ifeq      '-'
+n08  c                   move      'J'           minus             1
+n08  c                   add       1             ax
+n08  c                   end
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+n08  c     minus         ifeq      'J'
+n08  c                   z-sub     znum          znum
+n08  c                   end
+     C                   ENDSR
+      **************************************************************************
+     c     frisr         begsr
+      **************************************************************************
+      * Skriv till Frie søkeveier
+     C                   CLEAR                   FRISOKR
+     c                   MOVE      'HFI'         FSKODE
+     C                   EVAL      FSSOK=SFTXT
+     C                   EVAL      FSDTOP=SFDT
+     C                   WRITE     FRISOKR
+     C                   ENDSR
+      ********************************************************************
+     c     tarisr        begsr
+      ********************************************************************
+      *
+      * HENTER NORSK FRA VAREREGISTER
+      *
+     C     SADVAREK      CHAIN     SADVARE                            33
+      * ikke finnes fra før
+     C                   IF        *IN33
+     C                   EVAL      SV_VAREBE = SVVT01
+     C                   EVAL      SV_W2LK   = SVLK
+     C                   MOVE      SVVNT         SV_W2VNTI
+n06  C                   EVAL      SV_W2PRE  = NAVPRE
+     C                   WRITE     SADVARER
+      * slutt ny post
+     C                   ELSE
+N12  C                   eval      svmfr=SV_W2MFR
+N12  C                   eval      svtop1=SV_W2TOP1
+N12  C                   eval      svcre1=SV_W2CRE1
+     C                   IF        SVLK = *BLANKS
+     C                   EVAL      SVLK = SV_W2LK
+     C                   ELSE
+     C                   EVAL      SV_W2LK = SVLK
+     C                   END
+     C                   MOVE      SV_W2VNTI     SVVNT
+N04  c     sv_W2AKD1     ifne      *blanks
+N04  c     sv_W2ASV1     andne     *blanks
+     C                   EVAL      SVAKD1 = SV_W2AKD1
+     C                   EVAL      SVASV1 = SV_W2ASV1
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD1
+N07  C                   move      *blanks       SVASV1
+N04  c                   end
+N07  c     sv_W2AKD2     ifne      *blanks
+N07  c     sv_W2ASV2     andne     *blanks
+N07  C                   EVAL      SVAKD2 = SV_W2AKD2
+N07  C                   EVAL      SVASV2 = SV_W2ASV2
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD2
+N07  C                   move      *blanks       SVASV2
+N07  c                   end
+N07  c     sv_W2AKD3     ifne      *blanks
+N07  c     sv_W2ASV3     andne     *blanks
+N07  C                   EVAL      SVAKD3 = SV_W2AKD3
+N07  C                   EVAL      SVASV3 = SV_W2ASV3
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD3
+N07  C                   move      *blanks       SVASV3
+N07  c                   end
+N07  c     sv_W2AKD4     ifne      *blanks
+N07  c     sv_W2ASV4     andne     *blanks
+N07  C                   EVAL      SVAKD4 = SV_W2AKD4
+N07  C                   EVAL      SVASV4 = SV_W2ASV4
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD4
+N07  C                   move      *blanks       SVASV4
+N07  c                   end
+N07  c     sv_W2AKD5     ifne      *blanks
+N07  c     sv_W2ASV5     andne     *blanks
+N07  C                   EVAL      SVAKD5 = SV_W2AKD5
+N07  C                   EVAL      SVASV5 = SV_W2ASV5
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD5
+N07  C                   move      *blanks       SVASV5
+N07  c                   end
+N07  c     sv_W2AKD6     ifne      *blanks
+N07  c     sv_W2ASV6     andne     *blanks
+N07  C                   EVAL      SVAKD6 = SV_W2AKD6
+N07  C                   EVAL      SVASV6 = SV_W2ASV6
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD6
+N07  C                   move      *blanks       SVASV6
+N07  c                   end
+N07  c     sv_W2AKD7     ifne      *blanks
+N07  c     sv_W2ASV7     andne     *blanks
+N07  C                   EVAL      SVAKD7 = SV_W2AKD7
+N07  C                   EVAL      SVASV7 = SV_W2ASV7
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD7
+N07  C                   move      *blanks       SVASV7
+N07  c                   end
+N07  c     sv_W2AKD8     ifne      *blanks
+N07  c     sv_W2ASV8     andne     *blanks
+N07  C                   EVAL      SVAKD8 = SV_W2AKD8
+N07  C                   EVAL      SVASV8 = SV_W2ASV8
+N07  C                   ELSE
+N07  C                   move      *blanks       SVAKD8
+N07  C                   move      *blanks       SVASV8
+N07  c                   end
+     c     SV_W2PRE      ifne      ' '
+     c                   eval      svpre=SV_W2PRE
+     c                   end
+     C                   UPDATE    SADVARER
+     C                   END
+     c                   endsr
+     c
+      *
+N11   ********************************************************************
+N11  C     ARKSR         BEGSR
+N11   ********************************************************************
+N11   * Skriv til ARKIVP
+N11  C                   CLEAR                   ARKIVR
+N11
+N11  C                   CALL      'SYGE15C'
+N11  C                   PARM                    WDT               8
+N11  C                   PARM                    WTM               6
+N11  C                   EVAL      ARSTAT = 'A'
+N11  C                   EVAL      ARTYPE = NADTDH
+N11  C                   EVAL      ARFIRM = FIFIRM
+N11  C                   EVAL      ARAVD  = 0
+N11  C                   EVAL      AROPD  = 0
+N11  C                   MOVEL     sftxt         ARUNDE
+N11  C                   MOVEL     sftxt         ARRFK
+N11  C                   EVAL      ARUSER = 'NAVITRO'
+N11  C                   move      WDT           ARDATE
+N11  C                   movel     WTM           ARTIME
+N11  C                   EVAL      ARKUND = 0
+N11   *unikt filnavn
+N11  C                   EVAL      ARLINK = filpdf
+N20  c     filpdf        ifne      *blanks
+N11  C                   WRITE     ARKIVR
+N20  c                   end
+N11  c*                  dump
+N11
+N11  C                   ENDSR

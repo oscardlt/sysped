@@ -1,0 +1,311 @@
+**********************************************************************************************
+      *  Arkiver dokument ...
+**********************************************************************************************
+      * OBS - FØR KJØRING må typen være definert i fil ARKTXT
+      *       og denne bør gjerne peke på "eksternt" arkivlager med
+      *       avvikende bane (f.eks /pdf/scan ) (fil ARKEXT)
+**********************************************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 ignorer evt timestamp bakerst ...xlsx_2009-11-27
+10XXX * 02 SH  PTF10 skjekk om dokument skal sendes som epost EMMA
+10XXX * 03 SH  PTF11 finne extension
+10XXX * 04 SH  PTF12 eventuelt sende SS-ordre vedlegg til kunden
+      * 05 SH  PTF12 DUMPER HVIS FILNAVN HAR EN '
+      * 06 SH  PTF12 flytt til feilmappe hvis ikke finnes
+      * 07 JOV PTF12 TAKLE LANGE FILNAVN (SE OGSÅ ARCA001 - MAX 120 (MEN MED PATH ER DET MER)
+      * 08 SH  PTF12 nytt filnavn må endre
+      * 09 SH  PTF12 arc044 tilleggsparametr
+      * 10 JOV PTF12 Hvis lagring i google cloud send rett dit (den rutinen sletter lokalt)
+      * 11 sh  PTF12 arc044 må til batch
+********************************************************************
+      *
+     H DFTACTGRP(*NO)
+      *""""""""""""""""
+     FFIRMARC   IF   E           K DISK
+N10  FFIRMGOOG  IF   E           K DISK
+     FARKIVP    O    E             DISK
+N04  FARKIVL11  UF   E           K DISK
+N04  F                                     RENAME(arkivr:arkivr11)
+N04  FCUNDC03   IF   E           K DISK
+     FFIRM      IF   E             DISK
+     FGSSORF    IF   E           K DISK
+     FARKTXT    IF   E           K DISK    PREFIX(X_)
+     FARKEXT    IF   E           K DISK    PREFIX(Y_)
+      *""""""""""""""""
+     D DirName         S            100A
+     D EntryName       S            120A
+     D EntryPath       S            256A
+      *________________
+      * Andre variabler
+      *""""""""""""""""
+     D UND             S             10
+     D UND7            S              7
+     D TYPE            S              2
+     D NULL            S              1A   INZ(X'00')
+     D CMDLINE         S            512
+     D CMDLEN          S             15  5
+     D NEWDIR          S            100
+     D NEWFILE         S            100
+     D NEWOBJ          S            200
+s01  D*NEWEND          S              4
+s03  D*NEWEND          S             10
+     D NEWRAN          S             10
+
+     C                   EXSR      INIT
+     C                   EXSR      MOV
+     C     OkMov         IFEQ      'J'
+     C                   EXSR      ARK
+     C                   end
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+
+      *////////////////////////////////////////////////////////////
+      *  Init                                                INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     *entry        PLIST
+     C                   PARM                    DirName
+     C                   PARM                    EntryName
+     C                   PARM                    EntryPath
+n05   *
+n05   * FILEN KAN IKKE INNEHOLDE ' DA DUMPER RENAME
+n05   *
+N05  C     X'7D'         SCAN      EntryPath                              33
+N05  C                   IF        *IN33=*on
+N05  C                   EVAL      *INLR=*ON
+N05  C                   RETURN
+N05  C                   ENDIF
+      * Type er 2 første av filnavn
+     C                   EVAL      TYPE = %subst(EntryName:1:2)
+      * Bilags LØPENR  er 7 neste av filnavn (3-9)
+     C                   EVAL      UND = %subst(EntryName:3:9)
+     C                   Movel     UND           UND7
+     C                   TESTN                   UND7                 30
+     C                   IF        *IN30=*OFF
+N06  c                   exsr      movtofeil
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDIF
+     C                   Movel     UND           ORONO
+     c     orono         Chain     gssorf                             33
+     C     *IN33         IFEQ      *ON
+N06  c                   exsr      movtofeil
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+     C                   end
+      * Definiere parameterliste
+     C     QCMDEXC       PLIST
+     C                   PARM                    CMDLINE
+     C                   PARM                    CMDLEN
+     C                   READ      FIRMARC                                41
+
+     C     EXKEY         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    X_ARKLAG
+      *
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Flytt og endre navn på fil                           MOV /
+      *////////////////////////////////////////////////////////////
+     C     MOV           BEGSR
+      * Les firmafil for å få tak i firmakode.
+     C                   READ      FIRM
+      * Hent dato og klokkeslett
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+      * Hent slutt på filnavn (ex. .pdf) fra frafil
+s03  C*    '.'           SCAN      EntryName     X                 3 0
+s01  C*                  EVAL      NEWEND = %SUBST(EntryName:X:4)
+s03  C*    '_'           SCAN      EntryName:X   Y                 3 0
+s03  c*    Y             ifeq      *zeros
+s03  C*    ' '           SCAN      EntryName:X   Y                 3 0
+s03  c*                  end
+s03  C*                  EVAL      NEWEND = %SUBST(EntryName:X:y-x)
+n04  c                   eval      par512=EntryName
+n04  c                   call      'SYGE112'
+n04  c                   parm                    par512          512
+n04  c                   parm                    NEWEND           10
+      * Generer random number
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN
+      * Definier ny katalog Hent fra standard
+     C                   EVAL      NEWDIR = '/' + %trimr(ARCANE)
+      * Er det på dokumenttypenivå angitt avvikende katalog?(via EXT lager)
+     C                   EVAL      *IN51 = *OFF
+     C     TYPE          CHAIN     ARKTXT                             51
+     C                   IF        *IN51 = *OFF
+     C     X_ARKLAG      IFNE      *BLANKS
+     C     EXKEY         CHAIN     ARKEXT                             51
+     C                   IF        *IN51 = *OFF
+     C                   EVAL      NEWDIR = '/' + %trimr(Y_ARCANE)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      * Definier nytt filnavn
+     C                   EVAL      NEWFILE= %trim(TYPE)
+     C                             + %SUBST(WDATO:1:4)
+s08  C*                            + %trimr(UND)
+s08  C                             + %trimr(UND7)
+     C                             + NEWRAN
+     C                             + NEWEND
+      * Lag nytt objektnavn
+     C                   EVAL      NEWOBJ = %trim(NEWDIR) + '/'
+     C                             + %trimr(NEWFILE)
+      * Flytte objekt
+     C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+     C                             + %trimr(EntryPath) + X'7D'
+     C                             + ') TOOBJ(' +X'7D'
+     C                             + %trimr(NEWOBJ) + X'7D' + ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   MOVE      'J'           OkMov             1
+s07  C*                  MOVEl     EntryPath     FRA             120
+n07  C                   MOVEl     EntryPath     FRA             512
+     C                   MOVEl     NewObj        Til             120
+s07  C*                  CALL      'ARCAMOVC'
+N07  C                   CALL      'ARCAMOVLC'
+     C                   PARM                    FRA
+     C                   PARM                    TIL
+     C                   PARM                    OkMov
+N10   *Hvis google cloud benyttes - send det i skyen med en gang
+N10  C                   IF        OkMov = 'J'
+N10  C     FIFIRM        chain     FIRMGOOG
+N10  C                   if        %found and GOBUID <> *blanks
+N10  c                   eval      Companyid = GOBUID
+N10  c                   eval      UlocalPath= %trim(NEWDIR)+'/'
+N10  c                   eval      USrcFile  = NEWFILE
+N10  c                   eval      UNewFile  = *blanks
+N10  c                   eval      Udelete   = 'J'
+N10  c                   call      'ARC99WSU1'
+N10  c                   parm                    Companyid        10
+N10  c                   parm                    UlocalPath      100
+N10  c                   parm                    uSrcFile        120
+N10  c                   parm                    udelete           1
+n10  c                   parm                    uNewFile         60
+n10  c                   parm                    Uok               1
+n10  c                   endif
+n10  c                   endif
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Finn alle oppdrag i kostn.bilaget                    ARK /
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP                                     ARK /
+      *////////////////////////////////////////////////////////////
+     C     ARK           BEGSR
+      * Skriv til ARKIVP
+     C                   CLEAR                   ARKIVR
+
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C
+     C                   MOVEL     ORTNO         ARAVD
+     C                   MOVE      ORTNO         AROPD
+     C                   EVAL      ARUNDE = 'SS:' + UND
+     C                   EVAL      ARUSER = 'SY400USR'
+     C                   move      WDATO         ARDATE
+     C                   movel     WTID          ARTIME
+s04  C*                  EVAL      ARKUND = 0
+     C                   EVAL      ARLINK = NEWFILE
+     C                   WRITE     ARKIVR
+N04  C     aravd         ifne      0
+N04  C     aropd         andne     0
+N11   * GIDDER IKKE MERKE
+     C                   MOVE      ARAVD         ARAVDX            4
+     C                   MOVE      AROPD         AROPDX            7
+     C                   MOVE      ARDATE        ARDATEX           8
+     C                   CALL      'ARC044CL'
+     C                   PARM                    ARAVDX
+     C                   PARM                    AROPDX
+     C                   PARM                    ARTYPE
+     c                   parm                    ardateX
+     c                   parm                    arlink
+N04  C                   end
+N04   * skal dokument sendes
+N04  c                   exsr      sendss
+      *
+     c     ortno2        ifne      *zeros
+     C                   MOVEL     ORTNO2        ARAVD
+     C                   MOVE      ORTNO2        AROPD
+     C                   WRITE     ARKIVR
+N11   * GIDDER IKKE MERKE
+     C                   MOVE      ARAVD         ARAVDX            4
+     C                   MOVE      AROPD         AROPDX            7
+     C                   MOVE      ARDATE        ARDATEX           8
+     C                   CALL      'ARC044CL'
+     C                   PARM                    ARAVDX
+     C                   PARM                    AROPDX
+     C                   PARM                    ARTYPE
+     c                   parm                    ardateX
+     c                   parm                    arlink
+     c                   end
+      *
+     c     ortno3        ifne      *zeros
+     C                   MOVEL     ORTNO3        ARAVD
+     C                   MOVE      ORTNO3        AROPD
+     C                   WRITE     ARKIVR
+N06   * GIDDER IKKE MERKE
+     C                   MOVE      ARAVD         ARAVDX            4
+     C                   MOVE      AROPD         AROPDX            7
+     C                   MOVE      ARDATE        ARDATEX           8
+     C                   CALL      'ARC044CL'
+     C                   PARM                    ARAVDX
+     C                   PARM                    AROPDX
+     C                   PARM                    ARTYPE
+     c                   parm                    ardateX
+     c                   parm                    arlink
+     c                   end
+     C                   ENDSR
+N04   ********************************************************
+N04  C     sendss        begsr
+N04   ********************************************************
+N04  c     arkiv11k      klist
+N04  c                   kfld                    ARSTAT
+N04  c                   kfld                    ARUNDE
+N04  c                   kfld                    ARLINK
+N04  c     mailk         klist
+N04  c                   kfld                    fifirm
+N04  c                   kfld                    mail30
+N04  c                   kfld                    orcno
+N04  C     ARTYPE        chain     ARKTXT                             33
+N04  c  N33X_ARKSND      ifeq      'J'
+N04  C                   MOVE      X_ARTXT       MAIL16           16
+N04  C                   MOVEL     '*'           MAIL16
+N04  c                   movel     MAIL16        mail30           30
+N04  c     mailk         chain     cundc03                            33
+N04  c     *in33         ifeq      '0'
+N04  c     arkiv11k      chain     arkivl11                           33
+N04  c     *in33         ifeq      '0'
+N04  c                   move      ' '           arstat
+n04  c                   move      orcno         arkund
+n04  c                   update    arkivr11
+n04  c                   move      'N'           fins
+n04  c                   call      'ARC002CL'
+n04  c                   parm                    artype
+n04  c                   parm                    aruser
+n04  c                   parm                    fins              1
+n04  c                   end
+n04  c                   end
+n04  c                   end
+n04  c                   endsr
+N06   ****************************************************************
+N06  c     movtofeil     begsr
+N06   ****************************************************************
+N06  C                   EVAL      TYPE = %subst(EntryName:1:2)
+N06  C     TYPE          CHAIN     ARKTXT                             51
+N06  C     *in51         ifeq      '0'
+N06  c     x_arsban      andne     *blanks
+N06  C                   EVAL      NEWDIR = '/' + %trimr(X_ARSBAN)+
+N06  C                                      '/feil'
+N06  C                   MOVE      'J'           OkMov             1
+N06  C                   MOVEl     EntryPath     FRA             512
+N06  C                   eval      til=newdir
+N06  C                   CALL      'ARCAMOVCF'
+N06  C                   PARM                    FRA
+N06  C                   PARM                    TIL
+N06  C                   PARM                    OkMov
+N06  c                   endif
+N06  C                   endsr

@@ -1,0 +1,481 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TDKI000R MODULE(*LIBL/TDKI000R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FFRISOK    IF   E           K DISK    USROPN
+     FDKIH      IF   E           K DISK    USROPN
+     FDKIV3     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+     ‚*  Prototype for 'SYGE20'
+     d syge20          pr                  extpgm('SYGE20')
+     d ufunk_                              like(ufunk)
+     d udat1_                              like(udat1)
+     d udat2_                              like(udat2)
+     d udgr_                               like(udgr)
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          c                   const('''')
+     d SqlStm          s            512a
+     d myrows          s             10i 0
+     D WSUSER          S             10
+     D AVD             S              4
+     D AVDN            S              4  0
+     D SIGN            S              3
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D REFNR           S             18
+     D XREF            S             35
+     D DATUM           S              8
+     D DATUMN          S              8S 0
+     D DATUMT          S              8
+     D DATUMTN         S              8S 0
+     D STATUS          S              2
+     D AVSNAVN         S             35
+     D MOTNAVN         S             35
+     D AART            S              2
+     D FAKT            S             17
+     D JSONstring      s          32000
+     D Findfakt        s              1
+     D Error           S            150
+     D AntLest         S              9  0
+     D STOPP3          S             35
+     D STOPP4          S             17
+     D ZB              S              1    DIM(35)
+     D ZC              S              1    DIM(20)
+     d X               S             10  0
+     d udat1           s              8  0
+     d udat2           s              8  0
+     d udgr            s              5  0
+     d ufunk           s              3
+     d wpabrid         s                   like(pabrid)
+     d wpakunr         s                   like(pakunr)
+     d wpasort         s                   like(pasort)
+     d MyPoDS          ds                  Qualified  dim(500)
+     d  DKIH_SYAV                     4S 0
+     d  DKIH_SYOP                     7S 0
+     d  DKIH_SYSG                     3
+     d  DKIH_SYST                     2
+     d  DKIH_SYDT                     8S 0
+     d  DKIH_0035                     1
+     d  DKIH_AART                     2
+     d  DKIH_02B                     35
+     d  DKIH_07                      13
+     d  DKIH_08B                     35
+     d  DKIH_28B                     17
+     d  DKIH_49                      17
+      *
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+         exsr ParseSr;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬sign¬ : ¬'+%trim(SIGN)+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬refnr¬ : ¬'+%trim(REFNR)+'¬, '
+        +'¬xref¬ : ¬'+%trim(XREF)+'¬, '
+        +'¬datum¬ : ¬'+%trim(%editc(DATUMN:'Z'))+'¬, '
+        +'¬datumt¬ : ¬'+%trim(%editc(DATUMTN:'Z'))+'¬, '
+        +'¬status¬ : ¬'+%trim(STATUS)+'¬, '
+        +'¬avsNavn¬ : ¬'+%trim(AVSNAVN)+'¬, '
+        +'¬motNavn¬ : ¬'+%trim(MOTNAVN)+'¬, '
+        +'¬aart¬ : ¬'+%trim(AART)+'¬, '
+        +'¬fakt¬ : ¬'+%trim(FAKT)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"orderList" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+         if myrows > 0;
+           exsr LesSr;
+         endif;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+         exsr Exit;
+
+       //-----------------------------------------------------------------
+       // Select fra fil via SQL
+       //-----------------------------------------------------------------
+       begsr     SelSr;
+
+       If    AVDN > 0;
+         AVD = %editc(AVDN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC = ' DKIH_SYAV  = ' + AVD;
+       EndIf;
+
+       If    SIGN  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYSG = ' + cQuote + SIGN + cQuote +' ';
+       EndIf;
+
+       If    OPDN > 0;
+         OPD = %editc(OPDN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYOP  = ' + OPD;
+       Else;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYOP  > 0';
+       EndIf;
+
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYOP  > 0';
+
+       If    REFNR <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(DKIH_07) LIKE UPPER(' + cQuote + '%' +
+         %trim(REFNR) + '%' + cQuote + ')';
+       EndIf;
+
+       If    DATUMN > 0;
+         DATUM = %editc(DATUMN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYDT  >= ' + DATUM;
+       EndIf;
+
+       If    DATUMTN > 0;
+         DATUMT = %editc(DATUMTN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYDT  <= ' + DATUMT;
+       EndIf;
+
+       If    STATUS  <> *blanks and STATUS <> 'b';
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' DKIH_SYST = ' + cQuote + STATUS + cQuote;
+        EndIf;
+
+       If    AVSNAVN  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(DKIH_02B) LIKE UPPER(' + cQuote + '%' +
+         %trim(AVSNAVN) + '%' + cQuote + ')';
+        EndIf;
+
+       If    MOTNAVN  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(DKIH_08B) LIKE UPPER(' + cQuote + '%' +
+         %trim(MOTNAVN) + '%' + cQuote + ')';
+        EndIf;
+
+       If    AART  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(DKIH_AART) LIKE UPPER(' + cQuote + '%' +
+         %trim(AART) + '%' + cQuote + ')';
+        EndIf;
+
+         Eval      WhereC =  ' Where ' + %trim(WhereC);
+
+         Eval       SqlStm = 'Select DKIH_SYAV, DKIH_SYOP, DKIH_SYSG, ' +
+                           'DKIH_SYST, DKIH_SYDT, DKIH_0035, DKIH_AART, ' +
+                           'DKIH_02B, DKIH_07, DKIH_08B, DKIH_28B, ' +
+                           'DKIH_49 ' +
+                           'from DKIH ' +
+                            %trim(WhereC)  +
+                           ' Order by '       +
+                           'DKIH_SYDT desc ' +
+                           'FOR READ ONLY ';
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  A33  cursor for DynSel;
+         Exec SQL OPEN A33;
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+       //-----------------------------------------------------------------
+       // Set inn "AND" mellom where settninger
+       //-----------------------------------------------------------------
+       begsr     AddAnd;
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+       //-----------------------------------------------------------------
+       // hent input
+       //-----------------------------------------------------------------
+       begsr     ParseSr;
+         wsuser  = zhbgetvar('USER');
+         avd     = zhbgetvar('AVD');
+         avdn    = c2n2(avd);
+         sign    = zhbgetvar('SIGN');
+         opd     = zhbgetvar('OPD');
+         opdn    = c2n2(opd);
+         refnr   = zhbgetvar('REFNR');
+         xref    = zhbgetvar('XREF');
+         datum   = zhbgetvar('DATUM');
+         datumn  = c2n2(datum);
+         datumt  = zhbgetvar('DATUMT');
+         datumtn = c2n2(datumt);
+         status  = zhbgetvar('STATUS');
+         avsnavn = zhbgetvar('AVSNAVN');
+         motnavn = zhbgetvar('MOTNAVN');
+         aart    = zhbgetvar('AART');
+         fakt   = zhbgetvar('FAKT');
+      /end-free
+      * Sett stop søking alfa STOPP3
+     C                   MOVEA     *BLANKS       ZB
+     C                   MOVEA     XREF          ZB
+     C     ZB(1)         IFNE      ' '
+     C                   Z-ADD     0             ZAX               2 0
+     C     1             DO        35            ZAX               2 0
+     C     36            SUB       ZAX           WAX               2 0
+     C     ZB(WAX)       CABNE     *BLANKS       SRB5
+     C                   MOVE      '9'           ZB(WAX)
+     C                   ENDDO
+     C                   ENDIF
+     C     SRB5          TAG
+     C                   MOVEA     ZB            STOPP3
+      * Sett stop søking alfa STOPP4
+     C                   MOVEA     *BLANKS       ZC
+     C                   MOVEA     FAKT          ZC
+     C     ZC(1)         IFNE      ' '
+     C                   Z-ADD     0             ZAX               2 0
+     C     1             DO        17            ZAX               2 0
+     C     18            SUB       ZAX           WAX               2 0
+     C     ZC(WAX)       CABNE     *BLANKS       SRB6
+     C                   MOVE      '9'           ZC(WAX)
+     C                   ENDDO
+     C                   ENDIF
+     C     SRB6          TAG
+     C                   MOVEA     ZC            STOPP4
+      /free
+
+        endsr;
+        // __________________________________________________
+        // Læs array                                    LESSR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr LesSr;
+       for x = 1 to myrows;
+
+       error=*blanks;
+
+       if mypods(x).DKIH_SYSG <> *blanks;
+
+           chain (mypods(x).DKIH_SYAV: mypods(x).DKIH_SYOP: '*CR') FRISOK;
+           if not %found;
+              fssok = *blanks;
+           endif;
+           if xref <> *blanks;
+             if fssok < xref;
+               error='x';
+             endif;
+             if fssok > stopp3;
+               error='x';
+             endif;
+           endif;
+           if fakt <> ' ';
+             exsr Lesvare;
+               if findfakt=' ';
+                 error='x';
+               endif;
+           endif;
+
+        // Videre hvis ikke noen feil !
+
+           if error = *blanks;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬avd¬ : ¬'+%trim(%editc(mypods(x).DKIH_SYAV:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(mypods(x).DKIH_SYOP:'Z'))+'¬, '
+          +'¬tst¬ : ¬'+%trim(mypods(x).DKIH_0035)+'¬, '
+          +'¬refnr¬ : ¬'+%trim(mypods(x).DKIH_07)+'¬, '
+          +'¬dkih_xref¬ : ¬'+%trim(FSSOK)+'¬, '
+          +'¬aart¬ : ¬'+%trim(mypods(x).DKIH_AART)+'¬, '
+          +'¬sign¬ : ¬'+%trim(mypods(x).DKIH_SYSG)+'¬, '
+          +'¬datum¬ : ¬'+%trim(%editc(mypods(x).DKIH_SYDT:'Z'))+'¬, '
+          +'¬status¬ : ¬'+%trim(mypods(x).DKIH_SYST)+'¬, '
+          +'¬avsNavn¬ : ¬'+%trim(mypods(x).DKIH_02B)+'¬, '
+          +'¬motNavn¬ : ¬'+%trim(mypods(x).DKIH_08B)+'¬, '
+          +'¬godsnr¬ : ¬'+%trim(mypods(x).DKIH_49)+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endif;
+        endif;
+
+        endfor;
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+         open frisok;
+         open brparf;
+         open DKIH;
+         open DKIV3;
+
+         // Er dato= blank eller 0, sett  da dato 7 dager tilbake
+         if opdn=*zeros and refnr=*blanks and datumn=*zeros and
+            Fakt=*blanks;
+
+           wpabrid=wsuser;
+           wpakunr=0;
+           wpasort=0;
+           chain (WPABRID: WPAKUNR: 'DFTDG': WPASORT) BRPARF;
+           if not %found or pavrdn = 0;
+              pavrdn=7;
+           endif;
+
+           ufunk = 'SUB';
+           udat1 = datumn;
+           udgr = pavrdn;
+           syge20 ( ufunk : udat1 : udat2 : udgr );
+           datumn=udat2;
+         endif;
+
+      /end-free
+     C     DKIVKEY       klist
+     C                   kfld                    DKIH_SYAV
+     C                   kfld                    DKIH_SYOP
+     C     DKIVKEY3      klist
+     C                   kfld                    DKIH_SYAV
+     C                   kfld                    DKIH_SYOP
+     C                   kfld                    FAKT
+      /free
+       endsr;
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close frisok;
+         close brparf;
+         close DKIH;
+         close DKIV3;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free
+      *********************************************************
+     C     LESVARE       BEGSR
+      *********************************************************
+     C                   EVAL      DKIH_SYAV=mypods(x).DKIH_SYAV
+     C                   EVAL      DKIH_SYOP=mypods(x).DKIH_SYOP
+     C                   EVAL      *IN56=*OFF
+     C                   EVAL      FINDFAKT=' '
+     C     DKIVKEY3      SETLL     DKIV3
+     C     DKIVKEY       READE     DKIV3                                  56
+     C     *IN56         DOWEQ     '0'
+
+N01  C     DKIV_28B      IFGE      FAKT
+N01  C     DKIV_28B      IFLE      STOPP4
+     C                   EVAL      FINDFAKT='X'
+     C                   LEAVE
+     C                   ENDIF
+     C                   ENDIF
+
+     C     DKIVKEY       READE     DKIV3                                  56
+     C                   ENDDO
+     C                   ENDSR

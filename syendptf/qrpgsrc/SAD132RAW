@@ -1,0 +1,156 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SAD132RAW MODULE(*LIBL/SAD132RAW *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     FSADEFL02  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D ErrorT          S          32000
+     d pro             s              8
+     d pro_n           s              8  0
+     d xidag           s              8  0
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'JSONFIX'
+     d JSONFIX         pr                  extpgm('JSONFIX')
+     d JSONstring_                         like(JSONstring)
+      *  Prototype for 'INCGI'
+     d INCGI           pr                  extpgm('INCGI')
+     d bistdl_                             like(bistdl)
+      *  Prototype for 'SAD132RA'
+     d SAD132RA        pr                  extpgm('SAD132RA')
+     d pro_n_                              like(pro_n)
+      *
+      /free
+
+      // *get input-string
+      // /copy syspeds/qrpgsrcpy,prolog3
+         nbrVars = zhbgetinput(savedquerystring:qusec);
+
+       // Parse input
+         exsr Parse;
+       // Open files etc
+         exsr init;
+
+         chain pro_n sadefl02;
+         if %found and efeta >= xidag ;
+           error = 'O';
+           errort = ' ';
+           chain pro_n turer14;
+           if %found;
+             sad132ra (efpro);
+           endif;
+         else;
+           error = 'M';
+           errort = 'Manifest finnes ikke eller avsluttet.';
+
+         endif;
+
+         exsr      srutjson;
+
+         //* Quit
+         exsr Exit;
+
+       //*=====================================================================
+       //* Close output html and quit
+       //*=====================================================================
+       begsr Exit;
+
+       // Lukk fil
+       close bridf;
+       close turer14;
+       close sadefl02;
+
+       //* Do not delete the call to wrtsection with section name *fini.  It is needed
+       //* to ensure that all output html that has been buffered gets output.
+       callp wrtsection('*fini');
+       //* Quit
+       *inlr = *on;
+       return;
+
+       endsr;
+
+       //*********************************************************
+       //C     Parse         Begsr
+       //*********************************************************
+       begsr Parse;
+
+       //* Get input
+       WSUSER  = zhbgetvar('USER');
+       PRO     = zhbgetvar('PRO');
+       PRO_N   = c2n2(PRO);
+       Error   = zhbgetvar('Error');
+       ErrorT  = zhbgetvar('ErrorTxt');
+
+       endsr;
+
+       //*********************************************************
+       //C     SRUTJSON      Begsr
+       //*********************************************************
+       begsr srutjson;
+
+       callp gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+       callp wrtsection('top');
+       error = ' ';
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬pro¬ : ¬'+%trim(PRO)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, '
+        +'¬errMsgT¬ : ¬'+%trim(Errort)+'¬}';
+
+       //* JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       JSONFIX (JSONstring);
+       CALLP updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+       callp wrtsection('JSONlin');
+
+       endsr;
+
+       //*********************************************************
+       //C     INIT          Begsr
+       //*********************************************************
+       begsr init;
+
+       open bridf;
+       //* Test innlogging
+       chain wsuser bridf;
+       if bilibl = *blanks;
+         incgi (bistdl);
+       else;
+      /end-free
+     C                   call      BILIBL
+      /free
+       endif;
+
+       open turer14;
+       open sadefl02;
+
+       syge15c (wdt: wtm);
+       xidag = wdt_n;
+
+       endsr;
+

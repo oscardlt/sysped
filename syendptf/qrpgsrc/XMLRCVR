@@ -1,0 +1,854 @@
+********************************************************************
+      * Dette programmet PARSER xml via SCOTT KLEMETs HTTPAPI og
+      * legger ut XMLTAGGER / VERDIER mm i nøkkelbaserte DATABASEfiler
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 FEILMELDING DERSOM......
+10XXX * 02 YBC PTF10 ERSTATTE BLANK PÅ LINJE STARTER MED X'05'
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 03 YBC PTF11 LENGDE PÅ VARIABEL
+11XXX * 04 YBC PTF11 BYTT encoding: Windows-1252 til iso-8859-1
+11XXX * 05 YBC PTF11 filename er endret fra 120 lang til 256 lang
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX * 06 YBC PTF12 cbc:Description fra EHF kan være veldig lang
+      *              ikke konverter den.
+12XXX * 07 YBC PTF12 cbc:EmbeddedDocumentBinaryObject fra EHF er for lang
+      *              ikke konverter den.
+      * 08 JOV PTF12 Kall prog for å trekke ut / konvertere EHF-PDF-ifl
+12XXX * 09 YBC PTF12 Takle stor fakturafil fra Mybring
+12XXX * 10 YBC PTF12 XMLRCVF utvidet med 6 nivå
+12XXX * 11 JOV PTF12 XML Tulltaxan / sender none ganger grums  (bytt ¬ til bank)
+********************************************************************
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+     FXMLRCVF   O  A E             DISK
+     FXMLRCLF   O  A E             DISK
+     FXMLRCAF   O  A E             DISK
+s01  F*EDIC      UF   E             DISK
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D PrintLine       s            132A
+S05  D*filename        s            120A   varying
+N05  D filename        s            256A   varying
+     D XCLIENTID       s             10A
+     D XCLIENTNAME     s             50A
+     D XDEPTH          s              3  0
+N06  D XANT            s              3  0
+     D XVALUE1         S            512A
+     D XVALUE2         S            442A
+     D XATN            S             35A   DIM(30)
+     D XATV            S             70A   DIM(30)
+N08  D EHF_PDF         S              1A
+Nyy   * eks pr 20240702:                    Spesifisertfaktura_10034308816
+sxx  D*xtest01         c                   'Spesifisertfaktura_Fakturanummer'
+Nyy  D xtest01         c                   'Spesifisertfaktura_'
+      *
+
+     C     *ENTRY        PLIST
+     C                   PARM                    UFILNVN         256
+     C                   PARM                    USN               9
+
+n01  C*    1             CHAIN     EDIC                               20
+n01  C*                  ADD       1             CSN
+n01  C*                  UPDATE    EDICR
+n01  C*                  MOVE      CSN           XRSN
+n01  C*                  MOVE      CSN           USN
+N01  C                   MOVE      USN           XRSN
+N02  C                   MOVE      X'05'         XTEGNX051         1
+N09  C     XTEST01       scan      UFILNVN                                33
+N09  C   33              move      'J'           XMYBRING          1
+N09  C  N33              move      'N'           XMYBRING
+
+      /free
+
+
+        //
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+            filename = %trim(UFILNVN);
+        //  filename = '/tmp/BLIT1838943.xml';
+        //  filename = '/SYSPEDFX/SYSTEMA_E_TCP/EDISE1K/F0028954.xml';
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+N04   /end-free
+N04  C                   CALL      'SYXML29'
+N04  C                   PARM                    UFILNVN         256
+N04   /free
+N04     if (http_parse_xml_stmf( filename
+N04                            : HTTP_XML_CALC
+N04                            : *null
+N04                            : %paddr(Incoming)
+N04                            : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+
+           *inlr = *on;
+           return;
+N04     endif;
+        endif;
+
+        // ****************************************************
+        //  http_parse-funksjonen er n} vellykket avsluttet
+        // ****************************************************
+S08     // *inlr = *on;
+S08     // return;
+
+      /end-free
+
+N08  C                   IF        EHF_PDF='J'
+N08  C                   call      'XMLRCVEHF'
+N08  C                   PARM                    UFILNVN
+N08  C                   PARM                    USN
+N08  C                   ENDIF
+N08
+N08  C                   seton                                        LR
+N08  C                   return
+      *
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+      *
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+
+     D X               s             10I 0
+     D X2              s              3I 0
+
+      /free
+
+       // Skriv en linje pr attributt for sist behandlede/avsluttede tag
+       //  ved å løse opp "rem-ede linjer" bare ved gitte tag-navn  / gitte attributt-navn
+       // OBS| skal en ha med variablene UT av prosedyr m} variablene defineres globalt (toppen)
+
+           XRNV   = NAME;
+           IF XRNV = 'InvoiceDetails';      // N03
+           XVALUE1 = *BLANKS;               // N03
+N06        XANT = 0;
+           ELSE;                            // N03
+N06        IF XRNV = 'cbc:Description';
+N06        IF XANT = 0;
+N06        XVALUE1 = VALUE;
+N06        XANT = XANT + 1;
+N06        ELSE;
+N06        XVALUE1 = *BLANKS;
+N06        XVALUE2 = *BLANKS;
+N06        XANT = XANT + 1;
+N06        ENDIF;
+N06        ELSE;
+N07        IF XRNV = 'cbc:EmbeddedDocumentBinaryObject';
+N07        XVALUE1 = *BLANKS;
+N07        XVALUE2 = *BLANKS;
+N08        EHF_PDF = 'J';
+N07        ELSE;
+N09          IF XRNV = 'Lines' and XMYBRING = 'J';
+N09            XVALUE1 = *BLANKS;
+N09          ELSE;
+           XVALUE1 = VALUE;
+N09          ENDIF;
+N06        XANT = 0;
+N07        ENDIF;
+N06        ENDIF;
+           ENDIF;                           // N03
+
+      /end-free
+     C                   MOVE      XVALUE1       XVALUE2
+N02  C                   MOVEL     XVALUE1       XTEGNX052         1
+      /free
+           IF (XVALUE2 = *BLANKS);
+           IF (XTEGNX051 = XTEGNX052);             // N02
+           XRVERD = *BLANKS;                       // N02
+           ELSE;                                   // N02
+           IF XRNV = 'InvoiceDetails';             // N03
+           XRVERD = *BLANKS;                       // N03
+           ELSE;                                   // N03
+N07        IF XRNV = 'cbc:EmbeddedDocumentBinaryObject';
+N07        XRVERD = *BLANKS;
+N07        ELSE;
+N09          IF XRNV = 'Lines' and XMYBRING = 'J';
+N09            XVALUE1 = *BLANKS;
+N09          ELSE;
+           XRVERD = VALUE;
+N09          ENDIF;
+N07        ENDIF;
+           ENDIF;                                  // N03
+           ENDIF;                                  // N02
+           ELSE;
+           XRVERD = '*EXT, TILLEGGSFIL';
+           ENDIF;
+           XRPATH = PATH;
+           X2     = DEPTH - XDEPTH;
+           select;
+           WHEN (DEPTH  = XDEPTH);
+              select;
+              WHEN (DEPTH  = 1);
+              WHEN (DEPTH  = 2);
+               XRLEV1 = XRLEV1 + 1;
+              WHEN (DEPTH  = 3);
+               XRLEV2 = XRLEV2 + 1;
+              WHEN (DEPTH  = 4);
+               XRLEV3 = XRLEV3 + 1;
+              WHEN (DEPTH  = 5);
+               XRLEV4 = XRLEV4 + 1;
+              WHEN (DEPTH  = 6);
+               XRLEV5 = XRLEV5 + 1;
+              WHEN (DEPTH  = 7);
+               XRLEV6 = XRLEV6 + 1;
+              WHEN (DEPTH  = 8);
+               XRLEV7 = XRLEV7 + 1;
+S10           //WHEN (DEPTH  = 8);
+N10           WHEN (DEPTH  = 9);
+               XRLEV8 = XRLEV8 + 1;
+N10           WHEN (DEPTH  = 10);
+N10            XRLEV9 = XRLEV9 + 1;
+N10           WHEN (DEPTH  = 11);
+N10            XRLE10 = XRLE10 + 1;
+N10           WHEN (DEPTH  = 12);
+N10            XRLE11 = XRLE11 + 1;
+N10           WHEN (DEPTH  = 13);
+N10            XRLE12 = XRLE12 + 1;
+N10           WHEN (DEPTH  = 14);
+N10            XRLE13 = XRLE13 + 1;
+N10           WHEN (DEPTH  = 15);
+N10            XRLE14 = XRLE14 + 1;
+              OTHER;
+S10            //XRLEV9 = XRLEV9 + 1;
+N10            XRLE15 = XRLE15 + 1;
+              ENDSL;
+           WHEN (DEPTH  > XDEPTH);
+              select;
+              WHEN (DEPTH  = 1);
+               XRLEV1 = 0;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 2);
+               XRLEV1 = XRLEV1 + 1;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 3);
+               XRLEV1 = XRLEV1 + 1;
+               XRLEV2 = XRLEV2 + 1;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 4);
+               IF (X2 > 1);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               XRLEV2 = XRLEV2 + 1;
+               XRLEV3 = XRLEV3 + 1;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 5);
+               IF (X2 > 2);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               XRLEV3 = XRLEV3 + 1;
+               XRLEV4 = XRLEV4 + 1;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 6);
+               IF (X2 > 3);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               XRLEV4 = XRLEV4 + 1;
+               XRLEV5 = XRLEV5 + 1;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 7);
+               IF (X2 > 4);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               XRLEV5 = XRLEV5 + 1;
+               XRLEV6 = XRLEV6 + 1;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 8);
+               IF (X2 > 5);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 4);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV5 = XRLEV5 + 1;
+               ENDIF;
+               XRLEV6 = XRLEV6 + 1;
+               XRLEV7 = XRLEV7 + 1;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 9);
+               IF (X2 > 6);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 5);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 4);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV5 = XRLEV5 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV6 = XRLEV6 + 1;
+               ENDIF;
+               XRLEV7 = XRLEV7 + 1;
+               XRLEV8 = XRLEV8 + 1;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 10);
+N10            IF (X2 > 7);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            XRLEV8 = XRLEV8 + 1;
+N10            XRLEV9 = XRLEV9 + 1;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 11);
+N10            IF (X2 > 8);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 7);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLEV8 = XRLEV8 + 1;
+N10            ENDIF;
+N10            XRLEV9 = XRLEV9 + 1;
+N10            XRLE10 = XRLE10 + 1;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 12);
+N10            IF (X2 > 9);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 8);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 7);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLEV8 = XRLEV8 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLEV9 = XRLEV9 + 1;
+N10            ENDIF;
+N10            XRLE10 = XRLE10 + 1;
+N10            XRLE11 = XRLE11 + 1;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 13);
+N10            IF (X2 > 10);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 9);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 8);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 7);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLEV8 = XRLEV8 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLEV9 = XRLEV9 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLE10 = XRLE10 + 1;
+N10            ENDIF;
+N10            XRLE11 = XRLE11 + 1;
+N10            XRLE12 = XRLE12 + 1;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 14);
+N10            IF (X2 > 11);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 10);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 9);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 8);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 7);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV8 = XRLEV8 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLEV9 = XRLEV9 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLE10 = XRLE10 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLE11 = XRLE11 + 1;
+N10            ENDIF;
+N10            XRLE12 = XRLE12 + 1;
+N10            XRLE13 = XRLE13 + 1;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 15);
+N10            IF (X2 > 12);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 11);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 10);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 9);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 8);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 7);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+N10            IF (X2 > 6);
+N10            XRLEV7 = XRLEV7 + 1;
+N10            ENDIF;
+N10            IF (X2 > 5);
+N10            XRLEV8 = XRLEV8 + 1;
+N10            ENDIF;
+N10            IF (X2 > 4);
+N10            XRLEV9 = XRLEV9 + 1;
+N10            ENDIF;
+N10            IF (X2 > 3);
+N10            XRLE10 = XRLE10 + 1;
+N10            ENDIF;
+N10            IF (X2 > 2);
+N10            XRLE11 = XRLE11 + 1;
+N10            ENDIF;
+N10            IF (X2 > 1);
+N10            XRLE12 = XRLE12 + 1;
+N10            ENDIF;
+N10            XRLE13 = XRLE13 + 1;
+N10            XRLE14 = XRLE14 + 1;
+N10            XRLE15 = 0;
+              OTHER;
+N10            IF (X2 > 13);
+N10            XRLEV1 = XRLEV1 + 1;
+N10            ENDIF;
+N10            IF (X2 > 12);
+N10            XRLEV2 = XRLEV2 + 1;
+N10            ENDIF;
+N10            IF (X2 > 11);
+N10            XRLEV3 = XRLEV3 + 1;
+N10            ENDIF;
+N10            IF (X2 > 10);
+N10            XRLEV4 = XRLEV4 + 1;
+N10            ENDIF;
+N10            IF (X2 > 9);
+N10            XRLEV5 = XRLEV5 + 1;
+N10            ENDIF;
+N10            IF (X2 > 8);
+N10            XRLEV6 = XRLEV6 + 1;
+N10            ENDIF;
+               IF (X2 > 7);
+E10            XRLEV7 = XRLEV7 + 1;
+               ENDIF;
+               IF (X2 > 6);
+E10            XRLEV8 = XRLEV8 + 1;
+               ENDIF;
+               IF (X2 > 5);
+E10            XRLEV9 = XRLEV9 + 1;
+               ENDIF;
+               IF (X2 > 4);
+E10            XRLE10 = XRLE10 + 1;
+               ENDIF;
+               IF (X2 > 3);
+E10            XRLE11 = XRLE11 + 1;
+               ENDIF;
+               IF (X2 > 2);
+E10            XRLE12 = XRLE12 + 1;
+               ENDIF;
+               IF (X2 > 1);
+E10            XRLE13 = XRLE13 + 1;
+               ENDIF;
+               XRLE14 = XRLE14 + 1;
+               XRLE15 = XRLE15 + 1;
+              ENDSL;
+           OTHER;
+              select;
+              WHEN (DEPTH  = 1);
+               XRLEV1 = 0;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 2);
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 3);
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 4);
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 5);
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 6);
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 7);
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              WHEN (DEPTH  = 8);
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 9);
+N10            XRLEV9 = 0;
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 10);
+N10            XRLE10 = 0;
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 11);
+N10            XRLE11 = 0;
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 12);
+N10            XRLE12 = 0;
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 13);
+N10            XRLE13 = 0;
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+N10           WHEN (DEPTH  = 14);
+N10            XRLE14 = 0;
+N10            XRLE15 = 0;
+              OTHER;
+S10            //XRLEV9 = 0;
+N10            XRLE15 = 0;
+              ENDSL;
+           ENDSL;
+N11        XRVERD = %ScanRpl( '¬': ' ': XRVERD );
+           WRITE XMLRCVFR;
+
+       // Skriv verdi til tilleggsfil ved verdi er større enn 70 tegn
+           IF (XVALUE2 <> *BLANKS);
+           XRVRD = XVALUE1;
+N11        XRVRD  = %ScanRpl( '¬': ' ': XRVRD );
+           WRITE XMLRCLFR;
+           ENDIF;
+           XDEPTH = DEPTH;
+
+       // Skriv parameter av attributt til fil
+            count = 1;
+            dow attrs(count) <> *NULL;
+               attrname = %str(attrs(count));
+               count = count + 1;
+               attrval = %str(attrs(count));
+               count = count + 1;
+               XRATN = ATTRNAME;
+               XRATV = ATTRVAL;
+N11            XRATV  = %ScanRpl( '¬': ' ': XRATV );
+               WRITE XMLRCAFR;
+            enddo;
+
+      /end-free
+     P                 E
+

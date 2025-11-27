@@ -1,0 +1,980 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 SH  PTF12 spesial interrimsføring
+12XXX * 02 jov PTF12 Ny parameter for originalt budsjettert, database:KBBVAL / KBBUDS  MEN..
+      *              KBBVAL aldri brukt = forutsetter NOK  ( godt nok for Ramberg...)
+********************************************************************
+     H debug(*yes)
+      * For å kompilere:  OVRDBF SYKS04W2  SYKS04WF
+      *
+      ***********************************************************
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01-26                            ***
+      *** LEDIGE INDIKATORER 27-30 35-40 44-48 54-99          F**
+      ***********************************************************
+      * Spesielle indikatore:                                   *
+      *  41 - Lesenøkkel er avd/oppdrag                         *
+      *  42 - Lesenøkkel er turnr                               *
+      *  42+49Lesenøkkel er turnr - fordeling av AVREGNET TUR   *
+      *  43 - Lesenøkkel er godsnr(AWB) primært, A-ref sekundært*
+      *                                                         *
+      *  51 - Fordel (på leste -41/42/43- begrep) etter andel   *
+      *       av beløp på en GITT GEBYRKODE                     *
+      *  52 - Fordel (på leste -41/42/43- begrep) på oppd. etter*
+      *       andel av FVEKT uavh. av GEB, splitt innen et oppdr*
+      *       (hvis flere parter) etter andel av oppdr.tot.beløp*
+      *                                                         *
+      *  53 - Lag fakturalinjer (% til inntekt)                 *
+      ***********************************************************
+     FAVSLUTF   IF   E           K DISK
+     FAVSLUTL2  if   e           k dISK
+     F                                     RENAME(avslutfr:avslut2)
+     FKOSTB     UF A E             DISK
+     F                                     INFDS(KOSBDS)
+     FKOSTB3    UF A E           K DISK
+     F                                     RENAME(KOSTBR:KOSTB3R)
+     FFAK2      IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FHEAD11    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEAD11R)
+     FHEAD17    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEAD17R)
+     FHEAD18    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEAD18R)
+     FFAKT      O  A E           K DISK
+     F                                     RENAME(FAKTR:FAKTRR)
+     FFAI3      UF A E           K DISK
+     FFIRM      IF   E           K DISK
+     FTRAVH1    IF   E           K DISK
+     FTRAVV2    IF   E           K DISK
+     FKODWL01   IF   E           K DISK
+     FKOSBU     IF   E           K DISK
+     FSYKS04WF  UF A E           K DISK    USROPN
+     FSYKS04W2  IF   E           K DISK    USROPN
+     F                                     RENAME(SYKS04WR:SYKS042R)
+     F                                     PREFIX(W2_)
+      *
+     D KOSBDS          DS
+     D  RECN                 397    400B 0
+     D                 DS
+     D  INPARM                 1     24
+     D  ININK1                 1      1
+     D  INFR01                 2      4
+     D  INFR02                 5      7
+     D  INFR03                 8     10
+     D  ININK2                11     11
+     D  INOT01                12     13
+     D  INOT02                14     15
+     D  INOT03                16     17
+     D  ININK3                18     18
+     D  INPA01                19     19
+     D  INPA02                20     20
+     D  INPMN                 21     22  0
+     D  INPÅR                 23     24  0
+      *
+     C                   EXSR      INIT
+      *
+     C                   CALL      'SYKS04CL'
+     C                   OPEN      SYKS04WF
+     C                   OPEN      SYKS04W2
+      *
+     C     UFLAGG        IFEQ      3
+N01  C     UFLAGG        OREQ      4
+     C                   EXSR      IKKEFD
+     C                   GOTO      SLUTT
+     C                   END
+      *
+      * Avh. av nøkkelfelt(oppd/tur/gods)+valgt vekt el. gebyr-fordel.
+      * finn aktuelle oppdrag/parter/GRUNNLAG for fordelingsnøkler
+     C   41HEADFK        CHAIN     HEADF                              31
+     C   41              EXSR      OPPD
+     C   42
+     CANN49              EXSR      TUR
+     C   42
+     CAN 49              EXSR      TURGOD
+     C   43              EXSR      GODSNR
+      *
+      * Basert på grunnlagene/rdelingsnøklene funnet over
+      * Skriv poster til kostnads,detalfila basert på
+     C  N49              EXSR      UTPOST
+      *
+     C     SLUTT         TAG
+     C                   CLOSE     SYKS04W2
+     C                   CLOSE     SYKS04WF
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+     C***********************************************
+     C     OPPD          BEGSR
+     C***********************************************
+     C   51              EXSR      FDGEB
+     C   52              EXSR      FDVEKT
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TURGOD        BEGSR
+     C***********************************************
+      *
+      *Ford. av "godskr.linjer" på transpavr. hent turnr/via KOSBU
+      *Hvis den ikke refererer til budsj./rekv.-> tur - hopp over den.
+     C     TRAVVK        SETLL     TRAVV2
+     C     TRAVVK        READE     TRAVV2                                 33
+     C     *IN33         DOWEQ     '0'
+     C     TVBNRB        IFNE      *ZEROS
+     C     TVBNRB        CHAIN     KOSBU                              33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      *ZEROS        WFLN
+     C                   Z-ADD     TVBLL         UBL
+     C                   MOVE      BUTAVD        UAVD
+     C                   MOVE      BUTUNR        UPRO
+     C                   EXSR      TUR
+     C                   EXSR      UTPOST
+     C                   END                                                    TVBNRB IF
+     C                   END                                                    KOSBU FINNES
+     C     TRAVVK        READE     TRAVV2                                 33
+     C  N33              END                                                    TRAVV FINNES
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TUR           BEGSR
+     C***********************************************
+     C     UPRO          SETLL     HEAD11
+     C     STTUR         TAG
+     C     UPRO          READE     HEAD11                                 31
+     C  N31              DO                                                     1<-B
+     C     HEST          IFEQ      'S'                                           2<-B
+     C                   GOTO      STTUR
+     C                   ELSE
+     C     headke        CHAIN     AVSLUTF                            33
+     C  n33              goto      sttur
+     C                   END                                                     2<-E
+     C     UAVD          IFNE      *ZEROS                                        2<-B
+     C     UAVD          ANDNE     HEAVD
+     C                   GOTO      STTUR
+     C                   END                                                     2<-E
+     C     ININK1        IFEQ      'I'                                           2<-B
+     C     INFR01        ANDNE     HEFR
+     C     INFR02        ANDNE     HEFR
+     C     INFR03        ANDNE     HEFR
+     C                   GOTO      STTUR
+     C                   ELSE                                                    2
+     C     ININK1        IFEQ      'O'                                            3<-B
+     C     INFR01        IFEQ      HEFR                                            4<-B
+     C     INFR02        OREQ      HEFR
+     C     INFR03        OREQ      HEFR
+     C                   GOTO      STTUR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C     ININK2        IFEQ      'I'                                           2<-B
+     C     INOT01        ANDNE     HEOT
+     C     INOT02        ANDNE     HEOT
+     C     INOT03        ANDNE     HEOT
+     C                   GOTO      STTUR
+     C                   ELSE                                                    2
+     C     ININK2        IFEQ      'O'                                            3<-B
+     C     INOT01        IFEQ      HEOT                                            4<-B
+     C     INOT02        OREQ      HEOT
+     C     INOT03        OREQ      HEOT
+     C                   GOTO      STTUR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   EXSR      OPPD
+     C                   GOTO      STTUR
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     GODSNR        BEGSR
+     C***********************************************
+     C     UAREF         IFNE      *BLANKS
+     C     UAREF         SETLL     HEAD17
+     C                   ELSE
+     C     UGN           SETLL     HEAD18
+     C                   END
+      *
+     C     STGODS        TAG
+      *
+     C     UAREF         IFNE      *BLANKS
+     C     UAREF         READE     HEAD17                                 31
+     C                   ELSE
+     C     UGN           READE     HEAD18                                 31
+     C                   END
+      *
+     C  N31              DO
+     C     HEST          IFEQ      'S'                                           2<-B
+     C                   GOTO      STGODS
+     C                   ELSE
+     C     headke        CHAIN     AVSLUTF                            33
+     C  n33              goto      stgods
+     C                   END                                                     2<-E
+     C     UAVD          IFNE      *ZEROS                                        2<-B
+     C     UAVD          ANDNE     HEAVD
+     C                   GOTO      STGODS
+     C                   END                                                     2<-E
+     C     ININK1        IFEQ      'I'                                           2<-B
+     C     INFR01        ANDNE     HEFR
+     C     INFR02        ANDNE     HEFR
+     C     INFR03        ANDNE     HEFR
+     C                   GOTO      STGODS
+     C                   ELSE                                                    2
+     C     ININK1        IFEQ      'O'                                            3<-B
+     C     INFR01        IFEQ      HEFR                                            4<-B
+     C     INFR02        OREQ      HEFR
+     C     INFR03        OREQ      HEFR
+     C                   GOTO      STGODS
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C     ININK2        IFEQ      'I'                                           2<-B
+     C     INOT01        ANDNE     HEOT
+     C     INOT02        ANDNE     HEOT
+     C     INOT03        ANDNE     HEOT
+     C                   GOTO      STGODS
+     C                   ELSE                                                    2
+     C     ININK2        IFEQ      'O'                                            3<-B
+     C     INOT01        IFEQ      HEOT                                            4<-B
+     C     INOT02        OREQ      HEOT
+     C     INOT03        OREQ      HEOT
+     C                   GOTO      STGODS
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   EXSR      OPPD
+     C                   GOTO      STGODS
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FDGEB         BEGSR
+     C***********************************************
+     C                   Z-ADD     0             XN                5 0
+     C     FAK2K         SETLL     FAK2
+     C                   SETOFF                                       3233
+     C     STGEB         TAG
+     C     HEAVD         READE     FAK2                                   32
+     C  N32HEOPD         COMP      FAOPD                              3232
+     C  N32
+     CAN 51UVK           IFNE      FAVK                                         1<-B
+     C                   GOTO      STGEB
+     C                   END                                                    1<-E
+      * LINJER MOT AGENT/(ÅPNE AMETA LINJER) SKAL IKKE MED
+     C  N32FASK          IFEQ      'A'                                          1<-B
+     C                   GOTO      STGEB
+     C                   END                                                    1<-E
+      *
+      * IKKE FORDELE MOT KOSTNADSLINJER
+     C  N32FAKDA         IFEQ      'K'                                          1<-B
+     C                   GOTO      STGEB
+     C                   END                                                    1<-E
+      *
+     C  N32ININK3        IFEQ      'I'                                          1<-B
+     C     INPA01        ANDNE     FASK
+     C     INPA02        ANDNE     FASK
+     C                   GOTO      STGEB
+     C                   ELSE                                                   1
+     C     ININK3        IFEQ      'O'                                           2<-B
+     C     INPA01        IFEQ      FASK                                           3<-B
+     C     INPA02        OREQ      FASK
+     C                   GOTO      STGEB
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+      * TESTER HVIS KUNDENR = 0   IKKE FAKTURERT
+      *
+     C  N32              SETON                                        33
+     C  N32FAKUNR        IFEQ      0                                            1<-B
+      * TESTER VED FAKTURERT SELGER
+     C     FASK          IFEQ      'S'                                           2<-B
+     C                   MOVE      HEKNSF        FAKUNR
+     C                   END                                                     2<-E
+      * TESTER VED KJØPER
+     C     FASK          IFEQ      'K'                                           2<-B
+     C     FASK          OREQ      'F'
+     C                   MOVE      HEKNKF        FAKUNR
+     C                   END                                                     2<-E
+      * TESTER INTERBELASTNING
+     C     FASK          IFEQ      'I'
+     C     HEKDFS        IFEQ      'X'
+     C                   MOVE      HEKNKF        FAKUNR
+     C                   ELSE
+     C                   MOVE      HEKNSF        FAKUNR
+     C                   END
+     C                   END
+      *
+     C                   END                                                    1<-E
+      *
+     C  N32              IF        FAKUNR <> 0                                  1<-B
+     C                   IF        XN <> 0                                       2<-B
+     C     XN            CHAIN(N)  SYKS04WF                           34
+     C  N34              IF        (((WFKN = FAKUNR) AND                          3<-B
+     C                               (WFAVD = HEAVD)) AND
+     C                               (WFOPD = HEOPD))
+     C                   GOTO      STGEB2
+     C                   ENDIF                                                    3<-E
+     C                   ENDIF                                                   2<-E
+      *
+     C                   EVAL      XN = 1
+     C     XN            SETLL     SYKS04WF
+     C                   READ(N)   SYKS04WF                               34
+     C                   DOW       *IN34 = *OFF                                  2<-B
+     C                   IF        (((WFKN = FAKUNR) AND                          3<-B
+     C                               (WFAVD = HEAVD)) AND
+     C                               (WFOPD = HEOPD))
+     C                   GOTO      STGEB2                                         3
+     C                   ELSE
+     C                   ADD       1             XN
+     C                   READ(N)   SYKS04WF                               34
+     C                   ENDIF                                                    3<-E
+     C  N34              ENDDO                                                   2<-E
+     C                   CLEAR                   SYKS04WR
+     C                   EVAL      WFLN = XN
+     C                   EVAL      WFKN = FAKUNR
+     C                   EVAL      WFOPD = HEOPD
+     C                   EVAL      WFAVD = HEAVD
+     C                   WRITE     SYKS04WR
+      *
+     C     STGEB2        TAG
+      * ALLE linjer tas med i TOTAL for å vurdere "dekning" av kostnad
+      * Kun + linjer teller med i ford.nøkler
+     C     WFLN          CHAIN     SYKS04WF                           34
+     C                   EVAL      WFBT = WFBT + FABELN
+     C                   IF        FABELN > 0                                    2<-B
+     C                   EVAL      WFBL = WFBL + FABELN
+     C   53              IF        UVK = FAVK                                     3<-B
+     C                   EVAL      WFB2 = WFB2 + FABELN
+     C                   ENDIF                                                    3<-E
+     C                   ENDIF                                                   2<-E
+     C                   IF        WFBL = 0                                      2<-B
+     C                   EVAL      WFBL = 1
+     C                   ENDIF                                                   2<-E
+     C                   UPDATE    SYKS04WR
+     C                   ENDIF                                                  1<-E
+      *
+     C  N32              GOTO      STGEB
+      *
+      * HVIS IKKE FINNES NOEN LINJER VED FORDELING PÅ GEBYR, FORDELER
+      * DET ETTER "PARTENE" PÅ OPPDARGET
+     C     XN            IFEQ      0                                            1<-B
+     C                   EXSR      FDPART
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FDPART        BEGSR
+     C***********************************************
+      * FINN SISTE BRUKTE LINJENR
+     C     *HIVAL        SETGT     SYKS04WF
+     C                   READP(N)  SYKS04WF                               34
+     C                   IF        *IN34
+     C                   EVAL      XN = 0
+     C                   ELSE
+     C                   EVAL      XN = WFLN
+     C                   ENDIF
+      * TESTER VED FAKTURERT SELGER
+     C     ININK3        IFEQ      'I'                                          1<-B
+     C     INPA01        ANDNE     'S'
+     C     INPA02        ANDNE     'S'
+     C                   GOTO      STFDP1
+     C                   END                                                    1<-E
+     C     ININK3        IFEQ      'O'                                          1<-B
+     C     INPA01        IFEQ      'S'                                           2<-B
+     C     INPA02        OREQ      'S'
+     C                   GOTO      STFDP1
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     HEKNSF        IFNE      0                                            1<-B
+     C     HEKDFS        IFEQ      'X'                                           2<-B
+     C     HEKDFK        ANDNE     'X'
+     C                   GOTO      STFDP1
+     C                   END                                                     2<-E
+     C                   ADD       1             XN
+     C                   CLEAR                   SYKS04WR
+     C                   EVAL      WFLN = XN
+     C                   EVAL      WFKN = HEKNSF
+     C                   EVAL      WFAVD = HEAVD
+     C                   EVAL      WFOPD = HEOPD
+     C                   EVAL      WFBL = 0.01
+     C                   WRITE     SYKS04WR
+      * Samme knr selger/kjøper, ikke legg ut dobbelt
+     C     HEKNKF        IFEQ      HEKNSF
+     C                   GOTO      STFDP2
+     C                   END
+     C                   END                                                    1<-E
+      *
+     C     STFDP1        TAG
+      * TESTER VED KJØPER
+     C     ININK3        IFEQ      'I'                                          1<-B
+     C     INPA01        ANDNE     'K'
+     C     INPA02        ANDNE     'K'
+     C                   GOTO      STFDP2
+     C                   END                                                    1<-E
+     C     ININK3        IFEQ      'O'                                          1<-B
+     C     INPA01        IFEQ      'K'                                           2<-B
+     C     INPA02        OREQ      'K'
+     C                   GOTO      STFDP2
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     HEKNKF        IFNE      0                                            1<-B
+     C     HEKDFK        IFEQ      'X'                                           2<-B
+     C     HEKDFS        ANDNE     'X'
+     C                   GOTO      STFDP2
+     C                   END                                                     2<-E
+     C                   ADD       1             XN
+     C                   CLEAR                   SYKS04WR
+     C                   EVAL      WFLN = XN
+     C                   EVAL      WFKN = HEKNKF
+     C                   EVAL      WFAVD = HEAVD
+     C                   EVAL      WFOPD = HEOPD
+     C                   EVAL      WFBL = 0.01
+     C                   WRITE     SYKS04WR
+     C                   END                                                    1<-E
+      *
+     C     STFDP2        TAG
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FDVEKT        BEGSR
+     C***********************************************
+      * SR bidrar til SAMLING av data for å finne parter/ford.-nøkler
+      * Finn første ledige arrayelement
+     C     *LOVAL        SETLL     SYKS04WF
+     C                   EVAL      XN2 = 1
+     C                   READ(N)   SYKS04WF                               34
+     C                   DOW       *IN34 = *OFF
+     C                   IF        WFVK = 0                                      2<-B
+     C                   EVAL      XN2 =WFLN
+     C                   GOTO      STVKT
+     C                   ENDIF                                                   2<-E
+     C                   EVAL      XN2 = WFLN + 1
+     C                   READ(N)   SYKS04WF                               34
+     C  N34              ENDDO
+      *
+     C     STVKT         TAG
+     C                   EXSR      FDGEB
+      *
+      * Oppdater arb.fil med vekt på de parter som fantes på oppdraget
+     C     XN            IFNE      0                                            1<-B
+     C     XN2           CHAIN     SYKS04WF                           34
+     C                   DOW       *IN34 = *OFF
+     C                   IF        HEFBV = 0
+     C                   EVAL      WFVK = 1
+     C                   ELSE
+     C                   EVAL      WFVK = WFVK + HEFBV
+     C                   ENDIF
+     C                   UPDATE    SYKS04WR
+     C                   READ      SYKS04WF                               34
+     C  N34              ENDDO
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     UTPOST        BEGSR
+     C***********************************************
+      *
+     C                   MOVE      *ZEROS        XAVD2             4 0
+     C                   MOVE      *ZEROS        XOPD2             7 0
+     C     *LOVAL        SETLL     SYKS04WF
+     C                   READ(N)   SYKS04WF                               34
+     C                   DOW       *IN34 = *OFF
+      * Akkumuler sum vekt hvis fordeling etter vekt (F11) valgt
+      *           sum beløp akkumuleres også når vektfordeling (??)
+     C   52              IF        ((WFAVD <> XAVD2) OR
+     C                              (WFOPD <> XOPD2))
+     C                   EVAL      XAVD2 = WFAVD
+     C                   EVAL      XOPD2 = WFOPD
+     C                   SUB       WFVK          XVKT              9 0
+     C                   ENDIF
+      * Akkumuler sum beløp hvis fordeling etter geb-kode (F9) valgt
+     C                   EVAL      XSUM = XSUM - WFBL
+     C                   EVAL      XSUMT = XSUMT - WFBT
+     C                   READ(N)   SYKS04WF                               34
+     C  N34              ENDDO
+      *
+     C     STUTP         TAG
+     C   51XSUM          IFEQ      0
+     C  N41              Z-SUB     9             UFLAGG
+     C   41              Z-ADD     9             UFLAGG
+     C                   GOTO      SLUTP
+     C                   END
+     C   51DIFFOK        IFNE      'J'
+      * VED VANLIG KOSTNAD ER UBL NEGATIV, VED INNGÅENDE KREDIT POSITIV
+     C     UBL           IFLT      0
+     C     XSUMT         IFGT      UBL2
+     C                   Z-ADD     9             UFLAGG
+     C                   GOTO      SLUTP
+     C                   END
+     C                   END
+     C                   END
+     C   52XVKT          IFEQ      0
+     C                   Z-ADD     9             UFLAGG
+     C                   GOTO      SLUTP
+     C                   END
+     C   52DIFFOK        IFNE      'J'
+     C     UBL           IFLT      0
+     C     XSUMT         IFGT      UBL2
+     C                   Z-ADD     7             UFLAGG
+     C                   GOTO      SLUTP
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   EXSR      SLGML
+      *
+      * Finn oppgangingsfaktor pr kr eller kilo av grunnlaget
+     C   51UBL           DIV(H)    XSUM          XANDEL           2110
+     C   52UBL           DIV       XVKT          XANDEL
+     C                   Z-ADD     0             XSUM
+      *
+      * Legg ut hver post fra ARB.FIL til KOSTB - detaljfil
+      *         beløpet finnes ved "grunnlagsmengde" mult med faktor
+      * XSUM holder rede på hvor mye som er lagt ut, skulle det p.g.a
+      * upresis omregningsfaktor bli en rest spres denne på alle.
+     C                   EVAL      WFLN = 0
+     C     *LOVAL        SETLL     SYKS04WF
+     C                   READ      SYKS04WF                               34
+     C                   DOW       *IN34 = *OFF
+     C                   EVAL      KBOPD = WFOPD
+     C                   EVAL      KBAVD = WFAVD
+     C                   EVAL      KBKN = WFKN
+     C                   MOVE      UVK           KBVK
+     c                   move      ubilt         kbbilt
+     C                   MOVE      UKDPF         KBKDPF
+     C                   MOVE      UKDM          KBKDM
+     C                   MOVE      *ZEROS        KBBLHB
+     C                   MOVE      *ZEROS        KBBLF
+     C   51WFBL          MULT(H)   XANDEL        KBBLHB
+     C   52              EXSR      FDVK
+     C                   ADD       KBBLHB        XSUM
+     C     *IN53         IFEQ      *ON
+     C     XPROS         IFEQ      999.00
+     C     XPROS         OREQ      999.99
+     C                   Z-ADD     KBBLHB        KBBLF
+     C                   ELSE
+     C     KBBLHB        SUB       WFB2          KBBLF
+     C     KBBLF         MULT(H)   XPROS         KBBLF
+     C                   END
+     C                   END
+      * Skriv post ubetinget til fila - bevar rel.rec.no i arb.fil
+      * (i fall en ender opp med liten ørediff som skal spres)
+     C                   IF        KBBLHB <> 0
+     C                   IF        *IN50 = *OFF                                 ORD KOST-BIL
+     C                   MOVE      XKAVD         KBKAVD
+     C   41              MOVEL     XKOPD         KBKKEY
+     C   42              MOVEL     XKPRO         KBKKEY
+     C   42              MOVE      TURAVR        KBKKEY
+     C   43              MOVEL     XKGN          KBKKEY
+     C                   MOVE      INPMN         KBPMN
+     C                   MOVE      INPÅR         KBPÅR
+     C     KBPÅR         ifne      0
+     C                   Z-ADD     20            KBPCC
+     C                   ELSE
+     C                   Z-ADD     0             KBPCC
+     C                   END
+N02   * Hvis Budsjett-beløp er sendt inn fordel det etter samme gaktor som kostnad
+N02  c                   eval      KBBUDS = *zeros
+N02  c                   if        UBLB <> 0
+N02  c                   eval      KBBUDS = UBLB / UBL * KBBLHB
+N02  c                   endif
+     C                   WRITE     KOSTBR
+     C                   Z-ADD     RECN          WFVK
+     C                   ELSE                                                    2<-E
+      * Hvis basert på avregning er overføring til regnskap alt gjort
+      * Skrives IKKE til KOSTB men rett til (FAKT for STATISIKK)
+     C                   EXSR      FALINE
+     C                   ENDIF                                                   2<-E
+     C                   ENDIF                                                   2<-E
+     C                   UPDATE    SYKS04WR
+      *
+     C                   READ      SYKS04WF                               34
+     C  N34              ENDDO                                                  1<-E
+     C                   EVAL      XN = WFLN
+      *
+      *
+      * Hvis basert på avregning dropp ørediff (kun statistikk likevel)
+     C   50              GOTO      SLUTP
+      *
+     C     XSUM          ADD       UBL           XSUM
+      *
+      * SKAL NÅ VÆRE FERDIG, men faktor kan være upresis...
+      * Hvis ikke XSUM (fordelt beløp) er likt beløp til foredling
+      * (m/motsatt fortegn) spre resten utover.
+      *
+     C     XSUM          IFNE      0                                            B1
+     C                   Z-ADD     0.01          REDBEL            5 2          Reduksj.bel.
+     C* Finn siste "aktive element" som resulterte i KOSTB-linje
+     C     XN            SUB       1             XN2                            Sist"aktive"
+     C     XN2           CHAIN(N)  SYKS04WF                           34
+     C                   DOW       *IN34 = *OFF
+     C     WFVK          COMP      0                                  3434
+     C  N34              READP(N)  SYKS04WF                               34
+     C  N34              ENDDO
+     C                   EVAL      XN2 = WFLN
+     C                   Z-ADD     0             XN
+      *
+      * Plasser en liten slump pr post fra toppen
+     C     XN            DOWLT     XN2                                           B2
+     C                   ADD       1             XN
+     C                   Z-ADD     WFVK          RECNUM           10 0
+     C     RECNUM        CHAIN     KOSTBR                             32
+     C     *IN32         IFEQ      '0'                                            B3
+      * siste post.. sett resten på den..
+     C     XN            IFEQ      XN2                                             B4
+     C                   Z-ADD     XSUM          REDBEL
+     C                   END                                                       E4
+     C     XSUM          IFGT      0                                               B4
+     C                   SUB       REDBEL        KBBLHB
+     C                   SUB       REDBEL        XSUM
+     C                   ELSE                                                      X4
+     C                   ADD       REDBEL        KBBLHB
+     C                   ADD       REDBEL        XSUM
+     C                   END                                                       E4
+      *
+     C                   UPDATE    KOSTBR
+     C                   END                                                      E3
+      * er i 0 - hopp ut
+     C     XSUM          CABEQ     0             SLUTP
+     C                   END                                                     E2
+      *
+     C                   END                                                    E1
+      *
+     C     SLUTP         ENDSR
+      *
+     C******************************************
+     C     IKKEFD        BEGSR
+     C******************************************
+     C                   Z-SUB     UBL           UBL
+N01  C                   movel     ubilt         ubilt3            3
+N01  C     ubilt3        ifeq      'SI:'
+N01  C                   MOVE      UOPD          KBOPD
+N01  C                   else
+     C                   MOVE      *ZEROS        KBOPD
+N01  C                   end
+N01  C     uflagg        ifeq      4
+N01  c                   move      4             KBNØKK
+N01  C                   end
+     C                   MOVE      UAVD          KBAVD
+     C                   MOVE      *ZEROS        KBKN
+     C                   MOVE      UVK           KBVK
+     c                   move      ubilt         kbbilt
+     C                   MOVE      UKDPF         KBKDPF
+     C                   MOVE      UKDM          KBKDM
+     C                   Z-ADD     UBNR          KBBNR
+     C                   Z-ADD     UBL           KBBLHB
+     C                   MOVE      XKAVD         KBKAVD
+     C   41              MOVEL     XKOPD         KBKKEY
+     C   42              MOVEL     XKPRO         KBKKEY
+     C   42              MOVE      TURAVR        KBKKEY
+     C   43              MOVEL     XKGN          KBKKEY
+     C                   MOVE      INPMN         KBPMN
+     C                   MOVE      INPÅR         KBPÅR
+     C     KBPÅR         ifne      0
+     C                   Z-ADD     20            KBPCC
+     C                   ELSE
+     C                   Z-ADD     0             KBPCC
+     C                   END
+     C                   WRITE     KOSTB3R
+     C                   Z-SUB     UBL           UBL
+     C                   ENDSR
+      *
+     C******************************************
+     C     FALINE        BEGSR
+     C******************************************
+     C     HEAKBK        CHAIN     HEADF                              33
+     C                   MOVE      KBAVD         FAAVD
+     C                   MOVE      KBOPD         FAOPD
+     C                   MOVE      *ZEROS        FALI
+     C                   CALL      'SYGE06'
+     C                   PARM                    FAAVD
+     C                   PARM                    FAOPD
+     C                   PARM                    FALI
+     C     KBKN          IFEQ      HEKNSF                                       1B
+     C                   MOVE      'S'           FASK
+     C                   ELSE
+     C                   MOVE      'K'           FASK
+     C                   END                                                    1E
+     C                   MOVE      KBVK          FAVK
+     C                   MOVE      *BLANKS       FAVT
+     C                   MOVE      FICURR        FAVAL
+     C     KBKDM         IFEQ      1
+     C                   MOVE      'J'           FAKDM
+     C                   ELSE
+     C                   MOVE      'N'           FAKDM
+     C                   END
+     C     FAKDM         IFEQ      'J'
+     C     KBBLHB        DIV(H)    FITAXX        FABELV
+     C                   ELSE
+     C                   Z-ADD     KBBLHB        FABELV
+     C                   END
+     C                   Z-ADD     FABELV        FABELN
+     C                   MOVE      'K'           FAKDA
+     C                   MOVE      *BLANKS       FA01
+     C                   MOVE      ' '           FA01B
+     C                   MOVE      ' '           FAKDUK
+     C                   MOVE      ' '           FAKDUL
+     C                   MOVE      *ZEROS        FABELU
+      * 49 OFF - Fordeling av en avregnet "Hovedtur"
+      * 49 ON  - Fordeling Godskrivinger(innh. m.m. på rekvisi.)
+     C  N49TRAVHK        CHAIN     TRAVH1                             33
+     C  N49              MOVE      THFAKT        FAFAKT
+NV5  C  N49              Z-ADD     THCC          FACC
+     C  N49              Z-ADD     THÅR          FAÅR
+     C  N49              Z-ADD     THMND         FAMND
+     C  N49              MOVEL     'AVREGNIN'    XXTXT            16
+     C  N49              MOVE      'G HOVEDT'    XXTXT            16
+     C  N49              MOVEL     XXTXT         FAVT
+     C  N49              MOVE      'RANS'        FAVT
+     C   49              MOVE      TVFAKT        FAFAKT
+NV5  C   49              Z-ADD     BUPCC         FACC
+     C   49              Z-ADD     BUPÅR         FAÅR
+     C   49              Z-ADD     BUPMN         FAMND
+     C                   MOVE      'T'           FAOPKO
+     C                   Z-ADD     KBKN          FAKUNR
+     C                   Z-ADD     0             FALEVN
+     C                   Z-ADD     0             FAJOUR
+     C                   MOVE      *ZEROS        FAFRBN
+     C                   MOVE      FAAVD         FAAVDR
+     C                   MOVE      *ZEROS        FABÆR
+     C                   WRITE     FAKTRR
+     C                   MOVE      FAFAKT        FIFN
+     C                   MOVE      FAAVD         FIAVD
+     C                   MOVE      FAOPD         FIOPD
+      *
+     C     FAI3K         CHAIN     FAI3                               33
+     C  N33              UPDATE    FAINR
+     C   33              WRITE     FAINR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FDVK          BEGSR
+     C***********************************************
+     C                   Z-ADD     0             XN2               5 0
+     C                   Z-ADD     0             XBL              17 5
+     C     XN2           SETLL     SYKS04W2
+     C                   READ      SYKS04W2                               34
+     C                   DOW       *IN34 = *OFF
+     C                   IF        ((W2_WFOPD=WFOPD) AND
+     C                              (W2_WFAVD=WFAVD))
+     C                   EVAL      XBL = XBL + W2_WFBL
+     C                   ENDIF
+     C                   READ      SYKS04W2                               34
+     C  N34              ENDDO
+      *
+     C     WFVK          MULT(H)   XANDEL        XANDE2           17 6
+     C     WFBL          DIV(H)    XBL           XBL
+     C     XBL           MULT(H)   XANDE2        KBBLHB
+      *
+     C     SLFDV         ENDSR
+      *
+     C***********************************************
+     C     SLGML         BEGSR
+     C***********************************************
+     C                   MOVE      UBNR          KBBNR
+     C                   MOVE      UAVD          KBAVD
+     C                   MOVE      UKDMV         KBKDMV
+     C  N53              MOVE      *ZEROS        KBBLF
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     KOSTBK        KLIST
+     C                   KFLD                    UBNR
+     C                   KFLD                    KBAVD
+     C                   KFLD                    KBOPD
+     C                   KFLD                    KBKN
+     C                   KFLD                    KBVK
+     C                   KFLD                    KBKDPF
+     C                   KFLD                    KBKDM
+     C     FAK2K         KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    YSK
+     C     HEADFK        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UOPD
+     C     HEADke        KLIST
+     C                   KFLD                    heavd
+     C                   KFLD                    heopd
+     C     HEAKBK        KLIST
+     C                   KFLD                    KBAVD
+     C                   KFLD                    KBOPD
+     C     TRAVHK        KLIST
+     C                   KFLD                    THTAVD
+     C                   KFLD                    UPRO
+     C     TRAVVK        KLIST
+     C                   KFLD                    UTVAVD
+     C                   KFLD                    UTVPRO
+     C                   KFLD                    UTVST
+     C                   KFLD                    UTVFAK
+     C     FAI3K         KLIST
+     C                   KFLD                    FIFN
+     C                   KFLD                    FIAVD
+     C                   KFLD                    FIOPD
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UBNR              7 0
+     C                   PARM                    UAVD              4 0
+     C                   PARM                    UOPD              7 0
+     C                   PARM                    UPRO              8 0
+     C                   PARM                    UGN              15
+     C                   PARM                    UPROS             5 2
+     C                   PARM                    UBL              13 2
+     C                   PARM                    UVK               3
+     C                   PARM                    UKDPF             1
+     C                   PARM                    UBILT            15
+     C                   PARM                    UKDM              1 0
+     C                   PARM                    UKDMV             1
+     C                   PARM                    UBDT              6 0
+     C                   PARM                    UFLAGG            1 0
+     C                   PARM                    UINPAR           24
+N02  C                   PARM                    UBLB              9 2
+N02  C                   eval      UBLB = UBLB * -1                             SNU budsjettbeløp
+     c*                  dump
+      * Ved fordeling på UPRO  KAN UGN være benyttet som "hjelpeflagg"
+     C     UPRO          IFNE      *ZEROS
+     C     UGN           ANDEQ     '*TURAVR'
+     C                   MOVE      *BLANKS       UGN
+     C                   MOVEL     '*TURAVR'     TURAVR            7
+     C                   END
+      *** UFLAGG = 1  -->  FORDELER ETTER GEBYRKODE
+      *** UFLAGG = 2  -->  FORDELER ETTER VEKT
+      *** UFLAGG = 3  -->  INGEN FORDELING (EN LINJE MED 0/0 AVD OPD)
+     C                   MOVE      UINPAR        INPARM
+      *
+     C                   MOVE      UAVD          XKAVD             4 0
+     C                   MOVE      UOPD          XKOPD             7 0
+     C                   MOVE      UPRO          XKPRO             8 0
+     C                   MOVE      UGN           XKGN             15
+NV5  C     UBDT          IFGT      501231
+NV5  C     UBDT          ADD       19000000      UBDT8             8 0
+NV5  C                   ELSE
+NV5  C     UBDT          ADD       20000000      UBDT8
+NV5  C                   ENDIF
+     C                   MOVE      *ZEROS        YKN               8 0
+     C                   MOVE      ' '           YSK               1
+     C                   MOVE      *ZEROS        YKNA              8 0
+     C     *LIKE         DEFINE    WFBL          XSUM
+     C     *LIKE         DEFINE    WFBL          XSUMT
+      *
+     C     UFLAGG        IFEQ      3
+     C                   MOVE      0             KBNØKK
+     C                   ELSE
+     C     UOPD          COMP      0                                  41
+     C  N41UPRO          COMP      0                                  42
+     C  N41
+     CANN42              SETON                                        43
+     C   41              MOVE      1             KBNØKK
+     C   42              MOVE      2             KBNØKK
+      * DERSOM VIA AWB/GODSNR - ENTEN REELT GODSNR ELLER AGENTREF.
+     C     *IN43         IFEQ      '1'
+     C                   MOVE      3             KBNØKK
+     C     UGN           SETLL     HEAD18
+     C     NXTGN         TAG
+     C     UGN           READE     HEAD18                                 33
+     C     *IN33         IFEQ      '0'
+     C     HEST          IFEQ      'S'                                           2<-B
+     C                   GOTO      NXTGN
+     C                   ELSE
+     C     headke        CHAIN     AVSLUTF                            33
+     C  n33              goto      nxtgn
+     C                   MOVE      '0'           *IN33
+     C                   END                                                     2<-E
+     C     UAVD          IFNE      *ZEROS                                        2<-B
+     C     UAVD          ANDNE     HEAVD
+     C                   GOTO      NXTGN
+     C                   END                                                     2<-E
+     C                   END
+      * IKKE FUNNET GYLDIG GODSNR -> LES AREF
+     C     *IN33         IFEQ      '1'
+     C*                  MOVEL     UGN           UAREF            15
+     C                   MOVEL     UGN           UAREF            35
+s01  C*                  MOVE      4             KBNØKK
+n01  C                   MOVE      3             KBNØKK
+     C                   ELSE
+     C                   MOVE      *BLANKS       UAREF
+     C                   END
+     C                   END
+     C                   END
+      *
+     C   41              MOVE      UOPD          HEOPD
+     C   41              Z-ADD     1             HEFBV
+     C                   MOVE      'N'           DIFFOK            1
+     C     UFLAGG        IFEQ      9
+     C                   MOVE      'J'           DIFFOK
+     C                   Z-ADD     1             UFLAGG
+     C                   END
+     C     UFLAGG        IFEQ      7
+     C                   MOVE      'J'           DIFFOK
+     C                   Z-ADD     2             UFLAGG
+     C                   END
+      * Kall fra Transp.avregning - legg direkte ut i FAKT
+      * (ikke via KOSTA) Fordel på tur etter vekt
+      * UAVD > 0 - Fordeling av en avregnet "Hovedtur"  (49 Off)
+      * UAVD = 0 - Fordeling Godskrivinger(innh. m.m. på rekvisi.-49on)
+     C     UFLAGG        IFEQ      8
+     C                   SETON                                        50
+     C                   MOVE      'J'           DIFFOK
+     C                   Z-ADD     2             UFLAGG
+     C     UAVD          IFEQ      0
+     C                   SETON                                        49
+     C                   MOVE      UAVD          UTVAVD            4 0
+     C                   MOVE      UPRO          UTVPRO            8 0
+     C                   MOVE      'O'           UTVST             1
+     C                   Z-ADD     UBNR          UTVFAK            7 0
+     C                   ELSE
+     C                   MOVE      UAVD          THTAVD
+     C                   MOVE      *ZEROS        UAVD
+     C                   END
+     C                   END
+     C     UFLAGG        COMP      1                                  52  51
+     C   51              MOVE      1             KBGEBY                          ETTER GEB.K
+      *
+     C     UPROS         COMP      0                                  5353
+     C   53UPROS         DIV       100           XPROS             5 4
+      *
+     C                   READ      FIRM                                   33     *0,22
+      *
+     C     FITAXD        IFNE      *ZEROS
+     C     FITAX2        ANDNE     *ZEROS
+     C     UBDT8         ANDLT     FITAXD
+     C                   MOVE      FITAX2        FITAX
+     C                   END
+     C     KODWKY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WMVAKD
+     C                   KFLD                    UKDPF
+     C                   MOVE      *BLANKS       WMVAKD            2
+     C     KODWKY        CHAIN     KODWL01                            35
+     C     *IN35         IFEQ      *OFF
+     C     MVAAVI        DIV       100           FITAX
+     C                   ENDIF
+     C     FITAX         ADD       1             FITAXX            5 4           *1,22
+      *
+     C     UKDPF         IFEQ      'P'
+     C     *IN35         OREQ      *OFF
+     C     UBL           DIV(H)    FITAXX        UBL2
+     C                   ELSE
+     C                   MOVE      UBL           UBL2             13 2
+     C                   END
+      * REDUSER WORKFELT FOR KOSTNADEN MED 1 FICURR FØR SAMMENLIGNING
+      * MOT SUM INNTEKTER (NÅR KOSTNAD NEGATIVT FORTEGN, ADD=REDUSERE)
+     C                   ADD       1             UBL2
+      *
+     C                   ENDSR
+      *

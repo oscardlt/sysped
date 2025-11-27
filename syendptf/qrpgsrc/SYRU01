@@ -1,0 +1,208 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 bruk sekundært kjøpers kundenr
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11047 * 02 YBC PTF11 GÅ PÅ GODSNR DAG, IKKE OPPDRAGS DATO
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+11047 * 03 jov PTF12 Dersom post ligger i fil med status A=Ankomstmelding ÅPNE den for evt purring
+      * 04 JOV PTF12 Skipp hvis HEOT = blanks
+********************************************************************
+      ****************************************************************************************
+      * LEGGE UT OPPDRAG ELDRE ENN XX DAGER SOM MANGLER RUCKATTEST I OPPFØLGINGSREGISTER     *
+      *                                                                                      *
+      ****************************************************************************************
+      * Fra RUCKDFT hentes div. default-verdier - bl. annet tidsrom som skal sjekkes
+      * For initiering kan en f.eks sette 365 - 7 dager og gjøre en engangs kjøring.
+      * Normalt f.esk:  20 - 7 dager. Ved daglig kjøring bør da alle oppdrag sjekkes.
+      ****************************************************************************************
+      *
+S02  F*HEADDT    IF   E           K DISK
+N02  FHEAD46    IF   E           K DISK
+N02  FKALENDER  IF   E           K DISK
+N02  FKALENDER2 IF   E           K DISK    RENAME(KALENDERR:KALENDERR2)
+     FRUCKDFT   IF   E             DISK
+S03  F*UCKP     IF A E           K DISK
+N03  FRUCKP     UF A E           K DISK
+N02  D                 DS
+N02  D  FRADTAR                1      4  0
+N02  D  FRADTARA               1      4                                         NØKKEL
+N02  D  FRADTDG                5      7  0
+N02  D  FRADTDGA               5      7                                         NØKKEL
+N02  D                 DS
+N02  D  TILDTAR                1      4  0
+N02  D  TILDTDG                5      7  0
+N02  D  TILDTNRA               1      7                                         TEST
+N02  D                 DS
+N02  D  HEGNAAR                1      4
+N02  D  HEGNAARN               1      4  0                                      NØKKEL
+N02  D  HEGNDAG                5      7
+N02  D  HEGNDAGN               5      7  0                                      NØKKEL
+N02  D  HEGNDAG1               5      5
+N02  D  HEGNDAG2               6      6
+N02  D  HEGNDAG3               7      7
+N02  D  HEGNNR                 1      7                                         TEST
+     D                 DS
+     D  HEGN                   1     15
+     D  HEGN5_9                5      9
+     D                 DS
+     D  BV                     1     45
+     D                                     DIM(9)
+     D  RDBEV1                 1      5
+     D  RDBEV2                 6     10
+     D  RDBEV3                11     15
+     D  RDBEV4                16     20
+     D  RDBEV5                21     25
+     D  RDBEV6                26     30
+     D  RDBEV7                31     35
+     D  RDBEV8                36     40
+     D  RDBEV9                41     45
+     D                 DS
+     D  OT                     1     40
+     D                                     DIM(20)
+     D  RDOT                   1     40
+      *
+     C                   exsr      INIT
+      *
+     C* Les alle poster i aktuelt tidsrom..
+S02  C*    FraDt         setll     HEADDT
+S02  C*                  READ      HEADDT                                 35
+N02  C     HEAD46K       SETLL     HEAD46
+N02  C                   READ      HEAD46                                 35
+     C     *in35         DOWEQ     '0'
+S02  C*    HEDTOP        CABGE     Tildt         Slutt
+N02  C     HEGNNR        CABGE     TILDTNRA      Slutt
+     C                   exsr      TstPost
+     C  N30              exsr      SkrivPost
+S02  C*                  READ      HEADDT                                 35
+N02  C                   READ      HEAD46                                 35
+     C                   END
+      *
+     C     Slutt         Tag
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      *
+      ******************************************************************************
+     C     TstPost       BEGSR
+      ******************************************************************************
+     C                   move      *ON           *IN30
+N02   *
+N02   * DAGNR MÅ VÆRE NUMMERISK
+N02  C                   IF        HEGNDAG1 < '0' OR HEGNDAG1 > '9' OR
+N02  C                             HEGNDAG2 < '0' OR HEGNDAG2 > '9' OR
+N02  C                             HEGNDAG3 < '0' OR HEGNDAG3 > '9'
+N02  C                   GOTO      UTTST
+N02  C                   END
+      *
+      * Oppdraget har alt fått løpenr eller nytt godsnr
+     c     HETLL         ifne      *blanks
+     c     HEGNN         orne      *blanks
+     c                   goto      UtTst
+     c                   end
+      * Oppdraget er slettemerket
+     C     HEST          cabeq     'S'           UtTst
+      *
+      * Oppdraget er alt i oppfølgingsfila?
+     c     HeaKey        chain     RUCKP                              33
+     C**   *IN33         cabeq     '0'           UtTst
+N03  c                   if        *in33='0'
+N03  c                   if        RUST='A'
+N03  c                   eval      RUST=' '
+N03  c                   endif
+N03  c                   update    RUCKPR
+N03  c                   goto      UtTst
+N03  c                   endif
+      *
+      * Godsnr
+      *   utfylt...
+     C     HEGN5_9       cabeq     *blanks       UtTst
+      *  /innen aktuell bevillingskode ...
+      * Begrepet MÅ finnes i -arrayet   (treff ved lookup = 80 ON)
+     C     HEGN5_9       LOOKUP    BV                                     80
+     C     *IN80         cabeq     '0'           UtTst
+      *
+N04  C     HEOT          CABEQ     *blanks       UtTst
+      * Oppdragstype  INCLUDE / OMIT ..  (treff ved lookup = 80 ON)
+     C     RDOTIO        IFEQ      'I'
+      * Ved include må begrepet finnes i -arrayet
+     C     HEOT          LOOKUP    OT                                     80
+     C     *IN80         cabeq     '0'           UtTst
+     C                   END
+     C     RDOTIO        IFEQ      'O'
+      * Ved omit måbegrepet IKKE finnes i-arrayet
+     C     HEOT          LOOKUP    OT                                     80
+     C     *IN80         cabeq     '1'           UtTst
+     C                   END
+      *
+      *  Kommet gjennom alle tester - posten skal medtas
+     C                   move      *OFF          *IN30
+      *
+     C     UtTst         ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SkrivPost     BEGSR
+      ******************************************************************************
+     c                   clear                   RUCKPR
+     c                   eval      RUAVD   =     HEAVD
+     c                   eval      RUOPD   =     HEOPD
+S02  c*                  eval      RUDTOP  =     HEDTOP
+N02  C     KALENDER2K    CHAIN     KALENDER2                          33
+N02  C                   eval      RUDTOP  =     KADATE
+N01  c     HEKNKF        ifne      *zeros
+     c                   eval      RUKU    =     HEKNKF
+N01  c                   else
+N01  c                   eval      RUKU    =     HEKNK
+N01  c                   end
+     c                   write     RUCKPR
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    UIN01             1
+      * Dersom record ikke finnes eller ant dager ikke gitt - hopp ut.
+     C     1             CHAIN     RUCKDFT                            33
+     C  N33RDDGF         comp      *zeros                                 33
+     C  N33RDDGT         comp      *zeros                                 33
+     C     *IN33         ifeq      *ON
+     C                   MOVE      '1'           UIN01
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     c                   end
+      * Fra dato
+     C                   Z-ADD     RDDGF         DAGER
+     C                   CALL      'SYGE20'
+     C                   PARM      'SUB'         FUNK              3
+     C                   PARM      0             INNDT             8 0
+     C                   PARM                    FraDt             8 0
+     C                   PARM                    DAGER             5 0
+N02  C     FRADT         CHAIN     KALENDER                           33
+N02  C                   MOVEL     FRADT         FRADTAR
+N02  C                   MOVE      KADGNR        FRADTDG
+      *  Tildato
+     C                   Z-ADD     RDDGT         DAGER
+     C                   CALL      'SYGE20'
+     C                   PARM      'SUB'         FUNK              3
+     C                   PARM      0             INNDT             8 0
+     C                   PARM                    TILDt             8 0
+     C                   PARM                    DAGER             5 0
+N02  C     TILDT         CHAIN     KALENDER                           33
+N02  C                   MOVEL     TILDT         TILDTAR
+N02  C                   MOVE      KADGNR        TILDTDG
+      * Key i RUCKP
+     C     HEAKey        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+N02  C     HEAD46K       KLIST
+N02  C                   KFLD                    FRADTARA
+N02  C                   KFLD                    FRADTDGA
+N02  C     KALENDER2K    KLIST
+N02  C                   KFLD                    HEGNAARN
+N02  C                   KFLD                    HEGNDAGN
+      *
+     C                   ENDSR

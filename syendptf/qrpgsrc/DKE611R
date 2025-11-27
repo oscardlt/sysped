@@ -1,0 +1,208 @@
+      * Kopi av DKE601R, men med mindre info, savner bl a heading.
+     FFIRM      IF   E           K DISK
+     FEDIRE1K   IF   E           K DISK
+     FZTELL     UF   E           K DISK
+     FDKEFZ     O  A E             DISK
+     FDKEVZ     O  A E             DISK
+     FDKEK      IF   E           K DISK
+     D Z_KNR           S              8  0
+     D Z_x02           S             28
+     D                 DS
+     D  DTAFLD                 1  54000
+     D                                     DIM(180)
+     D                 DS
+     D  RDATA                  1   1024
+     D  RTYP                   1      1
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  A                      1     79
+     D                                     DIM(79)
+     D                 DS
+     D  B                      1     18
+     D                                     DIM(18)
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+     C                   EXSR      INIT
+
+     C     UMBR          SETLL     EDIRE1K
+     C     UMBR          READE     EDIRE1K                                91
+     C     *IN91         DOWEQ     *OFF
+
+     C                   SELECT
+     C     RTYP          WHENEQ    'E'
+     C                   EXSR      SRFAK
+     C     RTYP          WHENGE    '0'
+     C     RTYP          ANDLE     '9'
+     C                   EXSR      SRVAR
+     C                   OTHER
+     C                   ENDSL
+
+     C     UMBR          READE     EDIRE1K                                91
+     C                   ENDDO
+
+
+     C     LR            TAG
+     C                   EVAL      *INLR=*ON
+      *____________________________________________
+      * Init                                   INIT
+      *""""""""""""""""""""""""""""""""""""""""""""
+     C     INIT          BEGSR
+     C     *LIKE         DEFINE    DKEV_SYLI     WVLI
+
+     C     KEYDKEK       KLIST
+     C                   KFLD                    Z_KNR
+     C                   KFLD                    z_X02
+
+     C     *ENTRY        PLIST
+     C                   PARM                    UMBR             10
+      * Hent unikt nummer for Z-filer
+     c                   READ      FIRM                                   33
+     C     FIFIRM        CHAIN     ZTELL
+     C                   ADD       1             ZUNIK
+     C                   UPDATE    ZTELLR
+     C                   SUB       1             ZUNIK
+     C     ENDINI        ENDSR
+      *____________________________________________
+      * Fakturalinje                          SRFAK
+      *""""""""""""""""""""""""""""""""""""""""""""
+     C     SRFAK         BEGSR
+      * Kaller eksternt program og legger felt i array
+     C                   MOVEL     RDATA         UDATA          4096
+     C                   MOVEL     *BLANKS       UARRA         54000
+     C                   MOVE      ';'           SKILLET           1
+     C                   CALL      'SYGE111'
+     C                   PARM                    SKILLET
+     C                   PARM                    UDATA
+     C                   PARM                    UARRA
+     c                   MOVEA     UARRA         DTAFLD
+
+     C                   CLEAR                   DKEFR
+      * 2. Avsender, kundenummer
+     C                   MOVEA     DTAFLD(2)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          Z_KNR
+     C* TEST             Z-ADD     1             Z_KNR
+      * 3. Fakturanummer
+     C                   EVAL      DKEF_FATX = %TRIM(DTAFLD(3))
+      * 5. Valutakode
+     C                   EVAL      DKEF_VAKD = %TRIM(DTAFLD(5))
+      * 6. valutabeløp
+     C                   MOVEA     DTAFLD(6)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          DKEF_FABL
+
+     C                   EVAL      DKEF_UNIK=ZUNIK
+     C                   EVAL      DKEF_REFF=DKEF_FATX
+
+     C                   WRITE     DKEFR
+     C                   ENDSR
+      *____________________________________________
+      * Vareposter                            SRVAR
+      *""""""""""""""""""""""""""""""""""""""""""""
+     C     SRVAR         BEGSR
+      * Kaller eksternt program og legger felt i array
+     C                   MOVEL     RDATA         UDATA
+     C                   MOVEL     *BLANKS       UARRA
+     C                   MOVE      ';'           SKILLET
+     C                   CALL      'SYGE111'
+     C                   PARM                    SKILLET
+     C                   PARM                    UDATA
+     C                   PARM                    UARRA
+     c                   MOVEA     UARRA         DTAFLD
+
+     C                   CLEAR                   DKEVR
+     C                   EVAL      DKEV_UNIK=ZUNIK
+     C                   EVAL      DKEV_REFF=DKEF_FATX
+
+      * 1. Artikkelnummer
+     C                   EVAL      DKEV_X02 = %TRIM(DTAFLD(1))
+     C                   EVAL      Z_X02 = %TRIM(DTAFLD(1))
+      * 5. Kolliantal
+     C                   MOVEA     DTAFLD(5)     A
+     C                   EXSR      GETNUM
+     C*                  Z-ADD     ZNUM          DKEV_313
+     C                   Z-ADD     ZNUM          DKEV_412
+      * 2. Varebeskrivelse
+     C                   EVAL      DKEV_315 = %TRIM(DTAFLD(2))
+      * 3. Oprindelsesland
+     C                   EVAL      DKEV_34A = %TRIM(DTAFLD(3))
+      *  4. Bruttovægt
+     C                   MOVEA     DTAFLD(4)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          DKEV_35
+      * 6. Varens pris
+     C                   MOVEA     DTAFLD(6)     A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          DKEV_42
+      *  Räkna ut nettovikt
+     C     DKEV_35       MULT      0.8           DKEV_38
+      *  Räkna ut Statstisk värdi
+     C*                                          DKEV_46
+      * Hent resten fra Kunders vareregister
+     C     KEYDKEK       CHAIN     DKEK
+     C                   IF        %FOUND
+     C                   EVAL      DKEV_311  = DKEK_311
+     C                   EVAL      DKEV_314  = DKEK_314
+     C                   EVAL      DKEV_315  = DKEK_315
+     C                   EVAL      DKEV_331  = DKEK_331
+     C                   EVAL      DKEV_332  = DKEK_332
+     C                   EVAL      DKEV_SIKK = DKEK_SIKK
+     C                   EVAL      DKEV_34A  = DKEK_34A
+     C                   EVAL      DKEV_37   = DKEK_37
+     C                   EVAL      DKEV_401A = DKEK_401A
+     C                   EVAL      DKEV_402A = DKEK_402A
+     C                   EVAL      DKEV_403A = DKEK_403A
+     C                   EVAL      DKEV_411  = DKEK_411
+     C                   EVAL      DKEV_441  = DKEK_441
+     C                   EVAL      DKEV_4421 = DKEK_4421
+     C                   EVAL      DKEV_442A = DKEK_442A
+     C                   EVAL      DKEV_443  = DKEK_443
+     C                   EVAL      DKEV_446A = DKEK_446A
+     C                   EVAL      DKEV_447  = DKEK_447
+     C                   EVAL      DKEV_449A = DKEK_449A
+     C                   EVAL      DKEV_49   = DKEK_49
+     C                   EVAL      DKEV_BEM1 = DKEK_BEM1
+     C                   ENDIF
+
+      *
+     C                   ADD       1             WVLI
+     C                   EVAL      DKEV_SYLI=WVLI
+     C                   EVAL      DKEV_32=WVLI
+      * Skriv post til Arbetsfil
+     C                   WRITE     DKEVR
+     C                   ENDSR
+      *____________________________________________
+      * Konverter alpha til num              GETNUM
+      *""""""""""""""""""""""""""""""""""""""""""""
+     C     GETNUM        BEGSR
+
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR

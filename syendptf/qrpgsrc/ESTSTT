@@ -1,0 +1,517 @@
+SPECI * linjer merket SPECI er mal for å unnta/spesialbehandle visse agenter (oppdr.givere)
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 STANDARDVERSJON HENTET INN FRA LEMAN. - VÅR VAR "ØDELAGT"
+10XXX *              LEMAN-SPESIALER KUN STJERNET UT MED SPESI *  SOM IDE TIL ANDRE
+      * 02 JOV PTF10 hvis trmodul - NO/NO - send IFB (inn i standard)
+      * 03 JOV PTF10 firma droppet i ECMSGkey/HERFA hvis snd.nr blank / avvikende IMPL av TRANSPnett
+      * 04 JOV PTF10 "X"=behandlet i TTMANU flyttet på utsiden av div tester(unngå tung kjøring)
+      * 05 JOV PTF10 Advisering av parter via mail/fax/sms..
+      * 06 JOV PTF10 blanke sendnr-variabel (3 siste av evt 20 lang henger igjen)
+      * 07 JOV PTF10 TEI sendes med kode '1  ' Ankommet terminal
+      * 08 JOV PTF10 ZVK VEKT-JUSTERING (OBS PTF OGSÅ I E160_96A
+      * 09 JOV PTF10 endret test for å sende 99999999 i dato ved SKANNET POD
+P10040* 10 JOV PTF10 halv-fabrikata for URL for POD til TN..
+10172 * 11 SH  PTF10 norsk text til Track and trace
+      * 12 JOV PTF10 Staus sendes nå til agent OG/ELLER oppdragsgiver
+      * 13 JOV PTF10 Utfør KUN på hovedoppdrag (ikke på FF/VF)
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 14 JOV PTF11 Flere parametre til ESTSTTF/S/M, OBS! alle samtidig...
+      * 15 JOV PTF11 Ikke behandle T&T-post dersom oppdrag ikke finnes   ..
+      * 16 JOV PTF11 VED ADVISERING PÅ SMS MÅ PARAM VIA HJELPEVARIEBE (SUB-PROG ENDRE VERDIENE)
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 17 JOV PTF12 Fjerner fil som ikke er i bruk
+********************************************************************
+     FTRACKL06  UF   E           K DISK
+     FTRACKL02  IF   E           K DISK    PREFIX(W_)
+     F                                     RENAME(TRACKFR:TRACKFR2)
+S17  F*RACKF    O  A E             DISK    PREFIX(X_)
+S17  F*                                    RENAME(TRACKFR:TRACKFRX)
+S03  F*CMSG     IF   E           K DISK
+N03  FECMSG4    IF   E           K DISK
+     FHEADF     IF   E           K DISK
+N02  FFRISOK    IF   E           K DISK
+N05  FFIRM      IF   E           K DISK
+N05  FCUNDC04   IF   E           K DISK
+N05  FQATMSMTPA IF   E           K DISK
+N05  FFAXSEN    IF   E           K DISK
+N05  D                SDS
+N05  D  ZJOB                 244    253
+N05  D  ZUSER                254    263
+N05  D  ZJOBNR               264    269  0
+N05   * array for kunder
+N05  D  Knr            S              8  0 DIM(10)
+     D                 DS
+     D  HXSNDN                 1     20
+     D  HXSN1_3                1      3
+     D  HXSN4_20               4     20
+     D                 DS
+     D  DSTIME                 1      6S 0
+     D  UTIM                   1      4
+     D                 DS
+     D  DSDATE                 1      8S 0
+     D  UDAT                   1      8
+     D                 DS
+     D  xxDATE                 1      8S 0
+     D  xxTIME                 9     14S 0
+     D  xxDATTIM               1     14S 0
+N05  D                 DS
+N05  D  TTACTI                 1      3
+N05  D   TTACTI_1              1      1
+N05  D                 DS
+N05  D  CTYPE                  1     30
+N05  D   Funk1_7               1      7
+N05  D   Funk8_30              8     30
+     D                 DS
+     D  W_TTTEXT               1     70
+     D  W_TTTEXT5              1      5
+     C                   EXSR      INIT
+     c*
+SPECIc                   move      'N'           Spec1             1
+      * Les kun poster av type= 'S'
+     C     'S'           SETLL     TRACKL06
+     C     'S'           READE     TRACKL06                               51
+     C     *IN51         DOWEQ     '0'
+N04  C                   EVAL      TTMANU='X'                                   Behandlet
+      * Ikke alle posttyper skal sendes (OFTE spesialer her -  senere parameter)
+     C     TTACTI        IFEQ      'TEU'
+     C     TTACTI        OREQ      'MAN'
+     C     TTACTI        OREQ      'POD'
+N03  C     TTACTI        OREQ      'TEI'
+N05  C     TTACTI_1      OREQ      'Z'                                          Mutually def/private
+     C     HEADK         CHAIN     HEADF                              33
+N15  c   33              goto      NextRec
+N13   * SKIPP dersom FF/VF -utfør kun på hovedoppdrag
+N13  c                   if        TRSLAG='FF' or  TRSLAG='VF'
+N13  c                   goto      NextRec
+N13  c                   endif
+      * sjekk alle kundenr om ADVISERING via mail/sms/fax..
+     c                   exsr      ADVISR
+SPESI * visse kunder tas til slutt... (Obs sette status tilbake til S = ubehandlet..)
+SPESIC*    HEKNA         ifeq      12345
+SPESIC*                  move      'J'           Spec1
+SPECIC*                  EVAL      TTMANU='S'
+SPESIc*                  goto      NextRec
+SPESIc*                  end
+      * send status enten til agenet eller oppdragsgiver (eller begge)
+N12  C                   IF        HEKNA<>0
+N12  C                   EVAL      STSKNR = HEKNA
+N12  C                   EVAL      AGOPKN = TRKNFA
+N12  C                   ELSE
+N12  C                   EVAL      STSKNR = TRKNFA
+N12  C                   EVAL      AGOPKN = *ZEROS
+N12  C                   ENDIF
+     c     AgeOpd        tag
+      * Finnes part som kan ta emot IFTSTA ?
+     C                   MOVEL     'IFTSTA'      WC0065            6
+s03  C*    WCMSGK        CHAIN     ECMSG                              52
+N03  C     WCMSGK        CHAIN     ECMSG4                             52
+S04  C*                  EVAL      TTMANU='X'                                   Behandlet
+     C                   IF        *IN52=*OFF
+      * flytt til parametervariable FØR tester (TT-variable kan bli ødelagt ved MAN)
+     c                   move      TTNAME        UNAME
+     c                   move      TTDATE        DSDATE
+     c                   move      TTTIME        DSTIME
+N08  C                   move      *blanks       U4440A
+N08  C                   move      *blanks       U4440B
+N08  C                   move      *blanks       U4440C
+      * Kall på program for å lage edifact
+     C                   SELECT
+N07  C     TTACTI        WHENEQ    'TEI'
+N07  C                   EVAL      U9011='1  '                                  tg-1  ankommet term.
+N08  C     TTACTI        WHENEQ    'ZVK'
+N08  C                   EVAL      U9011='ZVK'                                  ZVK VEKST/VOL-JUST.
+N08  C                   movel     TTTEXT        U4440A
+     C     TTACTI        WHENEQ    'TEU'
+     C                   EVAL      U9011='48 '                                  tg-48 lastet utgåend
+      * Maninest-utskr regnes som terminal ut derso TEU mangler...
+     C     TTACTI        WHENEQ    'MAN'
+     C                   EXSR      SjekkTEU
+     c     Skipp         cabeq     'J'           NextRec
+     C                   EVAL      U9011='48 '                                  tg-48 lastet utgåend
+     C     TTACTI        WHENEQ    'POD'
+     C                   EVAL      U9011='21 '                                  tg-21 levert mottake
+      * Let etter AVV på samme dato/klokkeslett tekst='Skade.....'
+     C***                EXSR      AVVIK
+      * da blir koden isteden '070'
+     C                   ENDSL
+      * innland
+N06  c                   move      *blanks       UERFA
+N02  c     HXSNDN        ifne      *blanks
+     c     HXSN1_3       ifeq      '401'
+     c                   movel     HXSN4_20      UERFA
+     c                   else
+     c                   movel     HXSNDN        UERFA
+     c                   end
+N02  c                   else
+N02  c     HEUR          ifeq      'H'
+N02  c     HELKA         andeq     'NO'
+N02  c     HETRI         andeq     'NO'
+N02  C                   MOVE      'IFB'         FSKODE
+N02  C     FRIKEY        CHAIN     FRISOK                             33
+N02  C     *IN33         IFEQ      '0'
+N02  c                   eval      UERFA = FSSOK
+N02  c                   end
+N02  c                   end
+N02  c                   end
+N03  C                   IF        UERFA=*BLANKS
+N03  C                   MOVEL     HERFA         UERFA
+N03  C                   ENDIF
+S09  c*    UNAME         ifeq      'LEVERT'
+N09  c                   movel     TTTEXT        TTTEXT10         10
+N11  c                   movel     TTTEXL        TTTEXT10L        10
+N09  c     TTTEXT10      ifeq      'LEVERT, Se'
+N11  c     TTTEXT10L     oreq      'LEVERT, Se'
+S09  c* MENINGSLØS HER   eval      TTNAME = 'DELIVERED'
+     c                   eval      UDAT   = '99999999'
+     c                   eval      UTIM   = '9999'
+     c                   end
+N03
+N03   * via Transportnett - avvikende D96A implementasjon
+N03  c                   movel     ECIIDC        EDImottak        12
+N03  c     EDImottak     ifeq      'TRANSPORTNET'
+N03  C                   SELECT
+N03  C     TTACTI        WHENEQ    'TEI'
+N03  C                   EVAL      U9011='9  '
+N03  C                   EVAL      U9010='Mottatt på terminal'
+N03  C     TTACTI        WHENEQ    'TEU'
+N03  C                   EVAL      U9011='27 '
+N03  C                   EVAL      U9010='Lastet/avgått terminal'
+N03   * Maninest-utskr regnes som terminal ut derso TEU mangler...
+N03  C     TTACTI        WHENEQ    'MAN'
+N03  C                   EXSR      SjekkTEU
+N03  c     Skipp         cabeq     'J'           NextRec
+N03  C                   EVAL      U9011='27 '
+N03  C                   EVAL      U9010='Lastet/avgått terminal.'
+N03  C     TTACTI        WHENEQ    'POD'
+N03  C                   EVAL      U9011='21 '                                  tg-21 levert mottake
+N03  C                   EVAL      U9010='Levert '
+N10   * OBS halvfabrikata for POD-URL til TN
+N10   * må ta stilling til om det er avd_opd.gif  eller sendnr.gif
+N10  c                   move      TTAVD         uuAVD             4
+N10  c                   move      TTOPD         uuOPD             7
+N10  c                   eval      U4440A='HTTP://64.28.16.138/SYSPEDDEV'
+N10  c                             +'/SIGNATUR/'+uuAVD+'_'+uuOPD
+N10  c                             +'.GIF'
+N03  C                   ENDSL
+N03  C                   CALL      'E160R_96TN'
+N03  C                   PARM                    UERFA            35
+N03  C                   PARM                    URFF             35
+N03  C                   PARM                    UNAME            10
+N03  C                   PARM                    UTIM
+N03  C                   PARM                    UDAT
+N03  C                   PARM                    U9011             3            event kode
+N03  C                   PARM                    U9010            35            event tekst
+N03  C                   PARM                    ULOCa             3            qualif L3225
+N03  C                   PARM                    ULOCb            70            Tekst  L3224
+N03  C                   PARM                    U4440A           70
+N03  C                   PARM                    U4440B           70
+N03  C                   PARM                    U4440C           70
+N03  C                   PARM                    blank35          35
+N03  C                   PARM                    blank35
+N03  C                   PARM                    ECIIDC
+N03  C                   PARM                    ECIIDI
+N03  c                   else
+TMP   * TMP - tester hos systema
+BHR   * RAMBERG Dacher takler ikke 96A  men 93A
+BHR  C*                  IF        ECIIDC    =  '4023083000008'                 Mottaker=Dachser
+BHR  C                   IF        ECIIDC    =  'ITX'                           test hos ssystema
+BHR  C                   CALL      'E160R_93A'                                  93A !!!!
+BHR  C                   PARM                    UERFA            35
+BHR  C                   PARM                    URFF             35
+BHR  C                   PARM                    UNAME            10
+BHR  C                   PARM                    UTIM
+BHR  C                   PARM                    UDAT
+BHR  C                   PARM                    U9011             3
+BHR  C                   PARM                    U4440A           70
+BHR  C                   PARM                    U4440B           70
+BHR  C                   PARM                    U4440C           70
+BHR  C                   PARM                    LOCDS            35
+BHR  C                   PARM                    blank35
+BHR  C                   PARM                    ECIIDC
+BHR  C                   PARM                    ECIIDI
+BHR  C                   EVAL      TTMANU='F'                                   F=Ferdig/sendt
+BHR  C                   GOTO      NextRec
+BHR  c                   endif
+TMP   * TMP - tester hos systema
+      *
+     C                   CALL      'E160R_96A'
+     C                   PARM                    UERFA            35
+     C                   PARM                    URFF             35
+     C                   PARM                    UNAME            10
+     C                   PARM                    UTIM
+     C                   PARM                    UDAT
+     C                   PARM                    U9011             3
+     C                   PARM                    U4440A           70
+     C                   PARM                    U4440B           70
+     C                   PARM                    U4440C           70
+     C                   PARM                    blank35          35
+     C                   PARM                    blank35
+     C                   PARM                    ECIIDC
+     C                   PARM                    ECIIDI
+N03  c                   endif
+     C                   EVAL      TTMANU='F'                                   F=Ferdig/sendt
+     C                   ENDIF
+
+     C                   ENDIF                                                   TEU/MAN/POD..
+     c     Nextrec       tag
+N12  c     AgOpKN        Ifne      *zeros
+N12  c     AgOpKN        andne     STSKNR                                       ikke hvis ag=oppdg.
+N12  c                   EVAL      STSKNR = AgOpKN
+N12  C                   EVAL      AGOPKN = *ZEROS
+N12  c                   goto      AgeOpd
+N12  c                   endif
+      * Oppdater status på TRACKF
+     C                   EXCEPT    OPDTT
+     C     'S'           READE     TRACKL06                               51
+     C                   ENDDO
+      *
+SPESIc*    Spec1         ifeq      'J'
+SPESIC*                  CALL      'E160C_XXXX'
+SPESIc*                  end
+     C                   EVAL      *INLR=*ON
+
+      *____________________________________________________________
+      *                                                      INIT *
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     INIT          BEGSR
+     C     WCMSGK        KLIST
+S03  C*                  KFLD                    FIFIRM
+S12  C*                  KFLD                    HEKNA
+N12  C                   KFLD                    STSKNR            8 0
+     C                   KFLD                    WCSR
+     C                   KFLD                    WC0065
+N12  C                   move      *zeros        AGOPKN            8 0
+     C     HEADK         KLIST
+     C                   KFLD                    TTAVD
+     C                   KFLD                    TTOPD
+     C     TEUKEY        KLIST
+     C                   KFLD                    TTAVD
+     C                   KFLD                    TTOPD
+     C                   KFLD                    NULBNR            3 0
+     C                   KFLD                    TEUACT            3
+     C                   MOVE      'TEU'         TEUACT
+     C     MANKEY        KLIST
+     C                   KFLD                    TTAVD
+     C                   KFLD                    TTOPD
+     C                   KFLD                    NULBNR
+     C                   KFLD                    MANACT            3
+     C                   KFLD                    NULDAT            8 0
+     C     MANKEYE       KLIST
+     C                   KFLD                    TTAVD
+     C                   KFLD                    TTOPD
+     C                   KFLD                    NULBNR
+     C                   KFLD                    MANACT            3
+     C                   MOVE      'MAN'         MANACT
+     C     TRACKK2       KLIST
+     C                   KFLD                    TTAVD
+     C                   KFLD                    TTOPD
+     C                   KFLD                    TTFBNR
+     C                   KFLD                    UACTI             3
+     C                   KFLD                    TTDATE
+     C                   KFLD                    TTTIME
+N02  C     FRIKEY        KLIST
+N02  C                   KFLD                    HEAVD
+N02  C                   KFLD                    HEOPD
+N02  C                   KFLD                    FSKODE
+N05  C     ADVKEY        KLIST
+N05  C                   KFLD                    FIFIRM
+N05  C                   KFLD                    CCOMPN
+N05  C                   KFLD                    XXFUNK
+N05  c                   movel     '*ADVIS*'     XXFUNK           30
+     C     ADVKEYE       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    CCOMPN
+N05   * hent firmakode for ADVKEY
+N05  c     *loval        setll     FIRM
+N05  c                   read      FIRM
+N05   * Hent kode for faxsystem (FAXSYS:F=Faximilesupport, B=Bluefax (X=FAX400 ikke støttet))
+N05  c     FIFIRM        Chain     FAXSEN
+N05   * hent domenenavn fra Sy400USR   (burde være firmaparameter ???)
+N05  c                   eval      XXAvNa = 'noreply'
+N05  c                   eval      XXAvAd = 'noreply@xxxx.no'
+N05  C     'SY400USR'    CHAIN     QATMSMTPA                          34
+N05  c     *in34         ifeq      *off
+N05  c                   eval      XXAvAd = 'noreply@'+DOMROUTE
+N05  c                   endif
+N05   * BURDE også hende fra frimaparameter SMS-avsender-parametre (nå hadkodet i ESTSTTSC)
+N05   *
+     C                   MOVEL     'S'           WCSR              1
+S03  C*                  MOVEL     '  '          FIFIRM            2
+     C                   EVAL      UACTI='AVV'
+     C                   ENDSR
+      *____________________________________________________________
+      * Avvik                                               AVVIK *
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     AVVIK         BEGSR
+      * arv fra nortril / city --- lar ligge i fall andre avvik
+     C     TRACKK2       CHAIN     TRACKL02                           53
+     C     *IN53         IFEQ      *OFF
+     C     W_TTTEXT5     ANDEQ     'Skade'
+     C                   EVAL      U9011='070'
+     C                   ENDIF
+     C                   ENDSR
+      *____________________________________________________________
+      * Sjekk TEU                                                 *
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     c* Kalles for hver MAN = Manifest / Godsliste (MAN kan finnes flere ganger,v1,v2..)
+     c* Skipp dersom TEU finnes, eller
+     c*       eller MANIFEST med lavere tidspkt (den Originale, ER sendt..)....
+     C     SjekkTEU      BEGSR
+      * OBS! - Variable fra TrackL02 har prefix W_
+     C                   move      TTDATE        xxDATE
+     C                   move      TTTIME        xxTIME
+     C                   move      xxDATTIM      DenneDATTIM      14 0
+     C                   move      'N'           Skipp             1
+     C     TEUKEY        CHAIN     TRACKL02                           53
+     C     *IN53         IFEQ      *OFF
+     C                   move      'J'           Skipp
+     c                   goto      UtTEU
+     C                   ENDIF
+     C     MANKEY        setll     TRACKL02
+     C     MANKEYE       reade     TRACKL02                               53
+     C     *IN53         IFEQ      *OFF
+     C                   move      W_TTDATE      xxDATE
+     C                   move      W_TTTIME      xxTIME
+     C     xxDATTIM      Iflt      DenneDatTIM
+     C                   move      'J'           Skipp
+     c                   goto      UtTEU
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C     UtTeu         ENDSR
+N05   *
+N05   ****************************************************
+N05  C     ADVISR        BEGSR
+N05   ****************************************************
+N05   * alle kundenr i oppdraget ut i array (max 1 post pr kunde)
+N05  c                   movea     *zeros        KNr
+N05  C                   move      TRKNFA        AddKnr            8 0
+N05  c                   exsr      AddKnSr
+N05  C                   move      HEKNA         AddKnr
+N05  c                   exsr      AddKnSr
+N05  C                   move      HEKNS         AddKnr
+N05  c                   exsr      AddKnSr
+N05  C                   move      HEKNSF        AddKnr
+N05  c                   exsr      AddKnSr
+N05  C                   move      HEKNK         AddKnr
+N05  c                   exsr      AddKnSr
+N05  C                   move      HEKNKF        AddKnr
+N05  c                   exsr      AddKnSr
+N05   * Sjekk om kunde i arrayet skal ha advisering
+N05   * funksjonslinja kan se typisk slik ut-Funksjon..: *ADVIS*TEI,TEU,POD,XXX,YYY,ZZZ
+N05   * Bak *ADVIS* KAN listes hvilke koder advis skal sendes på - Blank = send på alle
+N05  C     1             do        9             nr                1 0
+N05  c     Knr(nr)       cabeq     *zeros        UtAdvi
+N05   *
+N05  c                   move      Knr(nr)       CCOMPN
+     c     AdvKey        setll     CUNDC04
+     c     AdvKeyE       reade     CUNDC04                                33
+     c     *in33         doweq     '0'
+     c     Funk1_7       cabgt     '*ADVIS*'     NesteKN
+     c     TTACTI        scan      Funk8_30                               34
+     c     *in34         ifeq      *on
+     c     Funk8_30      oreq      *blanks
+     C                   exsr      ADVISR2
+     c                   endif
+     c     AdvKeyE       reade     CUNDC04                                33
+     c                   enddo
+     c     NesteKN       tag
+      *
+     C                   enddo                                                  end 1 do 9
+N05   *
+N05  C     UtAdvi        ENDSR
+N05   ****************************************************
+N05  C     AddKnSr       BEGSR
+N05   ****************************************************
+N05   * alle kundenr i oppdraget ut i array
+N05  c     AddKnr        cabeq     *zeros        UtAdd
+N05  C     1             do        9             nr                1 0
+N05  c     AddKnr        cabeq     KNr(nr)       UtAdd
+N05  c     Knr(nr)       ifeq      *zeros
+N05  c                   move      AddKnr        Knr(nr)
+N05  c                   goto      UtAdd
+N05  C                   endif
+N05  C                   enddo
+N05  C     UtAdd         ENDSR
+N05   ****************************************************
+N05  C     ADVISR2       BEGSR
+N05   ****************************************************
+N05   * SEND SELVE ADVISERINGEN
+      *
+      * Obs - Mail/SMS kallr RPG direkte som fyller source-file - som så kaller CL for mailsend
+      *     - Fax kaller CL som submitter ny CL for skaping av spool(via rpg)og sender som fax..
+      *
+      * TTmanu får A=Advisert MEN dersom den også sendes EDI/agent blir det S.
+N05   * email
+N05  c     CEmail        ifne      *blanks
+N05  c                   call      'ESTSTTM'
+N05  c                   parm                    HEAVD
+N05  c                   parm                    HEOPD
+N05  c                   parm      TTACTI        YYACTI
+N05  c                   parm      TTDATE        YYDATE
+N05  c                   parm      TTTIME        YYTIME
+N05  c                   parm      TTDATL        YYDATL
+N05  c                   parm      TTTIML        YYTIML
+N14  c                   parm      TTEDEV        YYEDEV
+N14  c                   parm      TTTEXL        YYTEXL
+N05  c                   parm      TTTEXT        YYTEXT
+N05  c                   parm      TTUSER        YYUSER
+N05  c                   parm                    XXAvNa           50
+N05  c                   parm                    XXAvAd           50
+N05  c                   parm                    CCONTA
+N05  c                   parm                    CEmail
+N04  C                   EVAL      TTMANU='A'                                   Advisert
+N05  c                   endif
+N05   * SMS
+N05  c     CMobil        ifne      *blanks
+N05  c                   call      'ESTSTTS'
+N05  c                   parm                    HEAVD
+N05  c                   parm                    HEOPD
+E16  c                   parm      TTACTI        YYACTI            3
+E16  c                   parm      TTDATE        YYDATE            8 0
+E16  c                   parm      TTTIME        YYTIME            6 0
+E16  c                   parm      TTDATL        YYDATL            8 0
+E16  c                   parm      TTTIML        YYTIML            6 0
+E16  c                   parm      TTEDEV        YYEDEV            3
+E16  c                   parm      TTTEXL        YYTEXL           70
+E16  c                   parm      TTTEXT        YYTEXT           70
+E16  c                   parm      TTUSER        YYUSER           10
+N05  c                   parm                    CMOBIL
+N04  C                   EVAL      TTMANU='A'                                   Advisert
+N05  c                   endif
+N05   * FAX
+      * Obs - Fax kaller CL som submitter ny CL for skaping av spool(via rpg)og sender som fax..
+     c     FAXSYS        ifeq      'F'
+     c     FAXSYS        oreq      'B'
+N05  c     CFax          ifne      *blanks
+N05  c                   move      HEAVD         uuAVD             4
+     c                   move      HEOPD         uuOPD             7
+N05  c                   move      TTDATE        uuDATE            8
+N05  c                   move      TTTIME        uuTIME            6
+N05  c                   move      TTDATL        uuDATL            8
+N05  c                   move      TTTIML        uuTIML            6
+N05  c                   call      'ESTSTTFC'
+N05  c                   parm                    FAXSYS
+N05  c                   parm                    uuAVD
+N05  c                   parm                    uuOPD
+N05  c                   parm                    TTACTI
+N05  c                   parm                    uuDATE
+N05  c                   parm                    uuTIME
+     c                   parm                    uuDATL
+     c                   parm                    uuTIML
+N14  c                   parm                    TTEDEV
+N14  c                   parm                    TTTEXL
+     c                   parm                    TTTEXT
+     c                   parm                    TTUSER
+     c                   parm                    CCONTA
+     c                   parm      CFAX          XXFAX            21
+N04  C                   EVAL      TTMANU='A'                                   Advisert
+N05  c                   endif
+N05  c                   endif
+N05  c*
+N05  C                   ENDSR
+     OTRACKFR   E            OPDTT
+     O                       TTMANU

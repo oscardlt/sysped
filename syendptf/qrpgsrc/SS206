@@ -1,0 +1,556 @@
+      *********************************************************************
+      * ARBEID MED FARLIG GODS
+      * PROGRAM BEHANDLER INPUT FRA SS206
+      *
+CRTPG+*  CRTPGM SYSPED/SS206 MODULE(*LIBL/SS206
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Boats for sale data base file (LF on BOATSALE by boat serial number)
+     FBRIDF     UF   E           K DISK    USROPN
+     FGSSDGF    UF A E           K DISK    USROPN
+     FGSSDGA    IF A E           K DISK    USROPN
+     FGSSDGAL2  IF   E           K DISK    USROPN
+     F                                     RENAME(GSSDGAR:FSSDGAR2)
+     FCUNDL01   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype definitions and standard system API error structure
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Variables common to CGI programs
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * VARIABLES SPECIFIC TO THIS PROGRAM
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D SubmPressed     s              1
+     D lng             s              2
+     D BckGnd          s             10
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSNA            S             30
+     D XXTAL           S             13  5
+     D WSOPT           S              3
+     D WSONO           S              7
+     D BWSONO          S              7  0
+     D WSLOP           S              3
+     D BWSLOP          S              3  0
+     D WSUNNR          S              4
+     D BWSUNNR         S              4  0
+     D WSPSN           S             60
+     D WSPSN2          S             60
+     D WSCOG           S              8
+     D WSPG            S              4
+     D WSTR            S              4
+     D WSNOP           S              3
+     D BWSNOP          S              3  0
+     D WSKOP           S             20
+     D WSGWK           S             10
+     D BWSGWK          S              9  2
+     D WSNW            S             10
+     D BWSNW           S              9  2
+     D WSNWT           S              1
+     D WSADD           S             40
+     D WSPFRT          S              6
+     D BWSPFRT         S              5  0
+     D WSLC            S             20
+     D WSCLC           S              3
+      *Array for fri-tekster
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      * Variables used to load the external html source member
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D FMELDNR         S              2
+     D FEILMELDING     S             80
+
+     D                 DS
+     D PAVRDA                  1     50
+     D PAVRDA1                 1      5
+     D PAVRDA2                 6     50
+     D PAVRDA3                 5     50
+      *
+     D FEIL01          C                   CONST('UN-Number must be fillet out-
+     D                                     .')
+     D FEIL02          C                   CONST('Proper shipping name must be-
+     D                                      filled out.')
+     D FEIL03          C                   CONST('Enter class of goods.')
+     D FEIL04          C                   CONST('Enter packing group.')
+     D FEIL05          C                   CONST('Enter number of packages.')
+     D FEIL06          C                   CONST('Enter kind of packages.')
+     D FEIL07          C                   CONST('Enter gross weight.')
+     D FEIL08          C                   CONST('Enter Net weight.')
+     D FEIL09          C                   CONST('Enter Net weight code  K=Kilo-
+     D                                     es  L=Liters.')
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESSING LINE
+      *=====================================================================
+      * Parse input string
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+      *
+      * Hvis første kall OG en...
+     C*                  IF        SubmPressed <> 'Y'
+     C                   SELECT
+     C                   WHEN      WSOPT = 'CRT'
+      *      kommer inn uten nøkkel - Blankt bilde, klar for ny post
+     c                   exsr      GetDft
+     c                   WHEN      WSOPT = 'CHG'
+      *      kommer inn med nøkkel - hent data fra fil, klar for vedlikehold
+     c                   exsr      GetData
+     c                   WHEN      WSOPT = 'DLT'
+      *      slett linje
+     c                   exsr      DLTDG
+     C                   ENDSL
+     C*                  END
+      *
+      * Avslutt = V - "passiv vis bilde på ny" etter åpning/lukking felt..
+     c                   IF        AVSLUTT = 'V'
+     c                   move      ' '           AVSLUTT
+     C                   else
+      *Om en har tastet submit fra vedlikeholdsbilde, test evt lagre/avslutt
+      * (Test-sr setter AVSLUTT=Y hvis feilfritt -> automatisk close...)
+     c                   IF        SubmPressed = 'Y'
+     C                   EXSR      TESTB
+     c                   end
+     C                   end
+      *
+     C                   IF        AVSLUTT = 'Y'
+     C                   EXSR      OPDDG
+     C                   End
+      *
+      * Vis skjermbidet på ny
+      * (hvis AVSLUTT=Y så autocloses vinduet umiddelbart ved load..)
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html into core
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Issue html section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *
+     C                   exsr      SetEnd
+     C                   callp     wrtsection('end')
+      *
+      * Send output buffer and quit
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *
+      *
+      *
+      *=====================================================================
+      * Parse input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      SubmPressed = zhbgetvar('SubmPressed')
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSNA    = zhbgetvar('WSNA')
+      *
+     C                   eval      WSOPT   = zhbgetvar('WSOPT')
+     C                   eval      WSONO   = zhbgetvar('WSONO')
+     C                   eval      BWSONO  = c2n2(WSONO)
+     C                   eval      WSLOP   = zhbgetvar('WSLOP')
+     C                   eval      BWSLOP  = c2n2(WSLOP)
+     C                   eval      WSUNNR  = zhbgetvar('WSUNNR')
+     C                   eval      BWSUNNR = c2n2(WSUNNR)
+     C                   eval      WSPSN   = zhbgetvar('WSPSN')
+     C     LC:UC         XLATE     WSPSN         WSPSN
+     C                   eval      WSPSN2  = zhbgetvar('WSPSN2')
+     C     LC:UC         XLATE     WSPSN2        WSPSN2
+     C                   eval      WSCOG   = zhbgetvar('WSCOG')
+     C     LC:UC         XLATE     WSCOG         WSCOG
+     C                   eval      WSPG    = zhbgetvar('WSPG')
+     C     LC:UC         XLATE     WSPG          WSPG
+     C                   eval      WSTR    = zhbgetvar('WSTR')
+     C     LC:UC         XLATE     WSTR          WSTR
+     C                   eval      WSNOP   = zhbgetvar('WSNOP')
+     C                   eval      BWSNOP  = c2n2(WSNOP)
+     C                   eval      WSKOP   = zhbgetvar('WSKOP')
+     C     LC:UC         XLATE     WSKOP         WSKOP
+     C                   eval      WSGWK   = zhbgetvar('WSGWK')
+     C                   eval      XXTAL   = c2n2(WSGWK)
+     C                   IF        XXTAL   < 10000000
+     C                   Z-ADD(H)  XXTAL         BWSGWK
+     C                   ELSE
+     C                   Z-SUB     1             BWSGWK
+     C                   END
+     C                   eval      WSNW    = zhbgetvar('WSNW')
+     C                   eval      XXTAL   = c2n2(WSNW)
+     C                   IF        XXTAL   < 10000000
+     C                   Z-ADD(H)  XXTAL         BWSNW
+     C                   ELSE
+     C                   Z-SUB     1             BWSNW
+     C                   END
+     C                   eval      WSNWT   = zhbgetvar('WSNWT')
+     C     LC:UC         XLATE     WSNWT         WSNWT
+     C                   eval      WSADD   = zhbgetvar('WSADD')
+     C     LC:UC         XLATE     WSADD         WSADD
+     C                   eval      WSPFRT  = zhbgetvar('WSPFRT')
+     C                   eval      BWSPFRT = c2n2(WSPFRT)
+     C                   eval      WSLC    = zhbgetvar('WSLC')
+     C     LC:UC         XLATE     WSLC          WSLC
+     C                   eval      WSCLC   = zhbgetvar('WSCLC')
+     C     LC:UC         XLATE     WSCLC         WSCLC
+      *
+     C                   endsr
+      *=====================================================================
+      * Set html output skeleton VED FEIL
+      *=====================================================================
+     C     SetSkl        begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SS206'
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHtmlVar('WSNA':WSNA)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+     C                   callp     updhtmlvar('WSONO':
+     C                             %trim(%editc(BWSONO:'Z')))
+     C                   callp     updhtmlvar('WSLOP':
+     C                             %trim(%editc(BWSLOP:'Z')))
+     C                   callp     updhtmlvar('WSUNNR':
+     C                             %trim(%editc(BWSUNNR:'Z')))
+     C                   callp     updHtmlVar('WSPSN':WSPSN)
+     C                   callp     updHtmlVar('WSPSN2':WSPSN2)
+     C                   callp     updHtmlVar('WSCOG':WSCOG)
+     C                   callp     updHtmlVar('WSPG':WSPG)
+     C                   callp     updHtmlVar('WSTR':WSTR)
+     C                   callp     updhtmlvar('WSNOP':
+     C                             %trim(%editc(BWSNOP:'Z')))
+     C                   callp     updHtmlVar('WSKOP':WSKOP)
+     C                   IF        BWSGWK >= 0
+     C                   callp     updhtmlvar('WSGWK':
+     C                             %trim(%editc(BWSGWK:'4')))
+     C                   ELSE
+     C                   callp     updHtmlVar('WSGWK':WSGWK)
+     C                   END
+     C                   IF        BWSNW >= 0
+     C                   callp     updhtmlvar('WSNW':
+     C                             %trim(%editc(BWSNW:'4')))
+     C                   ELSE
+     C                   callp     updHtmlVar('WSNW':WSNW)
+     C                   END
+     C                   callp     updhtmlvar('WSNWT':WSNWT)
+     C                   callp     updhtmlvar('WSADD':WSADD)
+     C                   callp     updhtmlvar('WSPFRT':
+     C                             %trim(%editc(BWSPFRT:'Z')))
+     C                   callp     updHtmlVar('WSLC':WSLC)
+     C                   callp     updHtmlVar('WSCLC':WSCLC)
+      *
+     C                   callp     updhtmlvar('FEILMELDING':
+     C                             FEILMELDING)
+     C                   callp     updhtmlvar('FMELDNR':FMELDNR)
+     C                   callp     updhtmlvar('AVSLUTT':AVSLUTT)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$end
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *
+      *////////////////////////////////////////////////////////////
+     C     TESTB         BEGSR
+      *////////////////////////////////////////////////////////////
+      *
+     C                   IF        BWSUNNR = 0
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   MOVE      '01'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C     BWSUNNR       CHAIN     GSSDGA                             33
+     C  N33              IF        WSPSN = *BLANKS
+     C                   EVAL      WSPSN = DAPSN
+     C                   END
+     C  N33              IF        WSPSN2 = *BLANKS
+     C                   EVAL      WSPSN2 = DAPSN2
+     C                   END
+     C  N33              IF        WSCOG = *BLANKS
+     C                   EVAL      WSCOG = DACOG
+     C                   END
+      *
+     C                   IF        WSPSN = *BLANKS
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   MOVE      '02'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        WSCOG = *BLANKS
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   MOVE      '03'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        WSPG = *BLANKS
+     C                   MOVEL     FEIL04        FEILMELDING
+     C                   MOVE      '04'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        BWSNOP = 0
+     C                   MOVEL     FEIL05        FEILMELDING
+     C                   MOVE      '05'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        WSKOP = *BLANKS
+     C                   MOVEL     FEIL06        FEILMELDING
+     C                   MOVE      '06'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        BWSGWK = 0
+     C                   MOVEL     FEIL07        FEILMELDING
+     C                   MOVE      '07'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        BWSNW = 0
+     C                   MOVEL     FEIL08        FEILMELDING
+     C                   MOVE      '08'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+     C                   IF        WSNWT <> 'K' AND WSNWT <> 'L'
+     C                   MOVEL     FEIL09        FEILMELDING
+     C                   MOVE      '09'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+      * alle tester passert - Avlsutt med lagring / close windu..
+     C                   move      'Y'           AVSLUTT
+      *
+     C     SLTBDT        ENDSR
+      *
+      *=====================================================================
+      *  Oppdater heading
+      *=====================================================================
+     C     OPDDG         begsr
+      *
+     C     GSSDGFK       CHAIN     GSSDGF                             33
+     C                   IF        *IN33
+     C     GSSDGFKMAX    KLIST
+     C                   KFLD                    BWSONO
+     C                   KFLD                    DGLOP
+     C                   Z-ADD     999           DGLOP
+     C     GSSDGFKMAX    SETGT     GSSDGF
+     C     BWSONO        READPE(N) GSSDGF                                 33
+     c   33              EVAL      BWSLOP = 1
+     C  N33              EVAL      BWSLOP = DGLOP + 1
+     C                   CLEAR                   GSSDGFR
+     C                   EVAL      *IN33 = *ON
+     C                   END
+      *
+     C                   EXSR      MOVEWSDG
+     C                   IF        *IN33
+     C                   WRITE     GSSDGFR
+     C                   ELSE
+     C                   UPDATE    GSSDGFR
+     C                   ENDIF
+      *
+     C     GSSDGAL2K     CHAIN     GSSDGAL2                           33
+     C                   IF        *IN33
+     C     BWSUNNR       SETGT     GSSDGA
+     C     BWSUNNR       READPE    GSSDGA                                 33
+     C   33              EVAL      DALOPN = 1
+     C  N33              EVAL      DALOPN = DALOPN + 1
+     C                   EVAL      DAUNNR = BWSUNNR
+     C                   EVAL      DAPSN  = WSPSN
+     C                   EVAL      DAPSN2 = WSPSN2
+     C                   EVAL      DACOG  = WSCOG
+     C                   WRITE     GSSDGAR
+     C                   END
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  OPPDATER FELTER I FIL
+      *=====================================================================
+     C     MOVEWSDG      begsr
+     C                   EVAL      DGONO  = BWSONO
+     C                   EVAL      DGLOP  = BWSLOP
+     C                   EVAL      DGUNNR = BWSUNNR
+     C                   EVAL      DGPSN  = WSPSN
+     C                   EVAL      DGPSN2 = WSPSN2
+     C                   EVAL      DGCOG  = WSCOG
+     C                   EVAL      DGPG   = WSPG
+     C                   EVAL      DGTR   = WSTR
+     C                   EVAL      DGNOP  = BWSNOP
+     C                   EVAL      DGKOP  = WSKOP
+     C                   EVAL      DGGWK  = BWSGWK
+     C                   EVAL      DGNW   = BWSNW
+     C                   EVAL      DGNWT  = WSNWT
+     C                   EVAL      DGADD  = WSADD
+     C                   EVAL      DGPFRT = BWSPFRT
+     C                   EVAL      DGLC   = WSLC
+     C                   EVAL      DGCLC  = WSCLC
+      *
+     C                   endsr
+      *=====================================================================
+      *  Hent data fra fra fil ved først "syklus"  / endring av post
+      *=====================================================================
+     C     GetData       begsr
+      *
+     C     GSSDGFK       CHAIN(N)  GSSDGF                             33
+      *
+     C                   EVAL      BWSUNNR = DGUNNR
+     C                   EVAL      WSPSN   = DGPSN
+     C                   EVAL      WSPSN2  = DGPSN2
+     C                   EVAL      WSCOG   = DGCOG
+     C                   EVAL      WSPG    = DGPG
+     C                   EVAL      WSTR    = DGTR
+     C                   EVAL      BWSNOP  = DGNOP
+     C                   EVAL      WSKOP   = DGKOP
+     C                   EVAL      BWSGWK  = DGGWK
+     C                   EVAL      BWSNW   = DGNW
+     C                   EVAL      WSNWT   = DGNWT
+     C                   EVAL      WSADD   = DGADD
+     C                   EVAL      BWSPFRT = DGPFRT
+     C                   EVAL      WSLC    = DGLC
+     C                   EVAL      WSCLC   = DGCLC
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  Slett linje
+      *=====================================================================
+     C     DLTDG         begsr
+      *
+     C     GSSDGFK       CHAIN     GSSDGF                             33
+     C  N33              DELETE    GSSDGFR
+     C                   EVAL      AVSLUTT = 'D'
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  Hent data fra fra param.fil mm ved første "syklus"  / Ny post
+      *=====================================================================
+     C     GetDft        begsr
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  Initier
+      *=====================================================================
+     C     INIT          begsr
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      *
+     C                   open      BRIDF                                50
+     C                   EXSR      TSTUSER
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      GSSDGF
+     C                   open      GSSDGA
+     C                   open      GSSDGAL2
+     C                   open      CUNDL01
+      * Innen Z-filer skapt fra WEB forventes unik kund/reff
+      *
+     C     CUNDL01K      klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    BIKUNR
+     C     GSSDGFK       KLIST
+     C                   KFLD                    BWSONO
+     C                   KFLD                    BWSLOP
+     C     GSSDGAL2K     KLIST
+     C                   KFLD                    BWSUNNR
+     C                   KFLD                    WSPSN
+      *
+     C                   MOVE      'N'           AVSLUTT           1
+      *
+     C                   endsr
+      *////////////////////////////////////////////////////////////
+     C     TSTUSER       BEGSR
+      *////////////////////////////////////////////////////////////
+      /copy syspeds/qrpgsrcpy,tstuser
+      *
+     C                   endsr
+      *=====================================================================
+      * Send output buffer and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Compute and display run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     GSSDGF
+     C                   close     GSSDGA
+     C                   close     GSSDGAL2
+     C                   close     CUNDL01
+      *
+     C                   eval      *inlr = *on
+     C                   return
+     C                   endsr

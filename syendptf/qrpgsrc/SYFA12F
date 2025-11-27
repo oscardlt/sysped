@@ -1,0 +1,374 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 lastested eksport    ...
+10XXX * 02 SH  PTF10 sikre array index    ...
+10XXX * 03 JOV FREETXT2 type R flyttet til det enkelte del-prog (+ endert ptf 02)
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 04 JOV PTF11 SYBRINGTMS - Ikke AREF hvis TRmodul
+10XXX * 05 JOV PTF11 kan kalles selv om DOKUF ikke finnes
+12152 * 06 SH  PTF12 deklarantid = orgnr
+10XXX * 07 JOV PTF12 Ved Dup-oppdrag hent Godsnr mm fra mor-oppdraget
+********************************************************************
+********************************************************************
+      * HENTE INN FASTE TEKSTER TIL R-38 PÅ FRAKTBREV/EDI..
+********************************************************************
+N06  FFIRM      IF   E           K DISK
+N06  FKODTA     IF   E           K DISK
+N06  FCUNDL01   IF   E           K DISK
+     FDOKUF     IF   E           K DISK
+     FHEADF     IF   E           K DISK
+S06  F*TANDI    IF   E           K DISK
+s06  F*TANDE    IF   E           K DISK
+s03  F*FREETXT2  IF   E           K DISK
+     D                 DS
+     D  TXT01                  1     70
+     D  TXT02                 71    140
+     D  TXT03                141    210
+     D  TXT04                211    280
+     D  TXT05                281    350
+     D  TXT06                351    420
+     D  TXT07                421    490
+     D  TXT08                491    560
+     D  TXT09                561    630
+     D  TXT10                631    700
+     D  TX                     1    700    DIM(10)
+     D                 DS
+     D  HEFT1                  1     51
+     D  HEFT1A                 1     30
+     D  HEFT1B                31     45
+      * Array for fjerning av foranstilte nuller
+     D NUM             S              1    DIM(11)
+      * Tekstkosnstanter i ledetekster
+     D BOOKING         C                   CONST('!! -
+     D                                     Godset må merkes med merkelapp -
+     D                                     som er utskrevet av Tollpost Globe')
+     D CSETTER         C                   CONST('Speditør-etterkrav:')
+     D CUTLEV          C                   CONST('UTLEVERINGSFORBEHOLD:')
+     D CFASEND         C                   CONST('Fakturasender/oppr.avsender:')
+     D CSYREF          C                   CONST('SYSPED ref.:')
+     D CAREF           C                   CONST('A-ref/S-ref:')
+     D CAREF2          C                   CONST('AWB nummer.:')
+     D CGODSNR         C                   CONST('Godsnummer.:')
+     D CLINJE          C                   CONST('Linjedek.ID:')
+     D CCONT           C                   CONST('Containernr:')
+     D CLOSS           C                   CONST('Lossested..:')
+N01  D CLAST           C                   CONST('Lastested..:')
+     C                   EXSR      SRA
+     C                   MOVE      '1'           *INLR
+      */////////////////////////////////////////////////////////////////////////
+      *// HOVEDRUTINE                                                         //
+      */////////////////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      * Input parameters
+     C     *ENTRY        PLIST
+     C                   PARM                    WFIRM             2
+     C                   PARM                    WFAVD             4 0
+     C                   PARM                    WFOPD             7 0
+     C                   PARM                    WFFBNR            3 0
+     C                   PARM                    UTXT            700
+     C                   CLEAR                   UTXT
+      *
+     C     DOKKEY        KLIST
+     C                   KFLD                    WFRI
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+     C                   KFLD                    WFFBNR
+     c                   MOVE      'F'           WFRI              1
+     C     HEAKEY        KLIST
+     C                   KFLD                    WFAVD
+     C                   KFLD                    WFOPD
+N07  C     MorKey        KLIST
+N07  C                   KFLD                    TRAVD0
+N07  C                   KFLD                    TROPD0
+s03  C*    FreeKey       KLIST
+s03  C*                  KFLD                    WFAVD
+s03  C*                  KFLD                    WFOPD
+s03  C*                  KFLD                    FRTKOD
+s03  C*                  MOVE      'R'           FRTKOD
+N06  C                   read      firm                                   33
+      * Hent fraktbrev
+     C     DOKKEY        CHAIN     DOKUF                              51
+S05  C*    *IN51         CABEQ     *ON           SRA9
+      * Hent oppdrag
+     C     HEAKEY        CHAIN     HEADF                              51
+     C     *IN51         CABEQ     *ON           SRA9
+N07  C     TROPD0        ifne      *zeros
+N07  C                   EXSR      GetMorInf
+N07  C                   endif
+      * om fr.brev ikke finnes - hent gitte verdier far oppdrag
+N05  C     DFOPD         ifeq      *Zeros
+N05  C                   MOVE      HEAVD         DFAVD
+N05  C                   MOVE      HEOPD         DFOPD
+N05  C                   MOVE      HESG          DFSG
+N05  C                   MOVEL     HENAS         DFFASE
+N05  c     HXSNDN        ifne      *blanks                                      innland
+N05  C                   MOVEL     HENAA         DFFASE
+N05  C                   endif
+N05  C                   endif
+      *
+      * Skap Max 10 linjer med faste tekster:
+      * Noen linjer er delt 30+40 (Når en kan få kolonner)andre er "LØPENDE"
+     C                   MOVEA     *BLANKS       TX
+     C                   MOVE      *ZEROS        NR                2 0
+      *
+      * Bookingtekst fo oppdraget
+      *
+     C     DFPROK        ifeq      'TG9BO'
+     C                   ADD       1             NR
+     C                   EVAL      TX(NR) = booking
+     C                   END
+      * Speditør-etter-krav
+     C     HEUR          IFEQ      'H'
+     C     TRETTB        ANDNE     *ZEROS
+     C                   MOVEL     TRETTB        NUMA             11
+     C                   MOVE      TRETTB        NUMB              3
+     C                   MOVEL     ','           NUMB              3
+     C                   MOVEA     NUMA          NUM
+     C     1             DO        10            N2                2 0
+     C     NUM(N2)       IFNE      '0'
+     C                   GOTO      UTEKR
+     C                   END
+     C                   MOVE      ' '           NUM(N2)
+     C                   END
+     C     UTEKR         TAG
+     C                   MOVEA     NUM           NUMA
+     C                   MOVEL     NUMA          AAETTB           14
+     C                   MOVE      NUMB          AAETTB
+     C                   ADD       1             NR
+     C     CSETTER       CAT       AAETTB:1      TX(NR)
+     C                   END
+      *
+      * Utlev.forbehold (som IKKE er avkvittert)
+     C     HEFT1A        IFNE      *BLANKS
+     C     HEKFT1        ANDEQ     *BLANKS
+     C                   ADD       1             NR
+     C     CUTLEV        CAT       HEFT1A:1      TX(NR)
+     C                   CAT       HEFT1B:1      TX(NR)
+     C                   END
+      *
+      * Faktura-sender
+     C     DFFASE        IFNE      *BLANKS
+     C                   ADD       1             NR
+s03  C*    Nr            Ifge      10
+N03  C     Nr            Ifgt      10
+N02  C                   goto      SRA9
+N02  C                   end
+     C     CFASEND       CAT       DFFASE:2      TX(NR)
+     C                   END
+      *
+      * SYSPED REF
+     C                   MOVE      DFAVD         AAAVD             4
+     C                   MOVE      DFOPD         AAOPD             7
+     C                   MOVE      DFFBNR        AAFBNR            3
+     C                   MOVE      HEPRO         AAPRO             8
+     C                   ADD       1             NR
+s03  C*    Nr            Ifge      10
+N03  C     Nr            Ifgt      10
+N02  C                   goto      SRA9
+N02  C                   end
+     C     CSYREF        CAT       AAAVD:1       TX(NR)
+     C                   CAT       '/':0         TX(NR)
+     C                   CAT       AAOPD:0       TX(NR)
+     C                   CAT       '/':0         TX(NR)
+     C                   CAT       AAFBNR:0      TX(NR)
+     C                   CAT       '/':0         TX(NR)
+     C                   CAT       DFSG:0        TX(NR)
+     C                   CAT       'Turnr:':2    TX(NR)
+     C                   CAT       AAPRO:1       TX(NR)
+      *
+      * A-REF (=AWB ved fly imp) / Container-kode(FB)eller Lossested(TP)
+     C                   MOVE      ' '           CONLOS            1
+     C     DFTOLL        IFEQ      *ZEROS
+     C     HETRCN        IFNE      *BLANKS
+     C                   MOVE      'C'           CONLOS
+     C                   END
+     C                   ELSE
+     C     HESDL         IFNE      *BLANKS
+     C                   MOVE      'L'           CONLOS
+     C                   END
+     C                   END
+N04  C     HEUR          IFNE      'H'
+     C     HERFA         IFNE      *BLANKS
+     C     CONLOS        ORNE      *BLANKS
+     C                   ADD       1             NR
+s03  C*    Nr            Ifge      10
+N03  C     Nr            Ifgt      10
+N02  C                   goto      SRA9
+N02  C                   end
+     C     HEUR          IFNE      'C'
+     C     CAREF         CAT       HERFA:1       TX(NR)
+     C                   ELSE
+     C     CAREF2        CAT       HERFA:1       TX(NR)
+     C     HEHAWB        IFNE      *BLANKS
+     C     TX(NR)        CAT       'HAWB:':2     TX(NR)
+     C     TX(NR)        CAT       HEHAWB:1      TX(NR)
+     C     CONLOS        IFEQ      'C'
+     C     TX(NR)        CAT       'Con.nr:':2   TX(NR)
+     C     TX(NR)        CAT       HETRCN:1      TX(NR)
+     C                   ELSE
+     C     CONLOS        IFEQ      'L'
+     C     TX(NR)        CAT       'L.sted:':2   TX(NR)
+     C     TX(NR)        CAT       HESDL:1       TX(NR)
+     C                   END
+     C                   END
+     C                   GOTO      UTAWB
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       TXT40            40
+     C     CONLOS        IFEQ      'C'
+     C     CCONT         CAT       HETRCN:1      TXT40
+     C                   ELSE
+     C     CONLOS        IFEQ      'L'
+N01  C     HEUR          ifeq      'B'
+N01  C     HEUR          oreq      'D'
+N01  C     CLAST         CAT       HESDL:1       TXT40
+N01  C                   else
+     C     CLOSS         CAT       HESDL:1       TXT40
+N01  C                   END
+     C                   END
+     C                   END
+     C                   MOVE      TXT40         TX(NR)
+     C                   END
+     C     UTAWB         TAG
+N04  C                   endif
+      *
+      * GODSNR / Transp.måte...(KUN VED FB, ikke ved tollpass)
+      *
+     C     DFTOLL        IFEQ      *ZEROS
+     C     HEGN          IFNE      *BLANKS
+     C     HETRM         ORNE      *ZEROS
+     C     HETRI         ORNE      *BLANKS
+      * Ved TR.modul brukes HETRI til ANNET - skriv linja kun hvis GN utfylt
+     C     HEUR          IFEQ      'H'
+     C     HEGN          ANDEQ     *BLANKS
+     C                   GOTO      UTHETRI
+     C                   END
+     C                   MOVE      HEPOS2        AAPOS2            4
+     C                   MOVE      HETRM         AATRM             2
+     C                   ADD       1             NR
+     C     CGODSNR       CAT       HEGN:1        TX(NR)
+     C                   MOVE      *BLANKS       TXT40
+     C     HEPOS1        IFNE      *BLANKS
+     C                   CAT       'Pos:':0      TXT40
+     C                   CAT       HEPOS1:1      TXT40
+     C                   END
+     C     AAPOS2        IFNE      *BLANKS
+     C                   CAT       '/':1         TXT40
+     C                   CAT       AAPOS2:1      TXT40
+     C                   END
+     C     AATRM         IFNE      *BLANKS
+     C     HETRI         ORNE      *BLANKS
+      * Ved TR.modul brukes HETRI til ANNET                            tfylt
+     C     HEUR          IFNE      'H'
+     C                   CAT       'Tr.m:':2     TXT40
+     C                   CAT       AATRM:0       TXT40
+     C                   CAT       'Tr.ID:':1    TXT40
+     C                   CAT       HETRI:0       TXT40
+     C                   END
+     C                   END
+     C                   MOVE      TXT40         TX(NR)
+     C                   END
+     C     UTHETRI       TAG
+      *
+      * Linjedekl-id / eksp.enh/løpenr  (KUN ved FB)
+     C     HETLL         IFNE      *BLANKS
+s06  C*    HEAVD         CHAIN     STANDI                             33
+s06  C*  33HEAVD         CHAIN     STANDE                             33
+s06  C*    *IN33         IFEQ      '1'
+s06  C*                  MOVE      *ZEROS        A3039D            8
+s06  C*                  ELSE
+s06  C*                  MOVE      S3039D        A3039D            8
+s06  C*                  END
+      * henter avdelingens orgnummer
+n06  C     KODTA2        KLIST
+n06  C                   KFLD                    WSAUNI
+n06  C                   KFLD                    HEAVD
+     C     KUNDFK        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KOAKNR
+     C                   MOVE      'A'           WSAUNI            1
+N06  C     KODTA2        CHAIN     KODTA                              33
+N06  C     KUNDfK        CHAIN     CUNDL01                            33
+N06  C
+     C                   ADD       1             NR
+s03  C*    Nr            Ifge      10
+N03  C     Nr            Ifgt      10
+N02  C                   goto      SRA9
+N02  C                   end
+s06  C*    CLINJE        CAT       A3039D:1      TX(NR)
+n06  C     CLINJE        CAT       SYRG:1        TX(NR)
+     C                   CAT       'Eksp.enh:':9 TX(NR)
+     C                   CAT       HETLE:1       TX(NR)
+     C                   CAT       'Løpenr:':2   TX(NR)
+     C                   CAT       HETLL:1       TX(NR)
+     C                   END
+      * Lossested - på egen linje KUN VED FB
+     C     HESDL         IFNE      *BLANKS
+     C                   ADD       1             NR
+s03  C*    Nr            Ifge      10
+N03  C     Nr            Ifgt      10
+N02  C                   goto      SRA9
+N02  C                   end
+N01  C     HEUR          ifeq      'B'
+N01  C     HEUR          oreq      'D'
+N01  C     CLAST         CAT       HESDL:1       TX(NR)
+N01  C                   else
+     C     CLOSS         CAT       HESDL:1       TX(NR)
+N01  C                   END
+     C                   END
+     C                   END
+S03   *
+S03   * Fritekst kode R
+S03  C*    FreeKey       Setll     FREETXT2
+S03  C*    FreeKey       Reade     FREETXT2                               33
+S03  C*    *in33         DOWEQ     *OFF
+S03  C*    Nr            Ifge      10
+S03  C*                  goto      SRA9
+S03  C*                  end
+S03  C*                  ADD       1             NR
+S03  C*                  MOVEL     FRTTXT        TX(NR)
+S03  C*    FreeKey       Reade     FREETXT2                               33
+S03  C*                  end
+      *
+     C     SRA9          TAG
+      *
+      *Returnert tekster
+     C                   MOVEA     TX            UTXT
+      *
+     C                   ENDSR
+      *
+N07   *********************************************
+N07  C     GetMorInf     BEGSR
+N07   *********************************************
+N07  C     *like         define    HEGN          MorGN
+N07  C     *like         define    HETRM         MorTRM
+N07  C     *like         define    HETRI         MorTRI
+N07  C     *like         define    HEPOS1        MorPOS1
+N07  C     *like         define    HEPOS2        MorPOS2
+N07  C     *like         define    HETLL         MorTLL
+N07  C     *like         define    HETLE         MorTLE
+N07   * Hent info fra moroppdraget
+N07  C     MORKEY        CHAIN     HEADF
+N07  C                   IF        %found
+N07  C                   Move      HEGN          MorGN
+N07  C                   Move      HETRM         MorTRM
+N07  C                   Move      HETRI         MorTRI
+N07  C                   Move      HEPOS1        MorPOS1
+N07  C                   Move      HEPOS2        MorPOS2
+N07  C                   Move      HETLL         MorTLL
+N07  C                   Move      HETLE         MorTLE
+N07   * Hent tilbake Dup-oppdraget
+N07  C     HEAKEY        CHAIN     HEADF                              51
+N07   * .. men overstyr utvalgte verdier
+N07  C                   Move      MorGN         HEGN
+N07  C                   Move      MorTRM        HETRM
+N07  C                   Move      MorTRI        HETRI
+N07  C                   Move      MorPOS1       HEPOS1
+N07  C                   Move      MorPOS2       HEPOS2
+N07  C                   Move      MorTLL        HETLL
+N07  C                   Move      MorTLE        HETLE
+N07  C                   endif
+N07   *
+N07  C                   ENDSR

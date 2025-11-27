@@ -1,0 +1,180 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10172 * 01 SH  PTF10 norsk text til Track and trace
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 02 JOV PTF11 Send NORSK/Local Lang tekst, Ved TTEDEV='*LE' send Local + Engelsk
+      *              OBS! Alle ESTSTT.. + SYTT01 (+ SYTT05)/SYSO02  bør oppdateres samtidig
+      * 03 Overgang til SMS via SYGE99 - ingen merking
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 04 JOV PTF12 slach i avd/Oppdr bytter med %2f (=/)
+10XXX * 05 JOV PTF12 Ikke arve user fra den eventen som trigger dette
+10XXX * 05 JOV PTF12 HTTPS
+********************************************************************
+     FHEADF     IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     ffirmarc   if   e           k disk
+     fsyparl3   if   e           k disk
+     FTRACKF    O  A E           K DISK
+     D                SDS
+     D  ZJOB                 244    253
+     D  ZUSER                254    263
+     D  ZJOBNR               264    269  0
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      *
+     D                 DS
+     D  TRFA22                 1      4
+     D  xxADVI                 1      1
+      *
+     d usrid           S            128
+     d pw              S             32
+     d smsnr           S             16
+     d body            S           1280
+     d smsLen          S              5  0
+     d smsAnt          S              1  0
+     d sndNr           s             17
+     d link            s            150
+     d sykd            s              5
+     d uuurl           s              1
+     d up              c                   const('ABCDEFGHIJKLMNOPQRST-
+     d                                     UVWXYZÆØÅ')
+     d lo              c                   const('abcdefghijklmnopqrst-
+     d                                     uvwxyzæøå')
+      *
+     C                   exsr      INIT
+      *
+     c     HeaKey        chain     HEADF                              35
+     c     *in35         ifeq      *off
+     c                   exsr      SndMail
+     c                   endif
+      *
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      *
+      ******************************************************************************
+     C     SndMail       BEGSR
+      ******************************************************************************
+      *
+      /free
+        LINK = *blanks;
+        if uuurl='J';
+          eval sndNr =   %subst(HXSNDN:4:17);
+          if %subst(HXSNDN:18:3) = *blanks;
+          eval sndNr = HXSNDN;
+          endif;
+          if sndNr = *blanks;
+S04    //   %subst(sndNr:1:4) = %editc(heavd:'X');
+S04    //   %subst(sndNr:5:1) ='/';
+S04    //   %subst(sndNr:6:7) = %editc(heopd:'X');
+N04         eval sndNr = %editc(heavd:'X')+'%2f'+ %editc(heopd:'X');
+          endif;
+          LINK = 'http://'+ %trim(ARCPAE) + '/syspeddev/tktt/%23/'+sndNr;
+N06       if  ARCPSE='J';
+            LINK = 'https://'+ %trim(ARCPAE) + '/syspeddev/tktt/%23/'+sndNr;
+N06       endif;
+        endif;
+
+        body='Melding vedr. din sending m/ref:'+ %TRIM(HERFA)
+            +' fra '+ %TRIM(%subst(HENAS:1:20))+ ' : '+ %TRIM(TTTEXL);
+        if ttedev='*LE';
+          body= %trim(body)+%TRIM(TTTEXT);
+        endif;
+        body=%ScanRpl('&':'%26':body);
+        body= %trim(body)+' '+LINK;
+        smsLen=%len(%trim(body));
+        smsAnt=(smsLen/160)+0.9999;
+        usrId='roger@systema.no';
+        pw='straffe12';
+        smsnr= cmobil;
+      /end-free
+     C                   CALL      'SYGE99'
+     C                   PARM                    USRID
+     c                   PARM                    PW
+     c                   PARM                    SMSNR
+     c                   PARM                    BODY
+     c                   exsr      TTSR
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    HEAVD
+     c                   parm                    HEOPD
+     c                   parm                    TTACTI            3
+     c                   parm                    TTDATE            8 0
+     c                   parm                    TTTIME            6 0
+     c                   parm                    TTDATL            8 0
+     c                   parm                    TTTIML            6 0
+N02  c                   parm                    TTEDEV            3
+N02  c                   parm                    TTTEXL           70
+     c                   parm                    TTTEXT           70
+     c                   parm                    TTUSER           10
+     c                   parm                    CMOBIL           15
+      *
+     c                   movel     TTTEXT        TMPTEXT          70
+      *
+     c     HeaKey        klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+      *
+      /free
+         // Hardkodet foreløpig / BØR over på  /syspeddev/tktt/   dedikert mobil-app
+         uuurl = 'J';
+         if uuurl = 'J';
+           sykd = 'ESUSR';
+           chain ( sykd ) syparl3;
+           if not %found;
+             syvrda = 'NN';
+           endif;
+
+           setll *loval firm;
+           read firm;
+           chain fifirm firmarc;
+           arcpae = %xlate(up:lo:arcpae);
+         endif;
+      /end-free
+
+     C                   ENDSR
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+     C                   MOVE      TTACTI        ORTTACT           3
+      *
+     C                   MOVE      HEAVD         TTAVD
+     C                   MOVE      HEOPD         TTOPD
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      'SMS'         TTACTI
+     C                   MOVE      ULDT          TTDATE
+     C                   MOVE      XULTM         TTTIME
+     C                   MOVE      TTDATE        TTDATL
+     C                   MOVE      TTTIME        TTTIML
+     C* behold orig..    MOVEL     ZUSER         TTUSER
+     C                   EVAL      TTTEXT = 'SMS sent to '+ %trim(CMOBIL)
+     c                             + ', ' + TMPTEXT
+     c                   move      '...'         TTTEXT
+n01  C                   EVAL      TTTEXL = 'SMS sendt til '+ %trim(CMOBIL)
+n01  c                             + ', ' + TMPTEXT
+n01  c                   move      '...'         TTTEXT
+     c                   eval      TTEDRE = %trim(%editc(smsAnt:'Z'))
+     c                   eval      TTDEPO = 'Len:'+%trimr(%editc(smsLen:'Z'))
+N05  c                   eval      TTUSER = 'SY400USR'
+     C                   WRITE     TRACKFR
+     C                   ENDSR

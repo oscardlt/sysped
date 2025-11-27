@@ -1,0 +1,1357 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 RETTELSE ETTER UTVIDELSE AV OPPDRAGSNR
+10XXX * 02 YBC PTF10 TETS PERIODE ER ÅPEN.
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 03 JOV PTF11 Kontroll mot at alle oppdrag er levert ..... (BRINGTMS)
+10XXX * 04 SH  PTF11 nye seleksjoner opdragtype / til dato
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+12046 * 05 JOV PTF12 Håndtere turer for avregning via workfile - unngå at NYE kommer inn
+12046 * 06 SH  PTF12 viser valutabeløp fra turen
+********************************************************************
+OBS!! * OBS!! VED ENDRINGER I SR "AKKUM" -
+OBS!! * NÅR EN TASTER F7 FOR Å GENERERE ARB.LISTE BLIR GRUNNDATA SKAPT
+OBS!! * (TURER SOM UTVELGES..) AV SYTR12D - DETTE PROGRAM INNEHOLDER
+OBS!! * OGSÅ EN SR "AKKUM" - SØRG FOR SYNKRONISERING
+      **************************************************************
+      *** PROGRAM SKAL ARBEIDE MED LEVERANDØRAVREGNING           ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER       ***
+      *** LEDIGE INDIKATORER 01 02 04 07 09-11 13-24             ***
+      *** LEDIGE INDIKATORER 27-29 31    34-39 41-87             ***
+      **************************************************************
+      *
+N04  FKODTOTY   IF   E           K DISK
+     FTRAVH     IF   E           K DISK
+     FTRAVH1    UF   E           K DISK
+     F                                     RENAME(TRAVHR:TRAH1R)
+     FTRAVV     UF   E           K DISK
+     FAVRNR     UF A E           K DISK
+     FKOSBU     UF A E           K DISK
+     FKOSTT     UF A E           K DISK
+     FFAKT      UF   E           K DISK
+     FTURER     UF   E           K DISK
+     FTURER11   IF   E           K DISK
+     F                                     RENAME(TURERR:TUR11R)
+     FTRAN      IF   E           K DISK
+     FFIRM      IF   E           K DISK
+N02  FKODTÅ     IF   E           K DISK
+N03  FTRACKL02  IF   E           K DISK
+N05  FWRKCGI    UF A E           K DISK
+     FSYTR12FM  CF   E             WORKSTN
+     F                                     SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+N05  D                SDS
+N05  D  ZJOB                 244    253
+N05  D  ZUSER                254    263
+N05  D  ZJOBNR               264    269  0
+N05   *
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  W1PERC                 1      2  0
+     D  W1PERÅ                 3      4  0
+     D  W1PERM                 5      6  0
+     D  DSW1ÅM                 1      6  0
+     D                 DS
+     D  TURACC                 1      2  0
+     D  TURAAR                 3      4  0
+     D  TURMND                 5      6  0
+     D  DSTUÅM                 1      6  0
+N04  D                 DS
+N04  D  W1CC                   1      2  0
+N04  D  W1AAR                  3      4  0
+N04  D  W1MND                  5      6  0
+N04  D  W1DAG                  7      8  0
+N04  D  W1DATO                 1      8  0
+      * TRAVHKEY =
+N05   *  THST       STATUS                                   1    1     1         A
+N05   *  THTNR      TRANSPORTØRNR.                           2    9     8   8   0 S
+N05   *  THRTNR     RUDNTURSNR                              10   17     8   8   0 S
+N05   *  THKDM      Momskode                                18   18     1         A
+N05   *  THTAVD     AVDELING TUR                            19   22     4   4   0 S
+N05   *  THTUNR     TUR (DELTUR)                            23   30     8   8   0 S
+N05  D                 DS
+N05  D  WKEY2                  1     30
+N05  D    THST                 1      1
+N05  D    THTNR                2      9  0
+N05  D    THRTNR              10     17  0
+N05  D    THKDM               18     18
+N05  D    THTAVD              19     22  0
+N05  D    THTUNR              23     30  0
+S05  D*                DS
+S05  D*BRUKER VERDI 99999999 I FELT RUNDTURNR FOR Å MERKE SLETTET
+S05  D* XDLT                   1      8  0
+S05  D* THRTNR                 1      8  0
+     D                UDS
+     D  USG                   19     21
+     C                   EXSR      INIT
+     C*
+     C     CHOISE        TAG
+N03  c                   MOVE      *blanks       IPODT1
+N05  C                   EXSR      TOEMWRK
+     C                   EXFMT     BILDE1
+     C*
+     C*** AVSLUTT
+     C*
+     C   03              GOTO      SLUTT
+     C   04              DO
+     C                   CALL      'SYTR04A'
+     C                   PARM                    W1TNR
+     C                   END
+     C*
+     C                   EXSR      TESTB1
+     C   30              GOTO      CHOISE
+N05  C* Etter vellykket TestB1 (med minst 1 tur å avregne) er aktuelle turer nå lagt i WRKCGI
+     C   07              MOVE      '1'           UIN07
+     C   07              GOTO      SLUTT
+     C*
+     C     START         TAG
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   Z-ADD     *ZEROS        ZRECNO
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+N05  C*    TRAHK         SETLL     TRAVH
+N05  C     WINTEG        SETLL     WRKCGI
+     C     START1        TAG
+S05  C*                  READ      TRAVH                                  94
+S05  C* N94THST          COMP      ' '                                9494
+S05  C* N94THTNR         COMP      W1TNR                              9494
+N05  C     WINTEG        READE     WRKCGI                                 94
+N05  C  N94TrhKeyF       CHAIN     TRAVH                              33
+N05  C  N94              IF        *IN33='1'                                    IKKE LENGER ST. BANK
+N05  c                   delete    WRKCGIR
+N05  C                   GOTO      START1
+N05  C                   ENDIF
+      *
+     C     START2        TAG
+      *
+     C  N94              DO
+     C                   DO        6
+     C                   ADD       1             ZRECNO
+     C                   MOVE      *BLANKS       TUTAKO
+     C                   MOVE      *BLANKS       TUBILN
+     C                   MOVE      *ZEROS        TURDAT            6 0
+     C     THRTNR        IFNE      99999998                                     DUMMY
+     C     TURERK        CHAIN(N)  TURER                              33        BILNR/DATO
+     C  N33              MOVE      TUDT          TURDAT
+     C     FIDTFM        IFNE      3                                            SNU DATO TIL
+     C                   CALL      'DATFM2'                                     LOKALT FORMA
+     C                   PARM                    FIDTFM
+     C                   PARM                    TURDAT
+     C                   END
+     C                   END
+     C     THDTD         COMP      99                                     96    *PLUKKET - DUMMY
+     C     THINH         COMP      *ZEROS                                 86    *0 INNH.BEL.UMMY
+     C   86THINHA        COMP      *ZEROS                             86        *POST FINNESUMMY
+     C     THUTK         COMP      *ZEROS                                 87    *0 UTKJ.BEL.UMMY
+     C   87THUTKA        COMP      *ZEROS                             87        *POST FINNESUMMY
+     C                   WRITE     SUBFIL
+S05  C*                  READ      TRAVH                                  94
+S05  C* N94THST          COMP      ' '                                9494
+S05  C* N94THTNR         COMP      W1TNR                              9494
+N05  C     NextWrk       tag
+N05  C  N94WINTEG        READE     WRKCGI                                 94
+N05  C  N94TrhKeyF       CHAIN     TRAVH                              33
+N05  C  N94              IF        *IN33='1'                                    IKKE LENGER ST. BANK
+N05  C                   delete    WRKCGIR
+N05  C                   GOTO      NextWrk
+N05  C                   ENDIF
+     C  N94              END
+     C                   END
+     C*
+     C                   Z-ADD     ZRECNO        YRECNO            5 0
+     C                   Z-ADD     8             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+     C     ZRECNO        IFEQ      0
+     C                   Z-ADD     8             POSNBR
+     C                   EXFMT     NYWRK
+     C                   ELSE
+     C                   WRITE     SUBCTL
+     C                   EXFMT     BUNN
+     C                   END
+     C*
+     C***
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+     C     XRECNO        IFEQ      0
+     C                   Z-ADD     ZRECNO        XRECNO            4 0
+     C                   END
+     C***
+     C*
+     C                   SETOFF                                       9899
+     C*
+     C*** AVSLUTT
+     C   03              GOTO      SLUTT
+     C*
+     C*** FRISK OPP
+     C   05              GOTO      START
+     C*
+     C*** SETT ALLE I "I ARB-STATUS"
+     C   07              EXSR      IARB
+     C   07              EXSR      MOVB0
+     C   07              GOTO      CHOISE
+     C*** FERDIGMELD
+N03  c                   if        *IN10='1' and tstPOD='J'
+N03  c                   exsr      TstPODsr
+N03  c   30              goto      start
+N03  c                   endif
+     C   10              EXSR      FERD
+     C   10              EXSR      MOVB0
+     C   10              GOTO      CHOISE
+     C*
+     C*** FOREGÅENDE BILDE / NYTT SØK
+     C   12              EXSR      MOVB0
+     C   12              GOTO      CHOISE
+     C*
+     C*** BLA VIDERE
+     C   25              DO
+     C                   SETOFF                                       25
+     C                   Z-ADD     YRECNO        ZRECNO
+     C* LES FØST EN BAKLENGS FOR Å SETTE FILPEKER RIKTIG
+S05  C* N94              READP     TRAVH                                  94
+S05  C* N94              READ      TRAVH                                  94
+N05  C  N94WINTEG        READPE    WRKCGI                                 94
+N05  C  N94WINTEG        READE     WRKCGI                                 94
+     C  N94THST          COMP      ' '                                9494
+     C  N94THTNR         COMP      W1TNR                              9494
+N05  C  N94TrhKeyF       CHAIN     TRAVH
+     C                   GOTO      START2
+     C                   END
+     C*
+     C     ZRECNO        IFNE      0
+     C                   EXSR      HENTSR
+     C                   END
+     C   98XRECNO        IFNE      0
+     C                   Z-ADD     XRECNO        ZRECNO
+     C                   END
+     C*
+     C                   GOTO      START3
+     C*
+     C*
+     C*
+     C     SLUTT         TAG
+     C                   MOVE      W1TNR         UUTNR                           *ALPHA
+     C                   MOVE      W1PERÅ        UUPERÅ                          *ALPHA
+     C                   MOVE      W1PERM        UUPERM                          *ALPHA
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     TESTB1        BEGSR
+     C***********************************************
+     C*
+     C                   MOVEA     '0'           *IN(30)
+     C                   MOVEA     '00000000'    *IN(70)
+     C* 23 ER BEKREFTING PÅ AT "ALLE" KOMBINERT MED 07 (LISTE) ER VALGT
+     C   23              SETON                                        07
+     C* TRANSPORTØR   (ALLE KAN VELGE KUN VED ARB.LISTE)
+     C  N07W1TNR         COMP      0                                      70
+     C   70              DO
+     C                   MOVE      'SPT0133'     MSGNR
+     C                   SETON                                        30
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   GOTO      SLTB
+     C                   END
+     C     W1TNR         IFNE      *ZEROS
+     C     TRANKE        CHAIN     TRAN                               70
+     C   70              DO
+     C                   MOVE      'SPT0133'     MSGNR
+     C                   SETON                                        30
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   GOTO      SLTB
+     C                   END
+     C* KAN IKKE AVREGNE EGENTRANSPORTØR
+     C     VMINCR        IFEQ      2
+     C                   MOVE      'DIV2336'     MSGNR
+     C                   SETON                                        3070
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   GOTO      SLTB
+     C                   END
+     C                   END
+     C* PERIODE
+     C     W1PERM        IFEQ      *ZEROS
+     C                   MOVE      'DIV2264'     MSGNR
+     C                   SETON                                        3071
+s04  C*                  Z-ADD     6             LINNBR
+n04  C                   Z-ADD     5             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   GOTO      SLTB
+     C                   ELSE
+     C     W1PERÅ        IFGT      50
+     C                   MOVE      '19'          W1PERC
+     C                   ELSE
+     C                   MOVE      '20'          W1PERC
+     C                   END
+     C                   END
+N02   * TEST PERIODE ER ÅPEN
+N02  C     KODTÅK        CHAIN     KODTÅ                              71
+N02  C                   IF        *IN71
+N02  C                   MOVE      'DIV2264'     MSGNR
+N02  C                   EVAL      *IN30 = *ON
+s04  C*                  Z-ADD     6             LINNBR
+n04  C                   Z-ADD     5             LINNBR
+N02  C                   Z-ADD     29            POSNBR
+N02  C                   GOTO      SLTB
+N02  C                   END
+N04   * TEST OPPDRAGSTYPE
+N04  C     W1OPDT        IFNE      *BLANKS
+N04  C     KODTOTK       CHAIN     KODTOTY                            74
+N04  C                   IF        *IN74
+N04  C                   MOVE      'SPO0007'     MSGNR
+N04  C                   EVAL      *IN30 = *ON
+n04  C                   Z-ADD     6             LINNBR
+N04  C                   Z-ADD     29            POSNBR
+N04  C                   GOTO      SLTB
+N04  C                   END
+N04  C                   END
+N04   *
+N04   * TEST dato til og med
+N04   *
+N04  C     W1DAG         IFNE      *ZEROS
+n04  C     W1MND         orne      *ZEROS
+n04  C     W1DAG         orne      *ZEROS
+N04  C                   MOVE      W1AAR         UÅÅ               2 0
+N04  C                   MOVE      W1MND         UMM               2 0
+N04  C                   MOVE      W1DAG         UDD               2 0
+n04  C                   CALL      'TESTDATO'
+N04  C                   PARM                    UDD
+N04  C                   PARM                    UMM
+N04  C                   PARM                    UÅÅ
+N04  C                   PARM                    UFLAGG            1 0
+N04  C     UFLAGG        COMP      1                                      75
+N04  C                   IF        *IN75
+N04  C                   MOVE      'SPD0001'     MSGNR
+N04  C                   EVAL      *IN30 = *ON
+n04  C                   Z-ADD     7             LINNBR
+N04  C                   Z-ADD     29            POSNBR
+N04  C                   GOTO      SLTB
+N04  C                   END
+N04  C                   END
+N04   *
+     C* 0 I TRANSPORTØR (ALLE) MÅ BEKREFTES MED F23
+     C  N23W1TNR         IFEQ      *ZEROS
+     C                   MOVE      'DIV2430'     MSGNR
+     C                   SETON                                        3070
+     C                   GOTO      SLTB
+     C                   END
+     C                   SETOFF                                       73
+     C   07WSPRT         IFEQ      *BLANKS
+     C                   SETON                                        3073
+     C                   MOVE      'SHU0461'     MSGNR
+     C                   GOTO      SLTB
+     C                   END
+     C* "NEI" FOR REGENERER GRUNNDATA ER IKKE LOV VED LISTE
+     C   07WSREGE        IFEQ      'N'
+     C     WSREGE        OREQ      ' '
+     C                   MOVE      'JOV0223'     MSGNR
+     C                   SETON                                        3072
+     C                   Z-ADD     9             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   GOTO      SLTB
+     C                   END
+     C* GÅ UT DERSOM LISTE BESTILLES (F7)
+     C   07              GOTO      SLTB
+     C*
+     C* FLYTT INN TEKSTER FOR TYPE TRANSPORTØR(KREDITNOTA/SKRIVER FAKT)
+     C                   SETOFF                                       95
+     C     VMINCR        IFEQ      0
+     C     VMINCR        OREQ      4
+     C                   MOVE      TYPKUN        XVMTYP
+     C                   MOVE      TXTKUN        XTOTXT
+     C                   ELSE
+     C     VMINCR        IFEQ      3
+     C                   MOVE      TYP3          XVMTYP
+     C                   MOVE      TXT3          XTOTXT
+     C                   ELSE
+     C                   MOVE      TYPLEV        XVMTYP
+     C                   MOVE      TXTLEV        XTOTXT
+     C                   SETON                                        95
+     C* 95 ON - FERDIGMELD HELE IKKE TILLATT.......
+     C*       - OPTION 1 (PLUKK TIL BUDSJETT ER TILLATT)
+     C                   END
+     C                   END
+     C*
+     C*
+     C*  INPUTDATA OK
+     C*  - FINNES DET AVREGNINGSDATA FOR GITT PERIODE ??
+     C*  - AKKUMULER  ALLE TURER I PERIODEN
+     C*  - HVIS INGEN TURER Å AVREGNE - FEILMELD.
+     C*
+     C                   SETOFF                                       3339
+     C                   MOVE      *ZEROS        XTOTBL
+     C*
+     C*
+     C     WSREGE        IFNE      'N'                                          B1
+     C     WSREGE        ANDNE     ' '
+     C                   EXSR      AKKUM
+     C                   ELSE                                                   X1
+     C*SUMMER TOTAL AV FERDIG GENERERTE TRAVH
+     C                   SETOFF                                           30
+     C                   MOVE      'N'           VISOK             1
+     C     TRAHK         SETLL     TRAVH
+     C     STTST         TAG
+     C                   READ      TRAVH                                  30
+     C  N30THST          COMP      ' '                                3030
+     C  N30THTNR         COMP      W1TNR                              3030
+     C  N30THRTNR        IFNE      99999998                                      B2
+     C  N30TURERK        CHAIN     TURER                              30
+     C*PÅBEGYNT AVREGNING FOR HØYERE PRIODE MÅ FJERNES
+S05  C* N30DSTUÅM        IFGT      DSW1ÅM                                         B3
+S05  C*    TRAH1K        CHAIN     TRAVH1                             32
+S05  C* N32              DELETE    TRAH1R
+S05  C*                  ELSE                                                     X3
+N05  C  N30DSTUÅM        IFLE      DSW1ÅM                                         B3
+     C*NORMAL AVREGN.POST FUNNET FOR LIK/LAVERE PERIODE FUNNET...
+N05  c                   write     WRKCGIR
+     C                   ADD       THTOT         XTOTBL
+     C                   MOVE      'Y'           VISOK
+     C                   END                                                      E3
+     C                   GOTO      STTST
+     C                   ELSE                                                    X2
+     C*DUMMY RUNDTUR FOR GODSKR/TREKK - TRENGER IKKE LOOPE MER
+     C                   ADD       THTOT         XTOTBL
+     C                   MOVE      'Y'           VISOK
+     C                   END                                                     E2
+     C*FINNES DET MINST 1 TUR Å VISE...
+     C     VISOK         COMP      'Y'                                3030
+     C                   END                                                    E1
+     C* DERSOM 30 ON ETTER AKKUM - INGEN TURER TIL AVREGNING.
+     C   30              DO
+     C                   MOVE      'DIV2266'     MSGNR
+     C                   SETON                                        7071
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   END
+     C*
+     C     SLTB          ENDSR
+     C*
+     C*
+     C***********************************************
+     C     AKKUM         BEGSR
+     C***********************************************
+S05   *
+S05  C* SLETT FØRST ALLE ÅPNE TURER FRA TRAVH
+S05  C*    TRAHK         SETLL     TRAVH
+S05  C*    STDEL         TAG
+S05  C*                  READ      TRAVH                                  33
+S05  C* N33THST          COMP      ' '                                3333
+S05  C* N33THTNR         COMP      W1TNR                              3333
+S05  C* N33THRTNR        IFNE      99999998                                      B2
+S05  C*    TRAH1K        CHAIN     TRAVH1                             32
+S05  C* N32THSTAR        IFEQ      ' '
+S05  C* N32              DELETE    TRAH1R
+S05  C*                  END                                                     E2
+S05  C*                  GOTO      STDEL
+S05  C*                  END                                                     E2
+     C*------------------------------------------------------*
+     C*     FOR ALLE TURER MED TRANSPORTØREN I PERIODEN....  *
+     C*""""""""""""""""""""""""""""""""""""""""""""""""""""""*
+     C*
+     C                   SETON                                        30
+     C                   SETOFF                                       33
+     C     TUR11K        SETLL     TURER11
+     C*
+     C     TUTAG1        TAG
+     C                   READ      TURER11                                33
+     C  N33TUKNT2        COMP      W1TNR                              33
+     C  N33TUAVRE        COMP      ' '                                33        *AVREGNET
+     C  N33              DO
+     C* FIX KEY TRAH1K
+     C                   MOVE      TUAVD         THTAVD
+     C                   MOVE      TUPRO         THTUNR
+     C* ÅPEN PÅBEGYNT AVREGNING FOR SENERE PERIODE - SLETT TRAVH
+     C     DSTUÅM        IFGT      DSW1ÅM
+S05  C*    TRAH1K        CHAIN     TRAVH1                             32
+S05  C* N32THST          IFEQ      ' '                                          *SLETTET ??
+S05  C*                  DELETE    TRAH1R
+S05  C*                  ELSE
+S05  C*                  UPDATE    TRAH1R
+S05  C*                  END
+     C                   GOTO      TUTAG1
+     C                   END
+N04   *
+N04   * SELEKTERT OPPDRAGSTYPE
+N04   *
+N04  C     W1DATO        IFNE      *ZEROS
+N04  C                   Z-ADD     20            W1CC
+N04  C     tudt          IFGT      W1dato
+N04  C                   GOTO      TUTAG1
+N04  C                   END
+N04  C                   END
+      *
+      * SELEKTERT TIL OG MED DATO
+      *
+N04  C     W1OPDT        IFNE      *BLANKS
+N04  C     W1OPDT        ANDNE     TUOPDT
+N04  C                   GOTO      TUTAG1
+N04  C                   END
+      *
+      * TUR SLETTET???
+      *
+     C     TUST          IFEQ      'D'                                          *SLETTET ??
+     C     TUAVD         OREQ      *ZEROS                                       *NOE FEIL
+     C     TUPRO         OREQ      *ZEROS                                       *NOE FEIL
+     C     TURERK        CHAIN     TURER                              32
+     C  N32              MOVE      'X'           TUAVRE
+     C  N32              UPDATE    TURERR
+     C     TRAH1K        CHAIN     TRAVH1                             32
+     C  N32              DELETE    TRAH1R
+     C                   GOTO      TUTAG1
+     C                   END
+      *
+      * FUNNET TUR SOM SKAL MED I AVREGNING
+      * DERSOM UDEFINERT LANDKOSDE - SETT.(NØDV. FOR MVAKODE I SYTR88A)
+      *
+     C     TUSONF        IFEQ      *BLANKS
+     C     TUSONT        OREQ      *BLANKS
+     C                   CALL      'SYTR88E'
+     C                   PARM                    TUAVD
+     C                   PARM                    TUPRO
+     C                   END
+      *
+      * NYGENERER OM IKKE GAMMEL AVR. BESKYTTET (THSTAR = X/P)
+      *
+     C                   SETOFF                                       30
+     C     TRAH1K        CHAIN(N)  TRAVH1                             32
+     C   32              MOVE      ' '           THST
+     C   32              MOVE      ' '           THSTAR
+     C     THST          IFEQ      ' '
+     C     THSTAR        IFEQ      ' '
+     C                   MOVE      TUAVD         XXAVD             4 0
+     C                   MOVE      TUPRO         XXTUNR            8 0
+     C                   MOVE      'N'           XXVIS             1
+     C                   CALL      'SYTR12A'
+     C                   PARM                    XXAVD
+     C                   PARM                    XXTUNR
+     C                   PARM                    XXVIS
+     C                   PARM                    N4                4 0
+S01  C*                  PARM                    N5                5 0
+N01  C                   PARM                    N7                7 0
+     C                   PARM                    N8                8 0
+     C                   END
+     C* ADDER TURTOTAL INN I AVREGNINGSTOTAL
+     C     TRAH1K        CHAIN     TRAVH1                             32
+     C  N32              UPDATE    TRAH1R
+S05  C*                  ADD       THTOT         XTOTBL
+N05  C  N32              ADD       THTOT         XTOTBL
+N05  c  N32              write     WRKCGIR
+     C                   END
+      *
+      * FLERE TURER TIL AVREGNING???
+      *
+     C                   GOTO      TUTAG1
+     C                   END
+      *
+      * DE SOM MOTTAR KREDITNOTA SKAL GODSKRIVES REKVISISJONER
+      * DER DE ER DEN UTFØRENDE PARTEN
+      * IKKE NYGENERER DERSOM EN GAMMEL LIGGER UOVERFØRT/BESKYTTET.
+      *
+     C     VMINCR        IFEQ      0                                                           OTA
+     C     VMINCR        OREQ      3                                                           OTA
+     C     VMINCR        OREQ      4                                                           OTA
+     C                   MOVE      *ZEROS        THTAVD
+     C                   MOVE      W1TNR         THTUNR
+     C     TRAH1K        CHAIN(N)  TRAVH1                             32
+     C   32              MOVE      ' '           THST
+     C   32              MOVE      ' '           THSTAR
+     C     THST          IFEQ      ' '
+     C     THSTAR        ANDEQ     ' '
+     C                   MOVE      W1TNR         XXTNR             8 0
+     C                   MOVE      W1PERM        XXMND             2 0
+     C                   MOVE      W1PERÅ        XXÅR              2 0
+     C                   MOVE      'N'           XXVIS             1
+     C                   CALL      'SYTR12C'
+     C                   PARM                    XXTNR
+     C                   PARM                    XXMND
+     C                   PARM                    XXÅR
+     C                   PARM                    XXVIS
+     C                   END
+      *
+      * ADDER TOTAL FOR GODSKREVNE REKV. INN I AVREGNINGSTOTAL
+      *
+     C     THST          IFEQ      ' '
+     C     TRAH1K        CHAIN(N)  TRAVH1                             32
+     C  N32              ADD       THTOT         XTOTBL
+     C  N32              SETOFF                                       30
+N05  C  N32              MOVE      ' '           THKDM
+N05  C  N32              MOVE      99999998      THRTNR
+N05  c  N32              write     WRKCGIR
+     C                   END
+     C                   END
+     C*
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     HENTSR        BEGSR
+     C***********************************************
+     C                   Z-ADD     0             LINNBR
+     C                   SETOFF                                       919299
+     C                   SETOFF                                       30
+     C     *IN98         DOWEQ     '0'
+     C                   READC     SUBFIL                                 98
+     C   98              DO
+     C   99              SETOFF                                       98
+     C                   Z-ADD     1             LINNBR
+     C                   GOTO      SLHENT
+     C                   END
+     C     ZRECNO        DIV       6             LINNBR
+     C                   MVR                     XLIN              2 0
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C* PLUKK/AVREGN - LEGGER INN SAMLET POST MED *AVREGN* PÅ TUREN
+     C* IKKE TILLATT PÅ DUMMYTUR - (HVOR TRANSP- ER UTFØRENDE AV REKV.)
+     C   95WSNRO         IFEQ      '1'                                          PLUKK/AVREGN
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+S05  C* N98XDLT          COMP      99999998                               98
+S05  C     THRTNR        COMP      99999999                               98
+S05  C  N98THRTNR        COMP      99999998                               98
+     C  N98TRAH1K        CHAIN(N)  TRAVH1                             98
+     C  N98THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      AVRLEV
+     C                   END
+     C     WSNRO         IFEQ      '2'                                          ENDRE
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+N05  C     THRTNR        COMP      99999999                               98
+     C  N98TRAH1K        CHAIN     TRAVH1                             98
+     C  N98              DO
+     C     THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   ELSE
+     C                   MOVE      'P'           THSTAR
+     C                   END
+     C                   UPDATE    TRAH1R
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      CHGSI
+     C* DERSOM AVSLUTTET DETALJER FOR EN TUR - MED F12 - GÅ TILBAKE TIL
+     C* SUBFILOVERSIKT - (IKKE BEARBEID NESTE OPTION AUTOMATISK)
+     C     UF12          IFEQ      'J'
+     C                   GOTO      SLHENT
+     C                   END
+     C                   END
+     C     WSNRO         IFEQ      '4'                                          SLETTE
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+N05  C     THRTNR        COMP      99999999                               98
+     C  N98TRAH1K        CHAIN(N)  TRAVH1                             98
+     C  N98THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      DLTSI
+     C   12              GOTO      SLHENT
+     C                   END
+     C     WSNRO         IFEQ      '6'                                          REAKKUM
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+N05  C     THRTNR        COMP      99999999                               98
+     C  N98TRAH1K        CHAIN(N)  TRAVH1                             98
+     C  N98THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      NYDATA
+     C                   END
+     C     WSNRO         IFEQ      '7'                                          IARB.STATUS
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+N05  C     THRTNR        COMP      99999999                               98
+     C  N98TRAH1K        CHAIN(N)  TRAVH1                             98
+     C  N98THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      CHGSI2
+     C                   END
+     C     WSNRO         IFEQ      '9'                                          IARB.STATUS
+     C                   MOVE      ' '           WSNRO
+S05  C*    XDLT          COMP      99999999                               98
+N05  C     THRTNR        COMP      99999999                               98
+     C  N98TRAH1K        CHAIN(N)  TRAVH1                             98
+     C  N98THSTAR        IFEQ      'P'
+     C                   SETON                                        9830
+     C                   END
+     C   98              GOTO      SLHENT
+     C                   EXSR      CHGSI3
+     C                   END
+     C                   END
+     C*
+     C     SLHENT        TAG
+     C                   ADD       7             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C   98
+     CAN 30              MOVE      'JOV0011'     MSGNR
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     CHGSI         BEGSR
+     C***********************************************
+     C                   SETON                                        99
+     C                   SETOFF                                       30
+     C*
+     C                   MOVE      THTAVD        TUAVD
+     C                   MOVE      THTUNR        TUPRO
+     C                   MOVE      'N'           USPØR             1
+     C                   MOVE      'N'           UF12              1
+     C                   CALL      'SYTR12B'
+     C                   PARM                    TUAVD
+     C                   PARM                    TUPRO
+     C                   PARM                    USPØR
+     C                   PARM                    UF12
+     C* TREKK FRA GAMMEL VERDI PÅ GRANDTOTALEN
+     C                   SUB       THTOT         XTOTBL
+     C* LEGG TIL  NY VERDI PÅ GRANDTOTALEN-SAMT HENT NYE SUBFILVERDIER
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C* DEFAULT VED RETUR FRA VEDLIKEHOLD AV DETALJER = BEKYTT MOT REGENERER
+     C  N33              MOVE      'X'           THSTAR
+     C  N33              UPDATE    TRAH1R
+     C                   ADD       THTOT         XTOTBL
+     C* HENT A/E KODE FRA TUR - BILNR. MM.
+     C     TURERK        CHAIN(N)  TURER                              33
+     C* OPPDATER SUBFIL
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C     THDTD         COMP      99                                     96    *PLUKKET - DUMMY
+     C     THINH         COMP      *ZEROS                                 86    *0 INNH.BEL.UMMY
+     C   86THINHA        COMP      *ZEROS                             86        *POST FINNESUMMY
+     C     THUTK         COMP      *ZEROS                                 87    *0 UTKJ.BEL.UMMY
+     C   87THUTKA        COMP      *ZEROS                             87        *POST FINNESUMMY
+     C                   UPDATE    SUBFIL
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     CHGSI2        BEGSR
+     C***********************************************
+     C* SWITCHE "I ARBEID - STATUS"
+     C*   "X" = GENERELT BESKYTTET MOT REGENERERING, MEN ÅPEN FOR ARBEID
+     C*   "P" = PROTECTED FORDI EN (ANNEN) NÅ ER I ARBEID MED DETALJLINJER
+     C                   SETON                                        99
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33THSTAR        IFEQ      ' '
+     C                   MOVE      'X'           THSTAR
+     C                   ELSE
+     C  N33THSTAR        IFEQ      'X'
+     C                   MOVE      ' '           THSTAR
+     C                   END
+     C                   END
+     C  N33              UPDATE    TRAH1R
+     C                   UPDATE    SUBFIL
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     CHGSI3        BEGSR
+     C***********************************************
+     C* bytte moms
+     C                   SETON                                        99
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33THKDM         IFEQ      'J'
+     C                   MOVE      'N'           THKDM
+     C                   ELSE
+     C                   MOVE      'J'           THKDM
+     C                   END
+     C  N33              UPDATE    TRAH1R
+     C                   UPDATE    SUBFIL
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     DLTSI         BEGSR
+     C***********************************************
+     C                   SETON                                        99
+     C                   EXFMT     VAREL3
+     C  N12              DO
+S05  C*    TRAH1K        CHAIN     TRAVH1                             33
+S05  C* N33              DELETE    TRAH1R
+N05  C     TRAH1K        CHAIN(N)  TRAVH1                             33
+N05  C     *IN33         IFEQ      *OFF
+N05  C     WRKCGIKEY     CHAIN     WRKCGI
+N05  C  N33              DELETE    WRKCGIR
+N05  C                   ENDIF
+     C* TREKK FRA PÅ GRANDTOTAL
+     C                   SUB       THTOT         XTOTBL
+S05  C* SLETT EVT UNDERLINJER
+S05  C* N33              EXSR      DELDET
+     C* BLANK SUBFILVARIABLE
+     C                   EXSR      MOVB1
+     C                   END
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C     THDTD         COMP      99                                     96    *PLUKKET - DUMMY
+     C                   SETOFF                                       8687                  UMMY
+     C                   UPDATE    SUBFIL
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     NYDATA        BEGSR
+     C***********************************************
+     C                   SETON                                        99
+     C*
+     C                   MOVE      THTAVD        TUAVD
+     C                   MOVE      THTUNR        TUPRO
+     C                   MOVE      'N'           XXVIS
+     C     TUAVD         IFNE      *ZEROS
+     C                   CALL      'SYTR12A'
+     C                   PARM                    TUAVD
+     C                   PARM                    TUPRO
+     C                   PARM                    XXVIS
+     C                   PARM                    N4                4 0
+S01  C*                  PARM                    N5                5 0
+N01  C                   PARM                    N7                7 0
+     C                   PARM                    N8                8 0
+     C                   ELSE
+     C* ALLE REKVISISJONER MED TRANSP. SOM UTFØRENDE
+     C                   MOVE      W1TNR         XXTNR
+     C                   MOVE      W1PERM        XXMND
+     C                   MOVE      W1PERÅ        XXÅR
+     C                   CALL      'SYTR12C'
+     C                   PARM                    XXTNR
+     C                   PARM                    XXMND
+     C                   PARM                    XXÅR
+     C                   PARM                    XXVIS
+     C                   END
+     C* TREKK FRA GAMMEL VERDI PÅ GRANDTOTALEN
+     C                   SUB       THTOT         XTOTBL
+     C* LEGG TIL  NY VERDI PÅ GRANDTOTALEN-SAMT HENT NYE SUBFILVERDIER
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33              UPDATE    TRAH1R
+     C                   ADD       THTOT         XTOTBL
+     C* HENT A/E KODE FRA TUR - BILNR. MM.
+     C     TURERK        CHAIN     TURER                              33
+     C  N33              UPDATE    TURERR
+     C* OPPDATER SUBFIL
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C     THDTD         COMP      99                                     96    *PLUKKET - DUMMY
+     C     THINH         COMP      *ZEROS                                 86    *0 INNH.BEL.UMMY
+     C   86THINHA        COMP      *ZEROS                             86        *POST FINNESUMMY
+     C     THUTK         COMP      *ZEROS                                 87    *0 UTKJ.BEL.UMMY
+     C   87THUTKA        COMP      *ZEROS                             87        *POST FINNESUMMY
+     C                   UPDATE    SUBFIL
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     AVRLEV        BEGSR
+     C***********************************************
+     C*
+     C     'T'           CHAIN     AVRNR                              33
+     C   33              MOVE      'T'           AVKODE
+     C   33              Z-ADD     1             AVAVNR
+     C   33              WRITE     AVRNRR
+     C  N33              ADD       1             AVAVNR
+     C  N33              UPDATE    AVRNRR
+     C*
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33              MOVE      AVAVNR        THAVNR
+     C  N33              MOVE      'A'           THST
+     C  N33              MOVE      ' '           THSTAR
+     C  N33              UPDATE    TRAH1R
+     C* DERSOM TUR PEKER PÅ KOSBU-POST OPPDATER DENNE.
+     C* ELLERS LAG NY.
+     C     TURERK        CHAIN     TURER                              33
+     C  N33              DO
+     C  N33              MOVE      'E'           TUTAKO
+     C  N33              Z-ADD     THTOT         TUTBEL
+     C                   MOVE      AVAVNR        TUAVNR
+     C                   MOVE      'X'           TUAVRE
+     C     TUTREF        IFEQ      *ZEROS
+     C     'Å'           CHAIN     KOSTT                              33
+     C   33              MOVE      'Å'           KTTYP
+     C   33              Z-ADD     1000000       KTNR
+     C   33              WRITE     KOSTTR
+     C  N33              ADD       1             KTNR
+     C  N33              UPDATE    KOSTTR
+     C                   Z-ADD     KTNR          TUTREF
+     C                   END
+     C                   UPDATE    TURERR
+     C*
+     C     TUTREF        CHAIN     KOSBU                              33
+     C  N33              DO
+     C                   Z-ADD     THTOT         BUBL
+     C                   MOVEL     '*AVREGN*'    BUTXT
+     C                   UPDATE    KOSBUR
+     C                   END
+     C   33              DO
+     C                   MOVE      ' '           BUST
+     C                   MOVE      TUTREF        BUBNR
+     C                   MOVE      TURMND        BUPMN
+     C                   MOVE      TURAAR        BUPÅR
+     C                   MOVE      TURACC        BUPCC
+     C                   MOVE      'FRA'         BUVK
+     C                   Z-ADD     THTOT         BUBL
+     C                   MOVE      FICURR        BUVAL
+     C                   MOVE      VMTRLE        BULNR
+     C                   MOVE      'E'           BUTYPE
+     C                   MOVE      'E'           BUBLST
+     C                   MOVE      TUSG          BUSG
+     C                   MOVE      *BLANKS       BUTXT
+     C                   MOVEL     '*AVREGN*'    BUTXT
+     C                   MOVE      *ZEROS        BUOAVD
+     C                   MOVE      *ZEROS        BUOPD
+     C                   MOVE      TUAVD         BUTAVD
+     C                   MOVE      TUPRO         BUTUNR
+     C                   MOVE      TUBILN        BUBILN
+     C                   MOVE      TUBILK        BUBILK
+     C                   MOVE      TUDT          BUFEDT
+     C                   MOVE      'T'           BUFER
+     C                   MOVE      *ZEROS        BUBNR2                         *FØRT BNR
+     C                   MOVE      *ZEROS        BUBNR3                         *"SLAVE" AV.
+     C                   MOVE      *ZEROS        BULNR3                         SLAVE-LØPENR
+     C                   MOVE      *ZEROS        BUBLFD                         *FORDELT BEL
+     C                   WRITE     KOSBUR
+     C                   END
+     C*
+     C                   END
+     C*  BLANK SUBFILVARIABLE
+     C                   EXSR      MOVB1
+     C* DYMMY VERDI I HIDDEN THDTD - INDIKATOR FOR RED I SUBFIL - PLUKKET
+     C                   MOVE      99            THDTD
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   SETON                                        96        *PLUKKET - DUMMY
+     C                   SETOFF                                       8687                  UMMY
+     C                   UPDATE    SUBFIL
+     C*
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     DELDET        BEGSR
+     C***********************************************
+     C                   SETOFF                                       33
+     C     TRAVK         SETLL     TRAVV
+     C*
+     C     TRAVK         READE     TRAVV                                  33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRAVVR
+     C     TRAVK         READE     TRAVV                                  33
+     C  N33              END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     FERD          BEGSR
+     C***********************************************
+     C*   F10 - NÅR - TRANSPORTØR SKAL HA KREDITNOTA
+     C*   GODSKREVNE REKV. (PÅ TUR 99999998) MERKES MED 'A' FOR FØRT
+     C     'T'           CHAIN     AVRNR                              39
+     C   39              Z-ADD     1             AVAVNR
+     C   39              WRITE     AVRNRR
+     C  N39              ADD       1             AVAVNR
+     C  N39              UPDATE    AVRNRR
+     C*
+N05  C*    TRAHK         SETLL     TRAVH
+N05  C     WINTEG        SETLL     WRKCGI
+     C*
+     C* OPPDATER STATUS PÅ DEN ENKELTE HOVEDPOST AVREGNING (TURNR)
+     C*          + AVREGNINGSSTATUS I TURREGISTERET
+     C*
+     C     TRHTA3        TAG
+S05  C*                  READ      TRAVH                                  39
+N05  C     WINTEG        READE     WRKCGI                                 39
+N05  C  N39TrhKeyF       CHAIN     TRAVH                              33
+N05  C  N39              IF        *IN33='1'                                    IKKE LENGER ST. BANK
+N05  C                   GOTO      TRHTA3
+N05  C                   ENDIF
+     C  N39THST          COMP      ' '                                3939
+     C  N39THTNR         COMP      W1TNR                              3939
+     C  N39              DO
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33              MOVE      AVAVNR        THAVNR
+     C  N33              MOVE      'R'           THST                           *READY (FOR
+     C  N33              MOVE      ' '           THSTAR                           CREDITNOTE)
+     C  N33              UPDATE    TRAH1R
+     C     TURERK        CHAIN     TURER                              33
+     C  N33              MOVE      AVAVNR        TUAVNR
+     C  N33              MOVE      'X'           TUAVRE
+     C  N33THRTNR        IFEQ      99999998
+     C                   MOVE      ' '           TUAVRE
+     C                   END
+     C  N33              UPDATE    TURERR
+     C     THRTNR        IFEQ      99999998
+     C                   EXSR      REKV
+     C                   ELSE
+     C* Sett "O" i BUBLST for å vise på rekv. at trekk ER utført
+     C                   EXSR      TREKOK
+     C                   END
+     C                   GOTO      TRHTA3
+     C                   END
+     C*
+     C                   ENDSR
+     C***********************************************
+     C     IARB          BEGSR
+     C***********************************************
+     C*   F7 - SETTE ALLE AVR.LINJER (TRAVHPOSTER) I "IARB.STATUS"
+     C*   UNNTAK - DE SOM ALT HAR "P"-PROITECTED FORDI NOEN ANNEN ER INNE
+     C*   PÅ DETALJER.
+S05  C*    TRAHK         SETLL     TRAVH
+N05  C     WINTEG        SETLL     WRKCGI
+     C*
+     C     TRHTA4        TAG
+S05  C*                  READ      TRAVH                                  39
+N05  C     WINTEG        READE     WRKCGI                                 39
+N05  C  N39TrhKeyF       CHAIN     TRAVH                              33
+N05  C  N39              IF        *IN33='1'                                    IKKE LENGER ST. BANK
+N05  C                   GOTO      TRHTA4
+N05  C                   ENDIF
+     C  N39THST          COMP      ' '                                3939
+     C  N39THTNR         COMP      W1TNR                              3939
+     C  N39              DO
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C  N33THSTAR        IFNE      'P'
+     C                   MOVE      'X'           THSTAR
+     C                   END
+     C  N33              UPDATE    TRAH1R
+     C                   GOTO      TRHTA4
+     C                   END
+     C*
+     C                   ENDSR
+     C***********************************************
+     C     REKV          BEGSR
+     C***********************************************
+     C* NÅR UTFØRENDE TRANSPORTØR ER GODSKREVET EN REKVISISJON
+     C* PÅ SIN KREDITNOTA ER KOSTNADEN "FØRT" - FJERN SOM BUDSJETTERT
+     C* (MERKES MED STATUS "A" FOR Å UNNGÅ AT DEN I QUERIES M.M. SKAL
+     C*  SKAL FORVEKSLES MED KOSTNADER FØRT OVER KOSTNADSSYSTEM.)
+     C*
+     C                   SETOFF                                       33
+     C     TRAVK         SETLL     TRAVV
+     C*
+     C     TRAVK         READE     TRAVV                                  33
+     C     *IN33         DOWEQ     '0'
+     C     TVBNRB        CHAIN     KOSBU                              33
+     C* Skill godskr. av utført oppd(kostnad "føres"-BUST->' '->A)
+     C*    og trekk av utlegg (kostnad tatt igjen -BUBLST T->O/J->O)
+     C     *IN33         IFEQ      '0'
+     C     BUTUNR        IFEQ      *ZEROS                                       RENT
+     C     BUOPD         ANDEQ     *ZEROS                                       UTLEGG
+     C                   MOVE      'O'           BUBLST                         TREKT
+     C                   ELSE
+     C     BUBLST        IFEQ      'J'
+     C                   MOVE      'P'           BUBLST                         JUSTERT
+     C                   END
+     C                   MOVE      'A'           BUST
+      * Hvis det står T for belast transportør (på hovedturen),men
+     C     BUTUNR        IFNE      *ZEROS
+     C     BUBLST        ANDEQ     'T'
+     C     TURBUK        CHAIN(N)  TURER                              33
+     C     *IN33         IFEQ      '0'
+     C     TUAVRE        ANDEQ     'X'
+     C                   MOVE      'X'           BUBLST                         KAN IKKE !!!
+     C                   END
+     C                   END
+     C                   END
+     C                   UPDATE    KOSBUR
+     C                   END
+     C                   MOVE      '0'           *IN33
+     C     TRAVK         READE     TRAVV                                  33
+     C  N33              END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TREKOK        BEGSR
+     C***********************************************
+     C* NÅR TRANSP. på hovedturen er avregnet - sett "O" på kode
+     C* BUBLST på alle trekk (rekvisisjoner) som har inngått i
+     C* i turen. (Dette letter inntekts/kostnadsavsetning senere)
+      * FRES OGSÅ GJENNOM ALLE FAKTURALINJER SOM HAR INNGÅTT I TYPE B
+      * BRUTTO-PROVISJON, OG MERK DISSE MEDTATT (Dette fordi SYFA35
+      * ved overføring til regnskap skal greie å lage "justeringslinje"
+      * dersom det faktureres/kresiteres ETTER at avregning er kjørt
+      * (og på linjer som IKKE var med i original avreging som åpne..)
+     C                   SETOFF                                       33
+     C     TRAVK         SETLL     TRAVV
+     C*
+     C     TRAVK         READE     TRAVV                                  33
+     C     *IN33         DOWEQ     '0'
+     C     TVTYP         IFEQ      'E'
+     C     TVTYP         OREQ      'F'
+     C     TVBNRB        CHAIN     KOSBU                              33
+     C  N33              MOVE      BUTXT         BUTX_7            7
+     C  N33BUTX_7        IFEQ      '* OPD *'
+     C     BUST          ANDEQ     ' '
+     C                   MOVE      'A'           BUST
+     C                   END
+     C  N33              MOVE      'O'           BUBLST                         TREKT
+     C  N33              UPDATE    KOSBUR
+     C                   END
+      *
+     C     TVTYP         IFEQ      'B'
+     C     FAKKEY        SETLL     FAKT
+     C     FAKKEY        READE     FAKT                                   33
+     C     *IN33         DOWEQ     '0'
+     C     FAKDA         IFNE      'K'
+     C                   MOVEL     'X'           FACD21
+     C                   END
+     C                   UPDATE    FAKTR
+     C     FAKKEY        READE     FAKT                                   33
+     C                   END
+     C                   END
+      *
+     C                   MOVE      '0'           *IN33
+     C     TRAVK         READE     TRAVV                                  33
+     C  N33              END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     MOVB0         BEGSR
+     C***********************************************
+     C* BLANKER INNGANGSBILDE (LA PERIODEPARAM STÅ)
+     C                   MOVE      *ZEROS        W1TNR
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     29            POSNBR
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     MOVB1         BEGSR
+     C***********************************************
+     C* ETTER SLETTING AV LINJE
+     C* MERK FOR SLETTET - TREKK FRA PÅ GRAND TOTAL
+S05  C*                  Z-ADD     99999999      XDLT
+N05  C                   Z-ADD     99999999      THRTNR
+     C*
+     C* BLANKER ALLE FILVARIABLE (SUBFIL)
+     C                   MOVE      *BLANKS       TUTAKO
+     C                   MOVE      *ZEROS        TURDAT
+     C                   MOVE      *BLANKS       TUBILN
+     C                   MOVE      *ZEROS        THST
+     C                   MOVE      *ZEROS        THTNR
+     C                   MOVE      *ZEROS        THTAVD
+     C                   MOVE      *ZEROS        THTUNR
+     C                   MOVE      *ZEROS        THAVT
+     C                   MOVE      *ZEROS        THBRT
+     C                   MOVE      *ZEROS        THINH
+     C                   MOVE      *ZEROS        THUTK
+     C                   MOVE      *ZEROS        THRKV
+     C                   MOVE      *ZEROS        THBUD
+     C                   MOVE      *ZEROS        THJUS
+     C                   MOVE      *ZEROS        THTOT
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     HENTMS        BEGSR
+     C***********************************************
+     C                   CALL      'SUBR23R3'
+     C                   PARM                    XMSGNR
+     C                   PARM                    XMSG             62
+     C                   PARM                    XLEVEL
+     C                   PARM                    XRETUR
+     C                   PARM                    XMSGL
+     C*
+     C                   ENDSR
+     C*
+N03  C***********************************************
+N03  C     TstPODsr      BEGSR
+N03  C***********************************************
+N03  c                   MOVE      *blanks       IPODT1
+N03  c     TRAHK         setll     TRAVH
+N03  c     TRAHK         reade     TRAVH                                  33
+N03  c     *in33         doweq     '0'
+N03  C     THRTNR        IFNE      99999998                                     DUMMY
+N03   * indre lop = linjer type B=oppdrag
+N03  c     TRAVVK        setll     TRAVV
+N03  c     TRAVVK        reade     TRAVV                                  33
+N03  c     *in33         doweq     '0'
+N03  c     PODkey        chain     TRACKL02                           33
+N03  c     *in33         ifeq      '1'
+N03  c                   MOVE      THTUNR        IPODT1
+N03  C                   MOVE      'JOV1661'     MSGNR
+N03  c                   move      *on           *in30
+N03  c                   move      *on           *in98
+N03  c                   goto      UtTstPOD
+N03  c                   endif
+N03  c     TRAVVK        reade     TRAVV                                  33
+N03  C                   enddo
+N03   *
+N03  C                   endif
+N03  c     TRAHK         reade     TRAVH                                  33
+N03  C                   enddo
+N03   *
+N03  C     UtTstPOD      ENDSR
+N03  C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C**
+     C     *ENTRY        PLIST
+     C                   PARM                    UIN07             1
+     C                   PARM                    UUTNR             8            *TRANSP(ALP)
+     C                   PARM                    UUPERÅ            2            *PERÅR (ALP)
+     C                   PARM                    UUPERM            2            *PERMND(ALP)
+     C                   PARM                    WSPRT            10            *PRINTER/UTKØ
+     C*
+     C* INITIER DATASTRUKTURER
+N04  C                   MOVE      *ZEROS        W1DATO
+     C                   MOVE      *ZEROS        DSW1ÅM
+     C                   MOVE      *ZEROS        DSTUÅM
+     C                   MOVE      *ZEROS        THRTNR
+N05  C                   MOVE      *ZEROS        THTNR
+N05  C                   MOVE      *ZEROS        THTAVD
+N05  C                   MOVE      *ZEROS        THTUNR
+     C* KEY FOR FYLL SUBFILE / ROLL
+     C     TRAHK         KLIST
+     C                   KFLD                    YTHST
+     C                   KFLD                    W1TNR
+     C     TRAH1K        KLIST
+     C                   KFLD                    THTAVD
+     C                   KFLD                    THTUNR
+     C* KEY FOR DETALJLINJER
+     C     TRAVK         KLIST
+     C                   KFLD                    THTAVD
+     C                   KFLD                    THTUNR
+     C* Full key
+N05  C     TRHKEYF       KLIST
+N05  C                   KFLD                    THST
+N05  C                   KFLD                    THTNR
+N05  C                   KFLD                    THRTNR
+N05  C                   KFLD                    THKDM
+N05  C                   KFLD                    THTAVD
+N05  C                   KFLD                    THTUNR
+N05  C* KEY FOR arbeidsfil - poster i subfila..
+N05  C     WRKCGIKEY     KLIST
+N05  C                   KFLD                    WINTEG
+N05  C                   KFLD                    WKEY2
+N03  C     TRAVVK        KLIST
+N03  C                   KFLD                    THTAVD
+N03  C                   KFLD                    THTUNR
+N03  C                   KFLD                    YYTVTYP           1
+N03  C                   move      'B'           YYTVTYP           1
+N03  C     PODKEY        KLIST
+N03  C                   KFLD                    TVOAVD
+N03  C                   KFLD                    TVOPD
+N03  C                   KFLD                    TTFBNR
+N03  C                   KFLD                    TTACTI
+N03  C                   move      'POD'         TTACTI
+N04  C     KODTOTK       KLIST
+N04  C                   KFLD                    KO1UNI
+N04  C                   KFLD                    W1OPDT
+N04  C                   MOVE      'OTY'         KO1UNI
+     C     FAKKEY        KLIST
+     C                   KFLD                    TVOAVD
+     C                   KFLD                    TVOPD
+     C     TUR11K        KLIST
+     C                   KFLD                    YTHST
+     C                   KFLD                    W1TNR
+     C     TURERK        KLIST
+     C                   KFLD                    THTAVD
+     C                   KFLD                    THTUNR
+     C     TURBUK        KLIST
+     C                   KFLD                    BUTAVD
+     C                   KFLD                    BUTUNR
+     C     TRANKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    W1TNR
+N02  C     KODTÅK        KLIST
+N02  C                   KFLD                    KOÅUNI
+N02  C                   KFLD                    W1PERC
+N02  C                   KFLD                    W1PERÅ
+N02  C                   KFLD                    W1PERM
+N02  C                   MOVE      'K'           KOÅUNI
+     C*
+     C                   MOVE      'J'           WSREGE
+     C                   MOVE      ' '           YTHST             1
+     C*
+     C                   MOVE      'DIV2257'     XMSGNR            7
+     C                   Z-ADD     3             XLEVEL            1 0
+     C                   Z-ADD     0             XRETUR            1 0
+     C                   Z-ADD     20            XMSGL             4 0
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TYPLEV           20
+     C*
+     C                   MOVE      'DIV2258'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     20            XMSGL
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TYPKUN           20
+     C*
+     C                   MOVE      'JOV1162'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     20            XMSGL
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TYP3             20
+     C*
+     C                   MOVE      'DIV2262'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     50            XMSGL
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TXTLEV           50
+     C*
+     C                   MOVE      'DIV2263'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     50            XMSGL
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TXTKUN           50
+     C*
+     C                   MOVE      'JOV1163'     XMSGNR
+     C                   Z-ADD     3             XLEVEL
+     C                   Z-ADD     0             XRETUR
+     C                   Z-ADD     50            XMSGL
+     C                   EXSR      HENTMS
+     C                   MOVEL     XMSG          TXT3             50
+     C*
+     C                   READ      FIRM                                   33
+     C*
+N03  c**                 Move      'J'           TSTPOD            1
+N03  c                   Move      'N'           TSTPOD            1
+     C     UTI           ENDSR
+     C*
+N05  C***********************************************
+N05  C     TOEMWRK       BEGSR
+N05  C***********************************************
+N05  c                   z-add     ZJOBNR        WINTEG
+N05  c     WINTEG        setll     WRKCGI
+N05  c     WINTEG        reade     WRKCGI
+N05  c                   dow       not %eof(WRKCGI)
+N05  c                   delete    WRKCGIR
+N05  c     WINTEG        reade     WRKCGI
+N05  c                   enddo
+N05  C                   ENDSR

@@ -1,0 +1,414 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFNR:*SEK SIG VERS  BESKRIVELSE...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 AVSENDER OG CC
+10XXX * 02 YBC PTF10 POSTTYPE FØR ENME-TEKST
+10XXX * 03 YBC PTF10 POSTTYPE ER MED NØKKEL I EISO24F
+10XXX * 04 YBC PTF10 HENT EPOSTADR. VIA EPOS04E
+10XXX * 05 YBC PTF10 ANTALL DAGER
+10190 * 06 YBC PTF10 AVVIKENDE EPOST-ADRESSE
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 07 YBC PTF11 STATUS SOM SKAL UNNLATES
+********************************************************************
+      ****************************************************************************************
+      * Generere e-post for å varsle at sak er over X dager gammel                           *
+      ****************************************************************************************
+     FFIRM      IF   E           K DISK
+     FISOFL8    IF   E           K DISK
+     FISOKDS    IF   E           K DISK
+     FEISO24F   IF A E           K DISK
+     FKALENDER1 IF   E           K DISK
+     FBRIDF     IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+     D USAKN           S              7
+     D EMNE            S             44                                         Max lengde er 44
+     D SENDER          S             17
+N01  D XAVSADR         S             70
+S04  D*XUSR10          S             10
+     D XMOTADR         S             70
+N01  D ECC             S             70    DIM(5)
+N07  D ST1             S              1    DIM(25)
+     D CMD             S           5000
+     D MELD            S           5000
+     D TXT01           C                   CONST('Link til websiden: ')
+N01  D                 DS
+N01  D  PAVRDA                 1     50
+N01  D  PAVRDA1                1      5
+N01  D  PAVRDA2                6     15
+S04  D* PAVRDA3                6     13
+N02  D  PAVRDA4                6     50
+N07  D  ST2                    1     50    DIM(25)
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRHENT
+      *
+     C                   EXSR      SRSEND
+      *
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     SRHENT        BEGSR
+      ******************************************************************************
+N07   * HENT STATUS SOM SKAL UNNLATES
+N07  C                   EVAL      PAID = 'ISOM4'
+N07  C     BRPARFK       CHAIN     BRPARF                             33
+N07  C                   IF        *IN33
+N07  C                   MOVE      *BLANKS       ST1
+N07  C                   ELSE
+N07  C     1             DO        25            XN2               3 0
+N07  C                   MOVEL     ST2(XN2)      ST1(XN2)
+N07  C                   ENDDO
+N07  C                   END
+N07   *
+     C     *LOVAL        SETLL     ISOFL8
+     C                   READ      ISOFL8                                 33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+N07   * TEST OM STATUS SKAL UNNLATES
+N07  C                   IF        ST1(1) <> *BLANKS                             2<-B
+N07  C     1             DO        25            XN2                              3<-B
+N07  C                   SELECT                                                    4<-B
+N07  C                   WHEN      ST1(XN2) = *BLANKS                               4
+N07   * OK. STATUS ER IKKE BLANDT UNNLATENDE STATUS
+N07  C                   LEAVE
+N07  C                   WHEN      ST1(XN2) = ISST                                  4
+N07   * OK. STATUS SKAL UNNLATES
+N07  C                   GOTO      LESNESTE
+N07  C                   ENDSL                                                     4<-E
+N07  C                   ENDDO                                                    3<-E
+N07  C                   END                                                     2<-E
+N07   *
+N02  C                   EVAL      PAID = 'ISOM2'
+N02  C     BRPARFK       CHAIN     BRPARF                             33
+N02   * SJEKK OM DET FINNES SAMME POSTTYPE PÅ ANTALL DAGER
+N02  C                   DOW       *IN33 = *OFF                                  2<-B
+N02  C                   IF        PAVRDA = ISFPFO                                3<-B
+N02  C                   LEAVE
+N02  C                   END                                                      3<-E
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   ENDDO                                                   2<-E
+N02   * HVIS IKKE FINNER, BRUKER POSTTYPE=BLANK
+N02  C                   IF        *IN33                                         2<-B
+N02  C     BRPARFK       SETLL     BRPARF
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   DOW       *IN33 = *OFF                                   3<-B
+N02  C                   IF        PAVRDA = *BLANKS                                4<-B
+N02  C                   LEAVE
+N02  C                   END                                                       4<-E
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   ENDDO                                                    3<-E
+N02  C                   END                                                     2<-E
+N02   *
+N02  C                   IF        *IN33                                         2<-B
+N02  C                   Z-ADD     10            XANTDG
+N02   * HVIS IKKE, BRUK GENNERELL ANTALL DAGER
+N02  C                   Z-ADD     XDT           XDATO             8 0
+N02  C                   ELSE                                                    2
+N02   * JA. FINNE DATO.
+N02  C                   Z-ADD     PAVRDN        XANTDG
+N02  C                   MOVE      WDT           XDATO
+N02  C     XDATO         SETLL     KALENDER1
+N02  C                   DO        XANTDG                                         3<-B
+N02  C                   READP     KALENDER1                              33
+N02  C                   ENDDO                                                    3<-E
+N02  C                   MOVE      KADATE        XDATO
+N02  C                   END                                                     2<-E
+S02  C*                  IF        ISFRDA < XDT                                  2<-B
+N02  C                   IF        ISFRDA < XDATO                                2<-B
+     C     ISST          CHAIN     ISOKDS                             33
+     C  N33              IF        SSLUTT <> 'J'                                  3<-B
+     C                   WRITE     EISO24FR
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+N07   *
+N07  C     LESNESTE      TAG
+     C                   READ      ISOFL8                                 33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     SRSEND        BEGSR
+      ******************************************************************************
+     C     *LOVAL        SETLL     EISO24F
+     C                   READ      EISO24F                                33
+     C                   EVAL      XISUSRS = '**********'                        2
+      *
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XISUSRS = '**********'                        2
+     C                   EXSR      SRMSG1
+     C                   WHEN      ((ISUSRS<>XISUSRS) AND (ISUSRS<>*BLANKS))     2
+     C                   EXSR      SNDEP
+     C                   EXSR      SRMSG1
+N03  C                   WHEN      ((ISFPFO<>XISFPFO) AND (ISFPFO<>*BLANKS))     2
+N03  C                   EXSR      SNDEP
+N03  C                   EXSR      SRMSG1
+     C                   OTHER                                                   2
+     C                   EXSR      SRMSG2
+     C                   ENDSL                                                   2<-E
+     C                   READ      EISO24F                                33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   IF        XISUSRS <> *BLANKS                           1<-B
+     C                   EXSR      SNDEP
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     SRMSG1        BEGSR
+      ******************************************************************************
+     C                   MOVE      ISUSRS        XISUSRS          10
+N03  C                   MOVE      ISFPFO        XISFPFO           5
+S04  C*                  MOVEL     ISUSRR        XUSRAVS           8
+N04  C                   MOVEL     ISUSRR        XUSRAVS          10
+N05  C                   MOVEL     XANTDG        X1ANTDG           3 0
+N01   *
+N01   * HENT AVSENDERS-ID
+N01  C                   MOVE      '*KUNDFT*  '  PABRID
+N01  C                   MOVE      FIFIRM        PABRID
+N01  C                   EVAL      PAID = 'ISOVA'
+S02  C*    BRPARFK       CHAIN     BRPARF                             33
+N02  C     BRPARFK       SETLL     BRPARF
+N02  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   DOW       *IN33 = *OFF
+N01  C                   IF        ISFPFO = PAVRDA1
+N01  C                   EVAL      XUSRAVS = PAVRDA2
+N01  C                   GOTO      STSRMSG101
+N01  C                   END
+N01  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   ENDDO
+S02  C*    BRPARFK       CHAIN     BRPARF                             33
+N02   * HVIS IKKE FINNER SAMME POSTTYPE, HENT AVSENDER FRA POSTTYPE=*ALL
+N02  C     BRPARFK       SETLL     BRPARF
+N02  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   DOW       *IN33 = *OFF
+N01  C                   IF        PAVRDA1 = '*ALL'
+N01  C                   EVAL      XUSRAVS = PAVRDA2
+N01  C                   LEAVE
+N01  C                   END
+N01  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   ENDDO
+N01  C     STSRMSG101    TAG
+N01   *
+N01   * HENT CC EPOSTADRESSE
+N01  C                   MOVE      *ZEROS        XN                1 0
+N01  C                   MOVE      *BLANKS       ECC
+N01  C                   EVAL      PAID = 'ISOVC'
+N01  C     BRPARFK       CHAIN     BRPARF                             33
+N01  C                   DOW       *IN33 = *OFF
+N01  C                   IF        ISFPFO = PAVRDA1
+S04  C*    PAVRDA3       CHAIN     QATMSMTPA                          33
+S04  C* N33              ADD       1             XN
+S04  C* N33              EVAL      ECC(XN) = %TRIM(SMTPUID)
+S04  C*                            + '@' + %TRIM(DOMROUTE)
+N04  C                   CALL      'EPOS04E'
+N04  C                   PARM                    PAVRDA2
+N04  C                   PARM                    USERID            8
+N04  C                   PARM                    ADDRESS           8
+N04  C                   PARM                    UEPADR           50
+N04  C                   IF        UEPADR <> *BLANKS
+N04  C                   ADD       1             XN
+N04  C                   EVAL      ECC(XN) = UEPADR
+N04  C                   END
+N01  C                   END
+N01  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   ENDDO
+N01  C     XN            CABGT     0             STSRMSG102
+N01  C     BRPARFK       CHAIN     BRPARF                             33
+N01  C                   DOW       *IN33 = *OFF
+N01  C                   IF        PAVRDA1 = '*ALL'
+S04  C*    PAVRDA3       CHAIN     QATMSMTPA                          33
+S04  C* N33              ADD       1             XN
+S04  C* N33              EVAL      ECC(XN) = %TRIM(SMTPUID)
+S04  C*                            + '@' + %TRIM(DOMROUTE)
+N04  C                   CALL      'EPOS04E'
+N04  C                   PARM                    PAVRDA2
+N04  C                   PARM                    USERID            8
+N04  C                   PARM                    ADDRESS           8
+N04  C                   PARM                    UEPADR           50
+N04  C                   IF        UEPADR <> *BLANKS
+N04  C                   ADD       1             XN
+N04  C                   EVAL      ECC(XN) = UEPADR
+N04  C                   END
+N01  C                   END
+N01  C     BRPARFK       READE     BRPARF                                 33
+N01  C                   ENDDO
+N01  C     STSRMSG102    TAG
+N01   *
+N02   * HENT EMNETEKST
+N02  C                   EVAL      PAID = 'ISOM3'
+N02  C     BRPARFK       SETLL     BRPARF
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   DOW       *IN33 = *OFF
+N02  C                   IF        ISFPFO = PAVRDA1
+N02  C                   Eval      EMNE = %TRIM(PAVRDA4)
+N02  C                   GOTO      STSRMSG103
+N02  C                   END
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   ENDDO
+N02  C                   Eval      EMNE = %TRIM(ISFPFO)
+N02  C                             + ' - VARSLING OM ISO-SAK SOM IKKE ER BEH.'
+N02  C     STSRMSG103    TAG
+N02   *
+S04  C*                  MOVEL     ISUSRS        XUSRMOT           8
+N04  C                   MOVEL     ISUSRS        XUSRMOT          10
+S04   *
+S04  C*    XUSRAVS       CHAIN     QATMSMTPA                          33
+S04  C* N33              EVAL      SENDER = %TRIM(XUSRAVS) + ' '
+S04  C*                            + %TRIM(ADDRESS)
+S04  C* N33              EVAL      XAVSADR = %TRIM(SMTPUID)
+S04  C*                            + '@' + %TRIM(DOMROUTE)
+S04  C*  33              EVAL      SENDER = '*CURRENT'
+N04  C                   CALL      'EPOS04E'
+N04  C                   PARM                    XUSRAVS
+N04  C                   PARM                    USERID            8
+N04  C                   PARM                    ADDRESS           8
+N04  C                   PARM                    UEPADR           50
+N04  C                   IF        UEPADR = *BLANKS
+N04  C                   EVAL      SENDER = '*CURRENT'
+N04  C                   ELSE
+N04  C                   EVAL      SENDER = %TRIM(USERID) + ' '
+N04  C                             + %TRIM(ADDRESS)
+N04  C                   EVAL      XAVSADR = UEPADR
+N04  C                   END
+     C                   IF        ISUSRS = *BLANKS                                4<-B
+     C                   MOVEL     ISUSRR        XUSRMOT
+     C                   END                                                       4<-E
+S04  C*    XUSRMOT       CHAIN     QATMSMTPA                          33
+S04  C* N33              EVAL      XMOTADR = %TRIM(SMTPUID)
+S04  C*                            + '@' + %TRIM(DOMROUTE)
+S04  C* N33              MOVE      *BLANKS       XFMELD           15
+S04  C*  33              EVAL      XMOTADR = 'BING@SYSTEMA.NO'
+S04  C*  33              EVAL      XFMELD  = '/' + %TRIM(XUSRMOT)
+N04  C                   CALL      'EPOS04E'
+N04  C                   PARM                    XUSRMOT
+N04  C                   PARM                    USERID            8
+N04  C                   PARM                    ADDRESS           8
+N04  C                   PARM                    UEPADR           50
+N04  C                   IF        UEPADR = *BLANKS
+N06  C     BRPARFKM      CHAIN     BRPARF                             33
+N06  C                   IF        PAVRDA = *BLANKS OR *IN33
+N04  C                   EVAL      XMOTADR = 'helpdesk@systema.no'
+N04  C                   EVAL      XFMELD  = '/' + %TRIM(XUSRMOT)
+N06  C                   ELSE
+N06  C                   EVAL      XMOTADR = PAVRDA
+N06  C                   EVAL      XFMELD  = *BLANKS
+N06  C                   END
+N04  C                   ELSE
+N04  C                   EVAL      XMOTADR = UEPADR
+N04  C                   MOVE      *BLANKS       XFMELD           15
+N04  C                   END
+      *
+S01  C*    ISUSRR        CHAIN     BRIDF                              33
+S04  C*                  EVAL      XUSR10 = XUSRAVS
+S04  C*    XUSR10        CHAIN     BRIDF                              33
+N04  C     XUSRAVS       CHAIN     BRIDF                              33
+     C                   EVAL      MELD = %TRIM(BIBESK)
+     C                             + ' MINNER DEG OM AT SAKSNR. ('
+     C                             + %TRIM(%EDITC(ISSAKN:'Z'))
+     C                             + %TRIM(XFMELD)
+      *
+     C                   EVAL      *IN33 = *OFF
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     SRMSG2        BEGSR
+      ******************************************************************************
+     C                   EVAL      MELD = %TRIM(MELD) + ', '
+     C                             + %TRIM(%EDITC(ISSAKN:'Z'))
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     SNDEP         BEGSR
+      ******************************************************************************
+N05  C                   MOVEL     XANTDG        X2ANTDG           3 0
+N05  C                   EVAL      XANTDG = X1ANTDG
+N05   *
+     C                   EVAL      MELD = %TRIM(MELD)
+     C                             + ') IKKE ER FERDIGBEHANDLET INNEN '
+     C                             + %TRIM(%EDITC(XANTDG:'Z'))
+     C                             + ' DAGER. '
+     C                             + %TRIM(TXT01) + ' '
+     C                             + %TRIM(XLINK)
+      *
+      * param for tointnet og longmsg må være i apostrofer ( hex 7D )
+      * (strenger i single-parametere som inneholder blank el. spesialtegn)
+     C                   eval      cmd = 'SNDDST TYPE(*LMSG) TOINTNET('
+N01  C                             +'('+ X'7D' + %trim(XMOTADR) + X'7D' + ') '
+S01  C*                            +'('+ X'7D' + %trim(XMOTADR) + X'7D' +')) +
+N01  C     1             DO        5             XN
+N01  C                   IF        ECC(XN) = *BLANK
+N01  C                   LEAVE
+N01  C                   END
+N01  C                   EVAL      CMD = %TRIM(CMD)
+N01  C                             +'(' + X'7D' + %TRIM(ECC(XN)) +X'7D'+' *CC) '
+N01  C                   ENDDO
+N01  C                   EVAL      CMD = %TRIM(CMD) + ') +
+     C                             DSTD('+ X'7D' + %trim(EMNE) + X'7D' + ') +
+     C                             LONGMSG('+ X'7D' + %trim(MELD) + X'7D' +') +
+     C                             USRID('+  %trim(SENDER) + ') SNDFMT(*NOCHG)'
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    CMD
+     C                   PARM                    CMDL
+N05  C                   EVAL      XANTDG = X2ANTDG
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+N06  C     BRPARFKM      klist
+N06  C                   kfld                    XUSRMOT
+N06  C                   kfld                    PAKUNR
+N06  C                   kfld                    XPAID
+N06  C     *LIKE         DEFINE    PAID          XPAID
+N06  C                   EVAL      XPAID = 'ISOEM'
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+S02  C*                  Eval      EMNE = 'VARSLING OM ISO-SAK SOM IKKE ER '
+S02  C*                            + 'FERDIGBEH.'
+     C                   Z-ADD     1024          CMDL             15 5
+      *
+     C                   MOVE      '*KUNDFT*  '  PABRID
+     C                   MOVE      FIFIRM        PABRID
+     C                   EVAL      PAID = 'ISOM1'
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C                   MOVEL     PAVRDA        XLINK            50
+     C                   EVAL      PAID = 'ISOM2'
+     C     BRPARFK       CHAIN     BRPARF                             33
+N02  C                   DOW       *IN33 = *OFF
+N02  C                   IF        PAVRDA = *BLANKS
+N02  C                   LEAVE
+N02  C                   END
+N02  C     BRPARFK       READE     BRPARF                                 33
+N02  C                   ENDDO
+     C   33              Z-ADD     10            XANTDG            3 0
+     C  N33              Z-ADD     PAVRDN        XANTDG
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           XDT               8 0
+      * FINN DATO FOR GRENSE TIL Å SENDE VARSLING
+     C     XDT           SETLL     KALENDER1
+S02  C*                  DO        10
+N02  C                   DO        XANTDG
+     C                   READP     KALENDER1                              33
+     C                   ENDDO
+     C                   MOVE      KADATE        XDT
+      *
+     C                   ENDSR
+      *

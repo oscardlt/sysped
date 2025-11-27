@@ -1,0 +1,183 @@
+     H*debug(*yes)
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *
+     FECMSG1    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E           K DISK
+     FEDIS2     IF   E           K DISK    RENAME(EDISR:EDISR2)
+     F                                     PREFIX(S2_)
+      *
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D LF              c                   x'25'
+      *
+     D OrgNr           s             17
+      * Status = Pre-alert  / On-Arrival / Cancelled
+     D Status          s             20
+     D JSONstring      s          32000
+     D WFILNAM         S            200
+     D XLIB            S             11
+     D WFIL            S            512
+     D xpos            S              5  0
+     D Fldr            S             60
+     D ts              S             26
+     D ts26            S             26
+     D ts20            S             20
+      *
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *   EDIDTA data area
+     D EDIDTA          DS           256    DTAARA('EDIDTA')
+     D  UELIBF               171    180
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+      *
+      *  Prototype for 'SYGE94'
+     d SYGE94          pr                  extpgm('SYGE94')
+     d ts26_                               like(ts26)
+     d ts20_                               like(ts20)
+      *  Prototype for 'ARC040C1'
+     d ARC040C1        pr                  extpgm('ARC040C1')
+     d Fldr_                               like(Fldr)
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for SAD116R
+     d sad116r         pr
+     d upro_                               like(upro)
+     d uerrort_                            like(uerrort)
+      *  *ENTRY Interface for Main Procedure
+     d sad116r         pi
+     d upro                           8
+     d uerrort                    32000
+      *
+      /free
+
+         exsr init;
+
+         // TEMPORÆRE HARDKODEDE VERDIER
+         exsr LagFil;
+
+         exsr OpdEDIS;
+
+         *inlr = *on;
+         return;
+
+        //***************************************************************
+        //     LagFil        BEGSR
+        //***************************************************************
+         begsr LagFil;
+
+         syge94 (ts26: ts20);
+         ts = ts26;
+
+       // Lag fil og set codepage (pc)
+         xpos = %scan('":[{': Uerrort);
+         if xpos > 0;
+           WFil = UPRO + '.json';
+         else;
+           WFil = UPRO + '.txt';
+         endif;
+
+         XLIB = '/' + UELIBF;
+         // ByggFlr kan gjerne flyttes til annet prog. men det er gjort på millisekunder..
+         exsr ByggFlr;
+         WFilNam = %TRIM(XLIB) + '/KURERMANIFEST/' + 'json_Ut/error/'
+                  + %TRIM(TS) + '-' + %TRIM(Wfil);
+         FILE_o = open( %TrimR(WFilNam): 'w, codepage=865' );
+         rc = close( FILE_o );
+         FILE_o = open( %TrimR( WFilNam ): 'w' );
+
+         exsr LagJson;
+
+         rc = close( FILE_o );
+
+         endsr;
+
+       //*********************************************************************
+       //     LagJson       begsr
+       //*********************************************************************
+         begsr LagJson;
+
+        // Start JSON
+        jsonstring =Uerrort;
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+       endsr;
+
+       //***************************************************************
+       //      OpdEDIS       BEGSR
+       //***************************************************************
+         begsr OpdEDIS;
+
+         chain ('R': 'KURERM') ecmsg1;
+         chain 1 edic;
+         csn = csn + 1;
+         update edicr;
+         s0004 = ECIIDC;
+         s0010 = ECIIDI;
+         s0020 = 'KM' + %TRIM(UPRO);
+         s0026 = 'SAD116R';
+         ssn   = CSN;
+         ssr   = 'R';
+         sst   = 'C';
+         sdt   = wdt_n;
+         stm   = wtm_n;
+         slib  = '*LIB';
+         sfile = '*IFS';
+         smbr  = *BLANKS;
+         sifs  = WFilNam;
+         write edisr;
+
+         endsr;
+
+       //***************************************************************
+       //     init          BEGSR
+       //***************************************************************
+         begsr init;
+
+       // hent  sad header-data
+         syge15c (wdt: wtm);
+
+       // Åpne dataarea
+         IN EDIDTA;
+
+         endsr;
+
+       //**********************************************
+       //     ByggFlr       begsr
+       //**********************************************
+         begsr ByggFlr;
+
+         Fldr = %TRIM(XLIB) + '/KURERMANIFEST/';
+         ARC040C1 (Fldr);
+
+         Fldr = %TRIM(XLIB) + '/KURERMANIFEST/' +'json_Ut';
+         ARC040C1 (Fldr);
+
+         //* for Oscar/Java-bruk
+         Fldr = %TRIM(XLIB) + '/KURERMANIFEST/' +'json_Ut/error';
+         ARC040C1 (Fldr);
+
+         endsr;
+
+      /end-free

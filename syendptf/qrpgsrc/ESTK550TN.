@@ -1,0 +1,391 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK550T MODULE(*LIBL/ESTK550T *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF12 Bedret kontroll på Oppdragets status
+      * 02 JOV PTF12 språk
+      * 03 JOV PTF12 Merkand om Hentes/Leveres på terminal..
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     FHEAD11    IF   E           K DISK    usropn
+S01  F*TRACKL02  IF   E           K DISK    usropn
+N03  FSTED2D    IF   E           K DISK    Usropn
+     FFIRM      IF   E           K DISK    usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+      * Client input variables
+     D WSuser          s             10
+     D tur             s              8
+     D TurNr           s              8  0
+     D VERSJON         s             10
+     D Sprak           s              2
+     D S               s              2
+     D ErrTxt          s           5000
+     D TelefonNr       s             15
+     D Avsluttet       s            300
+     D VistBilde1      s              1
+     D Submited        s              1
+     D SndNr           s             15
+N01  D NextAct         s             25
+N01  D NextActKod      s              3
+     D Event           s              3
+     D M3txt           s             20
+     D LMtxt           s             20
+N01  D GMRKTXT         s             60
+      *
+      * Receive query string from the browser
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Set section variables
+     C                   exsr      MAIN
+      * Quit
+     C                   exsr      Exit
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      **************************************************
+     C     Parse         begsr
+      **************************************************
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      WSuser = zhbgetvar('user')
+     C                   eval      WSuser = uppify(WSUSER)
+     C                   eval      TUR     = zhbgetvar('TUR')
+     C                   eval      TURNR   = c2n2(TUR)
+     C                   eval      VERSJON = zhbgetvar('V')
+     C                   eval      TelefonNr  = zhbgetvar('TelefonNr')
+N02  C                   eval      Sprak = zhbgetvar('Sprak')
+N02  C                   if        Sprak = *blanks
+N02  C                   eval      Sprak = zhbgetvar('S')                       Kortnavn Språk
+N02  C                   endif
+N02  C                   if        Sprak <> 'EN'
+N02  C                   eval      Sprak = *blanks
+N02  C                   endif
+      *
+     C                   endsr
+      **************************************************
+     C     Exit          begsr
+      **************************************************
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     TURER14
+     C                   CLOSE     HEAD11
+     C                   CLOSE     FIRM
+N03  C                   CLOSE     STED2D
+S01  C*                  CLOSE     TRACKL02
+     C                   endsr
+      *
+      **************************************************
+     C     MAIN          begsr
+      **************************************************
+     C                   callp     gethtmlifs('/Syspeddev/TKSW/ESTK550/'
+     C                             +'ESTK550TN.html'
+     C                             :'/CGITAG/')
+      * repeat enkelte variable
+     C                   callp     updHTMLvar('TelefonNr':TelefonNr)
+     C                   callp     updHTMLvar('user':WSUSER)
+     C                   callp     updHTMLvar('VistBilde1':'Y')
+     C                   callp     updHTMLvar('AVSLUTTET':' ')
+     C                   callp     updHTMLvar('FIRMA':FIKRTN)
+      * hent data/feiltetst mm
+     C                   eval      ErrTxt = *blanks
+      * Ugyldig userID
+     C     *IN50         IFEQ      '1'
+     C                   callp     updHTMLvar('FIRMA':'**UKJENT**')
+     c                   select
+     c                   when      sprak = 'EN'
+     C                   eval      ErrTxt = 'Unknown userID'
+     c                   other
+     C                   eval      ErrTxt = 'Ukjent userID'
+     c                   endsl
+     c                   goto      VisErr
+     c                   end
+      *
+      * finner ikke Turnr
+     c     TURNR         chain     TURER14
+     C                   callp     updHtmlVar('tur':%trim(%editc(TURNR:'Z')))
+     C                   callp     updHtmlVar('bil':%trim(TUBILN))
+     C                   callp     wrtsection('top')
+     C                   IF        not %found
+     c                   select
+     c                   when      sprak = 'EN'
+     C                   eval      ErrTxt = 'Invalid trip number '+tur
+     c                   other
+     C                   eval      ErrTxt = 'Ukjent turnummer  '+tur
+     c                   endsl
+     c                   goto      VisErr
+     c                   end
+      *
+      *
+      * Bilde1-tester ferdig
+      * Det er referert til OK sendingsnr. dersom 1. gang vis, ellers Test/vis på ny ved feil
+
+      *
+     c                   exsr      TURSR
+      *
+     c     VisErr        tag
+     C                   callp     wrtsection('bot')
+     C     UtMain        endsr
+     C
+      **************************************************
+     C     TURSR         begsr
+      **************************************************
+     c     Turnr         setll     HEAD11
+     c     Turnr         reade     HEAD11
+     c                   dow       not %eof
+     c                   exsr      setrow
+     C                   callp     wrtsection('Row')
+     c     Turnr         reade     HEAD11
+     c                   enddo
+     C                   ENDSR
+     C***********************************************
+     C     SetRow        BEGSR
+     C***********************************************
+S01   *
+S01  c*                  eval      TTACTI = 'POD'
+S01  c*    TTkey         chain     TRACKL02                           33
+S01  c*                  if        *in33='0'
+S01  c*                  eval      NextAct= 'Ferdig '
+S01  C*                  if        Sprak = 'EN'
+S01  c*                  eval      NextAct= 'Finished'
+S01  c*                  endif
+S01  c*                  else
+S01   * Dft = hentes..
+S01  c*                  eval      NextAct= 'Hentes '
+S01  C*                  if        Sprak = 'EN'
+S01  c*                  eval      NextAct= 'Collect '
+S01  c*                  endif
+S01  c*                  eval      Event  = 'COL'
+S01   * men hvia allerede hentet - da er neste Leveres
+S01  c*                  eval      TTACTI = 'COL'
+S01  c*    TTkey         chain     TRACKL02                           33
+S01  c*  33              eval      TTACTI = 'TEU'
+S01  c*  33TTkey         chain     TRACKL02                           33
+S01  c* N33              eval      NextAct= 'Leveres'
+S01  C* N33              if        Sprak = 'EN'
+S01  c*                  eval      NextAct= 'Deliver '
+S01  c*                  endif
+S01  c* N33              eval      Event  = 'POD'
+S01  c*                  endif
+N01  c                   exsr      GetNxtEvent
+N03   * Hentes.. / Levereq kan avvike fra oppdraget avsender/mottaker- I så fall Hentes:../Leverses:
+N03   *            I så fall skriv en førstelinje med Hentes:.. / Leveres:.. i uthevet rødt
+N03  c                   exsr      GetHenLev
+S01   *
+     C                   callp     updHTMLvar('NextAct':NextAct)
+     C                   callp     updHTMLvar('Event':Event)
+     C                   callp     updHTMLvar('Pos':HEPOS1)
+     C                   callp     updHtmlVar('SndNr':
+     C                             %trim(%editc(HEAVD:'Z'))+'*'+
+     C                             %trim(%editc(HEOPD:'Z')))
+s03  C*                  callp     updHTMLvar('HENAS':%subst(HENAS:1:20))
+N03  C                   callp     updHTMLvar('HENAS':%trim(HENTES)
+N03  C                                     +%trim(%subst(HENAS:1:20)))
+     C                   callp     updHTMLvar('HEADS1':%subst(HEADS1:1:20))
+     C                   callp     updHTMLvar('HEADS2':%subst(HEADS2:1:20))
+     C                   callp     updHTMLvar('HEADS3':%subst(HEADS3:1:20))
+s03  C*                  callp     updHTMLvar('HENAK':%subst(HENAK:1:20))
+N03  C                   callp     updHTMLvar('HENAK':%trim(LEVERES)
+N03  C                                     +%trim(%subst(HENAK:1:20)))
+     C                   callp     updHTMLvar('HEADK1':%subst(HEADK1:1:20))
+     C                   callp     updHTMLvar('HEADK2':%subst(HEADK2:1:20))
+     C                   callp     updHTMLvar('HEADK3':%subst(HEADK3:1:20))
+     C                   callp     updHTMLvar('HERFA':HERFA)
+     C                   callp     updHTMLvar('HERFK':HERFK)
+     C                   eval      M3TXT = *blanks
+     C                   if        HEM3 <> 0
+     C                   eval      M3TXT = ' M3: <b>'+
+     C                             %trim(%editc(HEM3:'3')) +'</b>'
+     C                   endif
+     C                   callp     updHTMLvar('M3TXT':M3TXT)
+     C                   eval      LMTXT = *blanks
+     C                   if        HELM <> 0
+     C                   eval      LMTXT = ' Lm: <b>'+
+     C                             %trim(%editc(HELM:'3')) +'</b>'
+     C                   endif
+     C                   callp     updHTMLvar('LMTXT':LMTXT)
+      *
+N01  C                   eval      GMRKTXT = *blanks
+N01  C                   if        HEGM1 <> *blanks
+N01  C                   eval      GMRKTXT = ' Merke: <b>'+
+N01  C                             %trim(HEGM1) +' '+%trim(HEGM2)+'</b>'
+N01  C                   if        Sprak = 'EN'
+N01  C                   eval      GMRKTXT = ' Marks: <b>'+
+N01  C                             %trim(HEGM1) +' '+%trim(HEGM2)+'</b>'
+N01  C                   endif
+N01  C                   endif
+N01  C                   callp     updHTMLvar('GMRKTXT':GMRKTXT)
+      *
+     C                   callp     updHtmlVar('HENT':
+     C                             %trim(%editc(HENT:'Z')))
+     C                   callp     updHTMLvar('HEVS1':HEVS1)
+     C                   callp     updHtmlVar('HEVKT':
+     C                             %trim(%editc(HEVKT:'Z')))
+     C                   callp     updHtmlVar('HEM3':
+     C                             %trim(%editc(HEM3:'3')))
+     C                   callp     updHtmlVar('HELM':
+     C                             %trim(%editc(HELM:'3')))
+     c
+     C                   callp     updHTMLvar('FraDat':
+     C                             %trim(%editw(TRSDFD:'    .  .  ')))
+     C                   callp     updHTMLvar('FraTid':
+     C                             %trim(%editw(TRSDFK:'  :  ')))
+     c
+     C                   callp     updHTMLvar('TilDat':
+     C                             %trim(%editw(TRSDTD:'    .  .  ')))
+     C                   callp     updHTMLvar('TilTid':
+     C                             %trim(%editw(TRSDTK:'  :  ')))
+      *
+     c                   endsr
+      *
+N01   **************************************************
+N01  C     GetNxtEvent   begsr
+N01   **************************************************
+N01  c                   call      'SYGE120'
+N01  c                   parm                    heavd             4 0
+N01  c                   parm                    heopd             7 0
+N01  c                   parm                    NextActKod        3
+N01  c                   parm                    Term             20
+N01  c                   select
+N01   * COL
+N01  c                   when      NextActKod = 'COL'
+N01  c                   eval      NextAct= 'Hentes avsender'
+N01  C                   if        Sprak = 'EN'
+N01  c                   eval      NextAct= 'Collect at sender'
+N01  c                   endif
+N01   * HET
+N01  c                   when      NextActKod = 'HET'
+N01  c                   eval      NextAct= 'Hent term '+Term
+N01  C                   if        Sprak = 'EN'
+N01  c                   eval      NextAct= 'Coll. term '+Term
+N01  c                   endif
+N01   * LET
+N01  c                   when      NextActKod = 'LET'
+N01  c                   eval      NextAct= 'Lever term '+Term
+N01  C                   if        Sprak = 'EN'
+N01  c                   eval      NextAct= 'Deliv term '+Term
+N01  c                   endif
+N01   * POD
+N01  c                   when      NextActKod = 'POD'
+N01  c                   eval      NextAct= 'Lever mottaker'
+N01  C                   if        Sprak = 'EN'
+N01  c                   eval      NextAct= 'Deliv. receiver'
+N01  c                   endif
+N01   * FER = Ferdig
+N01  c                   when      NextActKod = 'FER'
+N01  c                   eval      NextAct= 'Ferdig '
+N01  C                   if        Sprak = 'EN'
+N01  c                   eval      NextAct= 'Finished'
+N01  c                   endif
+N01  c                   endsl
+N01   *
+N01  c                   endsr
+      *
+N03   **************************************************
+N03  C     GetHenLev     begsr
+N03   **************************************************
+N03   * Hentes.. / Levereq kan avvike fra oppdraget avsender/mottaker- I så fall Hentes:../Leverses:
+N03   *            I så fall skriv en førstelinje med Hentes:.. / Leveres:.. i uthevet rødt
+N11  C                   move      *blanks       HENTES           70
+N11  C                   move      *blanks       LEVERES          70
+N11  C                   select
+N11   * ved HO - avvikende hente/levstde dersom via er fylt ut
+N11  C                   when      trslag = 'HO'
+N11  C                   if        HESDFF <> *blanks
+N11  C                   eval      ST2LK  = HELKS
+N11  C                   eval      ST2KOD = HESDFF
+N11  c                   eval      ST2NVN = *blanks
+N11  c     Sted2dKey     chain     STED2D
+N11  C                   eval      Hentes ='<font color=red>'
+N11  C                                    + 'Hentes: '+ST2KOD
+N11  C                                    +%trim(ST2NVN)+'</font>'
+N11  C                                    +'<BR/>Avs:'
+N11  C                   endif
+N11  C                   if        HESDVT <> *blanks
+N11  C                   eval      ST2LK  = HELKK
+N11  C                   eval      ST2KOD = HESDVT
+N11  c                   eval      ST2NVN = *blanks
+N11  c     Sted2dKey     chain     STED2D
+N11  C                   eval      Leveres='<font color=red>'
+N11  C                                    + 'Leveres: '+ST2KOD
+N11  C                                    +%trim(ST2NVN)+'</font>'
+N11  C                                    +'<BR/>Mot:'
+N11  C                   endif
+N11   * ved FF - avvikende leveringssted
+N11  C                   when      trslag = 'FF'
+N11  C                   eval      ST2LK  = HETRI
+N11  C                   eval      ST2KOD = HESDT
+N11  c                   eval      ST2NVN = *blanks
+N11  c     Sted2dKey     chain     STED2D
+N11  C                   eval      Leveres='<font color=red>'
+N11  C                                    + 'Leveres: '+ST2KOD
+N11  C                                    +%trim(ST2NVN)+'</font>'
+N11  C                                    +'<BR/>Mot:'
+N11   * ved VF - avvikende hentested
+N11  C                   when      trslag = 'VF'
+N11  C                   eval      ST2LK  = HELKA
+N11  C                   eval      ST2KOD = HESDF
+N11  c                   eval      ST2NVN = *blanks
+N11  c     Sted2dKey     chain     STED2D
+N11  C                   eval      Hentes ='<font color=red>'
+N11  C                                    + 'Hentes: '+ST2KOD
+N11  C                                    +%trim(ST2NVN)+'</font>'
+N11  C                                    +'<BR/>Avs:'
+N11  C                   endsl
+N03   *
+N03  c                   endsr
+      **************************************************
+     C     INIT          begsr
+      **************************************************
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     c     *in50         cabeq     '1'           UtInit
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      TURER14
+     C                   OPEN      HEAD11
+     C                   OPEN      FIRM
+N03  C                   OPEN      STED2D
+S01  C*                  OPEN      TRACKL02
+S01   *
+S01  c*    TTkey         klist
+S01  c*                  kfld                    HEAVD
+S01  c*                  kfld                    HEOPD
+S01  c*                  kfld                    TTFBNR
+S01  c*                  kfld                    TTACTI
+N03  C     Sted2dKey     KLIST
+N03  C                   KFLD                    ST2LK
+N03  C                   KFLD                    ST2KOD
+     C     BIFIRM        CHAIN     FIRM                               33
+      *
+     C     UtInit        ENDSR
+      *
+      *

@@ -1,0 +1,289 @@
+      *********************************************************************
+      *  Inngang til Print label (full / enkel) samt koble ekstern..
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT11 MODULE(*LIBL/ESTKT11 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+12XXX * 01 JOV PTF12 FEILMELDING DERSOM......
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF12 hvis på oppd som ligger åpent i utgående skyting/UTEN kolli-IDs - update
+      * 02 JOV PTF12 Feil i test ved oppslag mot FRISOK + fix mau-input uten AI 401 / 00
+********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           k disk    usropn
+     FHEADF     IF   E           K DISK    USROPN
+     FHEAD39    IF   E           K DISK    USROPN
+     F                                     RENAME(HEADFR:HEADFR39)
+     FDOKUFM1   IF   E           K DISK    USROPN
+     FFRISOL01  IF   E           K DISK    USROPN
+N01  F*STSFBR    IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Varibles
+     D WSUSER          S             10
+     D SnNr            s             20
+     D AvdAA           s             10
+     D OpdAA           s             10
+     D JSONstring      s          32000
+     D ErrMsg          S            150
+     D InfoMsg         S            150
+     D SuccessMsg      S            150
+     D Cmd             S             70
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D                 DS
+     D  PRT                    1     50
+     D  LABTYPE                1      1
+     D  LABOUTQ                2     11
+     D  TRANSPORTØR           12     31
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs   (C-specs)
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      *
+      *=====================================================================
+      * MAIN PROCESS LINE
+      *=====================================================================
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      ************************************************
+     C     Parse         begsr
+      ************************************************
+     C                   EVAL      WSUSER   = zhbgetvar('user')
+     C                   EVAL      SNNR     = zhbgetvar('snnr')
+N02   * Fix ev manuell input av sendingsnr / kolllinr uten AI
+N02  c                   if         %len(%trim(SNNR)) = 17
+N02  c                   eval       SNNR='401'+SNNR
+N02  c                   endif
+N02  c                   if         %len(%trim(SNNR)) = 18
+N02  c                   eval       SNNR='00'+SNNR
+N02  c                   endif
+      *
+     c                   endsr
+      *
+      *****************************************************
+     C     LoadHtml      begsr
+      *****************************************************
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *****************************************************
+     C     SetAll        begsr
+      *****************************************************
+      * Send section top
+     C                   callp     wrtsection('top')
+      * Param LABTY må finnes på USER
+     C                   if        errMsg = *blanks  and
+     C                             LABOUTQ = *blanks
+     C                   Eval      ErrMsg = 'Det er ikke knyttet printer '+
+     C                             'til din bruker - Kontakt systemansvarlig.'
+     C                   endif
+      *
+     c                   if        errMsg= *blanks and snnr = *blanks
+     C                   Eval      ErrMsg = 'BLANK input - må være gyldig '
+     C                             +'kolliId, sendingsnr eller avd*oppdrag. '
+     C                             +'( el Avd_opd, Avd/opd, Avd-opd ) '
+     C                   endif
+      *
+     c                   if        errMsg= *blanks
+      * innparameter er ETT kolli
+     c                   if        %subst(snnr:1:2)='00'
+     c                   eval      fmmrk1 = %subst(snnr:3:18)
+     c     fmmrk1        chain     dokufm1
+     c                   if        %found (dokufm1)
+     c     FMHeaKey      chain     Headf
+     c                   eval      UUclid = fmmrk1
+     c                   endif
+     c                   endif
+      *
+      * Ren innland  Sendingsnr
+     c                   if        heopd = *zeros
+     c     Snnr          chain     head39
+     c                   endif
+      * Via frisok IFB - sendingsnr
+     c                   if        heopd = *zeros
+     c                   eval      FSSOK = %subst(snnr:4:17)
+     c     IFBkey        chain     frisol01
+S02  c*                  if        %found (dokufm1)
+N02  c                   if        %found (frisol01)
+     c                   eval      FMAVD = FSAVD
+     c                   eval      FMOPD = FSOPD
+     c     FMHeaKey      chain     Headf
+     c                   endif
+     c                   endif
+      * Via avd_opd i ulike varinter
+     c                   if        heopd = *zeros
+     c                   exsr      avd_opd
+     c                   endif
+      *
+     c                   endif
+     c
+     C                   if        errMsg = *blanks  and
+     C                             heopd = *zeros
+     C                   Eval      ErrMsg = %trim(snnr)+ ' må være gyldig '
+     C                             +'kolliId, sendingsnr eller avd*oppdrag. '
+     C                             +'( el Avd_opd, Avd/opd, Avd-opd ) '
+     c                   endif
+      * Ingen feil - kjør
+     C                   if        errMsg = *blanks
+     C                   EVAL      RC = DOCMD('OVRPRTF FILE(ZBARC) OUTQ('+
+     C                             %trim(LABOUTQ)+') SPLFOWN(*JOB) ' +
+     C                             'OVRSCOPE(*JOB)')
+     C                   EVAL      RC = DOCMD('OVRPRTF FILE(SYFA12SAP) OUTQ('
+     C                             +%trim(LABOUTQ)+') SPLFOWN(*JOB) '
+     c                             +'DEVTYPE(*AFPDS) PAGESIZE(70 80) OVRFLW(70)'
+     C                             +' LPI(8) CPI(10) OVRSCOPE(*JOB)')
+      *
+     C                   exsr      Full_Lab
+     c                   endif
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ErrMsg)+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬successMsg¬ : ¬'+%trim(SuccessMsg)+'¬}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   endsr
+      ******************************************************
+     C     Avd_Opd       begsr
+      ******************************************************
+     c                   move      *zeros        f                 3 0
+     C     '*'           SCAN      Snnr          f
+     c     f             ifeq      *zeros
+     C     '_'           SCAN      Snnr          f                              Ikke A*O, prøv A_O
+     c                   endif
+     c     f             ifeq      *zeros
+     C     '-'           SCAN      Snnr          f                              Ikke A*O, prøv A_O
+     c                   endif
+     c     f             ifeq      *zeros
+     C     '/'           SCAN      Snnr          f                              Ikke A*O, prøv A_O
+     c                   endif
+      *
+     c                   if        f > 0
+     c                   eval      avdaa = %SUBST(SnNr:1:f-1)
+     c                   eval      opdaa = %SUBST(SnNr:f+1:20-f-1)
+     C                   eval      FMAVD   = c2n2(avdaa)
+     C                   eval      FMOPD   = c2n2(opdaa)
+     c     FMHeaKey      chain     Headf
+     c                   endif
+      *
+     C                   endsr
+      ******************************************************
+     C     Exit          begsr
+      ******************************************************
+      * dummy fini-section
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   close     BRIDF
+     C                   IF        %found ( BRIDF )
+     C                   close     BRPARF
+     C                   CLOSE     HeadF
+     C                   CLOSE     Head39
+     C                   CLOSE     DOKUFM1
+     C                   CLOSE     FRISOL01
+     c                   endif
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *******************************************************************
+     c     Full_Lab      begsr
+      *******************************************************************
+     c                   move      'HE'          VMLAYO                         basert på Headf
+     C                   move      HEAVD         UUAVD
+     C                   move      HEOPD         UUOPD
+     C                   move      *zeros        UUFBNR
+     C                   select
+     c     LABTYPE       WHENEQ    'Z'
+     C                   MOVE      'SYFA12SN  '  LABPGM           10
+     c                   other
+     C                   MOVE      'SYFA12SA  '  LABPGM                         Laser
+     c                   endsl
+     c                   move      'N'           UUKOPI
+     C                   Call      LABPGM
+     C                   PARM                    BIFIRM
+     C                   PARM                    VMLAYO            2
+     C                   PARM                    UUAVD             4 0
+     C                   PARM                    UUOPD             7 0
+     C                   PARM                    UUFBNR            3 0
+     C                   PARM                    UUKOPI            1
+     C                   PARM                    UUclid           35
+     c                   Eval      SuccessMsg = 'Labels '+
+     c                             'skrevet for ' + SNNR
+     c                             + ' på ' + LABOUTQ
+     c                   endsr
+      ************************************************
+     C     INIT          begsr
+      ************************************************
+      * Sett libr.list etter UserID
+     C                   open      BRIDF
+     C     WSUSER        CHAIN     BRIDF
+      *
+     C                   IF        not %found ( BRIDF )
+     c                   eval      ErrMsg='Feil user-ID eller ugyldig innlogget'
+     C                   else
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     c                   end
+     C                   open      HeadF
+     C                   open      Head39
+     C                   OPEN      BRPARF
+     C                   OPEN      DOKUFM1
+     C                   OPEN      FRISOL01
+      * hent printerstyring
+     C     BrParKey      klist
+     C                   kfld                    BIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      'LABTY'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     C                   MOVE      PAVRDA        PRT
+      *
+     C     FmHeaKey      klist
+     C                   kfld                    FMAVD
+     C                   kfld                    FMOPD
+     C     IFBKey        klist
+     C                   kfld                    FSKODE
+     C                   kfld                    FSSOK
+     C                   eval      FSKODE='IFB'
+     c                   endif
+      *
+     c                   endsr

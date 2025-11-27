@@ -1,0 +1,655 @@
+CB    * Resultatfelt for lite ?  HEVKT=9.0  SUMV=7.0
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK11G MODULE(*LIBL/ESTK11G *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10183 * 01 JOV PTF10 Skipp post dersom breddegrad(og lengdegr) = 0
+      * 02 JOV PTF10 - versj.nr
+      * 03 JOV PTF10 Ta høyde for svært lange strenger
+      * 04 JOV PTF10 Ta høyde for kundegruppe ved ekstern bruker
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 05 JOV PTF11 Dersom User er Transportør vis turer kun egne sjåfører
+      * 06 JOV PTF11 forkorter trekster (unngå scroll-boks)
+      * 07 JOV PTF11 ved ekstern - sjekk ikke kun mot oppdragsgiver men hele rekka
+      * 08 JOV PTF11 feil parameternavn på biltype
+      * 09 JOV PTF11 Kunne se EN vil
+      * 10 JOV PTF11 Stygg feil i LOOKUP/Kgp-array - index>1 ved manglende treff, initier m/StPkt
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 11 JOV PTF12 utvidet TITLE / FRA/TIL-sted - lengde
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTKGPS     IF   E           K DISK    USROPN
+     FTKAREA    IF   E           K DISK    USROPN
+     FUNITL04   IF   E           K DISK    USROPN
+     FTURER20   IF   E           K DISK    USROPN
+     Fhead11    IF   E           K DISK    USROPN
+N04  FBRPARF    if   e           k disk    usropn
+N04  FGSSCGL02  IF   E           K DISK    USROPN
+N05  FTRANL02   IF   E           K DISK    USROPN
+N05  FUNIT      IF   E           K DISK    USROPN
+     F                                     RENAME(UNITR:UNITRX)
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+      * Client input variables
+     D user            s             10
+     D TIM             s              3
+     D TIMN            s              3  0
+     D MIN             s              2
+     D MINN            s              2  0
+     D OMR             s             10
+     D UNTYPE          s              4
+     D CallBack        s           1000
+     D Post1           s              1
+     D FeilOmr         s              1
+     D FeilUnty        s              1
+     D FeilOppdr       s              1
+S03  D*Streng          s           1024
+N03  D Streng          s          30000
+N02  D VERSJ           s             10
+N02  D IcoOffX         s              3
+N02  D IcoOffY         s              3
+N02  D LabOffX         s              3
+N02  D LabOffY         s              3
+      *
+N04  D KN              S              8  0 DIM(500)
+N05  D TSJ             S              8  0 DIM(100)
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D SJNR            s              8  0
+N09  D CarNr           s             10
+     D Info1           s            100
+     D Info2           s            100
+     D Info3           s            100
+     D Info4           s            100
+     D SeTur           s            500
+S03  D*tripList        s           1500
+N03  D tripList        s          30000
+S11  D*Title           s            150
+S11  D*TuSteFra        s             70
+S11  D*TuSteTil        s             70
+N11  D Title           s           1000
+N11  D TuSteFra        s           1000
+N11  D TuSteTil        s           1000
+     D TstSte          s             20    VARYING
+     D TuHenger        s             50
+     D TstHen          s             10    VARYING
+     D Today           s              8  0
+     D MinDs           ds
+     D  MinTime                        z
+     D  MinYear                       4    overlay(MinTime:1)
+     D  MinMonth                      2    overlay(MinTime:6)
+     D  MinDay                        2    overlay(MinTime:9)
+     D  MinHour                       2    overlay(MinTime:12)
+     D  MinMin                        2    overlay(MinTime:15)
+     D  MinSec                        2    overlay(MinTime:18)
+      *
+     D MiniDs          ds
+     D MiniDtTi                1     14  0
+     D MiniYear                1      4  0
+     D MiniMonth               5      6  0
+     D MiniDay                 7      8  0
+     D MiniDat                 1      8  0
+     D MiniHour                9     10  0
+     D MiniMin                11     12  0
+     D MiniSec                13     14  0
+      *
+     D TkdtDs          ds
+     D TKDTTI                  1     14  0
+     D TKDT                    1      8  0
+N01  D TKDTM                   5      6  0
+N01  D TKDTD                   7      8  0
+     D TKTI                    9     14  0
+N01  D TKTITM                  9     12  0
+     D                 DS
+     D  TKBRE_GD               1      8  0
+     D  TKBRE_G                1      2
+     D  TKBRE_D                3      8
+     D                 DS
+     D  TKLEN_GD               1      9  0
+     D  TKLEN_G                1      3
+     D  TKLEN_D                4      9
+      *
+      * Definere  hex appostrof
+     D Ap              c                   x'7D'
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      OMR  = zhbgetvar('OMR')
+     C                   eval      TIM  = zhbgetvar('TIM')
+     C                   eval      TIMN = c2n2(TIM)
+     C                   MOVE      TIMN          TIM
+     C                   eval      MIN  = zhbgetvar('MIN')
+     C                   eval      MINN = c2n2(MIN)
+     C                   MOVE      MINN          MIN
+s08  C*                  eval      UNTYPE= zhbgetvar('UNTYPE')
+N08  C                   eval      UNTYPE= zhbgetvar('TYPE')
+      * i webinterface kan bruker velge Sjåførnr el Bilnr,
+      *   dette omsettes uansett til parameter sjåførnr = PD00000002 (f.eks)
+N09  C                   eval      CarNr = zhbgetvar('CarNr')
+     C                   eval      CallBack = zhbgetvar('CallBack')
+N02   * versjonsnr av klientprogramvare
+N02  C                   eval      VERSJ = zhbgetvar('V')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     TKGPS
+     C                   CLOSE     TKAREA
+     C                   CLOSE     UNITL04
+     C                   CLOSE     TURER20
+     C                   CLOSE     HEAD11
+     C                   CLOSE     BRPARF
+N04  C                   CLOSE     GSSCGL02
+N05  C                   CLOSE     TRANL02
+N05  C                   CLOSE     UNIT
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESTK11G':'/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+      *
+      * * Flagg for at det evt er første post som skrives (init av JSON-object)
+     C                   move      'J'           Post1
+      * cross domain oppkall
+     c                   eval      Streng=%trim(CallBack)+'('
+     C                   callp     updHTMLvar('LINTXT':Streng)
+     C                   callp     wrtsection('lin')
+      *
+N11  C                   if        CarNr <> *blanks
+N11  c                   move      CarNr         XXBRID
+N11  C                   endif
+     C     StartLes      tag
+     C     Key           setgt     TKGPS
+N01  c     Next          tag
+     C                   ReadP     TKGPS                                  50
+     c     *in50         Cabeq     '1'           SluttLes
+N01  c     TKBRE         Cabeq     *zeros        Next
+      * Post funnet,
+     C                   move      TKBRID        SJNR
+N05   * hvis user er Transportør - sjekk om sjåførIDen
+N05  C                   If        TranUser='J'
+N05  c                   move      stPktT        st                3 0
+N05  c     SJNR          LOOKUP    TSJ(st)                                33    må være i arrayet
+N05  c  N33              goto      Skipp
+N05  c                   endif
+      *  test om den er for gammel...
+     C     TIM           ifne      *zeros
+     C     MIN           Orne      *zeros
+     C     TKDtTi        cablt     MiniDtTi      Skipp
+     C                   else
+      * timer/minutter ikke angit - må være dagens dato..
+     C     TKDT          cablt     Today         Skipp
+     C                   end
+      *  test om den er i rette område
+     C     OMR           IFNE      *blanks
+     C                   exsr      TstOmr
+     C     FeilOmr       cabeq     'J'           Skipp
+     C                   end
+      *  test unittype (og hent evt bilnr alltid..)
+     C                   exsr      TstUnty
+     C     FeilUnty      cabeq     'J'           Skipp
+      *  Ved extern user kan en kun se turer der minst ett oppdrag tilhører kundenr
+s01  C*    XINTERN       ifne      'J'
+     C                   exsr      TstOppdr
+     C     FeilOppdr     cabeq     'J'           Skipp
+S01  C*                  endif
+      ***
+     C                   exsr      EnPost
+      ***
+     C     Skipp         tag
+     C                   move      TKBRID        XXBRID
+     C                   move      TKBRID        SJNR
+     c                   sub       1             SJNR
+     C                   move      SJNR          XXBRID
+     c     SJNR          cable     0             Sluttles
+N09  C     CarNr         cabne     *blanks       Sluttles
+     C                   goto      StartLes
+     C     SluttLes      tag
+      *
+     C     Post1         ifeq      'N'                                          minst en skrevet
+     C                   callp     updHTMLvar('LINTXT':']}')
+     C                   callp     wrtsection('lin')
+     C                   end
+     C
+      * cross domain call ( svaret er pakket inn i funksjon, sett sluttparantes )
+     C                   callp     updHTMLvar('LINTXT':')')
+     C                   callp     wrtsection('lin')
+     C                   endsr
+     C
+      ***************************************************************************
+     C     TstOmr        BEGSR
+      ***************************************************************************
+     C                   Move      'J'           FeilOmr
+      *
+     C     OMR           setll     TKAREA
+     C     OMR           READE     TKAREA                                 35
+     C     *IN35         DOWEQ     '0'
+      * Funnet område definert av Vestre/Nordre/Ørstre/Søndre linje i et rektangel
+      * (breddegrader = nord/sør - lengdegrader=Øst-vest)
+      * ER bilen innenfor dette området?
+     C     TKLEN         ifge      OMLENV
+     C     TKBRE         andle     OMBREN
+     C     TKLEN         andle     OMLENØ
+     C     TKBRE         andge     OMBRES
+     C                   Move      'N'           FeilOmr
+     C                   goto      UtTstOmr
+     C                   end
+     C     OMR           READE     TKAREA                                 35
+     C                   END
+     C     UtTstOmr      ENDSR
+      ***************************************************************************
+     C     TstUnty       BEGSR
+      ***************************************************************************
+     C                   move      TKBRID        SJÅFNR            8
+     C                   eval      UNRETU = 'PDA:'+SJÅFNR
+     c                   move      *blanks       UNBILN
+     C     UNRETU        chain     UnitL04                            33
+N09  C                   if        *in33 = *on
+N09  C                   eval      UNBILN = 'Sj:'+%trim(%editc(SJNR:'Z'))
+N09  C                   endif
+     C     UNTYPE        IFNE      *blanks
+     C                   Move      'J'           FeilUnty
+     C  N33UNUNTY        COMP      UNTYPE                             3333
+     C  N33              Move      'N'           FeilUnty
+     C                   end
+     C                   ENDSR
+      ***************************************************************************
+     C     TstOppdr      BEGSR
+      ***************************************************************************
+     C                   Move      'N'           FeilOppdr
+     c                   move      *zeros        SumO              7 0
+     c                   move      *zeros        SumK              7 0
+CB   c*                  move      *zeros        SumV              7 0
+CB   c                   move      *zeros        SumV              9 0
+     c                   move      *blanks       TuSteFra
+     c                   move      *blanks       TuSteTil
+     c                   move      *blanks       TuHenger
+     c                   move      *blanks       tripList
+     C     TURKEY20      setll     TURER20
+     C     TURKEY20      Reade     TURER20                                33
+     C     *IN33         DOWEQ     '0'
+     c     tripList      ifeq      *blanks
+     c                   eval      tripList='"trips": [{ "tripNr": "'
+     c                             +%trim(%editc(TUPRO:'Z'))+'"}'
+     c                   else
+     c                   eval      tripList=%trim(tripList)+', '
+     c                             +'{ "tripNr": "'
+     c                             +%trim(%editc(TUPRO:'Z'))+'"}'
+     c                   endif
+     c     TUSDF         ifne      *blanks
+     c                   eval      TstSte = TUSDF
+     C     TstSte        SCAN      TuSteFra                               33
+     c     *IN33         ifeq      *OFF
+     c     TuSteFra      ifeq      *blanks
+     c                   eval      TuSteFra=TUSDF
+     c                   else
+     c                   eval      TuSteFra=%trim(TuSteFra)+', '+TUSDF
+     c                   endif
+     c                   endif
+     c                   endif
+     c     TUSDT         ifne      *blanks
+     c                   eval      TstSte = TUSDT
+     C     TstSte        SCAN      TuSteTil                               33
+     c     *IN33         ifeq      *OFF
+     c     TuSteTil      ifeq      *blanks
+     c                   eval      TuSteTil=TUSDT
+     c                   else
+     c                   eval      TuSteTil=%trim(TuSteTil)+', '+TUSDT
+     c                   endif
+     c                   endif
+     c                   endif
+      * streng med henger INFO ved intern
+     C     XINTERN       ifeq      'J'
+     c     TUHENG        andne     *blanks
+     c                   eval      TstHen = TUHENG
+     C     TstHen        SCAN      TuHenger                               33
+     c     *IN33         ifeq      *OFF
+     c     TuHenger      ifeq      *blanks
+     c                   eval      TuHenger=TUHENG
+     c                   else
+     c                   eval      TuHenger=%trim(TuHenger)+', '+TUHENG
+     c                   endif
+     c                   endif
+     c                   endif
+      * oppdrage tilhørende ekstern kunde ??? (i første omgang test kun oppdr.giver)
+     C     TUPRO         setll     HEAD11
+     C     TUPRO         Reade     HEAD11                                 33
+     C     *IN33         DOWEQ     '0'
+N01   *  Ved extern user kan en kun se turer der minst ett oppdrag tilhører kundenr
+     C     XINTERN       ifne      'J'                                          Ekstern bruker??
+N05  C     TranUser      andne     'J'                                          Trans får se sine.
+S07  C*    BIKUNR        andne     TRKNFA                                       Knr må matche
+      * ekstern/kunde skal ikke se biler der alle oppdrag ER LEVERT
+N07  c     HESGM         cabne     *blanks       NextOppd
+N07  C     BIKUNR        ifne      TRKNFA                                       Knr må matche
+N07  C     BIKUNR        andne     HEKNS                                        Knr må matche
+N07  C     BIKUNR        andne     HEKNK                                        Knr må matche
+N07  C     BIKUNR        andne     HEKNSF                                       Knr må matche
+N07  C     BIKUNR        andne     HEKNKF                                       Knr må matche
+N07  C     BIKUNR        andne     HEKNA                                        Knr må matche
+s04  c*                  goto      NextOppd
+N04  c     XN2           cabeq     0             NextOppd                       Ingen i gruppe
+N04  c                   move      stPkt         st                3 0
+N04  c     TRKNFA        LOOKUP    KN(st)                                 33    .. el en i gruppa
+N10  c  N33              move      stPkt         st                             ved BOM blir st 001!
+N07  c  N33HEKNS         LOOKUP    KN(st)                                 33    .. el en i gruppa
+N10  c  N33              move      stPkt         st                             ved BOM blir st 001!
+N07  c  N33HEKNK         LOOKUP    KN(st)                                 33    .. el en i gruppa
+N10  c  N33              move      stPkt         st                             ved BOM blir st 001!
+N07  c  N33HEKNSF        LOOKUP    KN(st)                                 33    .. el en i gruppa
+N10  c  N33              move      stPkt         st                             ved BOM blir st 001!
+N07  c  N33HEKNKF        LOOKUP    KN(st)                                 33    .. el en i gruppa
+N10  c  N33              move      stPkt         st                             ved BOM blir st 001!
+N07  c  N33HEKNA         LOOKUP    KN(st)                                 33    .. el en i gruppa
+N04  c  N33              goto      NextOppd
+N07  c                   endif
+     c                   endif
+     c                   add       1             SumO
+     c                   add       HENT          SumK
+     c                   add       HEVKT         SumV
+     c     NextOppd      tag
+     C     TUPRO         Reade     HEAD11                                 33
+     C                   enddo
+     C     TURKEY20      Reade     TURER20                                33
+     C                   enddo
+      *
+     c                   eval      title='På veg fra ' +%trim(TuSteFra)
+     c                             +'\nTil '+%trim(TuSteTil)
+     C                   if        TuHenger<>*blanks
+     c                   eval      TuHenger=%trim(TuHenger)+'<br/>'
+     c                   endif
+      *
+N02  c                   if        tripList<>*blanks
+     c                   eval      tripList=%trim(tripList)+'] ,'
+N02  c                   endif
+      *
+     C                   if        XINTERN <> 'J' and SumO = 0
+     C                   Move      'J'           FeilOppdr
+     c                   endif
+     C                   ENDSR
+      ***************************************************************************
+     C     EnPost        BEGSR
+      ***************************************************************************
+     c                   add       1             postID            5 0
+     c                   move      *blanks       Streng
+     C     Post1         Ifeq      'J'
+     C                   eval      Streng = '{"points": [ '
+     C                   move      'N'           Post1
+     C                   else
+     c                   movel     ','           Streng                         komma mellom hver
+     C                   end
+      *
+      *
+     C                   move      TKBRID        SJNR
+     c                   move      TKDT          TKDTA             8
+
+     c                   move      '+'           BreFor            1
+     c                   move      '+'           LenFor            1
+     c     TKLEN         iflt      0
+     c                   mult      -1            TKLEN
+     c                   move      '-'           LenFor
+     c                   end
+     c     TKBRE         iflt      0
+     c                   mult      -1            TKBRE
+     c                   move      '-'           BreFor
+     c                   end
+     C                   MOVE      TKLEN         TKLEN_GD
+     C                   MOVE      TKBRE         TKBRE_GD
+      * Dato DDMM
+     c                   movel     TKDTD         TKDTDM            4 0
+     c                   move      TKDTM         TKDTDM
+N02   * Offset for Icon  og Label (bilnr)
+N02  c                   if        Versj >= '02.01'
+N02  c                   eval      IcoOffX='3'
+N02  c                   eval      IcoOffY='30'
+N02  c                   eval      LabOffX='2'
+N02  c                   eval      LabOffY='11'
+N02  c                   else
+N02  c                   eval      IcoOffX='3'
+N02  c                   eval      IcoOffY='31'
+N02  c                   eval      LabOffX='2'
+N02  c                   eval      LabOffY='-22'
+N02  c                   end
+      /free
+       // Ap=Hexavedi for single Appostrof for å kunne bruke inne i tekstkonst.(mellom '       ')
+
+       // Definer url i hjelpevariabel som skal inn i Infobobla
+        SeTur  = '<a href='+Ap+'#'+Ap+' OnClick=\"window.open('+Ap
+        +'../../sycgip/estk21.pgm?user='+%trim(USER)
+        +'&SJ='+%trim(%editc(SJNR:'Z'))+'&DT='+TKDTA
+        +Ap+','+Ap+Ap+','+Ap+'width=1245,height=800,left=15,top=30,'
+        +'scrollbars,resizable'+Ap+')\">Se tur(er)</A>';
+
+        //Definer ETT punkt / en boble
+         Streng = %trim(Streng)+'{'
+         +' "id": "' + %trim(%editc(PostID:'Z')) + '",'
+         +' "timestamp": "' + %trim(%editw(TKTI:'  :  :  ')) + '",'
+         +' "pos": {"lat": "'+BreFor+TKBRE_G + '.' + TKBRE_D +'", '
+                 +'"lng": "'+LenFor+TKLEN_G + '.' + TKLEN_D +'"},'
+         +' "address": {"address": "" ,"contrycode":""},'
+         +' "icon": {"url":"images/truck.png", '
+                    +'"size": {"width":"64", "height":"32"}, '
+                    +'"title": "'+%trim(Title)+'", '
+       //S02        +'"offset": { "X":"3", "Y":"30"}},'
+                    +'"offset": { "X":"'+%trim(IcoOffX)+'",'
+                                +'"Y":"'+%trim(IcoOffY)+'"}},'
+         +' "label": {"text":"'+%trim(UNBILN)+'", '
+       //S02        +'"offset":{"X":"2","Y":"11"}},'
+                    +'"offset": { "X":"'+%trim(LabOffX)+'",'
+                                +'"Y":"'+%trim(LabOffY)+'"}},'
+       //S02  +%trim(tripList) +' ,'
+         +%trim(tripList)
+         +' "info":"'
+         +'<B>'+%trim(UNBILN)+'</B>'
+E06      +' Sjå: '+%trim(%editc(SJNR:'Z'))+'<br/>'+%trim(TUHenger)
+         +'Dato: '+   %trim(%editw(TKDTDM:'  .  '))  +' Kl: '
+         + %trim(%editw(TKTITM:'  :  ')) +'<br/>'
+E06      +'Op: ' +%trim(%editc(SumO:'Z'))
+E06      + ' Kl: ' +%trim(%editc(SumK:'Z'))
+E06      + ' Vk: ' +%trim(%editc(SumV:'Z')) +'<br/>'
+         +%trim(SeTur) +'" ,'
+         +' "unit": "'+%trim(UNBILN)+'", '
+         +' "type":"car", '
+         +' "group":""'
+         +'}';
+      /end-free
+S03  C*                  callp     updHTMLvar('LINTXT':Streng)
+N03  C                   callp     UpdHtmlVar2('LINTXT':%addr(Streng):
+N03  C                             %len(Streng))
+     C                   callp     wrtsection('lin')
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     user          CHAIN     BRIDF                              50
+      * Ugyldig userID
+NUSR c     *in50         ifeq      '1'
+NUSR C                   callp     gethtml('HTMLSRC':'*LIBL':'ERRUSR':
+NUSR c                             '/CGITAG/')
+NUSR C                   callp     updhtmlvar('User':USER)
+NUSR C                   callp     wrtsection('all')
+NUSR C                   callp     wrtsection('*fini')
+NUSR C                   close     BRIDF
+NUSR C                   eval      *inlr = *on
+NUSR C                   return
+NUSR c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      TKGPS
+     C                   OPEN      TKAREA
+     C                   OPEN      UNITL04
+     C                   OPEN      TURER20
+     C                   OPEN      Head11
+N04  C                   OPEN      BRPARF
+N04  C                   OPEN      GSSCGL02
+N05  C                   OPEN      TRANL02
+N05  C                   OPEN      UNIT
+     c*
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+     C     KEY           KLIST
+     C                   KFLD                    XXBRID           10
+     C                   KFLD                    XXDT              8 0
+     c                   move      '9999999999'  XXBRID
+     c                   move      99999999      XXDT
+     C     TurKey20      KLIST
+     C                   KFLD                    SJNr
+     C                   KFLD                    xxTST4
+     C                   MOVE      '1'           xxTST4            1
+      * låner MiniDS for å finne "Today"
+     C                   time                    MinTime
+     c                   move      MinYear       MiniYear
+     c                   move      MinMonth      MiniMonth
+     c                   move      MinDay        MiniDay
+     c                   move      MiniDat       Today
+      * hvis xx timer/min oppgitt beregn laveste OK tid  MiniDtTi  via MiniDs
+     C     TIMn          ifne      *zeros
+     C     MINn          Orne      *zeros
+     C     MinTime       subdur    TIMn:*h       MinTime
+     C     MinTime       subdur    MINn:*mn      MinTime
+      * eks: CURRTIME = '2006-08-22-18.23.52.354000'   minus 2 t. 10 min ->
+      *           MIN = '2006-08-22-16.13.52.354000'
+      * Flytt til 14 langt numerisk felt for enkel sammenligning.
+     c                   move      MinYear       MiniYear
+     c                   move      MinMonth      MiniMonth
+     c                   move      MinDay        MiniDay
+     c                   move      MinHour       MiniHour
+     c                   move      MinMin        MiniMin
+     c                   move      MinSec        MiniSec
+     C                   end
+N04
+N04   * kundegruppe ?
+N04  C     BrParKey      klist
+N04  C                   kfld                    BIBRID
+N04  C                   kfld                    PAKUNR
+N04  C                   kfld                    PAID
+N04  C     XINTERN       ifne      'J'
+N04   *
+N04   * er Ekstern bruker del av en kundegruppe / kan se alle
+N04  C                   MOVE      *ZEROS        KN
+N04  C                   MOVE      *ZEROS        XN2               3 0
+N04  c                   move      *zeros        stPkt             3 0
+N04  C                   MOVEL     'KUNGR'       PAID
+N04  C     BrParKey      chain     BRPARF                             33
+N04  c     *in33         IFEQ      '0'
+N04  C                   MOVEL     PAVRDA        CGCG
+N04  C     CGCG          SETLL     GSSCGL02
+N04  C     CGCG          READE     GSSCGL02                               33
+N04  C                   DOW       *IN33 = *OFF
+N04  C                   ADD       1             XN2
+N04  C                   MOVE      CGCNO         KN(XN2)
+N04  C     CGCG          READE     GSSCGL02                               33
+N04  C                   ENDDO
+N04   * hensikten med SORTA(alle blanke)+finne første aktive er raskere lookup
+N04  c                   sorta     KN
+N04  c                   eval      stPkt=500-XN2+1
+N04  C                   END
+N05
+N05   *
+N05   * er Ekstern bruker transportør med med x ant sjåfører, i så fall se base de..
+N05  c     TRAKEY        KLIST
+N05  c                   KFLD                    BIFIRM
+N05  c                   KFLD                    BIKUNR
+N05   *
+N05  C                   MOVE      *ZEROS        XN2T              3 0
+N05  c                   move      *zeros        stPktT            3 0
+N05  c                   move      *blanks       TSTSJ             8
+N05  C     TRAKEY        SETLL     TRANL02
+N05  C     TRAKEY        READE     TRANL02                                33
+N05  C                   DOW       *IN33 = *OFF
+N05   * for alle transportørenr knyttet ti useren - finn alle sjåfør-IDs via UNIT
+N05  C     VMTRAN        SETLL     UNIT
+N05  C     VMTRAN        READE     UNIT                                   34
+N05  C                   DOW       *IN34 = *OFF
+N05  C                   if        %subst(UNRETU:1:4)='PDA:'
+N05  C                   EVAL      TSTSJ = %subst(UNRETU:5:8)
+N05  c                   testn                   TSTSJ                33
+N05  c     *in33         ifeq      '1'
+N05  C                   ADD       1             XN2T
+N05  C                   move      TSTSJ         TSJ(XN2T)
+N05  c                   move      'J'           TranUser          1
+N05  c                   endif
+N05  c                   endif
+N05  C     VMTRAN        READE     UNIT                                   34
+N05  C                   ENDDO
+N05  C     TRAKEY        READE     TRANL02                                33
+N05  C                   ENDDO
+N05   * hensikten med SORTA(alle blanke)+finne første aktive er raskere lookup
+N05  c                   sorta     TSJ
+N05  c                   eval      stPktT=100-XN2T+1
+N04  C                   END
+      *
+     C     UtInit        endsr

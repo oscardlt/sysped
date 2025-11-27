@@ -1,0 +1,119 @@
+      *
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI':'QC2LE') debug(*yes)
+
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+
+
+     D jsonstring      s           1000A   varying
+     D rc              s             10I 0
+     D filename        s             80a   varying
+     D dltFile         s            120a   varying
+     D Server          s            200a
+     D ConnString      s           1000a
+     D localPath       s            100a
+      *
+     c     *entry        Plist
+     c                   parm                    Companyid        50
+     c                   parm                    ulocalPath      100
+     c                   parm                    uSrcFile        120
+     c                   parm                    udelete           1
+     c                   parm                    uok               1
+     c                   move      'N'           uok
+     c                   move      ulocalPath    localPath
+     c                   if        localPath = *blanks
+     c                   eval      localPath = '/tmp/'
+     c                   endif
+     c                   if        Udelete   = *blanks
+     c                   eval      Udelete   = 'J'
+     c                   endif
+      *
+      *
+      /free
+       if uSrcFile =  *blanks;
+         *inlr = *on;
+         return;
+       endif;
+
+       // OBS!! Server og ellewr porst vil måtte hardkodes i kundeinstallasjoner ..
+       //server = 'http://10.11.47.61:9886/api/putazblob';
+       server = 'https://10.11.47.61:9887/api/putazblob';
+
+       // OBS!! Denne connectionstring er KINGSRØD-spesifik !!!!!!
+       ConnString = 'DefaultEndpointsProtocol=https;'
+         + 'AccountName=integ09c81fh4hn16v9bprod;'
+         + 'AccountKey=Djdi7iqYyzm6oYbSB1MoPo3Ik+LmXd5Nq5D+'
+              +'Y6RzmQwsI8vIXFiHszOrOLZQz6882DkxTlofDCYVxXDujE5MOg==;'
+         + 'BlobEndpoint=https://integ09c81fh4hn16v9bprod.blob.core.'
+              +'windows.net/;'
+         + 'QueueEndpoint=https://integ09c81fh4hn16v9bprod.queue.core.'
+              +'windows.net/;'
+         + 'TableEndpoint=https://integ09c81fh4hn16v9bprod.table.core.'
+              +'windows.net/;'
+         + 'FileEndpoint=https://integ09c81fh4hn16v9bprod.file.core.'
+              +'windows.net/;';
+
+       // payload er jsonstring med lokalpath og array med firmaID(bucket navn)+filnavn.
+       jsonstring =
+       '{"localgetpath": "' + %trim(LocalPath) + '",'
+         +' "connectionstring": "' + %trim(ConnString) + '",'
+         +' "files": ['
+         + '{"companyid":"'+%trim(Companyid) + '",'
+         + '"filename":"'+ %trim(uSrcFile) + '"}'
+         +']}';
+
+       //
+       // Note:  http_debug(*ON/*OFF) can be used to turn debugging
+       //        on and off.  When debugging is turned on, diagnostic
+       //        info is written to an IFS file named
+       //        /tmp/httpapi_debug.txt
+       http_debug(*ON);
+
+       filename = http_tempfile() + '.json';
+       rc = http_url_post(%trim(server)
+                          +' '
+                         : %addr(jsonstring) + 2
+                         : %len(jsonstring)
+                         : filename
+                         : HTTP_TIMEOUT
+                         : HTTP_USERAGENT
+                         : 'application/json');
+       // hvis misslykke vent 2 sek/prøv igjen (nyskapt fil ikke helt "klar"??)
+       if rc<>201;
+         exsr VentLitt;
+         rc = http_url_post(%trim(server)
+                          +' '
+                         : %addr(jsonstring) + 2
+                         : %len(jsonstring)
+                         : filename
+                         : HTTP_TIMEOUT
+                         : HTTP_USERAGENT
+                         : 'application/json');
+       endif;
+
+       if rc=201;
+         eval uok='J';    // ved flere betyr dette at minst enn var vellykket
+         //slett fil
+         if udelete='J';
+           dltFile = %trim(localPath)+%trim(uSrcFile);
+           unlink(dltFile);
+         endif;
+       endif;
+       unlink(filename);
+       *inlr = *on;
+       return;
+
+       // Å teste resultat via responsfil er unødig - 201 SKAL bety at fil er skapt
+       //
+      /end-free
+
+     c*****************************************
+     c     Ventlitt      BEGSR
+     c*****************************************
+     C                   Z-ADD     2             USEC              3 0
+     C                   CALL      'DLYJBSEC'
+     C                   PARM                    USEC
+     c
+     c                   ENDSR

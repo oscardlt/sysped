@@ -1,0 +1,258 @@
+     H DFTACTGRP(*NO)
+     FSYREO11D  CF   E             WORKSTN USROPN
+     FSYREO11F  UF A E           K DISK
+     FSYREO11F2 UF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRMSR    UF   E           K DISK
+
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SYREO11r2'
+     d syreo11r2       pr                  extpgm('SYREO11R2')
+     d uok_                                like(uok)
+      *  Prototype for 'SYREO12C'
+     d syreo12c        pr                  extpgm('SYREO12C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO13C'
+     d syreo13c        pr                  extpgm('SYREO13C')
+     d udtf_                               like(udtf)
+      *  Prototype for 'SYREO14C'
+     d syreo14c        pr                  extpgm('SYREO14C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO15C'
+     d syreo15c        pr                  extpgm('SYREO15C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO16C'
+     d syreo16c        pr                  extpgm('SYREO16C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO17C'
+     d syreo17c        pr                  extpgm('SYREO17C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO18C'
+     d syreo18c        pr                  extpgm('SYREO18C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO06C'
+     d syreo06c        pr                  extpgm('SYREO06C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for syreo11r
+     d syreo11r        pr
+     d uauto_                              like(uauto)
+      *  *ENTRY Interface for Main Procedure
+     d syreo11r        pi
+     d uauto                          1a
+
+     d wdt             s              8a
+     d wtm             s              6a
+     d xavslutt        s              1a
+     d uok             s              1a
+     d                 ds
+     d udtf                    1      8a
+     d udtfn                   1      8  0
+     d                 ds
+     d udtp                    1      8a
+     d udtpn                   1      8  0
+     d                 ds
+     d xdt                     1      8  0
+     d xdta                    1      4  0
+     d xdtm                    5      6  0
+      /free
+
+       setll *loval firm;
+       read firm;
+       chain(n) fifirm firmsr;
+       if not %found;
+         // Firma har ikke satt antall år for sletting
+         *inlr = *on;
+         return;
+       endif;
+       syge15c (wdt: wtm);
+       xdt = %float(wdt);
+
+       r11mod = 'OPPDRAG';
+       chain(n) r11mod syreo11f;
+       if %found and r11st <> 'F';
+         wsaarf = r11ar1;
+         wsaarp = r11ar2;
+         wsjn   = r11reo;
+       else;
+         wsaarf = srnoyf;
+         wsaarp = srnoyp;
+         wsjn   = 'N';
+       endif;
+
+       if uauto = 'N';
+         open SYREO11D;
+         dow xavslutt <> 'J';
+         // hent antall år fra skjerminput
+           exfmt BILDE;
+           *in99 = *off;
+           *in98 = *off;
+           if *in03;
+             close SYREO11D;
+             *inlr = *on;
+             return;
+           endif;
+           select;
+           when wsaarf < 5;
+             *in99 = *on;
+           when wsaarp < 10;
+             *in98 = *on;
+           when wsaarf >= 5 and wsaarp >= 10;
+             xavslutt = 'J';
+             chain fifirm firmsr;
+             srnoyf = wsaarf;
+             srnoyp = wsaarp;
+             update firmsrr;
+           endsl;
+         enddo;
+         close SYREO11D;
+
+         // Oppdatere styringsfil
+         chain r11mod syreo11f;
+         r11ar1 = wsaarf;
+         r11ar2 = wsaarp;
+         r11ars = xdta;
+         r11reo = wsjn;
+         r11pgm = 'SYREO12R';
+         r11dt1 = %float(wdt);
+         r11tm1 = %float(wtm);
+         if not %found;
+           write syreo11fr;
+         else;
+           r11st  = ' ';
+           r11dt2 = 0;
+           r11tm2 = 0;
+           update syreo11fr;
+         endif;
+       endif;   // Slutt på if uauto = 'N'
+
+       // beregn til og med dato for sletting
+       udtfn = (xdta - wsaarf - 1) * 10000 + 1231;
+       udtpn = (xdta - wsaarp - 1) * 10000 + 1231;
+
+       r11mod = 'OPPDRAG';
+       chain r11mod syreo11f;
+       if not %found;
+         // Ikke slettet før --> Start sletting.   FOREKOMME KUN FØRST GANG AUTO-SLETTING
+         r11ar1 = wsaarf;
+         r11ar2 = wsaarp;
+         r11reo = wsjn;
+         r11ars = xdta;
+         r11pgm = 'SYREO12R';
+         r11dt1 = %float(wdt);
+         r11tm1 = %float(wtm);
+         write syreo11fr;
+       else;
+         if xdtm = 2 and r11st = 'F' and xdta > r11ars          // Auto ny start
+            or r11st = ' ' and r11pgm = *blanks ;               // Ny start etter tømming SYREO01F
+           // Februar, avsluttet sletting, ikke samme år --> Start årets sletting
+           r11st = ' ';
+           r11ar1 = wsaarf;
+           r11ar2 = wsaarp;
+           // r11reo = wsjn;              // Ikke oppdater r11reo -> bevare opsjon fra siste kjøring
+           r11ars = xdta;
+           r11pgm = 'SYREO12R';
+           r11dt1 = %float(wdt);
+           r11tm1 = %float(wtm);
+           r11dt2 = 0;
+           r11tm2 = 0;
+         endif;
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO12R';
+       // Init. reorg.fil
+         exec sql
+         update syreo11f2
+         set r112st = ' ', r112dt = 0, r112tm = 0
+         where r112mod = 'OPPDRAG'
+         with NC;
+
+         syreo12c (udtf: udtp);              // Oppdrag
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO13R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO13R';
+         syreo13c (udtf);                    // POMS
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO14R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO14R';
+         syreo14c (udtf: udtp);              // KOST
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO15R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO15R';
+         syreo15c (udtf: udtp);              // LAGER
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO16R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO16R';
+         syreo16c (udtf: udtp);              // ISO
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO17R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO17R';
+         syreo17c (udtf: udtp);              // SHIP-SYS
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO18R';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO18R';
+         syreo18c (udtf: udtp);              // SAMLA, TURER,,,
+         chain r11mod syreo11f;
+         r11pgm = 'SYREO06C';
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO06C';
+         syreo06c (udtf: udtp);              // EDI som ikke er knyttet til oppdrag
+         chain r11mod syreo11f;
+         if wsjn = 'J';
+           // Reorganisere filer etter sletting
+           r11pgm = 'SYREO11R2';
+         else;
+           // Ikke reorganisere filer etter sletting
+           r11st = 'F';
+           r11dt2 = %float(wdt);
+           r11tm2 = %float(wtm);
+         endif;
+         update syreo11fr;
+       endif;
+
+       if r11st = ' ' and r11pgm = 'SYREO11R2';
+         syreo11r2 (uok);                 // Reorg. filer
+         if uok = 'J';
+           syge15c (wdt: wtm);
+           chain r11mod syreo11f;
+           r11st = 'F';
+           r11dt2 = %float(wdt);
+           r11tm2 = %float(wtm);
+           update syreo11fr;
+         endif;
+       endif;
+
+       *inlr = *on;
+       return;
+
+      /end-free

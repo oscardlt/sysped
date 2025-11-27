@@ -1,0 +1,303 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE28R MODULE(*LIBL/TJGE28R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Mye omskrevet / ingen merking (den gamle funket ikke i det hele tatt)
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+     FCUOTI     IF   E           K DISK    USROPN
+     FFRISOK    UF A E           K DISK    USROPN
+     FKODFRI    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D AVD             S              4
+     D AVDN            S              4S 0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D WA              S             15
+     D Krav            S              1
+     D OTIKNR          S              8  0
+     D OTIAVD          S              4  0
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+      * lookup-table for kunder som skal sjekkes
+     D                 DS
+     D  KN                     1     80  0
+     D                                     DIM(10)
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      * Test kunde egne frisøkeveier
+     C  N50              EXSR      SJKRAV
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"awblinelist" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+     C  N50              EXSR      SkrivListe
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     FRISOK
+     C  N50              CLOSE     KODFRI
+     C  N50              CLOSE     CUOTI
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     C                   EVAL      AVD    = zhbgetvar('AVD')
+     C                   EVAL      AVDN   = c2n2(AVD)
+     C                   EVAL      OPD    = zhbgetvar('OPD')
+     C                   EVAL      OPDN = c2n2(OPD)
+      *
+     c                   endsr
+      *
+      ***********************************************
+     C     SJKRAV        BEGSR
+      ***********************************************
+     C     HEADFK        CHAIN     HEADF                              33
+      *
+     C                   IF        TRSLAG = 'HO'
+     c                   exsr      AddKN
+     c                   eval      nn = 1
+     c                   dow       KN(nn) <> 0                                  for alle kunder...
+     C                   EVAL      COKUNR  = KN(nn)
+     C                   EVAL      X_HEAVD = HEAVD
+     C     STSJKRAV      TAG
+     C     CUOTIKALL     SETLL     CUOTI
+     C     CUOTIKALL     READE     CUOTI                                  33
+      *  skriv de som ikke finnes / låner siste av flet for kundespesial for kravkode
+     C                   DOW       *IN33 = *OFF
+     C     FRISOKK2      CHAIN     FRISOK                             33
+     C                   IF        *IN33
+     C                   EVAL      FSAVD  = HEAVD
+     C                   EVAL      FSOPD  = HEOPD
+     C                   EVAL      FSKODE = COKODE
+     C                   EVAL      FSSOK  = *BLANKS
+     C     FSKODE        CHAIN     KODFRI                             33
+     C  N33              EVAL      FSDOKK = KFSODK
+     C   33              EVAL      FSDOKK = *BLANKS
+     C                   EVAL      FSDTOP = HEDTOP
+     C                   eval      %subst(FSKUSP:35:1)=COKRAV
+     C                   WRITE     FRISOKR
+     C                   ELSE                                                   Update krev
+     C                   if        COKRAV > %subst(FSKUSP:35:1)
+     C                   eval      %subst(FSKUSP:35:1)=COKRAV
+     C                   endif
+     C                   UPDATE    FRISOKR
+     C                   ENDIF
+     C                   if        COKRAV = '2' and
+     C                             FSSOK  = *blanks
+     C                   eval      Error = 'Frie søkeveier - '
+     C                                   + 'Minst en krav-referanse mangler.'
+     C                   endif
+     C     CUOTIKALL     READE     CUOTI                                  33
+     C                   ENDDO
+      * prøv på ny med 0 i avd
+     C                   if        X_HEAVD <> 0
+     C                   EVAL      X_HEAVD = 0
+     C                   GOTO      STSJKRAV
+     C                   endif
+      *
+     c                   eval      nn=nn+1
+     C                   enddo
+      *
+     C                   ENDIF                                                  TRslag = HO
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     AddKN         BEGSR
+      ***********************************************
+      *
+     c                   move      *zeros        nn                2 0
+      *
+     c                   eval      OTIKNR = TRKNFA
+     c                   exsr      AddKN2
+      *
+     c                   eval      OTIKNR = HEKNSF
+     c                   exsr      AddKN2
+      *
+     c                   eval      OTIKNR = HEKNKF
+     c                   exsr      AddKN2
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     AddKN2        BEGSR
+      ***********************************************
+      * Fyll array med kunder som skal sjekkes
+      *
+     c                   if        OTIKNR <> 0
+N03  C     OTIKNR        LOOKUP    KN                                     33
+     c                   if        *in33 = '0'
+     c                   eval      nn=nn+1
+TMP  C                   eval      KN(nn) = OTIKNR
+     c                   endif
+     c                   endif
+      *
+     C                   ENDSR
+      *
+      *
+      ***********************************************
+     C     SkrivListe    BEGSR
+      ***********************************************
+      * Liste
+      *
+     C     HEADFK        SETLL     FRISOK
+     C     HEADFK        READE     FRISOK                                 55
+     C                   DOW       *IN55 = *OFF
+     c                   eval      Krav = %subst(FSKUSP:35:1)
+     C     FSKODE        CHAIN     KODFRI                             33
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬fsavd¬ : ¬'+%trim(%editc(fsavd:'Z'))+'¬, '
+          +'¬fsopd¬ : ¬'+%trim(%editc(fsopd:'Z'))+'¬, '
+          +'¬fskode¬ : ¬'+%trim(fskode)+'¬, '
+          +'¬fssok¬ : ¬'+%trim(fssok)+'¬, '
+          +'¬fsdokk¬ : ¬'+%trim(fsdokk)+'¬, '
+          +'¬fsdtop¬ : ¬'+%trim(%editc(fsdtop:'Z'))+'¬, '
+          +'¬kfsotx¬ : ¬'+%trim(kfsotx)+'¬, '
+          +'¬krav¬ : ¬'+%trim(krav)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     C     HEADFK        READE     FRISOK                                 55
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HEADFK        KLIST
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C     FRISOKK2      KLIST
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C                   KFLD                    COKODE
+     C     CUOTIKALL     KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    COKUNR
+     C                   KFLD                    X_HEAVD
+     C     *LIKE         DEFINE    HEAVD         X_HEAVD
+     c                   move      *zeros        KN
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      FRISOK
+     C  N50              OPEN      KODFRI
+     C  N50              OPEN      CUOTI
+
+     c                   endsr

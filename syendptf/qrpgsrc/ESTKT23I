@@ -1,0 +1,583 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT23I  MODULE(*LIBL/ESTKT23I *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FSTSCLI    UF   E           K DISK    usropn
+     FSTSfbr    UF   E           K DISK    usropn
+     FSTSopd    UF   E           K DISK    usropn
+     FSTStur    UF   E           K DISK    usropn
+     FTURER14   UF   E           K DISK    usropn
+     Ffirm      IF   E           K DISK    USROPN
+     FKODTP     if   e           k disk    usropn
+     FHEADF     if   e           k disk    usropn
+     FDISPL04   if   e           k disk    usropn
+     FTRACKF    o  a e           k disk    usropn
+     FWRKCGI    UF A E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Array for konv. av alfa til numerisk
+     D FE              S              1    DIM(15)
+      * Variables received from the input string
+     D wspro           s              8  0
+     DTN1              s              8
+     D WSUser          s             10
+     D FullF           s              1
+     D TERM            s             20
+     D TERM5           s              5
+     D Loc             s              5
+     D LocFelt         s              5
+     D LocFavd         s              4  0
+     D EtterKart       s              5  0
+     D EtterkPRO       s              8  0
+     D EtterkBIL       s             10
+     D JSONstring      s          32000
+     D ErrMsg          S            150
+     D CtrlMsg         S            150
+     D InfoMsg         S            150
+     D SuccessMsg      S            150
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D                 DS
+     D  SCCLID                 1     20
+     D  SCCLID18               3     37
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D  XULDDMM                7     10  0
+     D  XULÅÅ2                13     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D                 ds
+     D WKEY2                   1     30
+     D  WKEY2_TYPE             1      5
+     D  WKEY2_AVD              7     10
+     D  WKEY2_OPD             12     18
+     D                 ds
+     D WDATA                   1    220
+     D  HXSNDN                 1     20
+     D  WDAT_tx1              22     26    INZ('Send:')
+     D  HENAS                 28     57
+     D  WDAT_tx2              59     63    INZ('Mott:')
+     D  HENAK                 65     94
+     D  WDAT_tx3              96     99    INZ('Kll:')
+     D  HENT_A               101    107
+     D  WDAT_tx4             109    112    INZ('Vkt:')
+     D  HEVKT_A              114    122
+     D  WDAT_Merk            124    200
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs   (C-specs)
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      *
+     C                   eval      WSUSER  = zhbgetvar('user')
+     C                   eval      TN1    = zhbgetvar('TN1')
+     C                   eval      wspro  = c2n2(TN1)
+     C                   eval      TERM     = zhbgetvar('TERM')
+     C                   eval      TERM5    = TERM
+     C                   eval      Loc    = zhbgetvar('LOC')
+     c                   if        %subst(LOC:1:1)='F'
+     c                   eval      LocFelt= Loc
+     c                   eval      Loc    = *blanks
+     C                   monitor
+     C                   eval      LocFavd = %int(%subst(LocFelt:2:4))
+     C                   on-Error
+     C                   eval      LocFavd = *zeros
+     C                   endmon
+     c                   endif
+N01   * KUN  RAMBERG kjører den brutale feltkontroll pr avdeling - STD setter LocFavd = 0
+N01   * Neste linje stjernes ut for Ramberg
+N01  C                   eval      LocFavd = *zeros
+N01   *
+     C                   eval      Fullf  = zhbgetvar('fullf')
+      *
+      * Set libl/open files
+     C                   exsr      Init
+      ** 3 ulike funksjoner ***
+      *************************
+      *      Kall med Fullf = 'K' = Kontroll (= CtrlMsg blank eller fylt ut)
+      *      Kall med Fullf = 'J' = Fullfør  (utføre oppdateringer, ved felt-ktr også etter kart.)
+      *      Kall med Fullf = 'N' = Nullstill
+      *************************
+      * 2022.02.17 Forkontroll/Disponerings-endrig. Kun ved feltkontroll-skyting på gitt avdeling:
+      *               - finns uskutt gods som er udisponret (=skal på tur (ny etter-kartering))
+      *               - finns FullSkutt gods som er på tur (=ta av tur )
+      *            Ved K=Kontoll - gi melding hvis etterkarte vil skjer
+      *            Ved J=Oppdatering - UTFØR etterkartering + fjerning fra tur
+     c                   if        LocFavd <> *zeros
+     c                   if        fullf='K' or fullf='J'
+     c                   exsr      TstCtrlMsg
+     c                   endif
+     c                   endif
+      *
+      * Set output skeleton html member name
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':'/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+     C                   exsr      MAIN
+      *
+     C                   exsr      EXIT
+     C                   RETURN
+      *
+      *
+     C***********************************************
+     C     EXIT          BEGSR
+     C***********************************************
+     C                   callp     wrtsection('*fini')
+      *
+     c                   close     stscli
+     c                   close     stsfbr
+     c                   close     stsopd
+     c                   close     ststur
+     c                   close     bridf
+     c                   close     firm
+     c                   close     turer14
+     c                   close     KODTP
+     c                   close     HEADF
+     c                   close     DISPL04
+     c                   close     TRACKF
+     c                   close     WRKCGI
+     C                   eval      *inlr = *on
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MAIN          BEGSR
+     C***********************************************
+     C     wspro         ifne      *zeros
+      *-Sett fullført-merke
+     c     Fullf         Ifeq      'J'
+tmp  C*tmp               exsr      FULL
+     C                   endif
+      *-Delete fra workfiles
+     c     Fullf         Ifeq      'N'
+     C                   exsr      DCLI
+     C                   endif
+     C                   endif
+      *
+     C                   callp     wrtsection('all')
+      /free
+        if Fullf = 'J';
+          SuccessMsg='Turen/skytesessjonen er fullført.';
+        else;
+          if Fullf = 'N';
+            SuccessMsg='Turen/skytesessjonen er nullstillt.';
+          endif;
+        endif;
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ErrMsg)+'¬, '
+        +'¬ctrlMsg¬ : ¬'+%trim(CtrlMsg)+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬successMsg¬ : ¬'+%trim(SuccessMsg)+'¬}';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C*                  callp     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FULL          BEGSR
+     C***********************************************
+      * Set status Fullført manuelt...
+     C     TurKey        chain     STStur                             30
+     C     *in30         IFEQ      '0'
+     C                   Move      'N'           Nattport          1
+     C     wspro         Chain     Turer14                            33
+      * X=fullført lest, M=avsluttet m/manko, N=Nattportmanko
+     C     STANOK        IFGE      STANOP                                           5<-B
+     C                   move      'X'           ststat
+     C                   ELSE                                                       5<-E
+     C                   move      'M'           ststat
+     C     TUTST3        IFEQ      '1'
+     C                   move      'N'           ststat
+     C                   END                                                        5<-E
+     C                   END                                                        5<-E
+     C                   UPDATE    STSTURR
+     C                   end
+      *
+      * Oppdrag som er komplette  logges.
+     c     FIURBL        IFEQ      'J'
+     C     TurKey        SETLL     STSopd
+     C     TurKey        READE     STSopd                                 94
+     C     *IN94         DOWEQ     '0'
+     C     TurKey        READE     STSopd                                 94
+     C  N94              ENDDO
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     DCLI          BEGSR
+     C***********************************************
+      *
+     C     TurKey        SETLL     STSCLI
+     C     TurKey        READE     STSCLI                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsclir
+     C     TurKey        READE     STSCLI                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STSfbr
+     C     TurKey        READE     STSfbr                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsfbrr
+     C     TurKey        READE     STSfbr                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STSopd
+     C     TurKey        READE     STSopd                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsopdr
+     C     TurKey        READE     STSopd                                 94
+     C  N94              ENDDO
+      *
+     C     TurKey        SETLL     STStur
+     C     TurKey        READE     STStur                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    ststurr
+     C     TurKey        READE     STStur                                 94
+     C  N94              ENDDO
+      *
+     C                   ENDSR
+      *
+      *************************************************
+     C     Init          BEGSR
+      *************************************************
+     C                   open      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              30
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * INITIERING...
+     C     DISP04KEY     KLIST
+     C                   KFLD                    DISTA1
+     C                   KFLD                    DITUR
+     C                   KFLD                    DIAVD
+     C     HEAKEY        KLIST
+     C                   KFLD                    DIAVD
+     C                   KFLD                    DIOPD
+     C     FBRKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    DIAVD
+     C                   KFLD                    DIOPD
+     C     *LIKE         DEFINE    SCTYPE        YTYPE
+     C     TURKEY        KLIST
+     C                   KFLD                    YTYPE
+     C                   KFLD                    WSPRO
+     C                   MOVEL     TERM          YTYPE
+     C     KODTPK        KLIST
+     C                   KFLD                    WSPUNI
+     C                   KFLD                    TUAVD
+     C                   KFLD                    WSPLNR
+     C                   MOVE      'P'           WSPUNI            1
+     C                   Z-ADD     113           WSPLNR            3 0
+      *
+     c                   open      stscli
+     c                   open      stsfbr
+     c                   open      stsopd
+     c                   open      ststur
+     c                   open      firm
+     c                   open      turer14
+     c                   open      KODTP
+     c                   open      HEADF
+     c                   open      DISPL04
+     c                   open      TRACKF
+     c                   open      WRKCGI
+      *
+     c     *loval        setll     firm
+     c                   read      firm
+      *
+      * HENT DATO/KLOKKESLETT (flyttet til INIT)
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+      *
+     C                   ENDSR
+      *
+      *************************************************
+     C     TstCtrlMsg    BEGSR
+      *************************************************
+      * Fjern fra Tur  ??
+     C                   if        fullf='J'
+N07   *
+     C                   exsr      FjernFrTur
+     C                   endif
+      * Etterkartering ??
+     c                   eval      EtterKart=*zeros
+      * STSFBR = eksempel
+      *Status-type   Turnummer   Avdeling   Oppdr-nr   Fr-br-nr  Status  Antall Kolli-ID  Antall Kon
+      *   SFTYPE         SFPRO      SFAVD     SFOPD      SFFBNR  SFSTAT         SFANKI      SFANKK
+      *   DRA            2.704       130     190.694        1      X              2            2
+      *   DRA            2.704       130     190.695        1      X              3            3
+      *   DRA            2.762       134      72.838        1                     3            2
+      *
+      *
+      * Feltkontroll på EN avdeling - les alle udisponerte på avdelinge (=bør finnes på feltet)
+      * Hvis IKKE skutt(helt el delvis) i feltkontroll skyldes nok det at de BURDE VÆRT på turen
+      *      I så fall tar vi sjansen på å si at ny tur opprettes - disse "etterkarteres" på den
+      * (annen årsak? ennå ikke er kommet til utgående felt - den sjanes får vi ta...)
+     c                   if        LocFavd <> *zeros
+     c                   eval      DISTA1= ' '
+     c                   eval      DITUR = *zeros
+     c                   eval      DIAVD = LocFavd
+     c     Disp04Key     setll     DISPL04
+     c     Disp04Key     reade     DISPL04
+     c                   dow       not %eof (DISPL04)
+      * skip oppdrag (Fr.br.) hvis helt el delvis skutt i feltkontrollen (SFANKK=Koll.kontollert)
+     c     FbrKey        chain(n)  STSFBR
+N07  C                   if        %found and
+N07  C                             SFANKK<>0
+     c                   goto      NextUdisp
+     c                   endif
+      * skip de med Åpent utlev-forbehodl ( på ventelager)
+     c     HeaKey        chain     HEADF
+N07  C                   if        HEKF <>*blanks and
+N07  C                             HEKFT1=' '
+     c                   goto      NextUdisp
+     c                   endif
+      * skip varme/farlig (ligger uansett normalt IKKE på felt - naturlig ikke med i feltskyting)
+N07  C                   if        %subst(TRFA11:1:1) <> ' ' or                 Varme
+N07  C                             %subst(TRFA21:1:1) <> ' '                    Farlig
+     c                   goto      NextUdisp
+     c                   endif
+      * skal etterkarteres
+TMP  c                   if        HEAVD  = 140 or
+TMP  c                             HEAVD  = 150 or
+TMP  c                             HEAVD  = 155 or
+TMP  c                             HEAVD  = 132 or
+TMP  c                             HEAVD  = 171 or
+TMP  c                             HEAVD  = 3140 or
+TMP  c                             HEAVD  = 3146 or
+TMP  c                             HEAVD  = 3150 or
+TMP  c                             HEAVD  = 3155 or
+TMP  c                             HEAVD  = 3171 or
+TMP  c                             HEAVD  = 3180 or
+TMP  c                             HEAVD  = 3186
+     c                   eval      EtterKart=EtterKart+1
+     c                   if        fullf='J'
+     c                   exsr      EtterK_SR
+     c                   endif
+TMP  c                   endif                                                  SYSTEMA TEST
+     c     NextUdisp     tag
+     c     Disp04Key     reade     DISPL04
+     c                   enddo
+      * ved kontroll meld
+     c                   if        fullf='K' and
+     c                             EtterKart>*zeros
+     c                   eval      CtrlMsg = %trim(%editc(EtterKart:'3'))
+     c                                     + ' sendinger er IKKE skutt!  '
+     c                                     + 'Vil du likevel avslutte? '
+     c                   endif
+     c                   endif
+      *
+      * Fullføring ender alltid opp i oppsymmeringsmail, noen ganger i listing av etterkarteringstur
+     c                   if        fullf='J'
+     c                   exsr      SendMail
+     c                   if        EtterkPRO <> *zeros
+     c                   exsr      ListEtterK
+     c                   endif
+     c                   endif
+      *
+     C                   ENDSR
+      *
+      *************************************************
+     C     FjernFrTur    BEGSR
+      *************************************************
+      *
+     c                   move      WSPRO         WINTEG
+     C     TurKey        SETLL     STSfbr
+     C     TurKey        READE(N)  STSfbr                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   eval      TTACTI = '   '
+     c                   move      SFAVD         DIAVD
+     c                   move      SFOPD         DIOPD
+     c     HeaKey        chain     HEADF
+      * FULLSKUTT i feltkontroll
+      * Dersom oppdraget er på tur (men fremdeles ligger på felt ) Fjern fra tur
+     c                   if        SFSTAT = 'X'
+     c                   if        Hepro <> *zeros
+     c                   move      'FJERN'       WKEY2_TYPE                     Fjernet fra  tur
+     c                   eval      TTACTI = 'zTf'
+     c                   move      HEPRO         HEPROA            8
+     C                   Call      'SYGE21B'
+     C                   PARM                    HEPRO
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    UFLAGG            1
+     c                   endif
+      * ikke FULLSKUTT/men DELSKUTT  i feltkontroll
+      * Dersom oppdraget IKKE er på tur-fremdeles ligger på felt, VARSLE om delvis
+     c                   else
+     C                   if        SFANKK > 0
+     c                   if        Hepro = *zeros
+     c                   move      'DELVI'       WKEY2_TYPE                     Delvis
+     c                   eval      TTACTI = 'zFd'
+     c                   endif
+     c                   endif
+     c                   endif
+      * hvis den skal rapporteres skriv til wrkcgi for enklere mailprog..
+     c                   if        TTACTI <>  '   '
+     c                   move      HEAVD         WKEY2_AVD
+     c                   move      HEOPD         WKEY2_OPD
+     c                   move      HENT          HENT_A
+     c                   move      HEVKT         HEVKT_A
+     c                   eval      WDAT_Merk ='(Fjernet fra tur '+ HEPROA+')'
+     c                   if        TTACTI = 'zFd'
+     c                   eval      WDAT_Merk ='('+%trim(%editc(SFANKK:'3'))
+     c                                       +' av '+%trim(%editc(SFANKI:'3'))
+     c                                       +' er skutt på felt. '
+     c                                       +' Hva skal skje videre?)'
+     c                   endif
+     c                   WRITE     WRKCGIR
+      *
+     c                   exsr      TTSR
+     c                   endif
+      *
+     C     TurKey        READE(N)  STSfbr                                 94
+     C  N94              ENDDO
+      *
+     C                   ENDSR
+      *************************************************
+     C     EtterK_SR     BEGSR
+      *************************************************
+     c                   if        EtterkPRO =  *zeros
+     C                   CALL      'ESTKT23T'
+     C                   PARM                    LocFavd
+     C                   PARM                    EtterkPRO
+     C                   PARM                    EtterkBIL
+     c                   endif
+      *
+     c                   if        EtterkPRO <> *zeros
+     c                   move      EtterkPRO     HEPROA            8
+     C                   Call      'SYGE21'
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    EtterkPRO
+     C                   PARM                    UFLAGG
+      * skriv til wrkcgi for enklere mailprog..
+     c                   move      WSPRO         WINTEG
+     c                   move      'PÅTUR'       WKEY2_TYPE                     Legg på tur
+     c                   move      HEAVD         WKEY2_AVD
+     c                   move      HEOPD         WKEY2_OPD
+     c                   move      HENT          HENT_A
+     c                   move      HEVKT         HEVKT_A
+     c                   eval      WDAT_Merk ='(Lagt på tur '+ HEPROA
+     c                                       +' / ' + %trim(EtterkBIL) + ')'
+     c                   WRITE     WRKCGIR
+     c                   eval      TTACTI = 'zTp'
+TMP  c                   exsr      TTSR
+     c                   endif
+     C                   ENDSR
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+      *
+     C                   MOVE      HEAVD         TTAVD
+     C                   MOVE      HEOPD         TTOPD
+     C                   MOVE      *ZEROS        TTFBNR
+     c                   select
+     c                   when      TTACTI = 'zTp'
+     C                   eval      TTTEXT = 'Put on trip ' + HEPROA
+     c                             +' (Via field ctr./UnPlanned/not scanned '
+     c                             +'om closing.)'
+     C                   eval      TTTEXL = 'Satt på tur ' + HEPROA
+     c                             +' (Via feltkontr./Udisp/Uskutt på felt '
+     c                             +'v/avsl.)'
+     c
+     c                   when      TTACTI = 'zTf'
+     C                   eval      TTTEXT = 'Removed from trip ' + HEPROA
+     c                             +' (Via field ctr./Fully scanned on field '
+     c                             +'om closing.)'
+     C                   eval      TTTEXL = 'Fjernet fra tur ' + HEPROA
+     c                             +' (Via feltkontr./Full-skutt på felt '
+     c                             +'v/avsl.)'
+     c
+     c                   when      TTACTI = 'zFd'
+     C                   eval      TTTEXT = 'Repported PARTLY scanned in'
+     c                             +' field control (Check: Send/Wait wa'
+     c                             +'house??)'
+     C                   eval      TTTEXL = 'Rapporter DELVIS skannet ved '
+     c                             +' feltkontroll (Sjekk opp: Send/Vente'
+     c                             +'lager??)'
+     c                   endsl
+     C                   MOVE      ULDT          TTDATL
+     C                   MOVE      XULTM         TTTIML
+     C                   MOVE      TTDATL        TTDATE
+     C                   MOVE      TTTIML        TTTIME
+     C                   MOVE      WSUSER        TTUSER
+     C                   MOVE      ' '           TTMANU
+     C                   WRITE     TRACKFR
+     C
+     C                   ENDSR
+     C***********************************************
+     C     SendMail      BEGSR
+     C***********************************************
+     c                   move      WSPRO         UTURNR
+     c                   move      LocFavd       UAVD
+     c                   move      TERM5         UTERM
+     c                   move      LocFelt       UFELT
+     C                   call      'ESTKT23M'
+     C                   parm                    UTURNR            8            Tur/løpenr i STSXXX
+     C                   parm                    UAVD              4
+     C                   parm                    UTERM             5
+     C                   parm                    UFELT             5
+     C                   ENDSR
+     C***********************************************
+     C     ListEtterK    BEGSR
+     C***********************************************
+      * Denne CL lister til print/arkiverer/sennder evt EDI mm
+     c                   move      EtterkPRO     UTURNR
+     c                   move      WSUSER        UUSER
+     c                   move      *blanks       UTERMPRT
+     C                   call      'SYFA55ICLT'
+     C                   parm                    UTURNR            8
+     C                   parm                    UUSER            10
+     C                   parm                    UTERMPRT         10
+     C                   ENDSR

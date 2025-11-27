@@ -1,0 +1,230 @@
+     H DFTACTGRP(*NO)
+     FSYREO31D  CF   E             WORKSTN USROPN
+     FSYREO31F  UF A E           K DISK
+     FSYREO31F2 UF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRMSR    UF   E           K DISK
+
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SYREO31r2'
+     d syreo31r2       pr                  extpgm('SYREO31R2')
+     d uok_                                like(uok)
+      *  Prototype for 'SYREO32C'
+     d syreo32c        pr                  extpgm('SYREO32C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO33C'
+     d syreo33c        pr                  extpgm('SYREO33C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO34C'
+     d syreo34c        pr                  extpgm('SYREO34C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO35C'
+     d syreo35c        pr                  extpgm('SYREO35C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for 'SYREO36C'
+     d syreo36c        pr                  extpgm('SYREO36C')
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  Prototype for syreo31r
+     d syreo31r        pr
+     d uauto_                              like(uauto)
+      *  *ENTRY Interface for Main Procedure
+     d syreo31r        pi
+     d uauto                          1a
+
+     d wdt             s              8a
+     d wtm             s              6a
+     d xavslutt        s              1a
+     d xaar1           s              4s 0
+     d xaar2           s              4s 0
+     d xmnd            s              2s 0
+     d uok             s              1a
+     d                 ds
+     d udtf                    1      8a
+     d udtfn                   1      8  0
+     d                 ds
+     d udtp                    1      8a
+     d udtpn                   1      8  0
+     d                 ds
+     d xdt                     1      8  0
+     d xdta                    1      4  0
+     d xdtm                    5      6  0
+      /free
+
+       setll *loval firm;
+       read firm;
+       chain(n) fifirm firmsr;
+       if not %found;
+         // Firma har ikke satt antall år for sletting
+         *inlr = *on;
+         return;
+       endif;
+       syge15c (wdt: wtm);
+       xdt = %float(wdt);
+
+       r31mod = 'SV-TULL';
+       chain(n) r31mod syreo31f;
+       if %found and r31st <> 'F';
+         wsaarf = r31ar1;
+         wsaarp = r31ar2;
+         wsjn   = r31reo;
+       else;
+         wsaarf = srseyf;
+         wsaarp = srseyp;
+         wsjn   = 'N';
+       endif;
+
+       if uauto = 'N';
+         // ikke autostart -> start sletterutine på nytt
+         open SYREO31D;
+         dow xavslutt <> 'J';
+         // hent antall år fra skjerminput
+           exfmt BILDE;
+           *in99 = *off;
+           *in98 = *off;
+           if *in03;
+             close SYREO31D;
+             *inlr = *on;
+             return;
+           endif;
+           select;
+           when wsaarf < 5;
+             *in99 = *on;
+           when wsaarp < 7;
+             *in98 = *on;
+           when wsaarf >= 5 and wsaarp >= 7;
+             xavslutt = 'J';
+             chain fifirm firmsr;
+             srseyf = wsaarf;
+             srseyp = wsaarp;
+             update firmsrr;
+           endsl;
+         enddo;
+         close SYREO31D;
+
+         // Oppdatere styringsfil
+         chain r31mod syreo31f;
+         r31ar1 = wsaarf;
+         r31ar2 = wsaarp;
+         r31ars = xdta;
+         r31reo = wsjn;
+         r31pgm = 'SYREO32R';
+         r31dt1 = %float(wdt);
+         r31tm1 = %float(wtm);
+         if not %found;
+           write syreo31fr;
+         else;
+           r31st  = ' ';
+           r31dt2 = 0;
+           r31tm2 = 0;
+           update syreo31fr;
+         endif;
+       endif;   // Slutt på if uauto = 'N'
+
+       // beregn til og med dato for sletting
+       udtfn = (xdta - wsaarf - 1) * 10000 + 1231;
+       udtpn = (xdta - wsaarp - 1) * 10000 + 1231;
+
+       chain r31mod syreo31f;
+       if not %found;
+         // Ikke slettet før --> Start sletting.   FOREKOMME KUN FØRST GANG AUTO-SLETTING
+         r31ar1 = wsaarf;
+         r31ar2 = wsaarp;
+         r31reo = wsjn;
+         r31ars = xdta;
+         r31pgm = 'SYREO32R';
+         r31dt1 = %float(wdt);
+         r31tm1 = %float(wtm);
+         write syreo31fr;
+       else;
+         if xdtm = 2 and r31st = 'F' and xdta > r31ars          // Auto ny start
+            or r31st = ' ' and r31pgm = *blanks ;               // Ny start etter tømming SYREO31F
+           // Februar, avsluttet sletting, ikke samme år --> Start årets sletting
+           r31st = ' ';
+           r31ar1 = wsaarf;
+           r31ar2 = wsaarp;
+           // r31reo = wsjn;              // Ikke oppdater r31reo -> bevare opsjon fra siste kjøring
+           r31ars = xdta;
+           r31pgm = 'SYREO32R';
+           r31dt1 = %float(wdt);
+           r31tm1 = %float(wtm);
+           r31dt2 = 0;
+           r31tm2 = 0;
+         endif;
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO32R';
+       // Init. reorg.fil
+         exec sql
+         update syreo31f2
+         set r312st = ' ', r312dt = 0, r312tm = 0
+         where r312mod = 'SV-TULL'
+         with NC;
+
+         syreo32c (udtf: udtp);              // SAD-import
+         chain r31mod syreo31f;
+         r31pgm = 'SYREO33R';
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO33R';
+         syreo33c (udtf: udtp);              // SAD-eksmport
+         chain r31mod syreo31f;
+         r31pgm = 'SYREO34R';
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO34R';
+         syreo34c (udtf: udtp);              // NCTS-import
+         chain r31mod syreo31f;
+         r31pgm = 'SYREO35R';
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO35R';
+         syreo35c (udtf: udtp);              // NCTS-eksport
+         chain r31mod syreo31f;
+         r31pgm = 'SYREO36R';
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO36R';
+         syreo36c (udtf: udtp);              // EDI som ikke er knyttet til oppdrag
+         syge15c (wdt: wtm);
+         chain r31mod syreo31f;
+         if wsjn = 'J';
+           // Reorganisere filer etter sletting
+           r31pgm = 'SYREO31R2';
+         else;
+           // Ikke reorganisere filer etter sletting
+           r31st = 'F';
+           r31dt2 = %float(wdt);
+           r31tm2 = %float(wtm);
+         endif;
+         update syreo31fr;
+       endif;
+
+       if r31st = ' ' and r31pgm = 'SYREO31R2';
+         syreo31r2 (uok);                 // Reorg. filer
+         if uok = 'J';
+           syge15c (wdt: wtm);
+           chain r31mod syreo31f;
+           r31st = 'F';
+           r31dt2 = %float(wdt);
+           r31tm2 = %float(wtm);
+           update syreo31fr;
+         endif;
+       endif;
+
+       *inlr = *on;
+       return;
+
+      /end-free

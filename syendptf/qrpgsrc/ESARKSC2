@@ -1,0 +1,580 @@
+      *********************************************************************
+CRTPG+*  CRTPGM SYSPED/ESARKSC2 MODULE(*LIBL/ESARKSC2 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 Div forbedr ved visning /kontroll av type mm
+10XXX * 02 JOV PTF10 OPPDATER KARTALOG PÅ WEB
+10XXX * 03 JOV PTF10 Ta høyde for tidsoppfølging i ARCAPOD
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 04 JOV PTF11 ENNÅ EN PARM I  ARCAPOD
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 05 JOV PTF12 tillate turnr via UND
+      * 06 JOV PTF12 Hvis lagring i google cloud send rett dit (den rutinen sletter lokalt)
+********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+
+     FBRIDF     IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+N06  FFIRMGOOG  IF   E           K DISK
+     FARKIVP    O    E             DISK    USROPN
+     FFIRM      IF   E             DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+     F                                     PREFIX(X_)
+     FARKEXT    IF   E           K DISK    USROPN
+     F                                     PREFIX(Y_)
+     FKOSTA     IF   E           K DISK    USROPN
+     FKOSTA14   IF   E           K DISK    USROPN
+     F                                     RENAME(KOSTAR:KOSTAR1)
+     FKOSTB3    IF   E           K DISK    USROPN
+N05  FTURER14   IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+n03  FSYPARL3   IF   E           K DISK    USROPN
+      *_____________________________
+      * Variables common to all CGIs
+      *"""""""""""""""""""""""""""""
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *_______________________
+      * Client input variables
+      *"""""""""""""""""""""""
+     D WUSER           S             10
+     D KOBL            S            100
+N02  D KAT             S             50
+     D AVD             S              4
+     D OPD             S              8
+     D UND             S             10
+N05  D UND10N          S             10  0
+N05  D UND08N          S              8  0
+     D TYPE            S              2
+     D FEILTEXT        S             70
+     D AVSLUTT         S              1
+N01  D VAlleChecked    s             10
+N01  D VisAlle         s              1
+N05  D TypSel          S              8                                         selected
+      *________________
+      * Andre variabler
+      *""""""""""""""""
+     D NULL            S              1A   INZ(X'00')
+     D CMDLINE         S            512
+     D CMDLEN          S             15  5
+     D NEWDIR          S            100
+     D NEWFILE         S            100
+     D NEWOBJ          S            200
+     D NEWEND          S              4
+     D NEWRAN          S             10
+     D                 DS
+     D  AVDOPD                 1     11
+     D  ARAVD                  1      4  0
+     D  AROPD                  5     11  0
+N03  D                 DS
+N03  D  SYvrda                 1     50
+N03  D    SYvrda1_2            1      2
+N03  D    SYvrda4_6            4      6
+N03  D    SYvrda8_50           8     50
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Get program start time for calculating execution time
+     C                   TIME                    timedata1
+      * Parse input / cvt to numeric
+     C                   EXSR      PARSE
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   EXSR      LOADHTML
+      * Set section variables
+     C                   EXSR      SETTOP
+     C                   CALLP     wrtsection('top')
+      * Skriv
+     C                   EXSR      SETROW1
+     C                   CALLP     wrtsection('row1')
+     C                   EXSR      SETROW2
+      * Compute run time
+     C                   TIME                    timedata2
+     C     timedata2     SUBDUR    timedata1     ms:*ms
+     C                   EVAL      sec = ms / 1000000
+     C                   CALLP     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+
+     C                   CALLP     wrtsection('bot')
+
+     C                   EXSR      EXIT
+
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+      *////////////////////////////////////////////////////////////
+      *  Hente variabler                                    PARSE /
+      *////////////////////////////////////////////////////////////
+     C     PARSE         BEGSR
+      * Parse variables from QUERY_STRING environment variable
+     C                   EVAL      KOBL     = zhbgetvar('KOBL')
+N02  C                   EVAL      KAT      = zhbgetvar('KAT')
+     C                   EVAL      AVD      = zhbgetvar('AVD')
+     C                   EVAL      AVDN     = c2n2(AVD)
+     C                   EVAL      OPD      = zhbgetvar('OPD')
+     C                   EVAL      OPDN     = c2n2(OPD)
+     C                   EVAL      UND      = zhbgetvar('UND')
+S05  C*                  EVAL      UNDN     = c2n2(UND)
+N05  C                   EVAL      UND10N   = c2n2(UND)
+N05   * input lenger enn 7 ..
+N05  c                   if        %subst(UND:8:1)<>' '
+N05   *         .. eksakt 8 lanng = Turnr ...
+N05  c                   if        %subst(UND:9:1)= ' '
+N05  C                   EVAL      UND08N   = UND10N
+N05  c                   endif
+N05  c                   else
+N05   * input kortere en 7 = bilagsnummer som før
+N05  C                   EVAL      UNDN     = UND10N
+N05  c                   endif
+     C                   EVAL      TYPE     = zhbgetvar('TYPE')
+      * ved kall fra liste er type blank.
+     C                   EVAL      AVSLUTT  = zhbgetvar('AVSLUTT')
+     c     AVSLUTT       ifeq      ' '
+     C     LC:UC         XLATE     TYPE          TYPE
+     c                   end
+      * Userid.....
+     C                   EVAL      WUSER = zhbgetvar('USER')
+N01  C                   eval      VisAlle = zhbgetvar('VisAlle')
+N01   * Checkboks for Vis alle  ,
+N01   *    ved KLIKK på checkboks kommer verdi Y/blank,
+N01   *    eller kommer verdi fra siste valg via "VisAlle" som checked(Y) / blank(N)
+N01  C     VAlleChecked  Ifeq      'checked'
+N01  C                   eval      VisAlle  = 'Y'
+N01  C                   else
+N01  C                   eval      VisAlle  = zhbgetvar('VisAlle ')
+N01  C                   end
+N01  c     VisAlle       Ifne      'Y'
+N01  C                   eval      VisAlle  = 'N'
+N01  c                   end
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Close output html and quit                          EXIT /
+      *////////////////////////////////////////////////////////////
+     C     EXIT          BEGSR
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   CALLP     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     CUNDL01
+     C                   CLOSE     FIRMARC
+     C                   CLOSE     ARKIVP
+     C                   CLOSE     FIRM
+     C                   CLOSE     ARKTXT
+     C                   CLOSE     ARKEXT
+     C                   CLOSE     KOSTA
+     C                   CLOSE     KOSTA14
+     C                   CLOSE     KOSTB3
+     C                   CLOSE     HEADF
+N03  C                   CLOSE     SYPARL3
+N05  C                   CLOSE     TURER14
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Read output skeleton html member into memory    LOADHTML /
+      *////////////////////////////////////////////////////////////
+     C     LOADHTML      BEGSR
+     C                   CALLP     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESARKSC2':'/CGITAG/')
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Set variable data for section /$top               SETTOP /
+      *////////////////////////////////////////////////////////////
+     C     SETTOP        BEGSR
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   CALLP     updHTMLvar('USER':WUSER)
+     C                   CALLP     updHTMLvar('BESK':BIBESK)
+     C                   CALLP     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   CALLP     updHTMLvar('KNAVN':KNAVN)
+     C                   CALLP     updHTMLvar('KOBL':KOBL)
+N02  C                   CALLP     updHTMLvar('KAT':KAT)
+N01  C     VisAlle       Ifeq      'Y'
+N01  C                   eval      VAlleChecked = 'checked'
+N01  C                   end
+N01  C                   callp     updHTMLvar('VAlleChecked':VAlleChecked)
+      * Nullstill en del verdier
+     C                   EVAL      *IN30=*OFF
+     C                   EVAL      FEILTEXT=*BLANKS
+     C                   EVAL      AVSLUTT='N'
+      *
+     C     TYPE          CHAIN     ARKTXT                             30
+     C                   IF        *IN30
+S01  C*                  EVAL      FEILTEXT='Oppgitt type finnes ikke !'
+N01  C     Type          IFEQ      *BLANKS
+N01  c                   movel     '( blank )'   typblan          10
+N01  c                   else
+N01  c                   eval      typblan='( '+TYPE+' )'
+N01  c                   end
+N01  C                   EVAL      FEILTEXT='Oppgitt type '+%trim(typblan)
+N01  C                             +' finnes ikke, Velg fra lista.'
+     C                   GOTO      NOVAR
+     C                   ENDIF
+      * Er noe utfyllt ?
+     C     AVD           IFEQ      *BLANKS
+     C     OPD           ANDEQ     *BLANKS
+     C     UND           ANDEQ     *BLANKS
+     C                   GOTO      NOVAR
+     C                   ENDIF
+      * Er UND utfyllt ?
+     C     UND           IFNE      *BLANKS
+N05  C                   if        UND08N<> *zeros
+N05  C     UND08n        CHAIN     TURER14                            30
+N05  C                   IF        *IN30
+N05  C                   EVAL      FEILTEXT='Turnummer finnes ikke !'
+N05  C                   GOTO      NOVAR
+N05  C                   ENDIF
+N05  C                   endif
+N05  C                   if        UNDN<> *zeros
+     C     UNDN          CHAIN     KOSTA14                            30
+     C   30UNDN          CHAIN     KOSTA                              30
+     C                   IF        *IN30
+     C                   EVAL      FEILTEXT='Bilag finnes ikke !'
+     C                   GOTO      NOVAR
+     C                   ENDIF
+N05  C                   endif
+     C                   ENDIF
+      * Kontroller AVD + opd-nr
+     C     UND           IFEQ      *BLANKS
+     C     HEADKEY       CHAIN     HEADF                              30
+     C                   IF        *IN30
+     C                   EVAL      FEILTEXT='Avd/opd finnes ikke !'
+     C                   GOTO      NOVAR
+     C                   ENDIF
+     C                   ENDIF
+      * Ingen feil, MOV fil og skriv til ARKIVP
+     C     AVDN          IFGT      0
+     C     OPDN          ORGT      0
+     C     UND           ORNE      *BLANKS
+     C                   EXSR      MOV
+     C     UND           IFEQ      *BLANKS
+     C                   EXSR      ARK_OPD
+     C                   ELSE
+N05  C                   if        UNDN<> *zeros
+     C                   EXSR      ARK_UND
+N05  C                   else
+N05  C                   if        UND08N<> *zeros
+N05  C                   endif
+N05  C                   EXSR      ARK_UND08
+N05  C                   endif
+     C                   ENDIF
+     C                   ENDIF
+      * Oppdater variabel for selfclose
+     C                   EVAL      AVSLUTT='Y'
+     C     NOVAR         TAG
+     C                   CALLP     updHTMLvar('FEILTEXT':FEILTEXT)
+     C                   CALLP     updHTMLvar('AVSLUTT':AVSLUTT)
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Set variable data for section /$row              SETROW1 /
+      *////////////////////////////////////////////////////////////
+     C     SETROW1       BEGSR
+     C                   CALLP     updHTMLvar('AVD':AVD)
+     C                   CALLP     updHTMLvar('OPD':OPD)
+     C                   CALLP     updHTMLvar('UND':UND)
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Set variable data for section /$row              SETROW2 /
+      *////////////////////////////////////////////////////////////
+     C     SETROW2       BEGSR
+N01  C     VisAlle       Ifeq      'Y'
+N01  c     '  '          setll     ARKTXT
+N01  c                   else
+N01  c     'Z '          setll     ARKTXT
+N01  c                   end
+     C                   READ      ARKTXT                                 51
+     C     *IN51         DOWEQ     *OFF
+N05  c                   if        X_ARTYPE = TYPE
+N05  c                   eval      TypSel ='selected'
+N05  c                   else
+N05  c                   eval      TypSel =*blanks
+N05  c                   endif
+N05  C                   CALLP     updHTMLvar('TYPSEL':TYPSEL)
+     C                   CALLP     updHTMLvar('TYPE':X_ARTYPE)
+     C                   CALLP     updHTMLvar('TYPETXT':X_ARTXT)
+     C                   CALLP     wrtsection('row2')
+     C                   READ      ARKTXT                                 51
+     C                   ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Init                                                INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+      * Definiere variabler
+     C     *LIKE         DEFINE    ARAVD         AVDN
+     C     *LIKE         DEFINE    AROPD         OPDN
+     C     *LIKE         DEFINE    KABNR         UNDN
+     C                   OPEN      BRIDF
+     C     WUSER         CHAIN     BRIDF                              50
+      * Definiere parameterliste
+     C     QCMDEXC       PLIST
+     C                   PARM                    CMDLINE
+     C                   PARM                    CMDLEN
+      * En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+
+     C                   OPEN      CUNDL01
+     C                   OPEN      FIRMARC
+     C                   OPEN      ARKIVP
+     C                   OPEN      FIRM
+     C                   OPEN      ARKTXT
+     C                   OPEN      ARKEXT
+     C                   OPEN      KOSTA
+     C                   OPEN      KOSTA14
+     C                   OPEN      KOSTB3
+     C                   OPEN      HEADF
+N03  C                   OPEN      SYPARL3
+N05  C                   OPEN      TURER14
+
+     C     HEADKEY       KLIST
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C     KUNKEY        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    BIKUNR
+
+     C     KUNKEY        CHAIN     CUNDL01                            33
+      * Les firmapost
+     C                   READ      FIRMARC                                41
+
+     C     EXKEY         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    X_ARKLAG
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Flytt og endre navn på fil                           MOV /
+      *////////////////////////////////////////////////////////////
+     C     MOV           BEGSR
+      * Les firmafil for å få tak i firmakode.
+     C                   READ      FIRM
+      * Hent dato og klokkeslett
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+      * Concat av avd + opd
+     C                   EVAL      ARAVD = AVDN
+     C                   EVAL      AROPD = OPDN
+      * Hent slutt på filnavn (ex. .pdf) fra frafil
+     C     '.'           SCAN      KOBL          X                 3 0
+     C                   EVAL      NEWEND = %SUBST(KOBL:X:4)
+      * Generer random number
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN
+      * Definier ny katalog Hent fra standard
+     C                   EVAL      NEWDIR = '/' + %trimr(ARCANE)
+      * Definier ny katalog Eventuelle avvik
+     C                   EVAL      *IN51 = *OFF
+     C     TYPE          CHAIN     ARKTXT                             51
+     C                   IF        *IN51 = *OFF
+     C     X_ARKLAG      IFNE      *BLANKS
+     C     EXKEY         CHAIN     ARKEXT                             51
+     C                   IF        *IN51 = *OFF
+     C                   EVAL      NEWDIR = '/' + %trimr(Y_ARCANE)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      * Definier nytt filnavn
+     C     UND           IFEQ      *BLANKS
+     C                   EVAL      NEWFILE= %trim(TYPE)
+     C                             + %SUBST(WDATO:1:4)
+     C                             + AVDOPD
+     C                             + NEWRAN
+     C                             + NEWEND
+     C                   ELSE
+     C                   EVAL      NEWFILE= %trim(TYPE)
+     C                             + %SUBST(WDATO:1:4)
+     C                             + %trimr(UND)
+     C                             + NEWRAN
+     C                             + NEWEND
+     C                   ENDIF
+      * Lag nytt objektnavn
+     C                   EVAL      NEWOBJ = %trim(NEWDIR) + '/'
+     C                             + %trimr(NEWFILE)
+      * Flytte objekt
+     C                   CALL      'ESARKS2C'
+     C                   PARM                    KOBL
+     C                   PARM                    NEWOBJ
+      *
+n06  C     FIFIRM        chain     FIRMGOOG
+n06  C                   if        %found and GOBUID <> *blanks
+n06  c                   eval      Companyid = GOBUID
+n06  c                   eval      UlocalPath= %trim(NEWDIR)+'/'
+n06  c                   eval      USrcFile  = NEWFILE
+n06  c                   eval      UNewFile  = *blanks
+n06  c                   eval      Udelete   = 'J'
+n06  c                   call      'ARC99WSU1'
+n06  c                   parm                    Companyid        10
+n06  c                   parm                    UlocalPath      100
+n06  c                   parm                    uSrcFile        120
+n06  c                   parm                    udelete           1
+n06  c                   parm                    uNewFile         60
+n06  c                   parm                    Uok               1
+n06  c                   endif
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP                                 ARK_OPD /
+      *////////////////////////////////////////////////////////////
+     C     ARK_OPD       BEGSR
+      * Skriv til ARKIVP
+     C                   CLEAR                   ARKIVR
+
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C                   EVAL      ARAVD  = AVDN
+     C                   EVAL      AROPD  = OPDN
+     C                   EVAL      ARUSER = WUSER
+     C                   EVAL      ARDATE = c2n2(WDATO)
+     C                   EVAL      ARTIME = c2n2(WTID)
+     C                   EVAL      ARKUND = 0
+     C                   EVAL      ARLINK = NEWFILE
+
+     C                   WRITE     ARKIVR
+      * Oppdater POD i T&T
+     C     ARTYPE        ifeq      'ZP'
+     c                   z-add     aravd         UUAVD             4 0
+     c                   z-add     aropd         UUOPD             7 0
+N03  c                   move      'POD'         TTACTI                         default v/POD
+N03  c                   move      *blanks       TidsOppf          1
+N03  C     SyparKey      KLIST
+N03  C                   KFLD                    XXPAID            5
+N03  C                   KFLD                    XXVRDA           50
+N03  C                   movel     'ARKTT'       XXPAID
+N03  C                   movel     TYPE          XXVRDA
+N03   * ark-koden er del av KEY i SYPARL3 - alltid nok med EN chain
+N03  C     SyparKey      setll     SYPARL3
+N03  C     XXPAID        reade     SYPARL3                                33
+N03  c  N33SYvrda1_2     comp      TYPE                               3333
+N03  c  N33              movel     SYvrda4_6     TTACTI
+N03  c  N33SyvrdN        ifeq      1
+N03  c     SyvrdN        oreq      2                                            Også klokke-krav
+N03  c                   move      'J'           TidsOppf
+N03  c                   end
+     C                   call      'ARCAPOD'
+     C                   parm                    UUAVD
+     C                   parm                    UUOPD
+     C                   parm                    ARDATE
+     C                   parm                    ARTIME
+     C                   parm                    ARUSER
+N03  C                   parm                    TTACTI            3
+n04  C                   parm                    TTEDRE            3            Reason (KOP=Kopi)
+N03  C                   parm                    TidsOppf
+     C                   end
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP Bilag-test                      ARK_UND /
+      *////////////////////////////////////////////////////////////
+     C     ARK_UND       BEGSR
+      *______________________________________
+      * Prøv først via KOSTA14 (bilagsnummer)
+      *""""""""""""""""""""""""""""""""""""""
+     C     UNDN          CHAIN     KOSTA14                            34
+     C     *IN34         IFEQ      *OFF
+      * Hva er status på bilaget ?
+     C     KAST          IFEQ      'O'
+     C                   EXSR      ARK_UND1
+     C                   ELSE
+     C                   EXSR      ARK_UND2
+     C                   ENDIF
+      *____________________________________
+      * Prøv deretter med KOST (løpenummer)
+      *""""""""""""""""""""""""""""""""""""
+     C                   ELSE
+     C     UNDN          CHAIN     KOSTA                              34
+     C     *IN34         IFEQ      *OFF
+     C                   EXSR      ARK_UND2
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP Bilag status=O                 ARK_UND1 /
+      *////////////////////////////////////////////////////////////
+     C     ARK_UND1      BEGSR
+      *____________________________
+      * Finn alle oppdrag i bilaget
+      *""""""""""""""""""""""""""""
+     C     KABNR         SETLL     KOSTB3
+     C     KABNR         READE     KOSTB3                                 35
+     C     *IN35         DOWEQ     *OFF
+     C     KBAVD         IFNE      0
+     C     KBOPD         ANDNE     0
+     C                   CLEAR                   ARKIVR
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C                   EVAL      ARUNDE = 'KL:'
+     C                   MOVE      KABNR         KABNRA            7
+     C     ARUNDE        CAT       KABNRA        ARUNDE
+     C                   EVAL      ARAVD  = KBAVD
+     C                   EVAL      AROPD  = KBOPD
+     C                   EVAL      ARUSER = WUSER
+     C                   EVAL      ARDATE = c2n2(WDATO)
+     C                   EVAL      ARTIME = c2n2(WTID)
+     C                   EVAL      ARKUND = 0
+     C                   EVAL      ARLINK = NEWFILE
+     C                   WRITE     ARKIVR
+     C                   ENDIF
+     C     KABNR         READE     KOSTB3                                 35
+     C                   END
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP Bilag-status ikke O            ARK_UND2 /
+      *////////////////////////////////////////////////////////////
+     C     ARK_UND2      BEGSR
+      * Skriv til ARKIVP
+     C                   CLEAR                   ARKIVR
+
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C                   EVAL      ARUNDE = 'KL:'
+     C                   MOVE      KABNR         KABNRA
+     C     ARUNDE        CAT       KABNRA        ARUNDE
+     C                   EVAL      ARUSER = WUSER
+     C                   EVAL      ARDATE = c2n2(WDATO)
+     C                   EVAL      ARTIME = c2n2(WTID)
+     C                   EVAL      ARKUND = 0
+     C                   EVAL      ARLINK = NEWFILE
+
+     C                   WRITE     ARKIVR
+     C                   ENDSR
+N05
+N05   *////////////////////////////////////////////////////////////
+N05   *  Skriv til ARKIVP Turreckord                     ARK_UND08/
+N05   *////////////////////////////////////////////////////////////
+N05  C     ARK_UND08     BEGSR
+N05   * Skriv til ARKIVP
+N05  C                   CLEAR                   ARKIVR
+N05
+N05  C                   EVAL      ARSTAT = 'A'
+N05  C                   EVAL      ARTYPE = TYPE
+N05  C                   EVAL      ARFIRM = FIFIRM
+N05  C                   EVAL      ARUNDE = 'T:'+%editc(UND08N:'X')
+N05  C                   EVAL      ARUSER = WUSER
+N05  C                   EVAL      ARDATE = c2n2(WDATO)
+N05  C                   EVAL      ARTIME = c2n2(WTID)
+N05  C                   EVAL      ARKUND = 0
+N05  C                   EVAL      ARLINK = NEWFILE
+N05
+N05  C                   WRITE     ARKIVR
+N05  C                   ENDSR

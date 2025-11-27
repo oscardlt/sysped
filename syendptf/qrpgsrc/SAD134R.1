@@ -1,0 +1,635 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL REGISTRERE E.F. MANIFEST (OPPDRAG)     ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01-02 06-08 10 11 13-26
+      *** LEDIGE INDIKATORER 27-29 31 32 34-47 50-81          ***
+      ***********************************************************
+      *
+     H DFTACTGRP(*NO)
+     FTELLGE    UF A E           K DISK
+     FSADH      IF   E           K DISK
+     FSADEFCL1  UF A E           K DISK
+     FSADEFCL2  UF   E           K DISK    RENAME(SADEFCFR:SADEFCFR2)
+     FSADEFL02  IF   E           K DISK
+     FSADEFCSL1 IF   E           K DISK
+     FSVEH      IF   E           K DISK
+     FSVZH      IF   E           K DISK
+     FTRACKF    O  A E             DISK
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FSTED2D    IF   E           K DISK
+     FKOFAST    IF   E           K DISK
+     FSAD134D   CF   E             WORKSTN INFDS(FBAREA)
+     D                SDS
+     D  UUSR                 254    263
+     D FBAREA          DS
+     D  WSCLOC               382    383B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+     D                 DS
+     D  CL0068AC               1      2  0
+     D  CL0068AA               3      4  0
+     D  CL0068AM               5      6  0
+     D  CL0068AD               7      8  0
+     D  CL0068A                1      8  0
+     D                 DS
+     D  WS0068AD               1      2  0
+     D  WS0068AM               3      4  0
+     D  WS0068AA               5      6  0
+     D  WS0068A                1      6  0
+      *
+      *  Prototype for 'TESTDATO'
+     d TESTDATO        pr                  extpgm('TESTDATO')
+     d xdg_                                like(XDG)
+     d xmn_                                like(XMN)
+     d xar_                                like(XAR)
+     d uflagg_                             like(UFLAGG)
+      *  Prototype for 'SYFI10F'
+     d SYFI10F         pr                  extpgm('SYFI10F')
+     d wssdf_                              like(wssdf)
+     d unvn_                               like(unvn)
+     d ulk_                                like(ulk)
+      *  Prototype for 'SYFAKDA'
+     d SYFAKDA         pr                  extpgm('SYFAKDA')
+     d kftyp_                              like(kftyp)
+     d uupdat_                             like(uupdat)
+     d xkfkod_                             like(xkfkod)
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for SAD134R
+     d sad134r         pr
+     d upro_                               like(upro)
+     d uavd_                               like(uavd)
+     d utdn_                               like(utdn)
+     d utype_                              like(utype)
+     d uflagg_                             like(uflagg)
+      *  *ENTRY Interface for Main Procedure
+     d sad134r         pi
+     d upro                           8  0
+     d uavd                           4  0
+     d utdn                           7  0
+     d utype                          3a
+     d uflagg                         1  0
+      *
+     d i               s              3  0
+     d uupdat          s              1a
+     d usped           s              1a
+     d unvn            s             30a
+     d ulk             s              2a
+     d xkfkod          s              5a
+     d xdg             s              2  0
+     d xmn             s              2  0
+     d xar             s              2  0
+      *
+      /free
+
+         exsr init;
+
+         dow *in03 = *off and *in12 = *off;                       // 1<b
+           exfmt bilde01;
+           for i = 86 to 99;       // Sett indikator 86-99 av.    // 2<b
+             *in(i) = *off;
+           endfor;                                                // 2<e
+           *in30 = *off;
+
+           select;                                                // 2<b
+           when *in04;                                            // 2
+             exsr srsok;
+           when *in12;                                            // 2
+           when *in49;                                            // 2
+           // Spørring med oppdrag
+             *in12 = *on;
+           other;                                                 // 2
+             exsr testb1;
+             if *in30 = *off;                                     // 3<b
+               exsr opdopd;
+               *in03 = *on;
+             endif;                                               // 3<e
+           endsl;                                                 // 2<e
+         enddo;                                                   // 1<e
+
+         select;
+         when *in12;
+           uflagg = 1;
+         other;
+           uflagg = 0;
+         endsl;
+
+         *inlr = *on;
+         return;
+
+      //*********************************************
+       begsr srsok;
+
+       linnbr = wscloc / 256;
+       posnbr = wscloc - (%int(linnbr) * 256);
+
+       select;
+       when linnbr = 9 and posnbr >= 15 and posnbr <= 22;
+       // SØK FRA-STED
+         unvn = wssdft;
+         syfi10f (wssdf: unvn: wslkf);
+         chain (wslkf: wssdf) sted2d;
+         if %found;
+           wssdft = st2nvn;
+         endif;
+         linnbr = 10;
+         posnbr = 15;
+       when linnbr = 10 and posnbr >= 15 and posnbr <= 22;
+       // SØK TIL-STED
+         unvn = wssdtt;
+         syfi10f (wssdt: unvn: wslkt);
+         chain (wslkt: wssdt) sted2d;
+         if %found;
+           wssdtt = st2nvn;
+         endif;
+         linnbr = 11;
+         posnbr = 15;
+       when linnbr = 11 and posnbr >= 15 and posnbr <= 16;
+       // PROSEDYRE
+         kftyp = 'SADEFPR';
+         kfkod = wspr;
+         uupdat = 'N';
+         syfakda (kftyp: uupdat: kfkod);
+         wspr = kfkod;
+         chain (kftyp: kfkod) kofast;
+         if %found;
+           wsprt = kftxt;
+         endif;
+         linnbr = 12;
+         posnbr = 15;
+       when linnbr = 12 and posnbr >= 15 and posnbr <= 16;
+       // EKSPORTTYPE
+         kftyp = 'SADEFETYPE';
+         kfkod = wsetyp;
+         uupdat = 'N';
+         syfakda (kftyp: uupdat: kfkod);
+         wsetyp = kfkod;
+         chain (kftyp: kfkod) kofast;
+         if %found;
+           wsetypt = kftxt;
+         endif;
+         linnbr = 13;
+         posnbr = 15;
+       other;
+        msgnr = 'DIV1037';
+        *in30 = *on;
+       endsl;
+
+       endsr;
+
+      //*********************************************
+       begsr testb1;
+
+       if *in48 and wsntk = 0;
+         *in99 = *on;
+       endif;
+
+       if *in48 and wsvkb = 0;
+         *in98 = *on;
+       endif;
+
+       if *in48 and wsvt = *blanks;
+         *in97 = *on;
+       endif;
+
+       if wstrnr = *blanks;
+         if wsrg = *blanks;
+           *in96 = *on;
+         endif;
+
+         xar = ws0068aa;
+         xmn = ws0068am;
+         xdg = ws0068ad;
+         testdato (xdg: xmn: xar: uflagg);
+         if uflagg = 1;
+           *in95 = *on;
+         endif;
+
+         if ws0068b = 0;
+           *in94 = *on;
+         endif;
+
+       else;
+
+         //if wstrnr = *blanks;
+         //  *in93 = *on;
+         //endif;
+
+         if wsnas = *blanks;
+           *in92 = *on;
+         endif;
+
+         if wsnak = *blanks;
+           *in91 = *on;
+         endif;
+
+       endif;
+
+       select;
+       when wslkf <> *blanks or wssdf <> *blanks;
+         chain (wslkf: wssdf) sted2d;
+         if %found;
+           wssdft = st2nvn;
+         else;
+           *in90 = *on;
+         endif;
+       when wssdft = *blanks;
+         *in90 = *on;
+       endsl;
+
+       select;
+       when wslkt <> *blanks or wssdt <> *blanks;
+         chain (wslkt: wssdt) sted2d;
+         if %found;
+           wssdtt = st2nvn;
+         else;
+           *in89 = *on;
+         endif;
+       when wssdtt = *blanks;
+         *in89 = *on;
+       endsl;
+
+       kftyp = 'SADEFPR';
+       kfkod = wspr;
+       chain (kftyp: kfkod) kofast;
+       if %found;
+         wsprt = kftxt;
+       else;
+         *in88 = *on;
+       endif;
+       if wsrg <> *blanks and wspr = '02'
+          or wstrnr <> *blanks and wspr <> '02';
+         *in88 = *on;
+       endif;
+
+       if wstrnr = *blanks or wsetyp <> *blanks;
+         kftyp = 'SADEFETYPE';
+         kfkod = wsetyp;
+         chain (kftyp: kfkod) kofast;
+         if %found;
+           wsetypt = kftxt;
+         else;
+           *in87 = *on;
+         endif;
+         if wsetyp = '02';
+           wseser = 'N';
+         endif;
+       endif;
+
+       if wstrnr = *blanks or wsetyp <> *blanks;
+         if efeid = *blanks and wseid = *blanks;
+           *in86 = *on;
+         endif;
+       endif;
+
+       exsr hmsg;
+
+       endsr;
+
+      //*********************************************
+       begsr hmsg;
+
+       select;
+       when *in99;
+         msgnr = 'YBC2111';
+         *in30 = *on;
+         linnbr = 4;
+         posnbr = 54;
+       when *in98;
+         msgnr = 'YBC2112';
+         *in30 = *on;
+         linnbr = 4;
+         posnbr = 68;
+       when *in97;
+         msgnr = 'YBC2113';
+         *in30 = *on;
+         linnbr = 5;
+         posnbr = 15;
+       when *in96;
+         msgnr = 'YBC2105';
+         *in30 = *on;
+         linnbr = 6;
+         posnbr = 15;
+       when *in95;
+         msgnr = 'YBC2106';
+         *in30 = *on;
+         linnbr = 6;
+         posnbr = 33;
+       when *in94;
+         msgnr = 'YBC2107';
+         *in30 = *on;
+         linnbr = 6;
+         posnbr = 51;
+       //when *in93;
+       //  msgnr = 'YBCxxxx';
+       //  *in30 = *on;
+       //  linnbr = 7;
+       //  posnbr = 15;
+       when *in92;
+         msgnr = 'YBC2114';
+         *in30 = *on;
+         linnbr = 7;
+         posnbr = 39;
+       when *in91;
+         msgnr = 'YBC2115';
+         *in30 = *on;
+         linnbr = 8;
+         posnbr = 39;
+       when *in90;
+         msgnr = 'SPS0012';
+         *in30 = *on;
+         linnbr = 9;
+         posnbr = 24;
+       when *in89;
+         msgnr = 'SPS0013';
+         *in30 = *on;
+         linnbr = 10;
+         posnbr = 24;
+       when *in88;
+         msgnr = 'YBC2100';
+         *in30 = *on;
+         linnbr = 11;
+         posnbr = 15;
+       when *in87;
+         msgnr = 'YBC2094';
+         *in30 = *on;
+         linnbr = 12;
+         posnbr = 15;
+       when *in86;
+         msgnr = 'YBC2096';
+         *in30 = *on;
+         linnbr = 13;
+         posnbr = 15;
+       endsl;
+
+       endsr;
+
+      //*********************************************
+       begsr movefw;
+
+       wsavd = uavd;
+       wstdn = utdn;
+
+       wsntk = clntk;
+       wsvkb = clvkb;
+       wsvt  = clvt;
+
+       wsrg     = clrg;
+       ws0068aa = cl0068aa;
+       ws0068am = cl0068am;
+       ws0068ad = cl0068ad;
+       ws0068b  = cl0068b;
+
+       wstrnr   = cltrnr;
+       wsnas    = clnas;
+       wsnak    = clnak;
+
+       wslkf = cllkf;
+       wssdf = clsdf;
+       wssdft = clsdft;
+       wslkt = cllkt;
+       wssdt = clsdt;
+       wssdtt = clsdtt;
+
+       wspr    = clpr;
+       wsprt   = clprt;
+       wsetyp  = cletyp;
+       wsetypt = cletypt;
+       wseid   = cleid;
+       wseser  = cleser;
+
+       endsr;
+
+      //*********************************************
+       begsr movwef;
+
+       clntk    = wsntk;
+       clvkb    = wsvkb;
+       clvt     = wsvt;
+
+       clrg     = wsrg;
+       cl0068ac = 20;
+       cl0068aa = ws0068aa;
+       cl0068am = ws0068am;
+       cl0068ad = ws0068ad;
+       cl0068b  = ws0068b;
+
+       cltrnr   = wstrnr;
+       clnas    = wsnas;
+       clnak    = wsnak;
+
+       cllkf   = wslkf;
+       clsdf   = wssdf;
+       clsdft  = wssdft;
+       cllkt   = wslkt;
+       clsdt   = wssdt;
+       clsdtt  = wssdtt;
+       clpr    = wspr;
+       clprt   = wsprt;
+       cletyp  = wsetyp;
+       if cletyp = *blanks;
+         cletypt = *blanks;
+       else;
+         cletypt = wsetypt;
+       endif;
+       cleid   = wseid;
+       cleser  = wseser;
+
+       endsr;
+
+      //*********************************************
+       begsr movsaw;
+
+       wsavd = uavd;
+       wstdn = utdn;
+
+       wsntk    = clntk;
+       wsvkb    = clvkb;
+       wsvt     = clvt;
+
+       wsrg     = clrg;
+       ws0068aa = cl0068aa;
+       ws0068am = cl0068am;
+       ws0068ad = cl0068ad;
+       ws0068b  = cl0068b;
+
+       wstrnr   = cltrnr;
+       wsnas    = clnas;
+       wsnak    = clnak;
+
+       wssdf   = *blanks;
+       wssdft  = *blanks;
+       wssdt   = *blanks;
+       wssdtt  = *blanks;
+       wspr    = '01';
+       wsprt   = *blanks;
+       wsetyp  = '05';
+       wsetypt = *blanks;
+       wseid   = *blanks;
+       wseser  = *blanks;
+
+       endsr;
+
+      //*********************************************
+       begsr opdopd;
+
+       if utype = 'CRT';    // Lag ny
+       // Nummerteller inneholder positivt neste ledig nr.
+       // Men endres til negativt i SADEFCF.
+         chain 'EKSPFORT' tellge;
+         if %found;
+           utdn = geno;
+           geno = geno + 1;
+           update tellger;
+         else;
+           utdn = 1;
+           geco = 'EKSPFORT';
+           geno = 2;
+           write tellger;
+         endif;
+         clpro = upro;
+         cltdn = utdn;
+
+       else;
+       // Endring
+
+         chain (upro: uavd: utdn) sadefcl1;
+         if %found;
+           *in33 = *off;
+         else;
+           chain (uavd: utdn) sadefcl2;
+           *in33 = *on;
+         endif;
+
+       endif;
+
+       exsr ttsr;
+
+       // FLYTTER SKJERMVARIABLE TIL FILVARIABLE
+       exsr movwef;
+
+       if utype = 'CRT';    // Lag ny
+         clst  = 'O';
+         write sadefcfr;
+       else;
+       // Endring
+         if *in33;
+           clpro = upro;
+           select;
+           when *in51;
+             clst  = 'O';
+           when *in49 = '0';
+             clst  = 'O';
+           other;
+             clst  = ' ';
+           endsl;
+           update sadefcfr2;
+         else;
+           select;
+           when *in51;
+             clst  = 'O';
+           when *in49 = '0';
+             clst  = 'O';
+           other;
+             clst  = ' ';
+           endsl;
+           update sadefcfr;
+         endif;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr init;
+
+       syge15c (wdt: wtm);
+
+       select;
+       when utype = 'CRT' or (utype = 'CHG' or utype = 'PLK') and utdn < 0;
+         *in48 = *on;
+         cl0068a = 0;
+         ws0068a = 0;
+       when utype = 'DSP';
+         *in49 = *on;
+       endsl;
+
+       chain upro sadefl02;
+       chain(n) (upro: uavd: utdn) sadefcl1;
+       if not %found;
+         chain(n) (uavd: utdn) sadefcl2;
+       endif;
+       chain (uavd: utdn) sadefcsl1;
+       if %found;
+         *in51 = *on;
+       endif;
+       chain (uavd: utdn) sadh;
+       if %found and (cleid = *blanks or cletyp = *blanks);
+         chain (uavd: utdn) sveh;
+         if %found;
+           if cletyp = *blanks;
+             select;
+             when sveh_mtyp = 'UGE';
+               cletyp = '05';
+             endsl;
+           endif;
+           chain sveh_tuid svzh;
+           if %found;
+             cleid = svzh_mrnn;
+           endif;
+         endif;
+       endif;
+
+       if utype = 'CRT';
+         exsr movsaw;
+       else;
+         exsr movefw;
+       endif;
+
+       setll *loval firm;
+       read firm;
+
+       write windowsz;
+
+       endsr;
+
+      //*********************************************
+       begsr ttsr;
+
+       ttavd  = uavd;
+       ttopd  = utdn;
+       tttur  = upro;
+       ttacti = 'EFC';
+       ttdate = wdt_n;
+       ttdate = wdt_n;
+       tttime = wtm_n;
+       tttiml = wtm_n;
+       ttuser = uusr;
+       select;
+       when utype = 'CRT';
+         tttext = 'Nytt oppdrag er laget til E.F. manifest.';
+         tttexl = 'Nytt oppdrag er laget til E.F. manifest.';
+         ttedev = 'CRT';
+       when *in33;
+         tttext = 'Oppdrag er plukket til E.F. manifest.';
+         tttexl = 'Oppdrag er plukket til E.F. manifest.';
+         ttedev = 'CRT';
+       other;
+         tttext = 'Info. av oppdrag i E.F. manifest er endret.';
+         tttexl = 'Info. av oppdrag i E.F. manifest er endret.';
+         ttedev = 'CHG';
+       endsl;
+
+       write trackfr;
+
+       endsr;
+
+      /end-free

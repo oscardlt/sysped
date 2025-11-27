@@ -1,0 +1,178 @@
+
+      *  CRTPGM SYSPED/TNOE003R MODULE(*LIBL/TNOE003R *LIBL/INCGI)
+      *        ACTGRP(*NEW) AUT(*USE)
+
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+
+     fbridf     if   e           k disk    usropn
+     fsaeh      if   e           k disk    usropn
+     ‚*--------------------------------------------------------------------
+     ‚* Variables common to all CGIs
+     ‚*--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+
+     ‚*  Prototype for 'SAD054'
+     d sad054          pr                  extpgm('SAD054')
+     d seavd_                              like(seavd)
+     d setdn_                              like(setdn)
+     d sesg_                               like(sesg)
+     d omtype_                             like(omtype)
+     ‚* Varible for
+     d wsuser          s             10
+     d jsonstring      s          32000
+     d error           s            150
+     d omtype          s              3
+     d wn              s             15
+     ‚*get input-string
+      /free
+        nbrVars = zhbgetinput(savedquerystring:qusec);
+       //---------------------------------------------------------------------
+       //Stand Alone Fields - BOTTOM
+       //---------------------------------------------------------------------
+
+       //Parse input
+       exsr parse;
+       // Open files etc
+       exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+        // .........................................................................................
+        // skriv JSON-Object start.(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste
+        // .........................................................................................
+
+       jsonstring='{'
+       +'¬user¬ : ¬'+%trim(wsuser)+'¬, '
+       +'¬avd¬ : ¬'+%trim(%editc(seavd:'Z'))+'¬, '
+       +'¬opd¬ : ¬'+%trim(%editc(setdn:'M'))+'¬, '
+       +'¬sesg¬ : ¬'+%trim(sesg)+'¬, '
+       +'¬omtype¬ : ¬'+%trim(omtype)+'¬, '
+       +'¬errMsg¬ : ¬'+%trim(error)+'¬, ';
+       // JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       // ..........................................................................................
+       jsonstring ='"CpyToOmberegningI" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         // Kall på externtprogram
+         exsr test;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // Quit
+       exsr exit;
+
+
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close saeh;
+
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+         // Quit
+         *inlr = *on;
+         return;
+       endsr;
+
+       //********************************************************
+       begsr parse;
+         //********************************************************
+         // Get input
+         wsuser  = zhbgetvar('USER');
+         wn         = zhbgetvar('AVD');
+         seavd      = c2n2(wn);
+         wn         = zhbgetvar('OPD');
+         setdn      = c2n2(wn);
+         sesg       = zhbgetvar('SESG');
+         omtype     = zhbgetvar('OMTYPE');
+       endsr;
+       //********************************************************
+       begsr init;
+         //********************************************************
+         open bridf;
+         open saeh;
+         // Test innlogging
+         chain wsuser bridf;
+         if %found;
+            if bilibl = *blanks;
+              incgi ( bistdl );
+            else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       // dummy read for SAEH to get field definitions
+         if error = ' ';
+           if error <> ' ';
+           read saeH;
+           endif;
+         endif;
+
+       endsr;
+
+       //______________________________________________________
+       // TEST                                             TEST
+       //""""""""""""""""""""""""""""""""""""""""""""""""""""""
+       begsr test;
+
+           sad054 ( seavd : setdn : sesg : omtype );
+
+       endsr;
+
+      /end-free

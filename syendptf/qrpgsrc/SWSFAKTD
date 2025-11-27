@@ -1,0 +1,873 @@
+      *********************************************************************
+      *  Webservice for spørring på EN faktura
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SWSFAKTD MODULE(*LIBL/SWSFAKTD
+CRTPGM*         *LIBL/INCGI) ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12022 * 01 JOV PTF12 senders/mottakers ref - + escape av & i varetekst
+12022 * 02 JOV PTF12 escape av også senders/mottakers ref
+********************************************************************
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     Farkivl04  IF   E           K DISK    usropn
+     FFIRMARC   IF   E           K DISK    usropn
+     FBRIDF     UF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FHeadf     IF   E           K DISK    usropn
+     FFain      IF   E           K DISK    usropn
+     FFak8      IF   E           K DISK    usropn
+     FKODTGE    IF   E           K DISK    usropn
+     FKODTG2    IF   E           K DISK    usropn
+     FKODSAM    IF   E           K DISK    usropn
+     FFRISOK    IF   E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Sammenslåing av F-linjer baserer seg på SAMME varekode/tekst ELLER sammensl.kode/tekst
+     D FLI             S             85    DIM(100)
+     D                 DS
+     D  GMDS                   1     85
+     D    GM_SORT              1      3
+     D    GM_SAMM              5      5
+     D    GM_VT                7     47
+     D    GM_MK               49     49
+     D      GMDS_A             1     49
+     D    GM_VAL              51     53
+     D    GM_BELV             55     67  2
+     D    GM_BELN             69     81  2
+     D    GM_VK               83     85
+     D                 DS
+     D  NYDS                   1     85
+     D    NY_SORT              1      3
+     D    NY_SAMM              5      5
+     D    NY_VT                7     47
+     D    FAKDM               49     49
+     D      NYDS_A             1     49
+     D    FAVAL               51     53
+     D    FABELV              55     67  2
+     D    FABELN              69     81  2
+     D    FAVK                83     85
+     D                 DS
+     D  FAVT                   1     20
+     D    FAVT1                1      1
+     D    FAVT2_20             2     20
+     D                 DS
+     D  VREF                   1     16
+     D  HEAVD                  1      4  0
+     D  HEAVDa                 1      4
+     D  STREK1                 5      5    INZ('/')
+     D  HEOPD                  6     12  0
+     D  HEOPDa                 6     12
+     D  STREK2                13     13    INZ('/')
+     D  HESG                  14     16
+      *
+     D string          s          32000
+      * Variables received from the input string
+     D userEnv         s             10
+     D SYSKNR          S              8
+     D SYSKNN          S              8  0
+     D OddEven         s             10
+     D lng             s              2
+     D BckGnd          s             10
+     D WSNA            S             30
+     D U_name          S             10
+     D DATOF           s              8
+     D DATOFN          s              8  0
+     D DATOT           s              8
+     D DATOTN          s              8  0
+     D FakNr           s              7
+     D FakNrN          s              7  0
+     D Arfak           s             40
+      *
+     D TOTFRI          s             11  2
+     D TOTPLI          s             11  2
+     D TOTN            s             11  2
+     D TOTM            s             11  2
+     D TOTB            s             11  2
+     D INVTOTFRI       s             11  2
+     D INVTOTPLI       s             11  2
+     D INVTOTN         s             11  2
+     D INVTOTM         s             11  2
+     D INVTOTB         s             11  2
+     D FT              s              1
+     D MOMS            s             11  2
+     D BelB            s             11  2
+     D VTXT            s             45
+     D DREF            s             35
+     D FROM            s             10
+     D TO              s             10
+     D XN01            s              3  0
+     D MaxXN           s              3  0
+     D StrXN           s              3  0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      *
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+      *
+      /free
+         exsr Parse;
+         exsr INIT;
+       // hent html-mal
+         gethtmlifs('/syspeddev/html/XML.html':'/CGITAG/');
+       // for debug:
+        AUTHTYPE=getenv('AUTH_TYPE':qusec);
+        RMTUSER =getenv('REMOTE_USER':qusec);
+
+       // skriv toppen
+         wrtsection('top');
+
+         string=
+           '<?xml version="1.0" encoding="utf-8" standalone="yes"?>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<GetInvoiceDetails>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         exsr HentFak;
+
+         string=
+           '</GetInvoiceDetails>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+
+         exsr Exit;
+         *inlr = *on;
+         return;
+      /end-free
+      *
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+      * UserEnvironment (dataasemiljø)
+     C                   eval      userEnv = zhbgetvar('userEnv')
+      *
+     C                   eval      SYSKNR   = zhbgetvar('SYSKNR')
+     C                   eval      SYSKNN   = c2n2(SYSKNR)
+     C                   eval      FAKNR    = zhbgetvar('FAKNR')
+     C                   eval      FAKNRN   = c2n2(FAKNR)
+      *
+     C                   endsr
+      *=====================================================================******
+      * HENT FAKTURA fra arkivlog
+      *=====================================================================******
+     C     HENTFAK       BEGSR
+      *
+      *
+     c                   Move      *blanks       ARUNDE
+     c                   MoveL     FakNrN        ARUNDE
+     c                   Move      'fa'          ARTYPE
+      *
+     C     FakKey        SETLL     ARKIVL04
+     c     FakKey        chain     ARKIVL04                           35
+     c   35              move      'fs'          Artype
+     c   35FakKey        chain     ARKIVL04                           35
+     c   35              goto      SLHENTPL
+      *
+      * Hens/send  Inv NO / arkiv-lenker mm
+     C                   exsr      GetArcInfo
+      *
+      * Vis liste over oppdrag
+     C     FAKNRN        SETLL     FAIN
+     c     FAKNRN        Reade     FAIN                                   35
+     c     *IN35         doweq     '0'
+     C                   exsr      ettoppdrag
+      *
+     c     NextRec       Tag
+     c     FAKNRN        Reade     FAIN                                   35
+     c                   enddo
+      *
+      * Fakturatotaler
+      *  bruk samme variabler som på ordre-nivå - forenkler fortegn
+     C                   z-add     INVTOTFRI     TOTFRI
+     C                   z-add     INVTOTPLI     TOTPLI
+     C                   z-add     INVTOTN       TOTN
+     C                   z-add     INVTOTM       TOTM
+     C                   z-add     INVTOTB       TOTB
+      /free
+        //Invoice totals
+         string=
+           '<InvoiceTotals>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTN<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<NetTotal>'+%trim(FT)+%trim(%editc(TOTN:'2'))+'</NetTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTM<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<VATTotal>'+%trim(FT)+%trim(%editc(TOTM:'2')) +'</VATTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTB<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<InvoiceGrandTotal>'+%trim(FT)+%trim(%editc(TOTB:'2'))
+                                            +'</InvoiceGrandTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTPLI<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<VATBasisTotal>'+%trim(FT)+%trim(%editc(TOTPLI:'2'))
+                                         +'</VATBasisTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTFRI<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<FreeOfVATTotal>'+%trim(FT)+%trim(%editc(TOTFRI:'2'))
+                                          +'</FreeOfVATTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '</InvoiceTotals>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+        //end invoice
+      /end-free
+      *
+     C     SLHENTPL      ENDSR
+      *
+      **********************************************
+     C     EttOppdrag    BEGSR
+      **********************************************
+      * skip kostnadslinjer/slettede
+     c                   setoff                                       34
+     C     FAKKEY8       SETLL     FAK8
+     C     FAKKEY8       READE     FAK8                                   33
+     c     *in33         doweq     '0'
+     c  N33FAKDA         COMP      'K'                                    33
+     c  N33FAKDA         COMP      'D'                                    33
+     c  N33FAOPKO        COMP      'D'                                    33
+     c   33              seton                                        34        Kostn-linjer mm
+     c  N33              leave
+     C     FAKKEY8       READE     FAK8                                   33
+     c                   enddo
+      * hit m 33/34 ON = Kun Kost-linje r
+     c                   if        *in33='1' and *in34='1'
+     c                   goto      UtEttOpd
+     c                   endif
+      *
+     C     HeaKey        CHAIN     HEADF                              33
+     c   33              goto      UtEttOpd
+      *
+      * Fix div felt
+      *  burde ha en generell escape-rutine
+     c     '&':'/'       xlate     HENAS         HENAS
+     c     '&':'/'       xlate     HEADS1        HEADS1
+     c     '&':'/'       xlate     HEADS2        HEADS2
+     c     '&':'/'       xlate     HEADS3        HEADS3
+     c     '&':'/'       xlate     HENAk         HENAk
+     c     '&':'/'       xlate     HEADk1        HEADk1
+     c     '&':'/'       xlate     HEADk2        HEADk2
+     c     '&':'/'       xlate     HEADk3        HEADk3
+     c     '&':'/'       xlate     HEVS1         HEVS1
+N02  c     '&':'/'       xlate     HERFA         HERFA
+N02  c     '&':'/'       xlate     HERFK         HERFK
+      *
+     C                   EVAL      DREF = HERFA
+     c                   if        HERFK<>*blanks and TRKDFF='K'
+     C                   EVAL      DREF = HERFK
+     c                   endif
+     C                   eval      FROM = HELKA+ ' ' +HESDF
+     C                   eval      TO   = HETRI+ ' ' +HESDT
+     C                   if        HEUR <>'H'
+     C                   eval      FROM = HESDF
+     C                   eval      TO   = HESDT
+     c                   endif
+     c                   move      *blanks       WayBill          17
+     C                   move      'IFB'         FSKODE
+     C     IFBKEY        CHAIN     FRISOK                             33
+     C   33              move      'CMR'         FSKODE
+     C   33IFBKEY        CHAIN     FRISOK                             33
+     c  N33              movel     FSSOK         WayBill
+      /free
+         string=
+           '<Order>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<YourRef>'+%trim(DREF)+'</YourRef>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<OurRef>'+%trim(VREF)+'</OurRef>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SendersRef>'+%trim(HERFA)+'</SendersRef>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiversRef>'+%trim(HERFK)+'</ReceiversRef>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<WayBillNo>'+%trim(WayBill)+'</WayBillNo>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<TripNo>'+%trim(%editc(HEPRO:'Z'))+'</TripNo>';
+
+         string=
+           '<OrderDate>'+%trim(%editw(HEDTOP:'    .  .  '))
+                                          +'</OrderDate>';
+
+         string=
+           '<FromPlace>'+%trim(FROM)+'</FromPlace>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ToPlace>'+%trim(TO)+'</ToPlace>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SenderId>'+%trim(%editc(HEKNS:'Z')) +'</SenderId>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SenderName>'+%trim(HENAS)+'</SenderName>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SenderAddress1>'+%trim(HEADS1)+'</SenderAddress1>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SenderAddress2>'+%trim(HEADS2)+'</SenderAddress2>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<SenderAddress3>'+%trim(HEADS3)+'</SenderAddress3>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiverId>'+%trim(%editc(HEKNK:'Z')) +'</ReceiverId>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiverName>'+%trim(HENAK)+'</ReceiverName>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiverAddress1>'+%trim(HEADK1)+'</ReceiverAddress1>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiverAddress2>'+%trim(HEADK2)+'</ReceiverAddress2>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ReceiverAddress3>'+%trim(HEADK3)+'</ReceiverAddress3>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<Collies>'+%trim(%editc(HENT:'Z')) +'</Collies>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<GoodsDescription>'+%trim(HEVS1)+'</GoodsDescription>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<Weight>'+%trim(%editc(HEVKT:'Z')) +'</Weight>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<M3>'+%trim(%editc(HEM3:'2')) +'</M3>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<LM>'+%trim(%editc(HELM:'2')) +'</LM>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ChargeableWeight>'+%trim(%editc(HEFBV:'Z'))+'</ChargeableWeight>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+        // Invoice Lines
+         string=
+           '<InvoiceLines>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         exsr InvLines;
+
+        //end invoice Lines
+         string=
+           '</InvoiceLines>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+        //totals
+         string=
+           '<OrderTotals>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTN<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<NetTotal>'+%trim(FT)+%trim(%editc(TOTN:'2'))+'</NetTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTM<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<VATTotal>'+%trim(FT)+%trim(%editc(TOTM:'2')) +'</VATTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTB<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<OrderGrandTotal>'+%trim(FT)+%trim(%editc(TOTB:'2'))
+                                            +'</OrderGrandTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTPLI<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<VATBasisTotal>'+%trim(FT)+%trim(%editc(TOTPLI:'2'))
+                                         +'</VATBasisTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if TOTFRI<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<FreeOfVATTotal>'+%trim(FT)+%trim(%editc(TOTFRI:'2'))
+                                          +'</FreeOfVATTotal>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '</OrderTotals>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+        //end one order
+         string=
+           '</Order>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+      /end-free
+     C
+     C     UtEttOpd      ENDSR
+      *
+      *******************************
+     C     INVLINES      BEGSR
+      *******************************
+      *
+      * HOVEDRUTINE
+      *
+     C                   MOVE      *ZEROS        TOTFRI
+     C                   MOVE      *ZEROS        TOTPLI
+     C                   MOVE      *ZEROS        TOTN
+     C                   MOVE      *ZEROS        TOTM
+     C                   MOVE      *ZEROS        TOTB
+     c                   clear                   FLI
+     c                   clear                   GMDS
+     c                   clear                   NYDS
+     C     FAKKEY8       SETLL     fak8
+     C     FAKKEY8       READE     fak8                                   33
+     C     *in33         DOWEQ     '0'
+     c     FASK          cabeq     'I'           NEXTFA
+     c     FAKDA         cabeq     'K'           NEXTFA
+     c     FAKDA         cabeq     'D'           NEXTFA
+     c     FAOPKO        cabeq     'D'           NEXTFA
+     c     FAOPKO        cabeq     ' '           NEXTFA
+     C                   exsr      SortSamSR
+     C                   MOVE      FASK          XXSK              1            (KEY FRITEKST/FRSOK)
+     C     NEXTFA        TAG
+     C     FAKKEY8       READE     fak8                                   33
+     c                   end
+      *
+      * Hent sortert/sammenslått faktura fra array...
+     c                   sorta     FLI
+     c                   eval      strXn = 100 - MaxXn + 1                      5 lin: elem 96->
+     C     strXN         DO        100           XN01
+     C     FLI(XN01)     IFNE      *BLANKS
+     C                   MOVE      FLI(XN01)     NYDS
+N01  C     '&':'/'       xlate     NY_VT         NY_VT
+     c                   exsr      setRow
+      /free
+         string=
+           '<LineText>'+%trim(NY_VT)+'</LineText>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if FABELN<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<NetAmount>'+%trim(FT)+%trim(%editc(FABELN:'2'))+'</NetAmount>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<VATCode>'+%trim(FAKDM)+'</VATCode>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if MOMS<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<VATAmount>'+%trim(FT)+%trim(%editc(MOMS:'2'))+'</VATAmount>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         if BELB<0;
+            eval FT='-';
+         else;
+            eval FT=' ';
+         endif;
+         string=
+           '<LineAmount>'+%trim(FT)+%trim(%editc(BELB:'2'))+'</LineAmount>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+      /end-free
+     C                   END
+     C                   ENDDO
+      *
+      * Adder til Inv Grand TYotal
+     C                   add       TOTFRI        INVTOTFRI
+     C                   add       TOTPLI        INVTOTPLI
+     C                   add       TOTN          INVTOTN
+     C                   add       TOTM          INVTOTM
+     C                   add       TOTB          INVTOTB
+      *
+      *
+     C                   ENDSR
+      ***********************************************************
+     C     SortSamSR     begsr
+      ***********************************************************
+      *
+      * sort/sammenslå
+      * kriterium for sammenslåing  - IKKE FRITEKST
+      *            A)  SAMME GEBYRKODE       / FRITEKST  / momskode,
+      *  ELLER     B)  SAMME SAMMENSNL.KODE  / FRITEKST  / momskode,
+      * SAMMENSLÅTTE LINJER KOMMER FØRST
+      * DERETTER LINJER  MED SAM-KODE MEN SOM IKKES SLÅS SAMMEN PGA FRITEKST
+      * DERETTER ANDRE LINJER BASERT PÅ SORT-KODE
+      *
+      * a) klargjør noen variable
+      * varetekst
+     C     KG2Key        CHAIN     KODTG2                             33
+     C     KGEKey        CHAIN     KODTGE                             33
+     c     XSPRÅK        ifeq      'EN'
+     C                   eval      NY_VT = KGEENT+' '+FAVT
+     c                   else
+     C                   eval      NY_VT = KGENOT+' '+FAVT
+     c                   end
+     c     FAVT1         ifeq      'X'
+     C                   eval      NY_VT =  FAVT2_20
+     c                   end
+      * Sort-nr/samkod(+evt tekst derfra.)
+     C                   MOVE      KG2SRT        NY_SORT
+     C                   MOVE      FACD11        NY_SAMM
+     C     NY_SAMM       IFNE      *BLANKS
+     C     FAVT          IFNE      *BLANKS
+     C                   MOVE      '  1'         NY_SORT
+     C                   MOVE      *BLANKS       NY_SAMM
+     C                   else
+     C                   MOVE      '  2'         NY_SORT
+     C     NY_SAMM       CHAIN     KODSAM                             33
+     c  N33XSPRÅK        ifeq      'EN'
+     C                   eval      NY_VT = SAENGE
+     c                   else
+     C                   eval      NY_VT = SANORS
+     c                   end
+     C                   END
+     C                   END
+      *
+      * b) slå sammen eller legg i første ledige
+     C     1             DO        100           XN01
+     C     FLI(XN01)     IFNE      *BLANKS
+     C                   MOVE      FLI(XN01)     GMDS
+     C     NYDS_A        IFEQ      GMDS_A
+     C                   ADD       FABELV        GM_BELV
+     C                   ADD       FABELN        GM_BELN
+     C                   move      *blanks       GM_VK                          sammenslått
+     C                   MOVE      GMDS          FLI(XN01)
+     C                   LEAVE
+     C                   END
+     C                   ELSE
+     C                   MOVE      NYDS          FLI(XN01)
+     c                   z-add     XN01          MaxXN
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+      *
+     C                   endsr
+      *
+      ******************************************************
+     C     Setrow        begsr
+      ******************************************************
+     C                   eval      VTXT = NY_VT
+     C     FAKDM         IFEQ      'J'
+     C                   ADD       FABELN        TOTPLI
+     C     FABELN        MULT      0,25          MOMS
+     c                   ELSE
+     C                   ADD       FABELN        TOTFRI
+     C                   MOVE      *ZEROS        MOMS
+     c                   end
+     C     FABELN        ADD       MOMS          BELB
+      * akkumuler totaler
+     C                   ADD       FABELN        TOTN
+     C                   ADD       FABELN        TOTB
+     C                   ADD       MOMS          TOTM
+     C                   ADD       MOMS          TOTB
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     GetArcInfo    begsr
+      *
+     C                   select
+     c     ArType        wheneq    'fa'
+     c                   eval      ARFAK = 'Single faktura'
+     c     ArType        wheneq    'fs'
+     c                   eval      ARFAK = 'Samlefaktura'
+     C                   other
+     c                   eval      ARFAK = 'Faktura'
+     C                   endsl
+     C                   exsr      FakturaURL
+     C                   MOVE      UPDF          FAKTLNK         200
+      * Ved samle - hent spesifikasjon
+     C                   MOVE      *blanks       SPESLNK         200
+     C                   if        ArType = 'fs'
+     C                   eval      ArType = 'fx'
+     c     FakKey        chain     Arkivl04                           33
+     C                   exsr      FakturaURL
+     C                   MOVE      UPDF          SPESLNK         200
+     c                   eval      ArType = 'fs'
+     c                   endif
+      /free
+         string=
+           '<InvoiceNo>'+%trim(ARUNDE)+'</InvoiceNo>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<InvoiceType>'+%trim(ARFAK)+'</InvoiceType>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ArchiveDate>'+%trim(%editw(ARDATE:'    .  .  '))
+                                          +'</ArchiveDate>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ArchiveLink>'+%trim(FAKTLNK)+'</ArchiveLink>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+         string=
+           '<ArchiveSpesLink>'+%trim(SPESLNK)+'</ArchiveSpesLink>';
+         updHTMLvar2('string':%addr(string):%len(string));
+         wrtsection('lin');
+
+      /end-free
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     userEnv       CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      arkivl04
+     C                   OPEN      FIRMARC
+     C                   OPEN      CUNDL01
+     C                   OPEN      Headf
+     C                   OPEN      Fain
+     C                   OPEN      Fak8
+     C                   OPEN      KODTGE
+     C                   OPEN      KODTG2
+     C                   OPEN      KODSAM
+     C                   OPEN      FRISOK
+      *
+     C     FakKey        KLIST
+     C                   KFLD                    SYSKNN
+     C                   KFLD                    artype
+     C                   KFLD                    arunde
+     C     HeaKey        KLIST
+     C                   KFLD                    FIAVD
+     C                   KFLD                    FIOPD
+     C     FakKey8       KLIST
+     C                   KFLD                    FIAVD
+     C                   KFLD                    FIOPD
+     C                   KFLD                    FAKNRN
+     C     IFBKey        KLIST
+     C                   KFLD                    FIAVD
+     C                   KFLD                    FIOPD
+     C                   KFLD                    FSKODE
+     C     KGEKey        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    FAVK
+     C                   MOVE      'GE'          KGEUNI
+     C     KG2Key        KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    FAVK
+     C                   MOVE      'G2'          KG2UNI
+     C     KunKey        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    BIKUNR
+     c                   read      firmarc                                41
+      *
+     C                   move      'NO'          XSPRÅK            2
+      *
+     C                   move      *blanks       RMTUSER          30
+     C                   move      *blanks       RMTIDENT         30
+     C                   move      *blanks       authtype         30
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     arkivl04
+     C                   CLOSE     FIRMARC
+     C                   CLOSE     BRIDF
+     C                   CLOSE     CUNDL01
+     C                   CLOSE     Headf
+     C                   CLOSE     Fain
+     C                   CLOSE     Fak8
+     C                   CLOSE     KODTGE
+     C                   CLOSE     KODTG2
+     C                   CLOSE     KODSAM
+     C                   CLOSE     FRISOK
+     C                   eval      *inlr = *on
+      *
+     C                   endsr
+      *
+      ***********************************************
+     C     FakturaURL    BEGSR
+      ***********************************************
+     C                   move      *blanks       UPDF            200
+     c                   eval      UPDF= 'http://'+%trim(ARCPAE)+'/'
+     c                             +%trim(ARCANE)+'/'
+     c                             +%trim(ARLINK)+'.pdf'
+     c                   endsr

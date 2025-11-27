@@ -1,0 +1,645 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12068 * 01 CB  PTF12 3 desimaler på fakturabeløp
+12245 * 02 CB  PTF12 Kunders vareregister
+      * 03 JOV PTF12 Også dkev_4421=Certifikatkode  ved light-update
+12XXX * 04 YBC PTF12 Også dkev_448 ved light-update
+12253 * 05 YBC PTF12 LINJENR ER UTVIDET FRA 2.0 TIL 5.0
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TDKE012R MODULE(*LIBL/TDKE012R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FDKEV1     IF   E             DISK    USROPN
+     F                                     RENAME(DKEVR:DKEVR1)
+     FDKEV      UF A E           K DISK    USROPN
+     F                                     PREFIX(X)
+N02  FDKEH      IF   E           K DISK    USROPN
+N02  FDKEK      UF A E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D DKEV_SYAVA      S              4
+     D DKEV_SYOPA      S              7
+S05  D*DKEV_SYLIA      S              2
+N05  D DKEV_SYLIA      S              5
+     D DKEV_LIGH       S              1
+     D WMODE           S              2
+     D JSONstring      S          32000
+     D Error           S            150
+S01  D*WA              S             15
+N01  D WA              S             19
+N02  D Z_X02           S             28
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C  N50              EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬dkev_syav¬ : ¬'+%trim(%editc(DKEv_SYAV:'Z'))+'¬, '
+        +'¬dkev_syop¬ : ¬'+%trim(%editc(DKEv_SYOP:'Z'))+'¬, '
+        +'¬dkev_syli¬ : ¬'+%trim(%editc(DKEv_SYLI:'Z'))+'¬, '
+        +'¬mode¬ : ¬'+%trim(WMODE)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"lineupdate" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     DKEV
+     C  N50              CLOSE     DKEV1
+N02  C  N50              CLOSE     DKEH
+N02  C  N50              CLOSE     DKEK
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WA         = zhbgetvar('AVD')
+     C                   EVAL      DKEV_SYAV  = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('OPD')
+     C                   EVAL      DKEV_SYOP  = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('LIN')
+     C                   EVAL      DKEV_SYLI  = c2n2(WA)
+     C                   EVAL      WMODE      = zhbgetvar('MODE')
+     C                   EVAL      DKEV_311   = zhbgetvar('DKEV_311')
+     C                   EVAL      DKEV_312A  = zhbgetvar('DKEV_312A')
+     C                   EVAL      DKEV_312B  = zhbgetvar('DKEV_312B')
+     C                   EVAL      DKEV_312C  = zhbgetvar('DKEV_312C')
+     C                   EVAL      DKEV_312D  = zhbgetvar('DKEV_312D')
+     C                   EVAL      DKEV_312E  = zhbgetvar('DKEV_312E')
+     C                   EVAL      WA         = zhbgetvar('DKEV_313')
+     C                   EVAL      DKEV_313   = c2n2(WA)
+     C                   EVAL      DKEV_314   = zhbgetvar('DKEV_314')
+     C                   EVAL      DKEV_315   = zhbgetvar('DKEV_315')
+     C                   EVAL      WA         = zhbgetvar('DKEV_32')
+     C                   EVAL      DKEV_32    = c2n2(WA)
+     C                   EVAL      DKEV_331   = zhbgetvar('DKEV_331')
+     C                   EVAL      DKEV_332   = zhbgetvar('DKEV_332')
+     C                   EVAL      DKEV_SIKK  = zhbgetvar('DKEV_SIKK')
+     C                   EVAL      DKEV_34A   = zhbgetvar('DKEV_34A')
+     C                   EVAL      WA         = zhbgetvar('DKEV_35')
+     C                   EVAL      DKEV_35    = c2n2(WA)
+     C                   EVAL      DKEV_37    = zhbgetvar('DKEV_37')
+     C                   EVAL      WA         = zhbgetvar('DKEV_38')
+     C                   EVAL      DKEV_38    = c2n2(WA)
+     C                   EVAL      DKEV_401A  = zhbgetvar('DKEV_401A')
+     C                   EVAL      DKEV_401B  = zhbgetvar('DKEV_401B')
+     C                   EVAL      DKEV_401C  = zhbgetvar('DKEV_401C')
+     C                   EVAL      DKEV_401D  = zhbgetvar('DKEV_401D')
+     C                   EVAL      DKEV_401E  = zhbgetvar('DKEV_401E')
+     C                   EVAL      DKEV_401F  = zhbgetvar('DKEV_401F')
+     C                   EVAL      DKEV_401G  = zhbgetvar('DKEV_401G')
+     C                   EVAL      DKEV_401H  = zhbgetvar('DKEV_401H')
+     C                   EVAL      DKEV_401I  = zhbgetvar('DKEV_401I')
+     C                   EVAL      DKEV_401J  = zhbgetvar('DKEV_401J')
+     C                   EVAL      DKEV_401K  = zhbgetvar('DKEV_401K')
+     C                   EVAL      DKEV_401L  = zhbgetvar('DKEV_401L')
+     C                   EVAL      DKEV_401M  = zhbgetvar('DKEV_401M')
+     C                   EVAL      DKEV_401N  = zhbgetvar('DKEV_401N')
+     C                   EVAL      DKEV_401O  = zhbgetvar('DKEV_401O')
+     C                   EVAL      DKEV_401P  = zhbgetvar('DKEV_401P')
+     C                   EVAL      DKEV_401Q  = zhbgetvar('DKEV_401Q')
+     C                   EVAL      DKEV_401R  = zhbgetvar('DKEV_401R')
+     C                   EVAL      DKEV_401S  = zhbgetvar('DKEV_401S')
+     C                   EVAL      DKEV_401T  = zhbgetvar('DKEV_401T')
+     C                   EVAL      DKEV_401U  = zhbgetvar('DKEV_401U')
+     C                   EVAL      DKEV_401V  = zhbgetvar('DKEV_401V')
+     C                   EVAL      DKEV_401W  = zhbgetvar('DKEV_401W')
+     C                   EVAL      DKEV_401X  = zhbgetvar('DKEV_401X')
+     C                   EVAL      DKEV_401Y  = zhbgetvar('DKEV_401Y')
+     C                   EVAL      DKEV_402A  = zhbgetvar('DKEV_402A')
+     C                   EVAL      DKEV_402b  = zhbgetvar('DKEV_402b')
+     C                   EVAL      DKEV_402c  = zhbgetvar('DKEV_402c')
+     C                   EVAL      DKEV_402d  = zhbgetvar('DKEV_402d')
+     C                   EVAL      DKEV_402e  = zhbgetvar('DKEV_402e')
+     C                   EVAL      DKEV_402f  = zhbgetvar('DKEV_402f')
+     C                   EVAL      DKEV_402g  = zhbgetvar('DKEV_402g')
+     C                   EVAL      DKEV_402h  = zhbgetvar('DKEV_402h')
+     C                   EVAL      DKEV_402i  = zhbgetvar('DKEV_402i')
+     C                   EVAL      DKEV_402j  = zhbgetvar('DKEV_402j')
+     C                   EVAL      DKEV_402k  = zhbgetvar('DKEV_402k')
+     C                   EVAL      DKEV_402l  = zhbgetvar('DKEV_402l')
+     C                   EVAL      DKEV_402m  = zhbgetvar('DKEV_402m')
+     C                   EVAL      DKEV_402n  = zhbgetvar('DKEV_402n')
+     C                   EVAL      DKEV_402o  = zhbgetvar('DKEV_402o')
+     C                   EVAL      DKEV_402p  = zhbgetvar('DKEV_402p')
+     C                   EVAL      DKEV_402q  = zhbgetvar('DKEV_402q')
+     C                   EVAL      DKEV_402r  = zhbgetvar('DKEV_402r')
+     C                   EVAL      DKEV_402s  = zhbgetvar('DKEV_402s')
+     C                   EVAL      DKEV_402t  = zhbgetvar('DKEV_402t')
+     C                   EVAL      DKEV_402u  = zhbgetvar('DKEV_402u')
+     C                   EVAL      DKEV_402v  = zhbgetvar('DKEV_402v')
+     C                   EVAL      DKEV_402w  = zhbgetvar('DKEV_402w')
+     C                   EVAL      DKEV_402x  = zhbgetvar('DKEV_402x')
+     C                   EVAL      DKEV_402y  = zhbgetvar('DKEV_402y')
+     C                   EVAL      DKEV_403A  = zhbgetvar('DKEV_403A')
+     C                   EVAL      DKEV_403b  = zhbgetvar('DKEV_403b')
+     C                   EVAL      DKEV_403c  = zhbgetvar('DKEV_403c')
+     C                   EVAL      DKEV_403d  = zhbgetvar('DKEV_403d')
+     C                   EVAL      DKEV_403e  = zhbgetvar('DKEV_403e')
+     C                   EVAL      DKEV_403f  = zhbgetvar('DKEV_403f')
+     C                   EVAL      DKEV_403g  = zhbgetvar('DKEV_403g')
+     C                   EVAL      DKEV_403h  = zhbgetvar('DKEV_403h')
+     C                   EVAL      DKEV_403i  = zhbgetvar('DKEV_403i')
+     C                   EVAL      DKEV_403j  = zhbgetvar('DKEV_403j')
+     C                   EVAL      DKEV_403k  = zhbgetvar('DKEV_403k')
+     C                   EVAL      DKEV_403l  = zhbgetvar('DKEV_403l')
+     C                   EVAL      DKEV_403m  = zhbgetvar('DKEV_403m')
+     C                   EVAL      DKEV_403n  = zhbgetvar('DKEV_403n')
+     C                   EVAL      DKEV_403o  = zhbgetvar('DKEV_403o')
+     C                   EVAL      DKEV_403p  = zhbgetvar('DKEV_403p')
+     C                   EVAL      DKEV_403q  = zhbgetvar('DKEV_403q')
+     C                   EVAL      DKEV_403r  = zhbgetvar('DKEV_403r')
+     C                   EVAL      DKEV_403s  = zhbgetvar('DKEV_403s')
+     C                   EVAL      DKEV_403t  = zhbgetvar('DKEV_403t')
+     C                   EVAL      DKEV_403u  = zhbgetvar('DKEV_403u')
+     C                   EVAL      DKEV_403v  = zhbgetvar('DKEV_403v')
+     C                   EVAL      DKEV_403w  = zhbgetvar('DKEV_403w')
+     C                   EVAL      DKEV_403x  = zhbgetvar('DKEV_403x')
+     C                   EVAL      DKEV_403y  = zhbgetvar('DKEV_403y')
+     C                   EVAL      DKEV_411   = zhbgetvar('DKEV_411')
+     C                   EVAL      WA         = zhbgetvar('DKEV_412')
+     C                   EVAL      DKEV_412   = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('DKEV_42')
+     C                   EVAL      DKEV_42    = c2n2(WA)
+     C                   EVAL      DKEV_441   = zhbgetvar('DKEV_441')
+     C                   EVAL      DKEV_4421  = zhbgetvar('DKEV_4421')
+     C                   EVAL      DKEV_4422  = zhbgetvar('DKEV_4422')
+     C                   EVAL      DKEV_4423  = zhbgetvar('DKEV_4423')
+     C                   EVAL      DKEV_4424  = zhbgetvar('DKEV_4424')
+     C                   EVAL      DKEV_4425  = zhbgetvar('DKEV_4425')
+     C                   EVAL      DKEV_4426  = zhbgetvar('DKEV_4426')
+     C                   EVAL      DKEV_4427  = zhbgetvar('DKEV_4427')
+     C                   EVAL      DKEV_4428  = zhbgetvar('DKEV_4428')
+     C                   EVAL      DKEV_4429  = zhbgetvar('DKEV_4429')
+     C                   EVAL      DKEV_442A  = zhbgetvar('DKEV_442A')
+     C                   EVAL      DKEV_442B  = zhbgetvar('DKEV_442B')
+     C                   EVAL      DKEV_442C  = zhbgetvar('DKEV_442C')
+     C                   EVAL      DKEV_442D  = zhbgetvar('DKEV_442D')
+     C                   EVAL      DKEV_442E  = zhbgetvar('DKEV_442E')
+     C                   EVAL      DKEV_442F  = zhbgetvar('DKEV_442F')
+     C                   EVAL      DKEV_442G  = zhbgetvar('DKEV_442G')
+     C                   EVAL      DKEV_442H  = zhbgetvar('DKEV_442H')
+     C                   EVAL      DKEV_442I  = zhbgetvar('DKEV_442I')
+     C                   EVAL      DKEV_443   = zhbgetvar('DKEV_443')
+     C                   EVAL      DKEV_444   = zhbgetvar('DKEV_444')
+     C                   EVAL      DKEV_445A  = zhbgetvar('DKEV_445A')
+     C                   EVAL      DKEV_445B  = zhbgetvar('DKEV_445B')
+     C                   EVAL      DKEV_446A  = zhbgetvar('DKEV_446A')
+     C                   EVAL      DKEV_446B  = zhbgetvar('DKEV_446B')
+     C                   EVAL      DKEV_446C  = zhbgetvar('DKEV_446C')
+     C                   EVAL      DKEV_447   = zhbgetvar('DKEV_447')
+     C                   EVAL      WA         = zhbgetvar('DKEV_448')
+     C                   EVAL      DKEV_448   = c2n2(WA)
+     C                   EVAL      DKEV_449A  = zhbgetvar('DKEV_449A')
+     C                   EVAL      DKEV_449B  = zhbgetvar('DKEV_449B')
+     C                   EVAL      WA         = zhbgetvar('DKEV_46')
+     C                   EVAL      DKEV_46    = c2n2(WA)
+     C                   EVAL      DKEV_49    = zhbgetvar('DKEV_49')
+     C                   EVAL      DKEV_BEM1  = zhbgetvar('DKEV_BEM1')
+     C                   EVAL      DKEV_BEM2  = zhbgetvar('DKEV_BEM2')
+     C                   EVAL      DKEV_BEM3  = zhbgetvar('DKEV_BEM3')
+     C                   EVAL      DKEV_BEM4  = zhbgetvar('DKEV_BEM4')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y63')
+     C                   EVAL      DKEV_Y63   = c2n2(WA)
+     C                   EVAL      DKEV_Y64   = zhbgetvar('DKEV_Y64')
+     C                   EVAL      DKEV_Y71   = zhbgetvar('DKEV_Y71')
+     C                   EVAL      DKEV_Y72   = zhbgetvar('DKEV_Y72')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y73')
+     C                   EVAL      DKEV_Y73   = c2n2(WA)
+     C                   EVAL      DKEV_Y74   = zhbgetvar('DKEV_Y74')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y75')
+     C                   EVAL      DKEV_Y75   = c2n2(WA)
+     C                   EVAL      DKEV_Y76A  = zhbgetvar('DKEV_Y76A')
+     C                   EVAL      DKEV_Y76B  = zhbgetvar('DKEV_Y76B')
+     C                   EVAL      DKEV_Y76C  = zhbgetvar('DKEV_Y76C')
+     C                   EVAL      DKEV_Y76D  = zhbgetvar('DKEV_Y76D')
+     C                   EVAL      DKEV_Y81A  = zhbgetvar('DKEV_Y81A')
+     C                   EVAL      DKEV_Y81B  = zhbgetvar('DKEV_Y81B')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y81C')
+     C                   EVAL      DKEV_Y81C  = c2n2(WA)
+     C                   EVAL      DKEV_Y81D  = zhbgetvar('DKEV_Y81D')
+     C                   EVAL      DKEV_Y81E  = zhbgetvar('DKEV_Y81E')
+     C                   EVAL      DKEV_Y82A  = zhbgetvar('DKEV_Y82A')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y82B')
+     C                   EVAL      DKEV_Y82B  = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y82C')
+     C                   EVAL      DKEV_Y82C  = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y82D')
+     C                   EVAL      DKEV_Y82D  = c2n2(WA)
+     C                   EVAL      DKEV_Y82E  = zhbgetvar('DKEV_Y82E')
+     C                   EVAL      DKEV_Y82F  = zhbgetvar('DKEV_Y82F')
+     C                   EVAL      WA         = zhbgetvar('DKEV_Y82G')
+     C                   EVAL      DKEV_Y82G  = c2n2(WA)
+     C                   EVAL      DKEV_Y82H  = zhbgetvar('DKEV_Y82H')
+     C                   EVAL      DKEV_28A   = zhbgetvar('DKEV_28A')
+     C                   EVAL      DKEV_28B   = zhbgetvar('DKEV_28B')
+     C                   EVAL      WA         = zhbgetvar('DKEV_28C')
+     C                   EVAL      DKEV_28C   = c2n2(WA)
+     C                   EVAL      DKEV_X01   = zhbgetvar('DKEV_X01')
+     C*                  EVAL      DKEV_X02   = zhbgetvar('DKEV_X02')
+     C                   EVAL      DKEV_X03   = zhbgetvar('DKEV_X03')
+     C                   EVAL      WA         = zhbgetvar('DKEV_X04')
+     C                   EVAL      DKEV_X04   = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('DKEV_X05')
+     C                   EVAL      DKEV_X05   = c2n2(WA)
+     C                   EVAL      DKEV_X06   = zhbgetvar('DKEV_X06')
+     C                   EVAL      WA         = zhbgetvar('DKEV_X07')
+     C                   EVAL      DKEV_X07   = c2n2(WA)
+     C                   EVAL      DKEV_ERR   = zhbgetvar('DKEV_ERR')
+     C                   EVAL      DKEV_LIGH  = zhbgetvar('DKEV_LIGH')
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C  N50BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C     DKEvKey       klist
+     C                   kfld                    DKEv_SYAV
+     C                   kfld                    DKEv_SYOP
+     C                   kfld                    DKEv_SYLI
+N02  C     DKEHKEY       klist
+N02  C                   kfld                    DKEv_SYAV
+N02  C                   kfld                    DKEv_SYOP
+N02  C     DKEKKEY       KLIST
+N02  C                   KFLD                    DKEH_AVKN
+N02  C                   KFLD                    Z_X02
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      DKEV
+     C  N50              OPEN      DKEV1
+N02  C  N50              OPEN      DKEH
+N02  C  N50              OPEN      DKEK
+      * Dummy chain for feltbeskrivelser
+     C                   IF        *IN50=*OFF
+     C                   IF        *IN55
+     C     1             CHAIN     DKEV1
+     C                   ENDIF
+     C                   ENDIF
+
+     c                   endsr
+      *
+      *______________________________________________________
+      * TEST                                             TEST
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     TEST          BEGSR
+     C     WMODE         IFNE      'A'
+     C     DKEvKey       CHAIN     DKEv                               55
+     C                   ENDIF
+      * MODE A=Add  D=Delete  U=Update
+     C                   SELECT
+     C     WMODE         WHENEQ    'A'
+     C                   eval      Error = *blanks
+     C                   EXSR      SRA
+     C     WMODE         WHENEQ    'D'
+     C                   IF        *IN55=*ON
+     C                   eval      Error = 'Order not found'
+     C                   ELSE
+     C                   eval      Error = *blanks
+     C                   EXSR      SRD
+     C                   ENDIF
+     C     WMODE         WHENEQ    'U'
+     C                   IF        *IN55=*ON
+     C                   eval      Error = 'Order not found'
+     C                   ELSE
+     C                   eval      Error = *blanks
+     C                   EXSR      SRU
+     C                   ENDIF
+     C                   OTHER
+     C                   eval      Error = 'Wrong mode'
+     C                   ENDSL
+     C                   ENDSR
+      *______________________________________________________
+      * Add                                               SRA
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRA           BEGSR
+     C                   CLEAR                   DKEvR
+     C                   EVAL      XDKEv_SYAV=DKEv_SYAV
+     C                   EVAL      XDKEv_SYOP=DKEv_SYOP
+     C                   EVAL      XDKEv_SYLI=DKEv_SYLI
+     C                   WRITE     DKEvR
+     C                   ENDSR
+      *______________________________________________________
+      * Delete                                            SRD
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRD           BEGSR
+     C                   DELETE    DKEVR
+     C                   ENDSR
+      *______________________________________________________
+      * Update                                            SRU
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRU           BEGSR
+     C                   EVAL      XDKEV_332 = DKEV_332
+     C                   EVAL      XDKEV_38  = DKEV_38
+     C                   EVAL      XDKEV_46  = DKEV_46
+N03  C                   EVAL      XDKEV_4421= DKEV_4421
+N04  C                   EVAL      XDKEV_448 = DKEV_448
+     C                   EVAL      XDKEV_ERR=DKEV_ERR
+     C                   IF        DKEV_LIGH=*BLANKS
+     C                   EVAL      XDKEV_311 = DKEV_311
+     C                   EVAL      XDKEV_312A= DKEV_312A
+     C                   EVAL      XDKEV_312B= DKEV_312B
+     C                   EVAL      XDKEV_312C= DKEV_312C
+     C                   EVAL      XDKEV_312D= DKEV_312D
+     C                   EVAL      XDKEV_312E= DKEV_312E
+     C                   EVAL      XDKEV_313 = DKEV_313
+     C                   EVAL      XDKEV_314 = DKEV_314
+     C                   EVAL      XDKEV_315 = DKEV_315
+     C                   EVAL      XDKEV_32  = DKEV_32
+     C                   EVAL      XDKEV_331 = DKEV_331
+     C                   EVAL      XDKEV_SIKK= DKEV_SIKK
+     C                   EVAL      XDKEV_34A = DKEV_34A
+     C                   EVAL      XDKEV_35  = DKEV_35
+     C                   EVAL      XDKEV_37  = DKEV_37
+     C                   EVAL      XDKEV_401A= DKEV_401A
+     C                   EVAL      XDKEV_401B= DKEV_401B
+     C                   EVAL      XDKEV_401C= DKEV_401C
+     C                   EVAL      XDKEV_401D= DKEV_401D
+     C                   EVAL      XDKEV_401E= DKEV_401E
+     C                   EVAL      XDKEV_401F= DKEV_401F
+     C                   EVAL      XDKEV_401G= DKEV_401G
+     C                   EVAL      XDKEV_401H= DKEV_401H
+     C                   EVAL      XDKEV_401I= DKEV_401I
+     C                   EVAL      XDKEV_401J= DKEV_401J
+     C                   EVAL      XDKEV_401K= DKEV_401K
+     C                   EVAL      XDKEV_401L= DKEV_401L
+     C                   EVAL      XDKEV_401M= DKEV_401M
+     C                   EVAL      XDKEV_401N= DKEV_401N
+     C                   EVAL      XDKEV_401O= DKEV_401O
+     C                   EVAL      XDKEV_401P= DKEV_401P
+     C                   EVAL      XDKEV_401Q= DKEV_401Q
+     C                   EVAL      XDKEV_401R= DKEV_401R
+     C                   EVAL      XDKEV_401S= DKEV_401S
+     C                   EVAL      XDKEV_401T= DKEV_401T
+     C                   EVAL      XDKEV_401U= DKEV_401U
+     C                   EVAL      XDKEV_401V= DKEV_401V
+     C                   EVAL      XDKEV_401W= DKEV_401W
+     C                   EVAL      XDKEV_401X= DKEV_401X
+     C                   EVAL      XDKEV_401Y= DKEV_401Y
+     C                   EVAL      XDKEV_402A= DKEV_402A
+     C                   EVAL      XDKEV_402b= DKEV_402b
+     C                   EVAL      XDKEV_402c= DKEV_402c
+     C                   EVAL      XDKEV_402d= DKEV_402d
+     C                   EVAL      XDKEV_402e= DKEV_402e
+     C                   EVAL      XDKEV_402f= DKEV_402f
+     C                   EVAL      XDKEV_402g= DKEV_402g
+     C                   EVAL      XDKEV_402h= DKEV_402h
+     C                   EVAL      XDKEV_402i= DKEV_402i
+     C                   EVAL      XDKEV_402j= DKEV_402j
+     C                   EVAL      XDKEV_402k= DKEV_402k
+     C                   EVAL      XDKEV_402l= DKEV_402l
+     C                   EVAL      XDKEV_402m= DKEV_402m
+     C                   EVAL      XDKEV_402n= DKEV_402n
+     C                   EVAL      XDKEV_402o= DKEV_402o
+     C                   EVAL      XDKEV_402p= DKEV_402p
+     C                   EVAL      XDKEV_402q= DKEV_402q
+     C                   EVAL      XDKEV_402r= DKEV_402r
+     C                   EVAL      XDKEV_402s= DKEV_402s
+     C                   EVAL      XDKEV_402t= DKEV_402t
+     C                   EVAL      XDKEV_402u= DKEV_402u
+     C                   EVAL      XDKEV_402v= DKEV_402v
+     C                   EVAL      XDKEV_402w= DKEV_402w
+     C                   EVAL      XDKEV_402x= DKEV_402x
+     C                   EVAL      XDKEV_402y= DKEV_402y
+     C                   EVAL      XDKEV_403A= DKEV_403A
+     C                   EVAL      XDKEV_403b= DKEV_403b
+     C                   EVAL      XDKEV_403c= DKEV_403c
+     C                   EVAL      XDKEV_403d= DKEV_403d
+     C                   EVAL      XDKEV_403e= DKEV_403e
+     C                   EVAL      XDKEV_403f= DKEV_403f
+     C                   EVAL      XDKEV_403g= DKEV_403g
+     C                   EVAL      XDKEV_403h= DKEV_403h
+     C                   EVAL      XDKEV_403i= DKEV_403i
+     C                   EVAL      XDKEV_403j= DKEV_403j
+     C                   EVAL      XDKEV_403k= DKEV_403k
+     C                   EVAL      XDKEV_403l= DKEV_403l
+     C                   EVAL      XDKEV_403m= DKEV_403m
+     C                   EVAL      XDKEV_403n= DKEV_403n
+     C                   EVAL      XDKEV_403o= DKEV_403o
+     C                   EVAL      XDKEV_403p= DKEV_403p
+     C                   EVAL      XDKEV_403q= DKEV_403q
+     C                   EVAL      XDKEV_403r= DKEV_403r
+     C                   EVAL      XDKEV_403s= DKEV_403s
+     C                   EVAL      XDKEV_403t= DKEV_403t
+     C                   EVAL      XDKEV_403u= DKEV_403u
+     C                   EVAL      XDKEV_403v= DKEV_403v
+     C                   EVAL      XDKEV_403w= DKEV_403w
+     C                   EVAL      XDKEV_403x= DKEV_403x
+     C                   EVAL      XDKEV_403y= DKEV_403y
+     C                   EVAL      XDKEV_411 = DKEV_411
+     C                   EVAL      XDKEV_412 = DKEV_412
+     C                   EVAL      XDKEV_42  = DKEV_42
+     C                   EVAL      XDKEV_441 = DKEV_441
+     C                   EVAL      XDKEV_4421= DKEV_4421
+     C                   EVAL      XDKEV_4422= DKEV_4422
+     C                   EVAL      XDKEV_4423= DKEV_4423
+     C                   EVAL      XDKEV_4424= DKEV_4424
+     C                   EVAL      XDKEV_4425= DKEV_4425
+     C                   EVAL      XDKEV_4426= DKEV_4426
+     C                   EVAL      XDKEV_4427= DKEV_4427
+     C                   EVAL      XDKEV_4428= DKEV_4428
+     C                   EVAL      XDKEV_4429= DKEV_4429
+     C                   EVAL      XDKEV_442A= DKEV_442A
+     C                   EVAL      XDKEV_442B= DKEV_442B
+     C                   EVAL      XDKEV_442C= DKEV_442C
+     C                   EVAL      XDKEV_442D= DKEV_442D
+     C                   EVAL      XDKEV_442E= DKEV_442E
+     C                   EVAL      XDKEV_442F= DKEV_442F
+     C                   EVAL      XDKEV_442G= DKEV_442G
+     C                   EVAL      XDKEV_442H= DKEV_442H
+     C                   EVAL      XDKEV_442I= DKEV_442I
+     C                   EVAL      XDKEV_443 = DKEV_443
+     C                   EVAL      XDKEV_444 = DKEV_444
+     C                   EVAL      XDKEV_445A= DKEV_445A
+     C                   EVAL      XDKEV_445B= DKEV_445B
+     C                   EVAL      XDKEV_446A= DKEV_446A
+     C                   EVAL      XDKEV_446B= DKEV_446B
+     C                   EVAL      XDKEV_446C= DKEV_446C
+     C                   EVAL      XDKEV_447 = DKEV_447
+     C                   EVAL      XDKEV_448 = DKEV_448
+     C                   EVAL      XDKEV_449A= DKEV_449A
+     C                   EVAL      XDKEV_449B= DKEV_449B
+     C                   EVAL      XDKEV_49  = DKEV_49
+     C                   EVAL      XDKEV_BEM1= DKEV_BEM1
+     C                   EVAL      XDKEV_BEM2= DKEV_BEM2
+     C                   EVAL      XDKEV_BEM3= DKEV_BEM3
+     C                   EVAL      XDKEV_BEM4= DKEV_BEM4
+     C                   EVAL      XDKEV_Y63 = DKEV_Y63
+     C                   EVAL      XDKEV_Y64 = DKEV_Y64
+     C                   EVAL      XDKEV_Y71 = DKEV_Y71
+     C                   EVAL      XDKEV_Y72 = DKEV_Y72
+     C                   EVAL      XDKEV_Y73 = DKEV_Y73
+     C                   EVAL      XDKEV_Y74 = DKEV_Y74
+     C                   EVAL      XDKEV_Y75 = DKEV_Y75
+     C                   EVAL      XDKEV_Y76A= DKEV_Y76A
+     C                   EVAL      XDKEV_Y76B= DKEV_Y76B
+     C                   EVAL      XDKEV_Y76C= DKEV_Y76C
+     C                   EVAL      XDKEV_Y76D= DKEV_Y76D
+     C                   EVAL      XDKEV_Y81A= DKEV_Y81A
+     C                   EVAL      XDKEV_Y81B= DKEV_Y81B
+     C                   EVAL      XDKEV_Y81C= DKEV_Y81C
+     C                   EVAL      XDKEV_Y81D= DKEV_Y81D
+     C                   EVAL      XDKEV_Y81E= DKEV_Y81E
+     C                   EVAL      XDKEV_Y82A= DKEV_Y82A
+     C                   EVAL      XDKEV_Y82B= DKEV_Y82B
+     C                   EVAL      XDKEV_Y82C= DKEV_Y82C
+     C                   EVAL      XDKEV_Y82D= DKEV_Y82D
+     C                   EVAL      XDKEV_Y82E= DKEV_Y82E
+     C                   EVAL      XDKEV_Y82F= DKEV_Y82F
+     C                   EVAL      XDKEV_Y82G= DKEV_Y82G
+     C                   EVAL      XDKEV_Y82H= DKEV_Y82H
+     C                   EVAL      XDKEV_28A  =DKEV_28A
+     C                   EVAL      XDKEV_28B  =DKEV_28B
+     C                   EVAL      XDKEV_28C  =DKEV_28C
+     C                   EVAL      XDKEV_X01  =DKEV_X01
+     C*                  EVAL      XDKEV_X02  =DKEV_X02
+     C                   EVAL      XDKEV_X03  =DKEV_X03
+     C                   EVAL      XDKEV_X04  =DKEV_X04
+     C                   EVAL      XDKEV_X05  =DKEV_X05
+     C                   EVAL      XDKEV_X06  =DKEV_X06
+     C                   EVAL      XDKEV_X07  =DKEV_X07
+     C                   ENDIF
+     C                   UPDATE    DKEVR
+
+N02   * Uppdatera kundens vareregister
+N02  C     XDKEV_X02     IFNE      *BLANKS
+N02
+N02  C     DKEHKEY       CHAIN     DKEH
+N02  C                   IF        %FOUND
+N02  C                   EVAL      Z_X02=XDKEV_X02
+N02  C     DKEKKEY       CHAIN     DKEK
+N02  C                   IF        %FOUND
+N02  C                   EVAL      DKEK_311 = DKEV_311
+N02  C                   EVAL      DKEK_314 = DKEV_314
+N02  C                   EVAL      DKEK_315 = DKEV_315
+N02  C                   EVAL      DKEK_331 = DKEV_331
+N02  C                   EVAL      DKEK_332 = DKEV_332
+N02  C                   EVAL      DKEK_SIKK= DKEV_SIKK
+N02  C                   EVAL      DKEK_34A = DKEV_34A
+N02  C                   EVAL      DKEK_37  = DKEV_37
+N02  C                   EVAL      DKEK_401A= DKEV_401A
+N02  C                   EVAL      DKEK_402A= DKEV_402A
+N02  C                   EVAL      DKEK_403A= DKEV_403A
+N02  C                   EVAL      DKEK_411 = DKEV_411
+N02  C                   EVAL      DKEK_441 = DKEV_441
+N02  C                   EVAL      DKEK_4421= DKEV_4421
+N02  C                   EVAL      DKEK_442A= DKEV_442A
+N02  C                   EVAL      DKEK_443 = DKEV_443
+N02  C                   EVAL      DKEK_444 = DKEV_444
+N02  C                   EVAL      DKEK_446A= DKEV_446A
+N02  C                   EVAL      DKEK_447 = DKEV_447
+N02  C                   EVAL      DKEK_449A= DKEV_449A
+N02  C                   EVAL      DKEK_49  = DKEV_49
+N02  C                   EVAL      DKEK_BEM1= DKEV_BEM1
+N02  C                   UPDATE    DKEKR
+N02  C                   ELSE
+N02  C                   EVAL      DKEK_KNR = DKEH_AVKN
+N02  C                   EVAL      DKEK_VNR = Z_X02
+N02  C                   EVAL      DKEK_311 = DKEV_311
+N02  C                   EVAL      DKEK_314 = DKEV_314
+N02  C                   EVAL      DKEK_315 = DKEV_315
+N02  C                   EVAL      DKEK_331 = DKEV_331
+N02  C                   EVAL      DKEK_332 = DKEV_332
+N02  C                   EVAL      DKEK_SIKK= DKEV_SIKK
+N02  C                   EVAL      DKEK_34A = DKEV_34A
+N02  C                   EVAL      DKEK_37  = DKEV_37
+N02  C                   EVAL      DKEK_401A= DKEV_401A
+N02  C                   EVAL      DKEK_402A= DKEV_402A
+N02  C                   EVAL      DKEK_403A= DKEV_403A
+N02  C                   EVAL      DKEK_411 = DKEV_411
+N02  C                   EVAL      DKEK_441 = DKEV_441
+N02  C                   EVAL      DKEK_4421= DKEV_4421
+N02  C                   EVAL      DKEK_442A= DKEV_442A
+N02  C                   EVAL      DKEK_443 = DKEV_443
+N02  C                   EVAL      DKEK_444 = DKEV_444
+N02  C                   EVAL      DKEK_446A= DKEV_446A
+N02  C                   EVAL      DKEK_447 = DKEV_447
+N02  C                   EVAL      DKEK_449A= DKEV_449A
+N02  C                   EVAL      DKEK_49  = DKEV_49
+N02  C                   EVAL      DKEK_BEM1= DKEV_BEM1
+N02  C                   WRITE     DKEKR
+N02  C                   ENDIF
+N02  C                   ENDIF
+N02
+N02  C                   ENDIF
+N02
+N02  C                   ENDSR

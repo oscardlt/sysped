@@ -1,0 +1,762 @@
+     H*debug(*yes)
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *
+     FSADEFL02  IF   E           K DISK                                         Turheader
+     FSADEFCL1  IF   E           K DISK                                         House/SAD-X-ref
+     FSADV      IF   E           K DISK
+     FTARI      IF   E           K DISK
+     FSTED2     IF   E           K DISK
+     FECMSG1    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E           K DISK
+     FEDIS2     IF   E           K DISK    RENAME(EDISR:EDISR2)
+     F                                     PREFIX(S2_)
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+      *
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D LF              c                   x'25'
+     D CLSDFT          S             30a
+     D CLSDTT          S             30a
+     D CLESERT         S             30a
+     D X_1LIN          S              1a
+     D XN53            S              3  0
+      *
+      * Status = Pre-alert  / On-Arrival / Cancelled
+     D Status          s             20
+     D JSONstring      s          32000
+     D WFILNAM         S            200
+     D WFILNAM1        S            200
+     D WFILNAM2        S            200
+     D WFILNAM3        S            200
+     D WFILNAM4        S            200
+     D WMAPPE          S            100
+     D WMAPPE2         S            100
+     D XLIB            S             11
+     D WFilback        S            512
+     D WFIL            S            512
+     D timeData        S               Z                                        Z=Timestamfield
+      *
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *   EDIDTA data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+     D                 DS
+     D  EFETA                  1      8  0
+     D  EFETAA                 1      4
+     D  EFETAM                 5      6
+     D  EFETAD                 7      8
+     D                 DS
+     D  EFETM                  1      6  0
+     D  EFETMH                 1      2
+     D  EFETMM                 3      4
+     D  EFETMS                 5      6
+     D                 DS
+     D  EFSJADT                1      8  0
+     D  EFSJADTA               1      4
+     D  EFSJADTM               5      6
+     D  EFSJADTD               7      8
+     D                 DS
+     D  CL0068A                1      8  0
+     D  CL0068AA               1      4
+     D  CL0068AM               5      6
+     D  CL0068AD               7      8
+     D                 DS
+     D  CL0068B                1      6  0
+     D  CL0068B_A              1      6
+     D                 DS
+     D  EFTSD                  1      4  0
+     D  EFTSD_A                1      4
+     D                 DS
+     D  XTXT801                1     80
+     D  XT801                  1     80    DIM(80)
+     D                 DS
+     D  XTXT802                1     80
+     D  XT802                  1     80    DIM(80)
+      *
+     c                   exsr      init
+      *
+      * tEMPORÆRE HARDKODEDE VERDIER
+      *
+     c                   exsr      LagFil
+      *
+     c                   exsr      OpdEDIS
+      *
+     c                   seton                                        lr
+     c                   return
+      *
+      ***************************************************************
+     C     LagFil        BEGSR
+      ***************************************************************
+     C                   time                    Timedata
+     C                   movel     timedata      TS               26            må være 26 lang
+     c
+      *
+      * Lag fil og set codepage (pc)
+      *
+     C                   EVAL      WFil = EFUUID                                1. GANG SENDING
+     C                   MOVE      EFPRO         XAN08             8
+     C                   EVAL      S0020 = 'EF' + XAN08
+     C     S0020         SETLL     EDIS2
+     C     S0020         READE     EDIS2                                  33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        S2_SSR = 'S' AND S2_S0026 = 'SADEFJSON'
+     C                             AND S2_SST = 'C'
+     C                   EVAL      WFil = 'U_' + EFUUID                         UPDAET
+     C                   LEAVE
+     C                   END
+     C     S0020         READE     EDIS2                                  33
+     C                   ENDDO
+      *
+     C                   EVAL      XLIB = '/' + UELIBF
+      * ByggFlr kan gjerne flyttes til annet prog. men det er gjort på millisekunder..
+     c                   exsr      ByggFlr
+     C                   EVAL      WFilNam  = %TRIM(XLIB) + '/EXPRESSMANIFEST/' Fil i backup
+     C                             + 'json_Ut/Backup/' + %TRIM(TS)
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam1 = %TRIM(XLIB) + '/EXPRESSMANIFEST/' Fil i temp med stemp
+     C                             + 'json_Ut/Temp/' + %TRIM(TS)
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam2 = %TRIM(XLIB) + '/EXPRESSMANIFEST/' Fil i temp uten stem
+     C                             + 'json_Ut/Temp/'
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WFilNam3 = %TRIM(Wfil) + '.json'             Filnavn uten stempel
+     C                   EVAL      WFilNam4 = %TRIM(XLIB) + '/EXPRESSMANIFEST/' Sjekk tidligere ver.
+     C                             + 'json_Ut/'
+     C                             + %TRIM(Wfil) + '.json'
+     C                   EVAL      WMAPPE   = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                             + 'json_Ut/Temp'
+     C                   EVAL      WMAPPE2  = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                             + 'json_Ut'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=865' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     c                   exsr      LagJson
+      *
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   CALL      'SADEFJSONC'
+     C                   PARM                    WFILNAM
+     C                   PARM                    WFILNAM1
+     C                   PARM                    WFILNAM2
+     C                   PARM                    WFILNAM3
+     C                   PARM                    WFILNAM4
+     C                   PARM                    WMAPPE
+     C                   PARM                    WMAPPE2
+      * Kopiert til endelig mappe ..
+     C                   ENDSR
+      *
+      /free
+        //*********************
+        Begsr LagJson;
+        //*********************
+
+        // Start JSON
+        jsonstring ='{';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Message / UUID
+        jsonstring ='¬manifestId¬:¬'+%trim(EFUUID)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        // Hodeinforasjon (Mandatory)
+        exsr HODEINFO;
+
+        // CargoLines
+        exsr CargoLines;
+
+        // Bunninforasjon (Mandatory)
+        exsr BunnINFO;
+
+        jsonstring = '}';                                    // slutt Hele meldingen
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        endsr;
+
+        //*********************
+        Begsr CargoLines;
+        //*********************
+
+        // CargoLines start
+        jsonstring = '¬cargolines¬:[';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        x_1lin = 'J';
+
+        setll efpro sadefcl1;
+        reade efpro sadefcl1;
+        dow not %eof;
+          exsr cargoline;
+          reade efpro sadefcl1;
+        enddo;
+
+        jsonstring = '],';                                   // slutt et CargoLines
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        endsr;
+
+        //*********************
+        Begsr CargoLine;
+        //*********************
+
+        // Hvis eksport-id er blank, henter id fra hode
+        if cleid = *blanks;
+          cleid = efeid;
+        endif;
+        // Hent varebeskrivelse fra første varelinje
+        chain (clavd: cltdn) sadv;
+        if svvt01 = *blanks;
+          chain svvnt tari;
+        // Hent varebeskrivelse fra tariff-register
+          if %found;
+            svvt01 = taalfa;
+          endif;
+        endif;
+        xtxt801 = svvt01;
+        xn53 = 30;
+        exsr knvst;
+        svvt01 = xtxt802;
+        chain clsdf sted2;
+        clsdft = st2nvn;
+        chain clsdt sted2;
+        clsdtt = st2nvn;
+        // Sett tekst om sertifisert
+        if cleser = 'J' or cletyp = '04';
+          clesert = 'true';
+        else;
+          clesert = 'false';
+        endif;
+
+        // CargoLine start
+        if x_1lin = 'J';
+          jsonstring = '{';
+          x_1lin = 'N';
+        else;
+          jsonstring = ', {';
+        endif;
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+           '¬typeOfImportProcedure¬:¬'+%trim(CLPRT)+'¬,'
+           +'¬numberOfPackages¬:¬'+%trim(%editc(CLNTK:'Z'))+'¬,'
+           +'¬descriptionOfGoods¬:¬'+%trim(SVVT01)+'¬,'
+           +'¬placeOfLoadings¬:¬'+%trim(CLSDFT)+'¬,'
+           +'¬placeOfUnloadings¬:¬'+%trim(CLSDTT)+'¬,'
+           +'¬grossMass¬:¬'+%trim(%editc(CLVKB:'Z'))+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+           '¬importProcedure¬: { '
+           +'¬sequenceNumber¬:¬'+%trim(CL0068B_A)+'¬,'
+           +'¬declarantNumber¬:¬'+%trim(CLRG)+'¬,'
+           +'¬declarationDate¬:¬'+%trim(CL0068AD)
+           +%trim(CL0068AM)+%trim(CL0068AA)+'¬'
+           +'},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+           '¬exports¬: [ { '
+           +'¬typeOfExport¬:¬' + %trim(cletypt)+'¬,'
+           +'¬exportId¬:¬'+%trim(cleid)+'¬,'
+           +'¬exportCertificate¬: '+%trim(clesert)+' } ]';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring = '}';                                    // slutt et CargoLine
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        endsr;
+
+        //*********************
+        Begsr HODEINFO;
+        //*********************
+
+        jsonstring =
+           '¬transportationCompanyId¬:¬'+%trim(EFRGD)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬status¬:¬'+'SUBMITTED'+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬placeOfEntryCode¬:¬'+%trim(EFTSD_A)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬estimatedTimeOfArrival¬:¬'
+              +%trim(EFETAA)+'-'+%trim(EFETAM)+'-'+%trim(EFETAD)+'T'
+              +%trim(EFETMH)+':'+%trim(EFETMM)+':'+%trim(EFETMS)+'.000Z¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬modeOfTransportCode¬:¬'+%trim(EFTM)+'¬,';
+              //'¬modeOfTransportCode¬:¬'+%trim(EFTMT)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        endsr;
+
+        //*********************
+        Begsr BUNNINFO;
+        //*********************
+
+        jsonstring = '¬activeMeansOfTransport¬:{';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+           '¬typeOfMeansOfTransport¬:¬'+%trim(EFKTYPT)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬identificationCode¬:¬'+%trim(EFKMRK)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬countryCode¬:¬'+%trim(EFKLK)+'¬,';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬driver¬: { '
+              +'¬firstName¬:¬'+%trim(EFSJAF)+'¬,'
+              +'¬lastName¬:¬'+%trim(EFSJAE)+'¬,'
+              +'¬countryCode¬:¬'+%trim(EFSJALK)+'¬,'
+              +'¬dateOfBirth¬:¬'+%trim(EFSJADTA)+'-'
+              +%trim(EFSJADTM)+'-'+%trim(EFSJADTD)+'¬,'
+              +'¬sendReleasedConfirmation¬:false'+','
+              +'¬sendReleasedConfirmationEmail¬:null'
+              +'},';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring =
+              '¬passiveMeansOfTransports¬:[ { '
+              +'¬identificationCode¬:¬'+%trim(EFPMRK)+'¬,'
+              +'¬countryCode¬:¬'+%trim(EFPLK)+'¬'
+              +'} ]';
+        jsonfix ( jsonstring );
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        jsonstring = '}';
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+        endsr;
+      /end-free
+
+      ***************************************************************
+     C     OpdEDIS       BEGSR
+      ***************************************************************
+     C     ECMSG1K       CHAIN     ECMSG1                             32
+     C     1             CHAIN     EDIC                               32
+     C                   ADD       1             CSN
+     C                   UPDATE    EDICR
+     C                   eval      s0004 = ECIIDI
+     C                   eval      s0010 = ECIIDC
+     C                   eval      s0020 = 'EF' + %TRIM(UPRO)
+     C                   eval      s0026 = 'SADEFJSON'
+     C                   eval      ssn   = CSN
+     C                   eval      ssr   = 'S'
+     C                   eval      sst   = 'B'
+     C                   move      wdt           sdt
+     C                   move      wtm           stm
+     C                   eval      slib  = '*LIB'
+     C                   eval      sfile = '*IFS'
+     C                   eval      smbr  = *BLANKS
+     C                   eval      sifs  = WFilNam
+     C                   write     edisr
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     KNVST         BEGSR
+      ***********************************************
+     C     XN53          SUB       4             XN54              3 0
+     C     XN53          SUB       5             XN55              3 0
+     C     XN53          SUB       6             XN56              3 0
+     C                   Z-ADD     0             XN52              3 0
+     C                   MOVE      *BLANKS       XTXT802
+     C     1             DO        80            XN51              3 0          1<-B
+     C                   IF        XT801(XN51) = '&' OR                          2<-B
+     C                             XT801(XN51) = '"' OR
+     C                             XT801(XN51) = 'Æ' OR
+     C                             XT801(XN51) = 'Ø' OR
+     C                             XT801(XN51) = 'Å' OR
+     C                             XT801(XN51) = 'æ' OR
+     C                             XT801(XN51) = 'ø' OR
+     C                             XT801(XN51) = 'å' OR
+     C                             XT801(XN51) = X'5A' OR                       ¤
+     C                             XT801(XN51) = X'8E' OR
+     C                             XT801(XN51) = X'B0' OR
+     C                             XT801(XN51) = X'B2' OR
+     C                             XT801(XN51) = X'71' OR
+     C                             XT801(XN51) = X'54' OR
+     C                             XT801(XN51) = X'74' OR
+     C                             XT801(XN51) = X'58' OR
+     C                             XT801(XN51) = X'7D' OR
+     C                             XT801(XN51) = X'EC' OR
+     C                             XT801(XN51) = X'90' OR
+     C                             XT801(XN51) = X'63' OR                       Ä -> AA
+     C                             XT801(XN51) = X'FC' OR
+     C                             XT801(XN51) = X'CC' OR                       ö -> oe
+     C                             XT801(XN51) = X'43' OR                       ä -> aa
+     C                             XT801(XN51) = X'55' OR                       í -> i
+     C                             XT801(XN51) = X'62' OR                       Â -> A
+     C                             XT801(XN51) = X'51' OR                       é -> e
+     C                             XT801(XN51) = X'42' OR                       â -> aa
+     C                             XT801(XN51) = X'CE' OR                       ó -> o
+     C                             XT801(XN51) = X'63' OR                       À -> A
+     C                             XT801(XN51) = X'64' OR                       À -> A
+     C                             XT801(XN51) = X'65' OR                       Á -> A
+     C                             XT801(XN51) = X'5B' OR                       Å -> A
+     C                             XT801(XN51) = X'41' OR                       '41' -> '40'
+     C                             XT801(XN51) = XAPS OR
+     C                             XT801(XN51) = '<' OR
+     C                             XT801(XN51) = '>'
+     C                   IF        XN52 < XN53                                    3<-B
+     C                   ADD       1             XN52
+     C                   SELECT                                                    4<-B
+     C                   WHEN      XT801(XN51) = 'Æ'                               4
+     C                             OR XT801(XN51) = X'63'
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'AA'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = 'Ø'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'OE'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = 'Å'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'AE'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = 'æ'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'aa'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = 'ø'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'oe'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = 'å'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'ae'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'5A'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     '.'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'8E'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'OE'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'B0'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'oe'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'B2'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'OE'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'71'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'E'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'54'                             4
+     C                             OR XT801(XN51) = X'74'
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'E'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'58'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'i'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'7D'                             4
+     C                   IF        XN51 < XN56                                      5<-B
+     C                   MOVEA     '&apos;'      XT802(XN52)
+     C                   ADD       5             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'EC'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'O'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'90'                             4
+     C                   IF        XN51 < XN56                                      5<-B
+     C                   EVAL      XT802(XN52) = X'5F'
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'FC'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'U'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'CC'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'oe'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'43'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'aa'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'55'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'i'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'62'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'A'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'51'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'e'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'42'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'aa'          XT802(XN52)
+     C                   ADD       1             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'CE'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'o'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'63' OR                          4
+     C                             XT801(XN51) = X'64' OR
+     C                             XT801(XN51) = X'65' OR
+     C                             XT801(XN51) = X'5B'
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     'A'           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = X'41'                             4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     ' '           XT802(XN52)
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = '&'                               4
+     C                   IF        XN51 < XN55                                      5<-B
+     C                   MOVEA     '&amp;'       XT802(XN52)
+     C                   ADD       4             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = '"'                               4
+     C                   IF        XN51 < XN56                                      5<-B
+     C                   MOVEA     '&quot;'      XT802(XN52)
+     C                   ADD       5             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = XAPS                              4
+     C                   IF        XN51 < XN56                                      5<-B
+     C                   MOVEA     '&apos;'      XT802(XN52)
+     C                   ADD       5             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = '>'                               4
+     C                   IF        XN51 < XN54                                      5<-B
+     C                   MOVEA     '&gt;'        XT802(XN52)
+     C                   ADD       3             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   WHEN      XT801(XN51) = '<'                               4
+     C                   IF        XN51 < XN54                                      5<-B
+     C                   MOVEA     '&lt;'        XT802(XN52)
+     C                   ADD       3             XN52
+     C                   ELSE                                                       5
+     C                   SUB       1             XN52
+     C                   END                                                        5<-E
+     C                   OTHER                                                     4
+     C                   IF        XN52 < XN53                                      5<-B
+     C                   ADD       1             XN52
+     C                   MOVE      XT801(XN51)   XT802(XN52)
+     C                   ELSE                                                       5
+     C                   LEAVE
+     C                   END                                                        5<-E
+     C                   ENDSL                                                     4<-E
+     C                   END                                                      3<-E
+     C                   ELSE                                                    2
+     C                   IF        XN52 < XN53                                    3<-B
+     C                   ADD       1             XN52
+     C                   MOVE      XT801(XN51)   XT802(XN52)
+     C                   ELSE                                                     3
+     C                   LEAVE
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   ENDDO                                                  1<-E
+      *
+     C                   IF        XTXT802 = *BLANKS                            1<-B
+     C                   EVAL      XTXT802 = '.'
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+      ***************************************************************
+     C     init          BEGSR
+      ***************************************************************
+     c     *entry        plist
+     c                   parm                    UPRO              8
+     c                   move      Upro          EFPRO
+      *
+      * hent turheader
+     c     EFPRO         chain     SADEFL02
+      *
+      *
+      * hent  consingment / xref   - MINST 1 må finnes
+     c     EFPRO         chain     SADEFCL1
+     c                   if        not %found
+     c                   eval      *INLR = *on
+     c                   return
+     c                   endif
+      * hent  sad header-data
+      *
+     C     ECMSG1K       KLIST
+     C                   KFLD                    ECSR
+     C                   KFLD                    EC0065
+     C                   EVAL      ECSR   = 'S'
+     C                   EVAL      EC0065 = 'EXPREM'
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   BITON     '123457'      XAPS              1
+     C                   BITOFF    '06'          XAPS
+      *
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+      *
+     c                   endsr
+      *
+      **********************************************
+     C     ByggFlr       begsr
+      **********************************************
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'json_Ut'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'json_Ut/Temp'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'json_Ut/Backup'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      * for Oscar/Java-bruk
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'json_Ut/error'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'json_Ut/sent'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      * BAT = Batch / for Java sende motoren
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/EXPRESSMANIFEST/'
+     C                                      +'BAT'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *  automatistere også denne (lage egen CL ?)
+      *  også kopiere  /apache/express-client/upload-engine-expressmanif-client.jar
+      *           til  .../BAT/upload-engine-expressmanif-client.jar
+      *
+     c                   endsr
+      *

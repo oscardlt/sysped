@@ -1,0 +1,794 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 Endre lengde på veriabel LEN
+********************************************************************
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FSVGSIGNB  O  A E             DISK    USROPN
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D FILE_i          s               *
+     D ErrTxt          s            128a
+     D String          s          30000a
+     D String2         s            128a
+     D rc              s             10i 0
+     D SRCDTA          S          30000
+     D INHEX           S            512
+S01  D*len             s              4  0
+N01  D len             s              5  0
+     D Data            s          30000a   Varying
+     D Codepage        s              5a   Varying
+      *_________________
+      * Feildefinisjoner
+      *"""""""""""""""""
+     D errno           Pr            10i 0
+
+     D strerror        Pr           128a   Varying
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfgets            Pr              *   ExtProc( '_C_IFS_fgets' )
+     D                                 *   Value
+     D                               10i 0 Value
+     D                                 *   Value
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                 DS
+     D  B                      1    256    DIM(256)
+     D  SVSIGND                1    256
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+      *______
+      * Input
+      *""""""
+     C     *ENTRY        PLIST
+     C                   parm                    FilNam          256
+     C                   parm                    result           20
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_i = open( %TrimR( FilNam ) : 'r' )
+
+     C                   IF        FILE_i = *Null
+     C                   EVAL      ErrTxt = %Char( Errno ) + ': ' + Strerror
+     C                   ELSE
+
+     C                   DOW       fgets( %Addr( String ) : %Size( String )
+     C                             : FILE_i ) <> *Null
+     C                   ENDDO
+
+     C                   EVAL      rc = close( FILE_i )
+      * Overstyr CURDIR
+     C                   EXSR      CURDIR
+      * Hent ut UNH-UNT
+     C                   EXSR      UNH
+      * Hent ut HEX signatur fra
+     C                   EXSR      USY
+      * konverter signatur HEX til BIN
+     C                   EXSR      HEXBIN
+      * verifiser BIN signatur
+     C                   EXSR      VER
+      * hent resultat av BIN verifisering
+     C                   EXSR      RES
+     C                   ENDIF
+
+     C                   EVAL      *INLR = *On
+
+      *_____________________________________________________
+      * Skriv UNH-UNT i IFS-fil                          UNH
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     UNH           BEGSR
+     C                   EVAL      SRCDTA=*BLANKS
+     C     'UNH+'        SCAN      string        pos1              5 0
+     C     'AUTACK'      SCAN      string        pos2              5 0
+     C                   SUB       4             pos2
+     C                   EVAL      len=pos2-pos1
+     C                   EVAL      SRCDTA = %SUBST(string:pos1:len)
+      * Lag streng for katalognavn/filnavn
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/TDS/unh'
+      * Lag fil og set codepage (pc)
+     C                   EVAL      Codepage = '819'
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w, codepage=' + Codepage )
+
+     C                   EVAL      rc = close( FILE_o )
+      * Åpne fil, med tegnkonvertering for jobb
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w' )
+
+     C                   IF        FILE_o <> *Null
+     C                   EVAL      Data = %trimr(SRCDTA)
+     C                   EVAL      rc = fputs(Data : File_o)
+     C                   EVAL      rc = close( FILE_o )
+     C                   ENDIF
+     C                   ENDSR
+      *_____________________________________________________
+      * hent HEX verdi fra USY                           YSU
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     USY           BEGSR
+     C                   EVAL      INHEX=*BLANKS
+     C     'ZS4:'        SCAN      string        pos               5 0
+     C                   ADD       4             pos
+     C                   if        pos > 4
+     C                   EVAL      INHEX = %SUBST(string:pos:512)
+     C                   endif
+     C                   ENDSR
+      *_____________________________________________________
+      * konverter signatur HEX til BIN                HEXBIN
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     HEXBIN        BEGSR
+      * Init av felt
+     C                   MOVE      *BLANKS       TEGN              2
+     C                   MOVE      *BLANKS       BIN               1
+     C                   Z-ADD     1             X                 3 0
+     C                   Z-ADD     0             Y                 3 0
+     C                   Z-ADD     0             Z                 3 0
+      *  Les Hexastreng og oversett til Bin
+      * Tøm arbetsfil
+     C                   MOVE      *BLANKS       WCMD             15
+     C                   EVAL      WCMD = 'CLRPFM SVGSIGNB'
+     C                   CALLP     RUNCMD(WCMD:15)
+      * Åpne arbetsfil
+     C                   OPEN      SVGSIGNB
+      * Oversett
+     C     X             DOWLT     512
+     C     2             SUBST     INHEX:X       TEGN
+     C                   EXSR      CVT
+     C                   ADD       2             X
+     C                   ENDDO
+     C                   WRITE     SVSIGNBR
+      * Lukk arbetsfil
+     C                   CLOSE     SVGSIGNB
+     C                   ENDSR
+      *_____________________________________________________
+      * verifiser BIN signatur                           VER
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     VER           BEGSR
+      * Init av felt
+     C                   MOVE      X'7D'         WAPO              1
+     C                   MOVE      *BLANKS       WSIGNF           49
+     C                   MOVE      *BLANKS       WUNH             49
+      * openssl dgst -sha256 -verify Tullverket.key -signature /QSYS.LIB/CBLIBR.LIB/SIGNBIN.FILE/SIG
+      * NBIN.MBR UNH > tarzan
+
+     C                   EVAL      WSIGNF = '/QSYS.LIB/' + %trimr(UELIBF)
+     C                             + '.LIB/SVGSIGNB.FILE/SVGSIGNB.MBR'
+     C                   EVAL      WUNH = 'unh'
+
+     C                   MOVE      *BLANKS       WCMD1            64
+     C                   EVAL      WCMD1 = 'QSH CMD(' + WAPO + 'openssl d'
+     C                             + 'gst -sha256 -verify Tullverket.ke'
+     C                             + 'y -signature'
+
+     C                   MOVE      *BLANKS       WCMD2             2
+     C                   EVAL      WCMD2 = WAPO + ')'
+
+     C                   MOVE      *BLANKS       WCMD3           300
+     C                   EVAL      WCMD3 = WCMD1
+     C                             + ' '
+     C                             + %trimr(WSIGNF)
+     C                             + ' '
+     C                             + %trimr(WUNH)
+     C                             + ' > vresult'
+     C                             + %trimr(WCMD2)
+
+     C                   CALLP     RUNCMD(WCMD3:300)
+
+     C                   ENDSR
+      *_____________________________________________________
+      * hent resultat av BIN verifisering                RES
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     RES           BEGSR
+
+     C                   EVAL      FILE_i = open( %TrimR( 'vresult' ) : 'r' )
+
+     C                   IF        FILE_i = *Null
+     C                   EVAL      ErrTxt = %Char( Errno ) + ': ' + Strerror
+     C                   ELSE
+
+     C                   DOW       fgets( %Addr( String2 ) : %Size( String2 )
+     C                             : FILE_i ) <> *Null
+     C                   MOVEL     string2       result
+     C                   ENDDO
+
+     C                   EVAL      rc = close( FILE_i )
+     C                   ENDIF
+     C                   ENDSR
+      *_____________________________________________________
+      * Overstyr CURDIR                               CURDIR
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     CURDIR        BEGSR
+      * Init av felt
+     C                   MOVE      X'7D'         WAPO
+     C                   MOVE      *BLANKS       WCURDIR          64
+
+     C                   EVAL      WCURDIR = '/' + %trimr(UELIBF) + '/TDS'
+
+     C                   MOVE      *BLANKS       WCMD9           128
+     C                   EVAL      WCMD9 = 'CHGCURDIR DIR(' + WAPO
+     C                             + %trimr(WCURDIR) + WAPO + ')'
+
+     C                   CALLP     RUNCMD(WCMD9:128)
+
+     C                   ENDSR
+      *___________________________________________________
+      * CVT                                            CVT
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     CVT           BEGSR
+     C                   SELECT
+      * 00 - 0F
+     C     TEGN          WHENEQ    '00'
+     C                   MOVE      X'00'         BIN
+     C     TEGN          WHENEQ    '01'
+     C                   MOVE      X'01'         BIN
+     C     TEGN          WHENEQ    '02'
+     C                   MOVE      X'02'         BIN
+     C     TEGN          WHENEQ    '03'
+     C                   MOVE      X'03'         BIN
+     C     TEGN          WHENEQ    '04'
+     C                   MOVE      X'04'         BIN
+     C     TEGN          WHENEQ    '05'
+     C                   MOVE      X'05'         BIN
+     C     TEGN          WHENEQ    '06'
+     C                   MOVE      X'06'         BIN
+     C     TEGN          WHENEQ    '07'
+     C                   MOVE      X'07'         BIN
+     C     TEGN          WHENEQ    '08'
+     C                   MOVE      X'08'         BIN
+     C     TEGN          WHENEQ    '09'
+     C                   MOVE      X'09'         BIN
+     C     TEGN          WHENEQ    '0a'
+     C                   MOVE      X'0A'         BIN
+     C     TEGN          WHENEQ    '0b'
+     C                   MOVE      X'0B'         BIN
+     C     TEGN          WHENEQ    '0c'
+     C                   MOVE      X'0C'         BIN
+     C     TEGN          WHENEQ    '0d'
+     C                   MOVE      X'0D'         BIN
+     C     TEGN          WHENEQ    '0e'
+     C                   MOVE      X'0E'         BIN
+     C     TEGN          WHENEQ    '0f'
+     C                   MOVE      X'0F'         BIN
+      * 10 - 1F
+     C     TEGN          WHENEQ    '10'
+     C                   MOVE      X'10'         BIN
+     C     TEGN          WHENEQ    '11'
+     C                   MOVE      X'11'         BIN
+     C     TEGN          WHENEQ    '12'
+     C                   MOVE      X'12'         BIN
+     C     TEGN          WHENEQ    '13'
+     C                   MOVE      X'13'         BIN
+     C     TEGN          WHENEQ    '14'
+     C                   MOVE      X'14'         BIN
+     C     TEGN          WHENEQ    '15'
+     C                   MOVE      X'15'         BIN
+     C     TEGN          WHENEQ    '16'
+     C                   MOVE      X'16'         BIN
+     C     TEGN          WHENEQ    '17'
+     C                   MOVE      X'17'         BIN
+     C     TEGN          WHENEQ    '18'
+     C                   MOVE      X'18'         BIN
+     C     TEGN          WHENEQ    '19'
+     C                   MOVE      X'19'         BIN
+     C     TEGN          WHENEQ    '1a'
+     C                   MOVE      X'1A'         BIN
+     C     TEGN          WHENEQ    '1b'
+     C                   MOVE      X'1B'         BIN
+     C     TEGN          WHENEQ    '1c'
+     C                   MOVE      X'1C'         BIN
+     C     TEGN          WHENEQ    '1d'
+     C                   MOVE      X'1D'         BIN
+     C     TEGN          WHENEQ    '1e'
+     C                   MOVE      X'1E'         BIN
+     C     TEGN          WHENEQ    '1f'
+     C                   MOVE      X'1F'         BIN
+      * 20 - 2F
+     C     TEGN          WHENEQ    '20'
+     C                   MOVE      X'20'         BIN
+     C     TEGN          WHENEQ    '21'
+     C                   MOVE      X'21'         BIN
+     C     TEGN          WHENEQ    '22'
+     C                   MOVE      X'22'         BIN
+     C     TEGN          WHENEQ    '23'
+     C                   MOVE      X'23'         BIN
+     C     TEGN          WHENEQ    '24'
+     C                   MOVE      X'24'         BIN
+     C     TEGN          WHENEQ    '25'
+     C                   MOVE      X'25'         BIN
+     C     TEGN          WHENEQ    '26'
+     C                   MOVE      X'26'         BIN
+     C     TEGN          WHENEQ    '27'
+     C                   MOVE      X'27'         BIN
+     C     TEGN          WHENEQ    '28'
+     C                   MOVE      X'28'         BIN
+     C     TEGN          WHENEQ    '29'
+     C                   MOVE      X'29'         BIN
+     C     TEGN          WHENEQ    '2a'
+     C                   MOVE      X'2A'         BIN
+     C     TEGN          WHENEQ    '2b'
+     C                   MOVE      X'2B'         BIN
+     C     TEGN          WHENEQ    '2c'
+     C                   MOVE      X'2C'         BIN
+     C     TEGN          WHENEQ    '2d'
+     C                   MOVE      X'2D'         BIN
+     C     TEGN          WHENEQ    '2e'
+     C                   MOVE      X'2E'         BIN
+     C     TEGN          WHENEQ    '2f'
+     C                   MOVE      X'2F'         BIN
+      * 30 - 3F
+     C     TEGN          WHENEQ    '30'
+     C                   MOVE      X'30'         BIN
+     C     TEGN          WHENEQ    '31'
+     C                   MOVE      X'31'         BIN
+     C     TEGN          WHENEQ    '32'
+     C                   MOVE      X'32'         BIN
+     C     TEGN          WHENEQ    '33'
+     C                   MOVE      X'33'         BIN
+     C     TEGN          WHENEQ    '34'
+     C                   MOVE      X'34'         BIN
+     C     TEGN          WHENEQ    '35'
+     C                   MOVE      X'35'         BIN
+     C     TEGN          WHENEQ    '36'
+     C                   MOVE      X'36'         BIN
+     C     TEGN          WHENEQ    '37'
+     C                   MOVE      X'37'         BIN
+     C     TEGN          WHENEQ    '38'
+     C                   MOVE      X'38'         BIN
+     C     TEGN          WHENEQ    '39'
+     C                   MOVE      X'39'         BIN
+     C     TEGN          WHENEQ    '3a'
+     C                   MOVE      X'3A'         BIN
+     C     TEGN          WHENEQ    '3b'
+     C                   MOVE      X'3B'         BIN
+     C     TEGN          WHENEQ    '3c'
+     C                   MOVE      X'3C'         BIN
+     C     TEGN          WHENEQ    '3d'
+     C                   MOVE      X'3D'         BIN
+     C     TEGN          WHENEQ    '3e'
+     C                   MOVE      X'3E'         BIN
+     C     TEGN          WHENEQ    '3f'
+     C                   MOVE      X'3F'         BIN
+      * 40 - 4F
+     C     TEGN          WHENEQ    '40'
+     C                   MOVE      X'40'         BIN
+     C     TEGN          WHENEQ    '41'
+     C                   MOVE      X'41'         BIN
+     C     TEGN          WHENEQ    '42'
+     C                   MOVE      X'42'         BIN
+     C     TEGN          WHENEQ    '43'
+     C                   MOVE      X'43'         BIN
+     C     TEGN          WHENEQ    '44'
+     C                   MOVE      X'44'         BIN
+     C     TEGN          WHENEQ    '45'
+     C                   MOVE      X'45'         BIN
+     C     TEGN          WHENEQ    '46'
+     C                   MOVE      X'46'         BIN
+     C     TEGN          WHENEQ    '47'
+     C                   MOVE      X'47'         BIN
+     C     TEGN          WHENEQ    '48'
+     C                   MOVE      X'48'         BIN
+     C     TEGN          WHENEQ    '49'
+     C                   MOVE      X'49'         BIN
+     C     TEGN          WHENEQ    '4a'
+     C                   MOVE      X'4A'         BIN
+     C     TEGN          WHENEQ    '4b'
+     C                   MOVE      X'4B'         BIN
+     C     TEGN          WHENEQ    '4c'
+     C                   MOVE      X'4C'         BIN
+     C     TEGN          WHENEQ    '4d'
+     C                   MOVE      X'4D'         BIN
+     C     TEGN          WHENEQ    '4e'
+     C                   MOVE      X'4E'         BIN
+     C     TEGN          WHENEQ    '4f'
+     C                   MOVE      X'4F'         BIN
+      * 50 - 5F
+     C     TEGN          WHENEQ    '50'
+     C                   MOVE      X'50'         BIN
+     C     TEGN          WHENEQ    '51'
+     C                   MOVE      X'51'         BIN
+     C     TEGN          WHENEQ    '52'
+     C                   MOVE      X'52'         BIN
+     C     TEGN          WHENEQ    '53'
+     C                   MOVE      X'53'         BIN
+     C     TEGN          WHENEQ    '54'
+     C                   MOVE      X'54'         BIN
+     C     TEGN          WHENEQ    '55'
+     C                   MOVE      X'55'         BIN
+     C     TEGN          WHENEQ    '56'
+     C                   MOVE      X'56'         BIN
+     C     TEGN          WHENEQ    '57'
+     C                   MOVE      X'57'         BIN
+     C     TEGN          WHENEQ    '58'
+     C                   MOVE      X'58'         BIN
+     C     TEGN          WHENEQ    '59'
+     C                   MOVE      X'59'         BIN
+     C     TEGN          WHENEQ    '5a'
+     C                   MOVE      X'5A'         BIN
+     C     TEGN          WHENEQ    '5b'
+     C                   MOVE      X'5B'         BIN
+     C     TEGN          WHENEQ    '5c'
+     C                   MOVE      X'5C'         BIN
+     C     TEGN          WHENEQ    '5d'
+     C                   MOVE      X'5D'         BIN
+     C     TEGN          WHENEQ    '5e'
+     C                   MOVE      X'5E'         BIN
+     C     TEGN          WHENEQ    '5f'
+     C                   MOVE      X'5F'         BIN
+      * 60 - 6F
+     C     TEGN          WHENEQ    '60'
+     C                   MOVE      X'60'         BIN
+     C     TEGN          WHENEQ    '61'
+     C                   MOVE      X'61'         BIN
+     C     TEGN          WHENEQ    '62'
+     C                   MOVE      X'62'         BIN
+     C     TEGN          WHENEQ    '63'
+     C                   MOVE      X'63'         BIN
+     C     TEGN          WHENEQ    '64'
+     C                   MOVE      X'64'         BIN
+     C     TEGN          WHENEQ    '65'
+     C                   MOVE      X'65'         BIN
+     C     TEGN          WHENEQ    '66'
+     C                   MOVE      X'66'         BIN
+     C     TEGN          WHENEQ    '67'
+     C                   MOVE      X'67'         BIN
+     C     TEGN          WHENEQ    '68'
+     C                   MOVE      X'68'         BIN
+     C     TEGN          WHENEQ    '69'
+     C                   MOVE      X'69'         BIN
+     C     TEGN          WHENEQ    '6a'
+     C                   MOVE      X'6A'         BIN
+     C     TEGN          WHENEQ    '6b'
+     C                   MOVE      X'6B'         BIN
+     C     TEGN          WHENEQ    '6c'
+     C                   MOVE      X'6C'         BIN
+     C     TEGN          WHENEQ    '6d'
+     C                   MOVE      X'6D'         BIN
+     C     TEGN          WHENEQ    '6e'
+     C                   MOVE      X'6E'         BIN
+     C     TEGN          WHENEQ    '6f'
+     C                   MOVE      X'6F'         BIN
+      * 70 - 7F
+     C     TEGN          WHENEQ    '70'
+     C                   MOVE      X'70'         BIN
+     C     TEGN          WHENEQ    '71'
+     C                   MOVE      X'71'         BIN
+     C     TEGN          WHENEQ    '72'
+     C                   MOVE      X'72'         BIN
+     C     TEGN          WHENEQ    '73'
+     C                   MOVE      X'73'         BIN
+     C     TEGN          WHENEQ    '74'
+     C                   MOVE      X'74'         BIN
+     C     TEGN          WHENEQ    '75'
+     C                   MOVE      X'75'         BIN
+     C     TEGN          WHENEQ    '76'
+     C                   MOVE      X'76'         BIN
+     C     TEGN          WHENEQ    '77'
+     C                   MOVE      X'77'         BIN
+     C     TEGN          WHENEQ    '78'
+     C                   MOVE      X'78'         BIN
+     C     TEGN          WHENEQ    '79'
+     C                   MOVE      X'79'         BIN
+     C     TEGN          WHENEQ    '7a'
+     C                   MOVE      X'7A'         BIN
+     C     TEGN          WHENEQ    '7b'
+     C                   MOVE      X'7B'         BIN
+     C     TEGN          WHENEQ    '7c'
+     C                   MOVE      X'7C'         BIN
+     C     TEGN          WHENEQ    '7d'
+     C                   MOVE      X'7D'         BIN
+     C     TEGN          WHENEQ    '7e'
+     C                   MOVE      X'7E'         BIN
+     C     TEGN          WHENEQ    '7f'
+     C                   MOVE      X'7F'         BIN
+      * 80 - 8F
+     C     TEGN          WHENEQ    '80'
+     C                   MOVE      X'80'         BIN
+     C     TEGN          WHENEQ    '81'
+     C                   MOVE      X'81'         BIN
+     C     TEGN          WHENEQ    '82'
+     C                   MOVE      X'82'         BIN
+     C     TEGN          WHENEQ    '83'
+     C                   MOVE      X'83'         BIN
+     C     TEGN          WHENEQ    '84'
+     C                   MOVE      X'84'         BIN
+     C     TEGN          WHENEQ    '85'
+     C                   MOVE      X'85'         BIN
+     C     TEGN          WHENEQ    '86'
+     C                   MOVE      X'86'         BIN
+     C     TEGN          WHENEQ    '87'
+     C                   MOVE      X'87'         BIN
+     C     TEGN          WHENEQ    '88'
+     C                   MOVE      X'88'         BIN
+     C     TEGN          WHENEQ    '89'
+     C                   MOVE      X'89'         BIN
+     C     TEGN          WHENEQ    '8a'
+     C                   MOVE      X'8A'         BIN
+     C     TEGN          WHENEQ    '8b'
+     C                   MOVE      X'8B'         BIN
+     C     TEGN          WHENEQ    '8c'
+     C                   MOVE      X'8C'         BIN
+     C     TEGN          WHENEQ    '8d'
+     C                   MOVE      X'8D'         BIN
+     C     TEGN          WHENEQ    '8e'
+     C                   MOVE      X'8E'         BIN
+     C     TEGN          WHENEQ    '8f'
+     C                   MOVE      X'8F'         BIN
+      * 90 - 9F
+     C     TEGN          WHENEQ    '90'
+     C                   MOVE      X'90'         BIN
+     C     TEGN          WHENEQ    '91'
+     C                   MOVE      X'91'         BIN
+     C     TEGN          WHENEQ    '92'
+     C                   MOVE      X'92'         BIN
+     C     TEGN          WHENEQ    '93'
+     C                   MOVE      X'93'         BIN
+     C     TEGN          WHENEQ    '94'
+     C                   MOVE      X'94'         BIN
+     C     TEGN          WHENEQ    '95'
+     C                   MOVE      X'95'         BIN
+     C     TEGN          WHENEQ    '96'
+     C                   MOVE      X'96'         BIN
+     C     TEGN          WHENEQ    '97'
+     C                   MOVE      X'97'         BIN
+     C     TEGN          WHENEQ    '98'
+     C                   MOVE      X'98'         BIN
+     C     TEGN          WHENEQ    '99'
+     C                   MOVE      X'99'         BIN
+     C     TEGN          WHENEQ    '9a'
+     C                   MOVE      X'9A'         BIN
+     C     TEGN          WHENEQ    '9b'
+     C                   MOVE      X'9B'         BIN
+     C     TEGN          WHENEQ    '9c'
+     C                   MOVE      X'9C'         BIN
+     C     TEGN          WHENEQ    '9d'
+     C                   MOVE      X'9D'         BIN
+     C     TEGN          WHENEQ    '9e'
+     C                   MOVE      X'9E'         BIN
+     C     TEGN          WHENEQ    '9f'
+     C                   MOVE      X'9F'         BIN
+      * A0 - AF
+     C     TEGN          WHENEQ    'a0'
+     C                   MOVE      X'A0'         BIN
+     C     TEGN          WHENEQ    'a1'
+     C                   MOVE      X'A1'         BIN
+     C     TEGN          WHENEQ    'a2'
+     C                   MOVE      X'A2'         BIN
+     C     TEGN          WHENEQ    'a3'
+     C                   MOVE      X'A3'         BIN
+     C     TEGN          WHENEQ    'a4'
+     C                   MOVE      X'A4'         BIN
+     C     TEGN          WHENEQ    'a5'
+     C                   MOVE      X'A5'         BIN
+     C     TEGN          WHENEQ    'a6'
+     C                   MOVE      X'A6'         BIN
+     C     TEGN          WHENEQ    'a7'
+     C                   MOVE      X'A7'         BIN
+     C     TEGN          WHENEQ    'a8'
+     C                   MOVE      X'A8'         BIN
+     C     TEGN          WHENEQ    'a9'
+     C                   MOVE      X'A9'         BIN
+     C     TEGN          WHENEQ    'aa'
+     C                   MOVE      X'AA'         BIN
+     C     TEGN          WHENEQ    'ab'
+     C                   MOVE      X'AB'         BIN
+     C     TEGN          WHENEQ    'ac'
+     C                   MOVE      X'AC'         BIN
+     C     TEGN          WHENEQ    'ad'
+     C                   MOVE      X'AD'         BIN
+     C     TEGN          WHENEQ    'ae'
+     C                   MOVE      X'AE'         BIN
+     C     TEGN          WHENEQ    'af'
+     C                   MOVE      X'AF'         BIN
+      * B0 - BF
+     C     TEGN          WHENEQ    'b0'
+     C                   MOVE      X'B0'         BIN
+     C     TEGN          WHENEQ    'b1'
+     C                   MOVE      X'B1'         BIN
+     C     TEGN          WHENEQ    'b2'
+     C                   MOVE      X'B2'         BIN
+     C     TEGN          WHENEQ    'b3'
+     C                   MOVE      X'B3'         BIN
+     C     TEGN          WHENEQ    'b4'
+     C                   MOVE      X'B4'         BIN
+     C     TEGN          WHENEQ    'b5'
+     C                   MOVE      X'B5'         BIN
+     C     TEGN          WHENEQ    'b6'
+     C                   MOVE      X'B6'         BIN
+     C     TEGN          WHENEQ    'b7'
+     C                   MOVE      X'B7'         BIN
+     C     TEGN          WHENEQ    'b8'
+     C                   MOVE      X'B8'         BIN
+     C     TEGN          WHENEQ    'b9'
+     C                   MOVE      X'B9'         BIN
+     C     TEGN          WHENEQ    'ba'
+     C                   MOVE      X'BA'         BIN
+     C     TEGN          WHENEQ    'bb'
+     C                   MOVE      X'BB'         BIN
+     C     TEGN          WHENEQ    'bc'
+     C                   MOVE      X'BC'         BIN
+     C     TEGN          WHENEQ    'bd'
+     C                   MOVE      X'BD'         BIN
+     C     TEGN          WHENEQ    'be'
+     C                   MOVE      X'BE'         BIN
+     C     TEGN          WHENEQ    'bf'
+     C                   MOVE      X'BF'         BIN
+      * C0 - CF
+     C     TEGN          WHENEQ    'c0'
+     C                   MOVE      X'C0'         BIN
+     C     TEGN          WHENEQ    'c1'
+     C                   MOVE      X'C1'         BIN
+     C     TEGN          WHENEQ    'c2'
+     C                   MOVE      X'C2'         BIN
+     C     TEGN          WHENEQ    'c3'
+     C                   MOVE      X'C3'         BIN
+     C     TEGN          WHENEQ    'c4'
+     C                   MOVE      X'C4'         BIN
+     C     TEGN          WHENEQ    'c5'
+     C                   MOVE      X'C5'         BIN
+     C     TEGN          WHENEQ    'c6'
+     C                   MOVE      X'C6'         BIN
+     C     TEGN          WHENEQ    'c7'
+     C                   MOVE      X'C7'         BIN
+     C     TEGN          WHENEQ    'c8'
+     C                   MOVE      X'C8'         BIN
+     C     TEGN          WHENEQ    'c9'
+     C                   MOVE      X'C9'         BIN
+     C     TEGN          WHENEQ    'ca'
+     C                   MOVE      X'CA'         BIN
+     C     TEGN          WHENEQ    'cb'
+     C                   MOVE      X'CB'         BIN
+     C     TEGN          WHENEQ    'cc'
+     C                   MOVE      X'CC'         BIN
+     C     TEGN          WHENEQ    'cd'
+     C                   MOVE      X'CD'         BIN
+     C     TEGN          WHENEQ    'ce'
+     C                   MOVE      X'CE'         BIN
+     C     TEGN          WHENEQ    'cf'
+     C                   MOVE      X'CF'         BIN
+      * D0 - DF
+     C     TEGN          WHENEQ    'd0'
+     C                   MOVE      X'D0'         BIN
+     C     TEGN          WHENEQ    'd1'
+     C                   MOVE      X'D1'         BIN
+     C     TEGN          WHENEQ    'd2'
+     C                   MOVE      X'D2'         BIN
+     C     TEGN          WHENEQ    'd3'
+     C                   MOVE      X'D3'         BIN
+     C     TEGN          WHENEQ    'd4'
+     C                   MOVE      X'D4'         BIN
+     C     TEGN          WHENEQ    'd5'
+     C                   MOVE      X'D5'         BIN
+     C     TEGN          WHENEQ    'd6'
+     C                   MOVE      X'D6'         BIN
+     C     TEGN          WHENEQ    'd7'
+     C                   MOVE      X'D7'         BIN
+     C     TEGN          WHENEQ    'd8'
+     C                   MOVE      X'D8'         BIN
+     C     TEGN          WHENEQ    'd9'
+     C                   MOVE      X'D9'         BIN
+     C     TEGN          WHENEQ    'da'
+     C                   MOVE      X'DA'         BIN
+     C     TEGN          WHENEQ    'db'
+     C                   MOVE      X'DB'         BIN
+     C     TEGN          WHENEQ    'dc'
+     C                   MOVE      X'DC'         BIN
+     C     TEGN          WHENEQ    'dd'
+     C                   MOVE      X'DD'         BIN
+     C     TEGN          WHENEQ    'de'
+     C                   MOVE      X'DE'         BIN
+     C     TEGN          WHENEQ    'df'
+     C                   MOVE      X'DF'         BIN
+      * E0 - EF
+     C     TEGN          WHENEQ    'e0'
+     C                   MOVE      X'E0'         BIN
+     C     TEGN          WHENEQ    'e1'
+     C                   MOVE      X'E1'         BIN
+     C     TEGN          WHENEQ    'e2'
+     C                   MOVE      X'E2'         BIN
+     C     TEGN          WHENEQ    'e3'
+     C                   MOVE      X'E3'         BIN
+     C     TEGN          WHENEQ    'e4'
+     C                   MOVE      X'E4'         BIN
+     C     TEGN          WHENEQ    'e5'
+     C                   MOVE      X'E5'         BIN
+     C     TEGN          WHENEQ    'e6'
+     C                   MOVE      X'E6'         BIN
+     C     TEGN          WHENEQ    'e7'
+     C                   MOVE      X'E7'         BIN
+     C     TEGN          WHENEQ    'e8'
+     C                   MOVE      X'E8'         BIN
+     C     TEGN          WHENEQ    'e9'
+     C                   MOVE      X'E9'         BIN
+     C     TEGN          WHENEQ    'ea'
+     C                   MOVE      X'EA'         BIN
+     C     TEGN          WHENEQ    'eb'
+     C                   MOVE      X'EB'         BIN
+     C     TEGN          WHENEQ    'ec'
+     C                   MOVE      X'EC'         BIN
+     C     TEGN          WHENEQ    'ed'
+     C                   MOVE      X'ED'         BIN
+     C     TEGN          WHENEQ    'ee'
+     C                   MOVE      X'EE'         BIN
+     C     TEGN          WHENEQ    'ef'
+     C                   MOVE      X'EF'         BIN
+      * F0 - FF
+     C     TEGN          WHENEQ    'f0'
+     C                   MOVE      X'F0'         BIN
+     C     TEGN          WHENEQ    'f1'
+     C                   MOVE      X'F1'         BIN
+     C     TEGN          WHENEQ    'f2'
+     C                   MOVE      X'F2'         BIN
+     C     TEGN          WHENEQ    'f3'
+     C                   MOVE      X'F3'         BIN
+     C     TEGN          WHENEQ    'f4'
+     C                   MOVE      X'F4'         BIN
+     C     TEGN          WHENEQ    'f5'
+     C                   MOVE      X'F5'         BIN
+     C     TEGN          WHENEQ    'f6'
+     C                   MOVE      X'F6'         BIN
+     C     TEGN          WHENEQ    'f7'
+     C                   MOVE      X'F7'         BIN
+     C     TEGN          WHENEQ    'f8'
+     C                   MOVE      X'F8'         BIN
+     C     TEGN          WHENEQ    'f9'
+     C                   MOVE      X'F9'         BIN
+     C     TEGN          WHENEQ    'fa'
+     C                   MOVE      X'FA'         BIN
+     C     TEGN          WHENEQ    'fb'
+     C                   MOVE      X'FB'         BIN
+     C     TEGN          WHENEQ    'fc'
+     C                   MOVE      X'FC'         BIN
+     C     TEGN          WHENEQ    'fd'
+     C                   MOVE      X'FD'         BIN
+     C     TEGN          WHENEQ    'fe'
+     C                   MOVE      X'FE'         BIN
+     C     TEGN          WHENEQ    'ff'
+     C                   MOVE      X'FF'         BIN
+     C                   ENDSL
+     C     X             ADD       1             Y
+     C     Y             DIV       2             Z
+     C                   MOVEA     BIN           B(Z)
+     C                   ENDSR
+      *_________________
+      * Hente feilnummer
+      *"""""""""""""""""
+     P Errno           B
+     D                 PI            10i 0
+     D sys_errno       PR              *    ExtProc( '__errno' )
+
+     D Error           S             10i 0  Based( pError ) NoOpt
+
+     C                   EVAL      pError = sys_errno
+     C                   RETURN    Error
+
+     P Errno           E
+      *________________
+      * Hente feiltekst
+      *""""""""""""""""
+     P Strerror        B
+     D                 PI           128a   Varying
+     D sys_strerror    PR              *   ExtProc( 'strerror' )
+     D                               10i 0 Value
+
+     C                   RETURN    %Str( sys_strerror( Errno ))
+
+     P Strerror        E

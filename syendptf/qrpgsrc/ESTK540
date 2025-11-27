@@ -1,0 +1,542 @@
+      *********************************************************************
+      * TKsmart, TKsign på smartPhone, Pålogging / oppstarts-parametre
+      *********************************************************************
+CRTPG+*  CRTPGM SYSPED/ESTK540 MODULE(*LIBL/ESTK540 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF11 ved feil pålogging kan en ikke kalle jsonfix (manflende libl..)
+10XXX * 02 JOV PTF11 feil ved param for slett database
+10XXX * 03 JOV PTF11 utvidet feltlengde visning
+10XXX * 04 JOV PTF11 ANTurer sendes ikke (foreløpig hardkodet - se TMP!! )
+10XXX * 05 JOV PTF11 SPRÅK innført
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 06 JOV PTF12 perfix for forsent årsakskoder...
+********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FTURER20   IF   E           K DISK    USROPN
+     FTKIMEI    UF A E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+     D JSONstring      s          32000
+      * Prototype
+     D JSONescape      PR                  ExtPgm('JSONESC')
+     D   JSONstr                  32000A
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     D                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+      * Client input variables
+     D userId          s             10
+     D SJA             s              8
+     D SJN             s              8  0
+     D password        s             10
+     D VERSJ           s             10
+N06  D TKFSK_pref      s              2
+N06  D TKFSK_minu      s              3  0
+N05  D Sprak           s              2
+N01  D IMEI            s             15
+     D error           s            500
+     D avvTXT          s           1024
+     D NEITXT          s           1024
+S03  D*Visning         s           1024
+N03  D Visning         s           5000
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D i2              s             10i 0
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      * State related variables
+     D State           ds                  based(StateP)
+     D  UBRID                        10
+     D  UINNDT                        8
+     D  UINNTM                        6
+      * User space variables
+     D UsrSpcName      s             10
+     D UsrSpcLib       c                   'SYCGIUSP'
+      * Message ID for CrtUsrSpc
+     D MsgId           s              7
+      *
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * File open / keys
+     C                   EXSR      INIT
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Userid = PD+8 siffer (8 siffer er sjåførid) - tillater kortversj(pd2 el 2 = PD00000002 )
+     C                   eval      userId = zhbgetvar('userId')
+     C                   eval      userId = uppify(userId)
+     c                   if        %subst(userId:1:1)>='0'
+     c                             and %subst(userId:1:1)<='9'
+     C                   eval      userId = 'PD'+ %subst(userId:1:8)
+     c                   endif
+     C                   move      userId        SJA                            8 siste av 10 lang
+     C                   eval      SJN     = c2n2(SJA)                          numeric
+     c                   move      SJN           SJA                            til alfa/foranst. 0
+     C                   move      SJA           userId
+     C                   eval      password = zhbgetvar('password')
+     C                   eval      password = uppify(password)
+      * versjonsnr av klientprogramvare
+     C                   eval      VERSJ = zhbgetvar('V')
+N05  C                   eval      Sprak = zhbgetvar('S')
+N01  C                   eval      IMEI   = zhbgetvar('HWID')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     c                   close     BRIDF
+     c                   close     BRPARF
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+      * tildel userspacename kun ved vellykket pålogging
+S01  c                   if        Error = *blanks
+     C                   eval      UsrSpcName = CrtUsrSpc(
+     C                               UsrSpcLib : StateP : MsgID : '*ALL')
+S01  c                   endif
+     c                   move      'true '       OKplukTur         5
+     c                   move      'false'       OKplukTur0        5
+     c                   exsr      GetVisnMode
+     c                   exsr      TKsPDAinit
+      *
+      /free
+TMP       TKATUjn = 'N';           // TMP!! - foreløpig hardkodet
+        JSONstring='{'
+        +'¬userId¬ : ¬'+%trim(userId)+'¬, '
+        +'¬sessionId¬ : ¬'+%trim(UsrSpcName)+'¬, '
+        +'¬error¬ : ¬'+%trim(error)+'¬, '
+        +'¬okPlukkTilTur¬ : '+%trim(OKplukTur)+', '
+        +'¬okPlukkTilTur0¬ : '+%trim(OKplukTur0)+', '
+        +'¬okSlettDb¬ : '+%trim(OKslettDb)+', '
+        +'¬backupTid¬ : ¬'+%trim(bckTid)+'¬, '
+E06     +'¬antTurJN¬ : ¬'+%trim(TKATUjn)+'¬, '
+N06     +'¬avvForSenPref¬ : ¬'+%trim(TKFSK_pref)+'¬, '
+N06     +'¬avvForSenMinu¬ : '+%trim(%editc(TKFSK_minu:'3')) +', ';
+        callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+S04    //+'¬antTurer¬ : ¬'+%trim(%editc(antTur:'3')) +'¬, '
+N04     JSONstring=*blanks;
+N04    if TKATUjn = 'J';
+N04     JSONstring='¬antTurer¬ : '+%trim(%editc(antTur:'3')) +', ';
+N04    endif;
+N04     JSONstring=%trim(JSONstring)
+        +%trim(avvTxt)+', '
+        +%trim(NEITxt)+', '
+        +%trim(Visning)
+        +'}';
+        callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+      /end-free
+      *
+     C
+     C                   endsr
+      ***********************************
+     C     TKsPDAinit    begsr
+      ***********************************
+      * KODE FOR OM SLETT DB- ER  TILATT
+     C                   MOVE      'TKSDB'       PAID
+     C                   MOVE      'false'       okSlettDb         5
+     C     BrParKey      CHAIN     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+     C     PAVRDA        IFEQ      'Y'                                          Internt J (el Y)
+     C     PAVRDA        OREQ      'J'
+N02  C                   MOVE      'true '       okSlettDb
+     C                   END
+     C                   END
+      * tidsrom for backup (ingen innnsend/refrech.. )
+     C                   MOVE      *blanks       BckTid            9
+     C                   MOVE      'TKBAC'       PAID
+     C     FiParKey      CHAIN     BRPARF                             33
+     C  N33              MOVEl     PAVRDA        BckTid            9
+     C   33              MOVE      '0000-0000'   BckTid            9
+      *
+      * Egendefinerte tekster for avvik ved henting/levering
+     C                   MOVE      'TKHLA'       PAID
+     C                   move      'J'           FØrsteP           1
+     C                   eval      avvTxt = '¬avviksText¬: ['
+     C     FiParKey      setll     BRPARF
+     C     FiParKey      reade     BRPARF                                 33
+     C     *in33         doweq     '0'
+     c     FØrsteP       ifeq      'J'
+     C                   eval      avvTxt=%trim(avvTxt)+'¬'+%trim(PAVRDA)+'¬'
+     c                   else
+     C                   eval      avvTxt=%trim(avvTxt)+', ¬'+%trim(PAVRDA)+'¬'
+     c                   end
+     C                   move      'N'           FØrsteP           1
+     C     FiParKey      reade     BRPARF                                 33
+     c                   end
+     C                   eval      avvTxt = %trim(avvTxt)+']'
+      *
+      * Egendefinerte tekster for AVVISNING='NEI' av order
+     C                   MOVE      'TKAVK'       PAID
+     C                   move      'J'           FØrsteP           1
+     C                   eval      NEITxt = '¬avVisningsText¬: ['
+     C     FiParKey      setll     BRPARF
+     C     FiParKey      reade     BRPARF                                 33
+     C     *in33         doweq     '0'
+     c     FØrsteP       ifeq      'J'
+     C                   eval      NEITxt=%trim(NEITxt)+'¬'+%trim(PAVRDA)+'¬'
+     c                   else
+     C                   eval      NEITxt=%trim(NEITxt)+', ¬'+%trim(PAVRDA)+'¬'
+     c                   end
+     C                   move      'N'           FØrsteP           1
+     C     FiParKey      reade     BRPARF                                 33
+     c                   end
+     C                   eval      NEITxt = %trim(NEITxt)+']'
+      *
+      * Prameetr for om button for ett oppdrag vises   (manglende param = N)
+      * i tkSmart OKplukTur0
+     C                   MOVE      'TKOPD'       PAID
+     C     BrParKey      CHAIN     BRPARF                             33        pri 1
+     C   33FiParKey      CHAIN     BRPARF                             33        Pri 2
+     c                   if        PAVRDA='Y' or PAVRDA='J'
+     C                   eval      OKplukTur0  = 'true'
+     c                   endif
+      *
+      * overvåking av antall turer i "Hent liste" ?
+     C                   MOVE      'TKATU'       PAID
+     C     FiParKey      CHAIN     BRPARF                             33
+     C   33              MOVEl     'J'           TKATUjn           1
+     C  N33              MOVEl     PAVRDA        TKATUjn           1
+     C     TKATUjn       IFEQ      'J'
+     C                   move      *zeros        AntTur            5 0
+     C                   open      TURER20
+     C     TURKEY20      setll     TURER20
+     C     TURKEY20      Reade     TURER20                                33
+     C     *IN33         DOWEQ     '0'
+     C                   ADD       1             AntTur
+     C     TURKEY20      Reade     TURER20                                33
+     C                   end
+     C                   close     TURER20
+     c                   end
+     C
+      *
+N01   * loggfør bruk..
+N01  c**   IMEI          ifne      *blanks
+N01  C     IMEIkey       KLIST
+N01  C                   KFLD                    IMEI
+N01  C                   KFLD                    PROD
+N01  C                   OPEN      TKIMEI
+     C                   movel     userId        IMEI
+N01  C                   movel     'TKsmart'     PROD
+N01  C     IMEIkey       chain     TKIMEI                             33
+N01  C                   movel     VERSJ         VERS
+N01  C                   movel     userId        USR
+N01  C                   MOVE      ULDT          DATOS
+N01  C                   MOVE      XULTM         TIDS
+N01  C                   add       1             ANT
+N01  C  N33              update    TKIMEIR
+N01  C   33              write     TKIMEIR
+N01  C                   CLOSE     TKIMEI
+     C**                 endif
+     C                   endsr
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     userID        CHAIN     BRIDF                              50
+     c  N50password      comp      BIPO                               5050
+      * Ukjent UserID
+     c     *in50         ifeq      '1'
+     C                   close     BRIDF
+      /free
+        wrtsection('top');
+
+        JSONstring='{'
+        +'"userId" : "'+%trim(userId)+'", '
+        +'"error" : "'+'Incorrect userId or password.'+'" }';
+        // callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+
+        wrtsection('*fini');
+      /end-free
+     C                   eval      *inlr = *on
+     C                   return
+     c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     c                   open      BRPARF
+      *
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+      * HENT NetCCSID (1208 = UTF8)
+     c                   move      *blanks       NetCCSID         10
+     C                   eval      NetCCSID   =getenv('CGI_ASCII_CCSID':
+     C                             qusec)
+     C     BrParKey      klist
+     C                   kfld                    BIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      *zeros        PAKUNR
+     C     FiParKey      klist
+     C                   kfld                    FIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   movel     '*KUNDFT*'    FIBRID           10
+     C                   move      BIFIRM        FIBRID
+     C     TurKey20      KLIST
+     C                   KFLD                    SJN
+     C                   KFLD                    xxTST4
+     C                   MOVE      ' '           xxTST4            1
+      *
+N06  C                   MOVE      'TKFSK'       PAID
+N06  C     FiParKey      CHAIN     BRPARF                             33
+N06  C                   IF        %FOUND
+N06  C                   EVAL      TKFSK_pref = PAVRDA
+N06  C                   EVAL      TKFSK_minu = PAVRDN
+N06  C                   ENDIF
+      *
+     C     UtInit        endsr
+      ***************************************************
+     C     GetVisnMode   begsr
+      ***************************************************
+      /free
+N05    select;
+N05    when Sprak = 'EN';
+N05     Visning='¬sendingListItemTemplates¬: ['
+N05     + '{'
+N05     +   '¬id¬: ¬Kompakt visning¬,'
+N05     +   '¬name¬: ¬Compact view¬,'
+N05     +   '¬lines¬: ['
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 3, ¬label¬: ¬¬, ¬value¬: ¬title¬},'
+N05     +         '{¬colSpan¬: 3, ¬label¬: ¬¬, ¬value¬: ¬navn¬},'
+N05     +         '{¬colSpan¬: 2, ¬label¬: ¬..P¬, ¬value¬: ¬antKll¬},'
+N05     +         '{¬colSpan¬: 2, ¬label¬: ¬W¬, ¬value¬: ¬vekt¬}'
+N05     +       ']'
+N05     +     '}'
+N05     +   ']'
+N05     + '},'
+N05     + '{'
+N05     +   '¬id¬: ¬Utvidet visning¬,'
+N05     +   '¬name¬: ¬Expanded view¬,'
+N05     +   '¬lines¬: ['
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 4, ¬label¬: ¬¬, ¬value¬: ¬title¬},'
+N05     +         '{¬colSpan¬: 6,¬label¬: ¬S:¬, ¬value¬: ¬sendingsNr¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬label¬: ¬Pc:¬, ¬value¬: ¬antKll¬},'
+N05     +         '{¬label¬: ¬W:¬, ¬value¬: ¬vekt¬ },'
+N05     +         '{¬label¬: ¬M3:¬, ¬value¬: ¬volum¬},'
+N05     +         '{¬label¬: ¬LM:¬, ¬value¬: ¬lm¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬Shi:¬, ¬value¬: ¬senNavn¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬Rec:¬, ¬value¬: ¬motNavn¬}'
+N05     +       ']'
+N05     +     '}'
+N05     +   ']'     // end lines list
+N05     + '}'     // end Utvidet visning
+N05       // ekstra Utvidet visning - info til  for nettbrett
+N05     + ', {'
+N05     +   '¬id¬: ¬Ekstra Utv. visning¬,'
+N05     +   '¬name¬: ¬Extra expanded view¬,'
+N05     +   '¬lines¬: ['
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 3, ¬label¬: ¬Dp/Or:¬, ¬value¬: ¬title¬},'
+N05     +         '{¬colSpan¬: 2, ¬label¬: ¬Pos:¬, ¬value¬: ¬pos¬},'
+N05     +         '{¬colSpan¬: 5,¬label¬: ¬ShpNo:¬, ¬value¬: ¬sendingsNr¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬label¬: ¬Pcs:¬, ¬value¬: ¬antKll¬},'
+N05     +         '{¬label¬: ¬Wei:¬, ¬value¬: ¬vekt¬ },'
+N05     +         '{¬label¬: ¬M3:¬, ¬value¬: ¬volum¬},'
+N05     +         '{¬label¬: ¬LM:¬, ¬value¬: ¬lm¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 4,¬label¬: ¬Shi:¬, ¬value¬: ¬senNavn¬},'
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬S:¬, ¬value¬: ¬senAdr1¬},'
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬P:¬, ¬value¬: ¬senAdr3¬}'
+N05     +       ']'
+N05     +     '},'
+N05     +     '{'
+N05     +       '¬columns¬: ['
+N05     +         '{¬colSpan¬: 4,¬label¬: ¬Rec:¬, ¬value¬: ¬motNavn¬},'
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬S:¬, ¬value¬: ¬motAdr1¬},'
+N05     +         '{¬colSpan¬: 3,¬label¬: ¬P:¬, ¬value¬: ¬motAdr3¬}'
+N05     +       ']'
+N05     +     '}'
+N05     +   ']'     // end lines list
+N05     + '}'     // end Utvidet visning
+N05       // ekstra utvidet visning - info til  for nettbrett
+N05     +']';   // end sendingListItemTemplates
+N05    other;
+        Visning='¬sendingListItemTemplates¬: ['
+        + '{'
+N05     +   '¬id¬: ¬Kompakt visning¬,'
+        +   '¬name¬: ¬Kompakt visning¬,'
+        +   '¬lines¬: ['
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 3, ¬label¬: ¬¬, ¬value¬: ¬title¬},'
+        +         '{¬colSpan¬: 3, ¬label¬: ¬¬, ¬value¬: ¬navn¬},'
+        +         '{¬colSpan¬: 2, ¬label¬: ¬..A¬, ¬value¬: ¬antKll¬},'
+        +         '{¬colSpan¬: 2, ¬label¬: ¬V¬, ¬value¬: ¬vekt¬}'
+        +       ']'
+        +     '}'
+        +   ']'
+        + '},'
+        + '{'
+N05     +   '¬id¬: ¬Utvidet visning¬,'
+        +   '¬name¬: ¬Utvidet visning¬,'
+        +   '¬lines¬: ['
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 4, ¬label¬: ¬¬, ¬value¬: ¬title¬},'
+        +         '{¬colSpan¬: 6,¬label¬: ¬S:¬, ¬value¬: ¬sendingsNr¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬label¬: ¬A:¬, ¬value¬: ¬antKll¬},'
+        +         '{¬label¬: ¬V:¬, ¬value¬: ¬vekt¬ },'
+        +         '{¬label¬: ¬M3:¬, ¬value¬: ¬volum¬},'
+        +         '{¬label¬: ¬LM:¬, ¬value¬: ¬lm¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 3,¬label¬: ¬Avs:¬, ¬value¬: ¬senNavn¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 3,¬label¬: ¬Mot:¬, ¬value¬: ¬motNavn¬}'
+        +       ']'
+        +     '}'
+        +   ']'     // end lines list
+        + '}'     // end Utvidet visning
+          // ekstra Utvidet visning - info til  for nettbrett
+        + ', {'
+N05     +   '¬id¬: ¬Ekstra Utv. visning¬,'
+        +   '¬name¬: ¬Ekstra Utv. visning¬,'
+        +   '¬lines¬: ['
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 3, ¬label¬: ¬Av/Op:¬, ¬value¬: ¬title¬},'
+        +         '{¬colSpan¬: 2, ¬label¬: ¬Pos:¬, ¬value¬: ¬pos¬},'
+        +         '{¬colSpan¬: 5,¬label¬: ¬SndNr:¬, ¬value¬: ¬sendingsNr¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬label¬: ¬Ant:¬, ¬value¬: ¬antKll¬},'
+        +         '{¬label¬: ¬Vkt:¬, ¬value¬: ¬vekt¬ },'
+        +         '{¬label¬: ¬M3:¬, ¬value¬: ¬volum¬},'
+        +         '{¬label¬: ¬LM:¬, ¬value¬: ¬lm¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 4,¬label¬: ¬Avs:¬, ¬value¬: ¬senNavn¬},'
+        +         '{¬colSpan¬: 3,¬label¬: ¬G:¬, ¬value¬: ¬senAdr1¬},'
+        +         '{¬colSpan¬: 3,¬label¬: ¬P:¬, ¬value¬: ¬senAdr3¬}'
+        +       ']'
+        +     '},'
+        +     '{'
+        +       '¬columns¬: ['
+        +         '{¬colSpan¬: 4,¬label¬: ¬Mot:¬, ¬value¬: ¬motNavn¬},'
+        +         '{¬colSpan¬: 3,¬label¬: ¬G:¬, ¬value¬: ¬motAdr1¬},'
+        +         '{¬colSpan¬: 3,¬label¬: ¬P:¬, ¬value¬: ¬motAdr3¬}'
+        +       ']'
+        +     '}'
+        +   ']'     // end lines list
+        + '}'     // end Utvidet visning
+          // ekstra utvidet visning - info til  for nettbrett
+        +']';   // end sendingListItemTemplates
+N05    endsl;
+      /end-free
+     C                   endsr
+      *

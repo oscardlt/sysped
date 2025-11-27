@@ -1,0 +1,2363 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+P1000A* 01 CB  PTF10  Stiore endringer vedr. PKI, ikke merket
+P11XXX* 02 CB  PTF11  Ombudstyp
+P11094* 03 CB  PTF11  Nya berækningsenheter
+P11130* 04 CB  PTF11  Møjlighet till fler varuposter
+P12XXX* 05 CB  PTF12  Inga decimaler på vikter över 1 KG
+P12XXX* 06 CB  PTF12  Tilbakestill kontrolltegn på noen segmenter
+P12XXX* 07 SH  PTF12  svensk ?
+P12XXX* 08 SH  PTF12  0 i antall ved 999999999
+********************************************************************
+N04  H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FSVEH      IF   E           K DISK
+     FSVEV1     UF   E           K DISK
+     FSVTFI     IF   E             DISK
+     FSVEVA     UF   E           K DISK
+      *____________________
+      * DS for input string
+      *""""""""""""""""""""
+     D                 DS
+     D  A                      1  30000
+     D                                     DIM(30000)                           Input string
+     D  ADS                    1  30000
+      *_____________________
+      * DS for output string
+      *"""""""""""""""""""""
+     D                 DS
+     D  B                      1  30000
+     D                                     DIM(30000)                           Output string
+     D  BDS                    1  30000
+      *________________________________________
+      * DS for å venstrestille numeriske felter
+      *""""""""""""""""""""""""""""""""""""""""
+     D                 DS
+     D  ØN154                  1     15  4
+     D  ØA154H                 1     11
+     D  ØA154D                12     15
+     D                 DS
+     D  ØA16                   1     16
+     D  Ø16                    1     16
+     D                                     DIM(16)                              Num edit
+      *____________
+      * DS for EORI
+      *""""""""""""
+     D                 DS
+     D  WEORI                  1     17
+     D  WEORIA                 1      2
+     D  WEORIB                 3     17
+N04   *__________
+N04   * Variabler
+N04   *""""""""""
+N04  D FILE_o          s               *
+N04  D String          s            512a
+N04  D rc              s             10i 0
+N04  D Data            s          30000a   Varying
+N04  D Codepage        s              5a   Varying
+N05  D  ØN110          s             11S 0
+N04   *___________________________
+N04   * IFS Stream file funksjoner
+N04   *"""""""""""""""""""""""""""
+N04  Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+N04  D                                 *   Value Options( *String )
+N04  D                                 *   Value Options( *String )
+N04
+N04  Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+N04  D                                 *   Value Options( *String )
+N04  D                                 *   Value
+N04
+N04  Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+N04  D                                 *   Value
+N04  D RunCmd          PR                  EXTPGM('QCMDEXC')
+N04  D  Cmd                         200A   CONST
+N04  D  Len                          15P 5 CONST
+N04   *   SYEDI data area
+N04  D EDIDTA          DS           256
+N04  D  UELIBF               171    180
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+     C     *LIKE         DEFINE    SVEH_SYAV     UVEH_SYAV
+     C     *LIKE         DEFINE    SVEH_SYOP     UVEH_SYOP
+     C     *LIKE         DEFINE    SVEV_VANO     UVEV_VANO
+      *
+     C                   Z-ADD     0             ØX                2 0
+     C                   MOVE      *BLANKS       ØAN              12
+     C                   Z-ADD     0             W0074             7 0
+     C                   Z-ADD     80            LEN               5 0
+     C                   MOVEL     'EUNOAO  '    TABLE            10
+     C*                  MOVEL     'SVGSENO '    TABLE            10
+     C                   MOVEL     '*LIBL   '    LIB              10
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEYA          KLIST
+     C                   KFLD                    UVEH_SYAV
+     C                   KFLD                    UVEH_SYOP
+     C     KEYB          KLIST
+     C                   KFLD                    SVEV_SYAV
+     C                   KFLD                    SVEV_SYOP
+     C                   KFLD                    SVEV_SYLI
+      *_____________
+      * Init av felt
+      *"""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           WDT80             8 0
+      * Workfields for Array's
+     C                   Z-ADD     0             AX                2 0          Index for A
+     C                   Z-ADD     1             BX                5 0          Index for B
+     C                   Z-ADD     0             AXV               5 0          Leftindx A
+     C                   Z-ADD     0             AXH               5 0          Rightindx A
+     C                   MOVE      *BLANKS       WCHAR             1            Test character
+     C                   MOVE      'Y'           WCHART            1            Test character
+      * Workfields for separation character  '
+     C                   BITON     '123457'      WAPSTR            1
+     C                   BITOFF    '06'          WAPSTR
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+S04  C*                  PARM      BDS           UDATA         30000
+N04   * Åpne dataarea
+N04  C     *DTAARA       DEFINE                  EDIDTA
+N04  C                   IN        EDIDTA
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Start av file                                        SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+     C     KEYA          CHAIN     SVEH
+N04   *______________
+N04   * Øppna IFS-fil
+N04   *""""""""""""""
+N04  C                   MOVE      SVEH_SYAV     WAVD              4
+N04  C                   MOVE      SVEH_SYOP     WOPD              7
+N04  C                   MOVE      *BLANKS       WFILNAM         256
+N04  C                   EVAL      WFILNAM = '/' + %trimr(UELIBF)
+N04  C                             + '/EDISE/TEMP/SVEU' + WAVD + '-' + WOPD
+N04
+N04  C                   EVAL      Codepage = '819'
+N04  C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+N04  C                             : 'w, codepage=' + Codepage )
+N04
+N04  C                   EVAL      rc = close( FILE_o )
+N04
+N04  C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+N04  C                             : 'w' )
+
+      *_____________
+      * Huvudsektion
+      *"""""""""""""
+      * Meddelandeingress
+     C                   EXSR      UNH00
+      * Meddelandebørjan
+     C                   EXSR      BGM00
+      * Plats lokaliseringsidentifikation
+     C                   EXSR      LOC00
+      * Datum
+     C                   EXSR      DTM00
+      * Generell indikator
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   EXSR      GIS00
+     C                   ENDIF
+     C     SVEH_MTYP     IFEQ      'UNU'
+     C     SVEH_MTYP     OREQ      'URT'
+     C     SVEH_MTYP     OREQ      'UGE'
+      * Kommersiellt referansnummer
+     C                   EXSR      FII00
+      * Total bruttovikt
+     C                   EXSR      MEA00
+      * Resplan
+     C                   EXSR      EQD00
+      * Førseglingsid
+     C                   EXSR      SEL00
+      * Betalingssætt før transportkostnad
+     C                   EXSR      FTX00
+     C                   ENDIF
+      * Referenser
+     C                   EXSR      RFF01
+      * Transportdetaljer
+     C                   EXSR      TDT04
+      * Namm och adress, Behørig att begæra klarering
+     C     SVEH_MTYP     IFEQ      'UNU'
+     C     SVEH_MTYP     OREQ      'URT'
+     C                   EXSR      NAD06B
+     C                   ENDIF
+      * Namm och adress, Avsændare
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   EXSR      NAD06C
+     C                   ENDIF
+      * Namm och adress, Mottagare
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_MTYP     ANDNE     'UBK'
+     C                   EXSR      NAD06D
+      * Namm och adress, Deklarant
+     C                   EXSR      NAD06F
+      * Namm och adress, Ombud
+     C                   EXSR      NAD06A
+     C                   ENDIF
+      * Seksjonskille
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   EXSR      UNSD
+     C                   ENDIF
+      *______________
+      * Detaljsektion
+      *""""""""""""""
+      * Skrive ut meldingsvarelinjer til EDIFACT-fil
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   EXSR      CST30
+     C                   ENDIF
+      * Seksjonskille
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   EXSR      UNSS
+     C                   ENDIF
+      *_____________
+      * Summasektion
+      *"""""""""""""
+      * Meddelandeslut
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_MTYP     ANDNE     'UBK'
+     C                   EXSR      CNT00
+     C                   ENDIF
+      * Meddelandeslut
+     C                   EXSR      UNT00
+N04   *______________
+N04   * Stæng IFS-fil
+N04   *""""""""""""""
+N04  C                   EVAL      rc = close( FILE_o )
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for output string, read input from left              SRÅ
+      *////////////////////////////////////////////////////////////
+     C     SRÅ           BEGSR
+      *_________________
+      * Trim left blanks
+      *"""""""""""""""""
+     C                   MOVEL(P)  ADS           ADS2          30000
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS=%TRIML(ADS2)
+      *_______________
+      * Find positions
+      *""""""""""""""""
+     C                   EVAL      AXV=1
+     C     ' '           CHECKR    ADS           AXH
+      *________________________________________________
+      * Read input string and place it in output string
+      *""""""""""""""""""""""""""""""""""""""""""""""""
+     C     AXV           DO        AXH           AXV                            <-------------I
+     C                   MOVE      A(AXV)        WCHAR                                        I
+      * If invalid character (' + : ?) then replace with 'Ø'             I
+     C     WCHART        IFEQ      'Y'                                           <-----------II
+     C     WCHAR         IFEQ      ';'                                                      III
+     C                   MOVE      ':'           WCHAR
+     C                   ENDIF                                                    <---------III
+     C     WCHAR         COMP      WAPSTR                                 83                III
+     C  N83WCHAR         COMP      '+'                                    83                III
+     C  N83WCHAR         COMP      ':'                                    83                III
+     C  N83WCHAR         COMP      '?'                                    83                III
+N07  C  N83WCHAR         COMP      X'3F'                                  83     svensk  ?  III
+     C   83              EXSR      SRÅA                                                     III
+     C                   END                                                     <-----------II
+      * Move to output string                                            I
+     C                   MOVE      WCHAR         B(BX)                                        I
+     C                   ADD       1             BX                                           I
+
+     C                   ENDDO                                                  <-------------I
+N04   * Skriv till IFS-fil
+N04  C                   EVAL      Data = %trimr(BDS)
+N04  C                   EVAL      rc = fputs(Data : File_o)
+N04  C                   EVAL      BX=1
+N04  C                   EVAL      BDS=*BLANKS
+
+     C                   MOVE      'Y'           WCHART
+     C                   EVAL      ADS=*BLANKS
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for replace control characters                      SRÅA
+      *////////////////////////////////////////////////////////////
+     C     SRÅA          BEGSR
+      * Move '?' before the character
+     C                   MOVE      '?'           B(BX)
+     C                   ADD       1             BX
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Venstrestill numeriske verdier                      SRNE /
+      *////////////////////////////////////////////////////////////
+     C     SRNE          BEGSR
+      * Flytte in rett verdi i Alfa 12-felt
+     C                   MOVE      *ZEROS        ØA16
+     C     ØA154D        IFEQ      '0000'                                       <-------------I
+     C                   MOVE      ØA154H        ØA16                                         I
+     C                   ELSE                                                   <-------------I
+     C                   MOVEL     ØA154H        ØA16                                         I
+     C                   MOVE      '.    '       ØA16                                         I
+     C                   MOVE      ØA154D        ØA16                                         I
+     C     Ø16(16)       IFEQ      '0'
+     C                   MOVE      ' '           Ø16(16)
+     C     Ø16(15)       IFEQ      '0'
+     C                   MOVE      ' '           Ø16(15)
+     C                   END
+     C                   END
+     C                   END                                                    <-------------I
+      * lete fra venstre og finn foerste siffer over 0
+     C     1             DO        15            ØX                             <-------------I
+     C     Ø16(ØX)       IFNE      '0'                                           <-----------II
+     C                   GOTO      SRNE1                                                     II
+     C                   END                                                     <-----------II
+     C                   END                                                    <-------------I
+     C     SRNE1         TAG
+      * Venstrestill til et nytt felt
+     C                   MOVE      *BLANKS       ØAN
+     C                   MOVEA     Ø16(ØX)       ØAN
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Meddelandeingress                                  UNH00 /
+      *////////////////////////////////////////////////////////////
+     C     UNH00         BEGSR
+      * Segmentnavn
+      * W0074  --->  Teller for antall segment
+     C                   Z-ADD     1             W0074
+     C                   MOVEL     'UNH+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Meldingsreferanse
+     C                   MOVEL     SVEH_SYAV     W0062            11
+     C                   MOVE      SVEH_SYOP     W0062
+     C                   MOVEL     W0062         ADS
+     C                   EXSR      SRÅ
+      *
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Meldingstype  (= CUSDEC)
+     C                   MOVEL     'CUSDEC'      ADS
+     C                   EXSR      SRÅ
+      *
+     C                   MOVEA     ':D:96B:U'    A(1)
+     C                   MOVEA     'N:145050'    A(9)
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL(P)  WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Meddelandebørjan                                   BGM00 /
+      *////////////////////////////////////////////////////////////
+     C     BGM00         BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   IF        SVEH_MTYP = 'UKO'
+     C                   EVAL      ADS='BGM+'+SVEH_MTYP+WAPSTR
+     C                   ELSE
+     C                   EVAL      ADS='BGM+'+SVEH_MTYP+':::'+SVEH_DEK1+'++'
+     C                             + SVEH_DEK2+WAPSTR
+     C                   ENDIF
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Kontroll totaler                                   CNT00 /
+      *////////////////////////////////////////////////////////////
+     C     CNT00         BEGSR
+      * Antall kolli
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEH_KOTA
+     C                   EXSR      SRNE
+     C                   EVAL      ADS='CNT+11:'+%trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Antall førseglingar
+     C                   EVAL      ØN154=0
+     C     SVEH_SEL1     IFNE      *BLANKS
+     C                   ADD       1             ØN154
+     C                   ENDIF
+     C     SVEH_SEL2     IFNE      *BLANKS
+     C                   ADD       1             ØN154
+     C                   ENDIF
+     C                   IF        ØN154 > 0
+     C                   ADD       1             W0074
+     C                   EXSR      SRNE
+     C                   EVAL      ADS='CNT+16:'+%trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Kommunikationskontakter, Ombud                    COM06A /
+      *////////////////////////////////////////////////////////////
+     C     COM06A        BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'COM+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationsnummer
+     C                   MOVEL     SVEH_OMTL     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationskanal kvalificerare
+     C                   MOVEL     'TE'          ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Kommunikationskontakter, Avsændare                COM06C /
+      *////////////////////////////////////////////////////////////
+     C     COM06C        BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'COM+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationsnummer
+     C                   MOVEL     SVEH_AVTL     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationskanal kvalificerare
+     C                   MOVEL     'TE'          ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Handlæggare, Ombud                                CTA06A /
+      *////////////////////////////////////////////////////////////
+     C     CTA06A        BEGSR
+     C                   ADD       1             W0074
+S06  C*                  EVAL      ADS='CTA+AH+:'+%trimr(SVEH_OMHA)+WAPSTR
+S06  C*                  MOVE      'N'           WCHART
+S06  C*                  EXSR      SRÅ
+N06
+N06  C                   MOVEL     'CTA+AH+:'    ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     SVEH_OMHA     ADS
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     WAPSTR        ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Handlæggare, Avsændare                            CTA06C /
+      *////////////////////////////////////////////////////////////
+     C     CTA06C        BEGSR
+     C                   ADD       1             W0074
+S06  C*                  EVAL      ADS='CTA+AH+:'+%trimr(SVEH_AVHA)+WAPSTR
+S06  C*                  MOVE      'N'           WCHART
+S06  C*                  EXSR      SRÅ
+N06
+N06  C                   MOVEL     'CTA+AH+:'    ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     SVEH_AVHA     ADS
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     WAPSTR        ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Varupostnivå                                       CST30 /
+      *////////////////////////////////////////////////////////////
+     C     CST30         BEGSR
+
+     C                   EVAL      *IN20=*OFF
+     C                   EVAL      UVEV_VANO=0
+     C     KEYA          SETLL     SVEV1
+     C     KEYA          READE     SVEV1                                  20
+     C     *IN20         DOWEQ     *OFF
+     C                   ADD       1             UVEV_VANO
+     C                   EVAL      SVEV_VANO=UVEV_VANO
+     C                   UPDATE    SVEVR
+      * R32 Varupostnummer
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_VANO
+     C                   EXSR      SRNE
+      * R33:1-2 Varukod
+     C     SVEH_MTYP     IFNE      'UBK'
+     C                   EVAL      ADS='CST+'+%trimr(ØAN)+'+'+SVEV_VATA+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Andra segment under CST
+     C     SVEH_MTYP     IFNE      'UBK'
+     C                   EXSR      FTX30
+     C                   EXSR      LOC30
+     C                   EXSR      MEA30
+     C                   EXSR      TDT30
+     C                   EXSR      PAC31
+     C                   EXSR      MOA33
+     C                   ENDIF
+     C                   EXSR      RFF35
+     C     SVEH_MTYP     IFNE      'UBK'
+     C                   EXSR      DOC37A
+     C                   EXSR      DOC37B
+     C                   EXSR      GIS40
+     C                   EXSR      TAX41
+     C                   ENDIF
+
+      * Læs næsta varulinje
+     C     KEYA          READE     SVEV1                                  20
+     C  N20              ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Bilagda handlingar                                DOC37A /
+      *////////////////////////////////////////////////////////////
+     C     DOC37A        BEGSR
+
+     C     *LIKE         DEFINE    SVEV_BIT1     ZVEV_BITX
+     C     *LIKE         DEFINE    SVEV_BII1     ZVEV_BIIX
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT1
+     C                   EVAL      ZVEV_BIIX=SVEV_BII1
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT2
+     C                   EVAL      ZVEV_BIIX=SVEV_BII2
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT3
+     C                   EVAL      ZVEV_BIIX=SVEV_BII3
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT4
+     C                   EVAL      ZVEV_BIIX=SVEV_BII4
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT5
+     C                   EVAL      ZVEV_BIIX=SVEV_BII5
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT6
+     C                   EVAL      ZVEV_BIIX=SVEV_BII6
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT7
+     C                   EVAL      ZVEV_BIIX=SVEV_BII7
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT8
+     C                   EVAL      ZVEV_BIIX=SVEV_BII8
+     C                   EXSR      DOC37AA
+
+     C                   EVAL      ZVEV_BITX=SVEV_BIT9
+     C                   EVAL      ZVEV_BIIX=SVEV_BII9
+     C                   EXSR      DOC37AA
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Bilagda handlingar                               DOC37AA /
+      *////////////////////////////////////////////////////////////
+     C     DOC37AA       BEGSR
+
+     C     ZVEV_BITX     IFNE      *BLANKS
+     C     ZVEV_BIIX     ORNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   MOVEL     'DOC+ZBH:::'  ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C     ZVEV_BITX     IFNE      *BLANKS
+     C                   MOVEL     ZVEV_BITX     ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     ZVEV_BIIX     IFNE      *BLANKS
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     ZVEV_BIIX     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Tidigare handlingar (tullid)                      DOC37B /
+      *////////////////////////////////////////////////////////////
+     C     DOC37B        BEGSR
+     C     SVEV_TIX1     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK1)+'::'
+     C                             + %trimr(SVEV_TIT1)+'+'
+     C                             + %trimr(SVEV_TIX1)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX2     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK2)+'::'
+     C                             + %trimr(SVEV_TIT2)+'+'
+     C                             + %trimr(SVEV_TIX2)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX3     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK3)+'::'
+     C                             + %trimr(SVEV_TIT3)+'+'
+     C                             + %trimr(SVEV_TIX3)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX4     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK4)+'::'
+     C                             + %trimr(SVEV_TIT4)+'+'
+     C                             + %trimr(SVEV_TIX4)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX5     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK5)+'::'
+     C                             + %trimr(SVEV_TIT5)+'+'
+     C                             + %trimr(SVEV_TIX5)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX6     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK6)+'::'
+     C                             + %trimr(SVEV_TIT6)+'+'
+     C                             + %trimr(SVEV_TIX6)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX7     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK7)+'::'
+     C                             + %trimr(SVEV_TIT7)+'+'
+     C                             + %trimr(SVEV_TIX7)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX8     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK8)+'::'
+     C                             + %trimr(SVEV_TIT8)+'+'
+     C                             + %trimr(SVEV_TIX8)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_TIX9     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='DOC+190:'+%trimr(SVEV_TIK9)+'::'
+     C                             + %trimr(SVEV_TIT9)+'+'
+     C                             + %trimr(SVEV_TIX9)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Datum                                              DTM00 /
+      *////////////////////////////////////////////////////////////
+     C     DTM00         BEGSR
+      * Taxebestæmmande dag
+     C     SVEH_MTYP     IFEQ      'UFF'
+     C     SVEH_TAXD     ANDGT     0
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEH_TAXD
+     C                   EXSR      SRNE
+     C                   EVAL      ADS='DTM+131:'+%trimr(ØAN)+':102'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Beræknad avgångstid
+     C     SVEH_MTYP     IFEQ      'UGE'
+     C     SVEH_BEAT     ANDGT     0
+     C                   MOVE      SVEH_BEAT     XVEH_BEAT        12
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='DTM+133:'+XVEH_BEAT
+     C                             +':203'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Resplan                                            EQD00 /
+      *////////////////////////////////////////////////////////////
+     C     EQD00         BEGSR
+
+     C     SVEH_RES1     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES1)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES2     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES2)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES3     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES3)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES4     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES4)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES5     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES5)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES6     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES6)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES7     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES7)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C     SVEH_RES8     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='EQD+CH+:::'+%trimr(SVEH_RES8)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Kommersiellt referansnummer                        FII00 /
+      *////////////////////////////////////////////////////////////
+     C     FII00         BEGSR
+
+     C     SVEH_KOMR     IFNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'FII+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Party qualifier
+     C                   MOVEL     'XX'          ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':::::::'     ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_KOMR     ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Betalningssætt før transportkostnad                FTX00 /
+      *////////////////////////////////////////////////////////////
+     C     FTX00         BEGSR
+     C     SVEH_BETK     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='FTX+PAI+'+%trimr(SVEH_BETK)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Varuslag                                           FTX30 /
+      *////////////////////////////////////////////////////////////
+     C     FTX30         BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'FTX+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Textæmnes kvalificerare
+     C                   MOVEL     'AAA'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+++'         ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Varuslag
+     C                   MOVEL     SVEV_VASL     ADS
+     C                   EXSR      SRÅ
+     C     SVEV_VAS2     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_VAS2     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_VAS3     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_VAS3     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_VAS4     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_VAS4     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_VAS5     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_VAS5     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+      *______________________________
+      * Særskilda upplysningar  RAD-1
+      *""""""""""""""""""""""""""""""
+     C     SVEV_SUKO     IFNE      *BLANKS
+     C     SVEV_SUTX     ORNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='FTX+SU++'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Særskilda upplysningar, kod
+     C     SVEV_SUKO     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUKO     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Referensnummer
+     C     SVEV_SUTX     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUTX     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT2     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT2     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT3     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT3     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT4     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT4     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT5     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT5     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+      *______________________________
+      * Særskilda upplysningar  RAD-2
+      *""""""""""""""""""""""""""""""
+     C     SVEV_SUK6     IFNE      *BLANKS
+     C     SVEV_SUT6     ORNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='FTX+SU++'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Særskilda upplysningar, kod
+     C     SVEV_SUK6     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUK6     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Referensnummer
+     C     SVEV_SUT6     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUT6     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT7     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT7     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT8     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT8     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUT9     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUT9     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUTA     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUTA     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+      *______________________________
+      * Særskilda upplysningar  RAD-3
+      *""""""""""""""""""""""""""""""
+     C     SVEV_SUKB     IFNE      *BLANKS
+     C     SVEV_SUTB     ORNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='FTX+SU++'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Særskilda upplysningar, kod
+     C     SVEV_SUKB     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUKB     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Referensnummer
+     C     SVEV_SUTB     IFNE      *BLANKS
+     C                   MOVEL     SVEV_SUTB     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUTC     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUTC     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUTD     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUTD     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUTE     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUTE     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_SUTF     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     SVEV_SUTF     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+      *____________________________
+      * Kommersiellt referansnummer
+      *""""""""""""""""""""""""""""
+     C     SVEV_KOMR     IFNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='FTX+IND+++'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Referensnummer
+     C                   MOVEL     SVEV_KOMR     ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Godsbeskrivning                                    GDS31 /
+      *////////////////////////////////////////////////////////////
+     C     GDS31         BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'GDS+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Artikkelnummers kvalificerare
+     C                   MOVEL     '5'           ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Generell indikator                                 GIS00 /
+      *////////////////////////////////////////////////////////////
+     C     GIS00         BEGSR
+      *__________
+      * Container
+      *""""""""""
+     C     SVEH_CONT     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+'+%trimr(SVEH_CONT)+':109'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *__________________________________________
+      * Avdragsrætt enligt merværdesskattelagen ?
+      *""""""""""""""""""""""""""""""""""""""""""
+     C     SVEH_MTYP     IFEQ      'OMP'
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+J:AML'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *________________
+      * Importærendekod
+      *""""""""""""""""
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+'+SVEH_TART+':71'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *__________________
+      * Kvalitetssækrad ?
+      *""""""""""""""""""
+     C     SVEH_KVAL     IFEQ      'J'
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+J:ZKS'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Generell indikator                                 GIS40 /
+      *////////////////////////////////////////////////////////////
+     C     GIS40         BEGSR
+      *_________________
+      * Åtgærdsindikator
+      *"""""""""""""""""
+     C     SVEV_CALL     IFEQ      *BLANKS
+     C                   EVAL      SVEV_CALL='00'
+     C                   ENDIF
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+'+SVEV_CALL+':Z11'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *________________
+      * Førfarande 37:1
+      *""""""""""""""""
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+1:ZF::'+SVEV_EUP1+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *________________
+      * Førfarande 37:2
+      *""""""""""""""""
+     C     SVEV_EUP2     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+2:ZF::'+SVEV_EUP2+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *_____________________
+      * Varukod, tillæggskod
+      *"""""""""""""""""""""
+     C     SVEV_VATI     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+3:ZA::'+SVEV_VATI+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *_____________________
+      * Varukod, tillæggskod
+      *"""""""""""""""""""""
+     C     SVEV_VAT4     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+4:ZA::'+SVEV_VAT4+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *_____________________
+      * Varukod, tillæggskod
+      *"""""""""""""""""""""
+     C     SVEV_VAT5     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='GIS+5:ZA::'+SVEV_VAT5+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Plats/lokaliseringsidentifikation                  LOC00 /
+      *////////////////////////////////////////////////////////////
+     C     LOC00         BEGSR
+      *_____________
+      * Godslokalkod
+      *"""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_GOLK     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='LOC+18+'+%trimr(SVEH_GOLK)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *________________
+      * Avsændningsland
+      *""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_AVUT     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='LOC+35+'+SVEH_AVUT+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *________________
+      * Bestæmmelseland
+      *""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_AUBE     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='LOC+36+'+SVEH_AUBE+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Lastplatskode
+      *""""""""""""""
+     C     SVEH_MTYP     IFEQ      'UBK'
+     C     SVEH_MTYP     OREQ      'UGE'
+     C     SVEH_LAST     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='LOC+9+'+SVEH_LAST+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *__________________
+      * Utfartstullkontor
+      *""""""""""""""""""
+     C     SVEH_UTFA     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='LOC+17+'+SVEH_UTFA+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Plats/lokaliseringsidentifikation                  LOC30 /
+      *////////////////////////////////////////////////////////////
+     C     LOC30         BEGSR
+      *______________
+      * Ursprungsland
+      *""""""""""""""
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'LOC+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Plats/lokaliseringskvalifikator
+     C                   MOVEL     '27'          ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Plats/lokaliseringsidentitet
+     C                   MOVEL     SVEV_ULKD     ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *____________
+      * Id av lager
+      *""""""""""""
+     C     SVEV_LAGI     IFNE      *BLANKS
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'LOC+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Plats/lokaliseringskvalifikator
+     C                   MOVEL     'ZIL'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Plats/lokaliseringsidentitet
+     C                   MOVEL     SVEV_LAGI     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Typ av lager
+     C                   MOVEL     SVEV_LAGT     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '::'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Landkod
+     C                   MOVEL     SVEV_LAGL     ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Namn och adress, Ombud                            NAD06A /
+      *////////////////////////////////////////////////////////////
+     C     NAD06A        BEGSR
+     C                   EVAL      WEORI=SVEH_OMEO
+     C     SVEH_OMEO     IFNE      *BLANKS
+N02  C     SVEH_OMTY     IFEQ      *BLANKS
+N02  C                   EVAL      SVEH_OMTY='2'
+N02  C                   ENDIF
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='NAD+AE+'+%trimr(WEORIB)
+     C                             + ':'+%trimr(WEORIA)
+N02  C                             + '+' +%trimr(SVEH_OMTY)+WAPSTR
+S02  C*                            + '+2'+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationskontakter
+     C                   EXSR      CTA06A
+     C                   EXSR      COM06A
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Namn och adress, Behørig att begæra klarering     NAD06B /
+      *////////////////////////////////////////////////////////////
+     C     NAD06B        BEGSR
+     C                   EVAL      WEORI=SVEH_KLEO
+     C     SVEH_KLEO     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='NAD+BK+'+%trimr(WEORIB)
+     C                             + ':'+%trimr(WEORIA)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Namn och adress, Avsændare                        NAD06C /
+      *////////////////////////////////////////////////////////////
+     C     NAD06C        BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+
+     C                   MOVEL     'NAD+EX+'     ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   EVAL      WEORI=SVEH_AVEO
+     C                   EVAL      ADS=%trimr(WEORIB)
+     C                   EXSR      SRÅ
+
+     C     SVEH_MTYP     IFNE      'UBK'
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   EVAL      ADS=%trimr(WEORIA)
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   EVAL      ADS=%trimr(SVEH_AVNA)
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+      * Adress-1
+     C     SVEH_AVA1     IFEQ      *BLANKS
+     C                   MOVEL     '.'           ADS
+     C                   ELSE
+     C                   MOVEL     SVEH_AVA1     ADS
+     C                   ENDIF
+     C                   EXSR      SRÅ
+      * Adress-2
+     C     SVEH_AVA2     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_AVA2     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Postadress
+     C                   MOVEL     SVEH_AVPA     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Postnummer
+     C                   MOVEL     SVEH_AVPN     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Landkod
+     C                   MOVEL     SVEH_AVLK     ADS
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kommunikationskontakter
+     C     SVEH_MTYP     IFNE      'UBK'
+     C                   EXSR      CTA06C
+     C                   EXSR      COM06C
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Namn och adress, Mottagare                        NAD06D /
+      *////////////////////////////////////////////////////////////
+     C     NAD06D        BEGSR
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='NAD+CN+'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Eori
+     C     SVEH_MOEO     IFNE      *BLANKS
+
+     C                   EVAL      WEORI=SVEH_MOEO
+     C                   EVAL      ADS=%trimr(WEORIB)
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   EVAL      ADS=%trimr(WEORIA)
+     C                   EXSR      SRÅ
+
+     C                   ENDIF
+      * Kontrolltecken
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Navn
+     C                   MOVEL     SVEH_MONA     ADS
+     C                   EXSR      SRÅ
+      * Adress-1
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_MOA1     ADS
+     C                   EXSR      SRÅ
+      * Adress-2
+     C     SVEH_MOA2     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_MOA2     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Postadress
+     C                   MOVEL     SVEH_MOPA     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Postnummer
+     C                   MOVEL     SVEH_MOPN     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Landkod
+     C     SVEH_MOLK     IFEQ      *BLANKS
+     C                   MOVEL     'SE'          ADS
+     C                   ELSE
+     C                   MOVEL     SVEH_MOLK     ADS
+     C                   ENDIF
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Namn och adress, Deklarant                        NAD06F /
+      *////////////////////////////////////////////////////////////
+     C     NAD06F        BEGSR
+     C                   EVAL      WEORI=SVEH_DKEO
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='NAD+DT+'+%trimr(WEORIB)
+     C                             + ':'+%trimr(WEORIA)
+     C                             +'++'+%trimr(SVEH_DKNA)
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Adress-1
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_DKA1     ADS
+     C                   EXSR      SRÅ
+      * Adress-2
+     C     SVEH_DKA2     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     SVEH_DKA2     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Postadress
+     C                   EVAL      ADS=%trimr(SVEH_DKPA)+'++'+%trimr(SVEH_DKPN)
+     C                             + '+'
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Landkod
+     C                   MOVEL     SVEH_DKLK     ADS
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Seksjonskille                                       UNSD /
+      *////////////////////////////////////////////////////////////
+     C     UNSD          BEGSR
+      * Segmentnavn
+      * W0074  --->  Teller for antall segment
+     C                   ADD       1             W0074
+     C                   MOVEL     'UNS+D'       ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Seksjonskille                                       UNSS /
+      *////////////////////////////////////////////////////////////
+     C     UNSS          BEGSR
+      * Segmentnavn
+      * W0074  --->  Teller for antall segment
+     C                   ADD       1             W0074
+     C                   MOVEL     'UNS+S'       ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Total bruttovikt                                   MEA00 /
+      *////////////////////////////////////////////////////////////
+     C     MEA00         BEGSR
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'MEA+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttapplikations kvalificerare
+     C                   MOVEL     'WT+AAD'      ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttenhetens kvalificerare
+     C                   MOVEL     'KGM'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Mått p
+     C                   EVAL      ØN154=SVEH_BRUT
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Mått varulinje                                     MEA30 /
+      *////////////////////////////////////////////////////////////
+     C     MEA30         BEGSR
+      *__________
+      * Nettovikt
+      *""""""""""
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'MEA+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttapplikations kvalificerare
+     C                   MOVEL     'WT+AAA'      ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttenhetens kvalificerare
+     C                   MOVEL     'KGM'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Mått p
+N05  C                   IF        SVEV_NETO < 1
+     C                   EVAL      ØN154=SVEV_NETO
+N05  C                   ELSE
+N05  C                   EVAL(H)   ØN110=SVEV_NETO
+N05  C                   EVAL      ØN154=ØN110
+N05  C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *___________
+      * Bruttovikt
+      *"""""""""""
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'MEA+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttapplikations kvalificerare
+     C                   MOVEL     'WT+AAB'      ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Måttenhetens kvalificerare
+     C                   MOVEL     'KGM'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Mått p
+N05  C                   IF        SVEV_BRUT < 1
+     C                   EVAL      ØN154=SVEV_BRUT
+N05  C                   ELSE
+N05  C                   EVAL(H)   ØN110=SVEV_BRUT
+N05  C                   EVAL      ØN154=ØN110
+N05  C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *________________
+      * Annan kvantitet
+      *""""""""""""""""
+     C                   IF        SVEV_ANKV <> 0
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_ANKV
+     C                   EXSR      SRNE
+N08  C                   IF        SVEV_ANKV = 999999999
+N08  C                   EVAL      ADS='MEA+WT+AAS+AQU:'+'0'+WAPSTR
+N08  C                   ELSE
+     C                   EVAL      ADS='MEA+WT+AAS+AQU:'+%trimr(ØAN)+WAPSTR
+N08  C                   ENDIF
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Statistiskt værde                                  MOA33 /
+      *////////////////////////////////////////////////////////////
+     C     MOA33         BEGSR
+      *__________________
+      * Statistiskt værde
+      *""""""""""""""""""
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'MOA+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Beloppstypkvalificerare
+     C                   MOVEL     '123'         ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Belopp
+     C                   EVAL      ØN154=SVEV_STVA
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Førpackning                                        PAC31 /
+      *////////////////////////////////////////////////////////////
+     C     PAC31         BEGSR
+      * Linje-1
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_KOTA
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C     SVEV_KOTA     IFEQ      *ZEROS
+     C     SVEV_KOSL     IFEQ      'VL  '
+     C     SVEV_KOSL     OREQ      'VR  '
+     C     SVEV_KOSL     OREQ      'VY  '
+     C     SVEV_KOSL     OREQ      'VO  '
+     C     SVEV_KOSL     OREQ      'VG  '
+     C     SVEV_KOSL     OREQ      'VQ  '
+     C                   EVAL      ØAN=*BLANKS
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='PAC+6+++'+%trimr(SVEV_KOSL)+':'
+     C                             + %trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C     *LIKE         DEFINE    SVEV_GODM     ZVEV_GODM
+     C                   EVAL      ZVEV_GODM=SVEV_GODM
+     C                   EXSR      PCI32
+      * Linje-2
+     C     SVEV_KOS2     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_KOT2
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C     SVEV_KOT2     IFEQ      *ZEROS
+     C     SVEV_KOS2     IFEQ      'VL  '
+     C     SVEV_KOS2     OREQ      'VR  '
+     C     SVEV_KOS2     OREQ      'VY  '
+     C     SVEV_KOS2     OREQ      'VO  '
+     C     SVEV_KOS2     OREQ      'VG  '
+     C     SVEV_KOS2     OREQ      'VQ  '
+     C                   EVAL      ØAN=*BLANKS
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='PAC+6+++'+%trimr(SVEV_KOS2)+':'
+     C                             + %trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   EVAL      ZVEV_GODM=SVEV_GOD2
+     C                   EXSR      PCI32
+      * Linje-3
+     C     SVEV_KOS3     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_KOT3
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C     SVEV_KOT3     IFEQ      *ZEROS
+     C     SVEV_KOS3     IFEQ      'VL  '
+     C     SVEV_KOS3     OREQ      'VR  '
+     C     SVEV_KOS3     OREQ      'VY  '
+     C     SVEV_KOS3     OREQ      'VO  '
+     C     SVEV_KOS3     OREQ      'VG  '
+     C     SVEV_KOS3     OREQ      'VQ  '
+     C                   EVAL      ØAN=*BLANKS
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='PAC+6+++'+%trimr(SVEV_KOS3)+':'
+     C                             + %trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   EVAL      ZVEV_GODM=SVEV_GOD3
+     C                   EXSR      PCI32
+      * Linje-4
+     C     SVEV_KOS4     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_KOT4
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C     SVEV_KOT4     IFEQ      *ZEROS
+     C     SVEV_KOS4     IFEQ      'VL  '
+     C     SVEV_KOS4     OREQ      'VR  '
+     C     SVEV_KOS4     OREQ      'VY  '
+     C     SVEV_KOS4     OREQ      'VO  '
+     C     SVEV_KOS4     OREQ      'VG  '
+     C     SVEV_KOS4     OREQ      'VQ  '
+     C                   EVAL      ØAN=*BLANKS
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='PAC+6+++'+%trimr(SVEV_KOS4)+':'
+     C                             + %trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   EVAL      ZVEV_GODM=SVEV_GOD4
+     C                   EXSR      PCI32
+      * Linje-5
+     C     SVEV_KOS5     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=SVEV_KOT5
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C     SVEV_KOT5     IFEQ      *ZEROS
+     C     SVEV_KOS5     IFEQ      'VL  '
+     C     SVEV_KOS5     OREQ      'VR  '
+     C     SVEV_KOS5     OREQ      'VY  '
+     C     SVEV_KOS5     OREQ      'VO  '
+     C     SVEV_KOS5     OREQ      'VG  '
+     C     SVEV_KOS5     OREQ      'VQ  '
+     C                   EVAL      ØAN=*BLANKS
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='PAC+6+++'+%trimr(SVEV_KOS5)+':'
+     C                             + %trimr(ØAN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   EVAL      ZVEV_GODM=SVEV_GOD5
+     C                   EXSR      PCI32
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Førpackningsidentifikation                         PCI32 /
+      *////////////////////////////////////////////////////////////
+     C     PCI32         BEGSR
+     C     ZVEV_GODM     IFNE      *BLANKS
+     C                   EVAL      ADS=*BLANKS
+     C                   ADD       1             W0074
+     C                   MOVEL     'PCI+28+'     ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C     35            SUBST     ZVEV_GODM:1   ADS
+     C                   EXSR      SRÅ
+     C     7             SUBST     ZVEV_GODM:36  ZVEV_GODX         7
+     C     ZVEV_GODX     IFNE      *BLANKS
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   MOVEL     ZVEV_GODX     ADS
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Referens                                           RFF01 /
+      *////////////////////////////////////////////////////////////
+     C     RFF01         BEGSR
+      *_______
+      * Tullid
+      *"""""""
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='RFF+ZTI:'+%trimr(SVEH_TUID)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *________________________________
+      * Uppgiftlæmnarens referansnummer
+      *""""""""""""""""""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='RFF+ABE:'+%trimr(SVEH_RFAB)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *_______________________________
+      * Uppskjuten betalning, referens
+      *"""""""""""""""""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_UPPS     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='RFF+ABI:'+%trimr(SVEH_UPPS)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *________________________________________
+      * Ytterligare referensnummer (godsnummer)
+      *""""""""""""""""""""""""""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+N06   * RFAC
+     C     SVEH_RFAC     IFNE      *BLANKS
+     C                   ADD       1             W0074
+S06  C*                  EVAL      ADS='RFF+ACD:'+%trimr(SVEH_RFAC)+WAPSTR
+S06  C*                  MOVE      'N'           WCHART
+S06  C*                  EXSR      SRÅ
+N06
+N06  C                   MOVEL     'RFF+ACD:'    ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     SVEH_RFAC     ADS
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     WAPSTR        ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+     C                   ENDIF
+N06
+N06   * RFAC2
+     C     SVEH_RFAC2    IFNE      *BLANKS
+     C                   ADD       1             W0074
+S06  C*                  EVAL      ADS='RFF+ACD:'+%trimr(SVEH_RFAC2)+WAPSTR
+S06  C*                  MOVE      'N'           WCHART
+S06  C*                  EXSR      SRÅ
+N06
+N06  C                   MOVEL     'RFF+ACD:'    ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     SVEH_RFAC2    ADS
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     WAPSTR        ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+     C                   ENDIF
+N06   * RFAC3
+     C     SVEH_RFAC3    IFNE      *BLANKS
+     C                   ADD       1             W0074
+S06  C*                  EVAL      ADS='RFF+ACD:'+%trimr(SVEH_RFAC3)+WAPSTR
+S06  C*                  MOVE      'N'           WCHART
+S06  C*                  EXSR      SRÅ
+N06
+N06  C                   MOVEL     'RFF+ACD:'    ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     SVEH_RFAC3    ADS
+N06  C                   EXSR      SRÅ
+N06
+N06  C                   MOVEL     WAPSTR        ADS
+N06  C                   MOVE      'N'           WCHART
+N06  C                   EXSR      SRÅ
+N06
+     C                   ENDIF
+     C                   ENDIF
+      *_____________________
+      * Klareringsenhets id.
+      *"""""""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UFF'
+     C     SVEH_KENH     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='RFF+CLU:'+%trimr(SVEH_KENH)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+      *_________________________
+      * Særskilda omstændigheter
+      *"""""""""""""""""""""""""
+     C     SVEH_MTYP     IFNE      'UKO'
+     C     SVEH_SAOM     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='RFF+AMJ:'+%trimr(SVEH_SAOM)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Referens                                           RFF35 /
+      *////////////////////////////////////////////////////////////
+     C     RFF35         BEGSR
+      *__________
+      * Container
+      *""""""""""
+     C     SVEH_MTYP     IFNE      'TNU'
+     C     SVEH_CONT     IFEQ      '1'
+     C     SVEV_CO01     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO01)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO02     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO02)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO03     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO03)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO04     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO04)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO05     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO05)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO06     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO06)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO07     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO07)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO08     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO08)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO09     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO09)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO10     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO10)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO11     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO11)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO12     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO12)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO13     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO14)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO14     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO15)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO15     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO16)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO16     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO16)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO17     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO17)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO18     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO18)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO19     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO19)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEV_CO20     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS='RFF+AAQ:'+%trimr(SVEV_CO20)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Førseglingar                                       SEL00 /
+      *////////////////////////////////////////////////////////////
+     C     SEL00         BEGSR
+
+     C     SVEH_SEL1     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='SEL+0+:::'+%trimr(SVEH_SEL1)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C     SVEH_SEL2     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='SEL+0+:::'+%trimr(SVEH_SEL2)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Tull/Skatt/Avgifter                                TAX41 /
+      *////////////////////////////////////////////////////////////
+     C     TAX41         BEGSR
+     C                   EVAL      *IN21=*OFF
+     C     KEYB          SETLL     SVEVA
+     C     KEYB          READE     SVEVA                                  21
+     C     *IN21         DOWEQ     *OFF
+      * Segmentnavn
+     C                   ADD       1             W0074
+     C                   MOVEL     'TAX+'        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Kvalificerare
+     C                   MOVEL     '6'           ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Avgiftskod
+     C                   MOVEL     SVEVA_ABK     ADS
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '++'          ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Beskattningsgrund
+     C                   EVAL      ØN154=SVEVA_ABG
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+
+     C                   MOVEL     '+'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Sats
+     C                   MOVEL     ':::'         ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C                   EVAL      ØN154=SVEVA_ABS
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           ADS
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      * Enhet
+
+     C                   MOVEL     ':'           ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C     SVEVA_ABX     IFNE      *BLANKS
+N03  C     WDT           IFGE      '20160201'
+N03  C                   SELECT
+N03  C     SVEVA_ABX     WHENEQ    'AX  '
+N03  C                   EVAL      SVEVA_ABX='ASVX'
+N03  C     SVEVA_ABX     WHENEQ    'DE  '
+N03  C                   EVAL      SVEVA_ABX='DTNE'
+N03  C     SVEVA_ABX     WHENEQ    'DG  '
+N03  C                   EVAL      SVEVA_ABX='DTNG'
+N03  C     SVEVA_ABX     WHENEQ    'DM  '
+N03  C                   EVAL      SVEVA_ABX='DTNM'
+N03  C     SVEVA_ABX     WHENEQ    'DZ  '
+N03  C                   EVAL      SVEVA_ABX='DTNZ'
+N03  C     SVEVA_ABX     WHENEQ    'KA  '
+N03  C                   EVAL      SVEVA_ABX='KGMA'
+N03  C     SVEVA_ABX     WHENEQ    'HM  '
+N03  C                   EVAL      SVEVA_ABX='HMT '
+N03  C     SVEVA_ABX     WHENEQ    'KG  '
+N03  C                   EVAL      SVEVA_ABX='DTN '
+N03  C     SVEVA_ABX     WHENEQ    'KC  '
+N03  C                   EVAL      SVEVA_ABX='KCL '
+N03  C     SVEVA_ABX     WHENEQ    'KU  '
+N03  C                   EVAL      SVEVA_ABX='MTQ '
+N03  C     SVEVA_ABX     WHENEQ    'KT  '
+N03  C                   EVAL      SVEVA_ABX='KGMT'
+N03  C     SVEVA_ABX     WHENEQ    'KV  '
+N03  C                   EVAL      SVEVA_ABX='MTK '
+N03  C     SVEVA_ABX     WHENEQ    'L   '
+N03  C                   EVAL      SVEVA_ABX='LTR '
+N03  C     SVEVA_ABX     WHENEQ    'ST  '
+N03  C                   EVAL      SVEVA_ABX='NAR '
+N03  C     SVEVA_ABX     WHENEQ    'P   '
+N03  C                   EVAL      SVEVA_ABX='NPR '
+N03  C     SVEVA_ABX     WHENEQ    'ME  '
+N03  C                   EVAL      SVEVA_ABX='KMT '
+N03  C     SVEVA_ABX     WHENEQ    'TE  '
+N03  C                   EVAL      SVEVA_ABX='TNE '
+N03  C     SVEVA_ABX     WHENEQ    'TI  '
+N03  C                   EVAL      SVEVA_ABX='TNEI'
+N03  C                   ENDSL
+N03  C                   ENDIF
+     C                   MOVEL     SVEVA_ABX     ADS
+     C                   ELSE
+     C                   MOVEL     '%'           ADS
+     C                   ENDIF
+     C                   EXSR      SRÅ
+
+      * Slutt segment
+     C                   MOVEL     WAPSTR        ADS
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C     KEYB          READE     SVEVA                                  21
+     C                   ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Transportdetaljer                                  TDT04 /
+      *////////////////////////////////////////////////////////////
+     C     TDT04         BEGSR
+     C     SVEH_MTYP     IFNE      'TNU'
+      *______________________________
+      * Typ av inrikes transportmedel
+      *""""""""""""""""""""""""""""""
+     C     SVEH_TRIN     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='TDT+1++'+%trimr(SVEH_TRIN)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *____________________________
+      * Typ av græns transportmedel
+      *""""""""""""""""""""""""""""
+     C     SVEH_TRGR     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='TDT+11++'+%trimr(SVEH_TRGR)
+     C                             +'+++++:::'
+     C                             +%trimr(SVEH_TRAI)+':'+%trimr(SVEH_TRAL)
+     C                             +WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+      *__________________________
+      * 18. Tr.medl.id vid avgång
+      *""""""""""""""""""""""""""
+     C     SVEH_TRID     IFNE      *BLANKS
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='TDT+12+++++++:::'
+     C                             + %trimr(SVEH_TRID)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Betalningssætt och FN-kod                          TDT30 /
+      *////////////////////////////////////////////////////////////
+     C     TDT30         BEGSR
+     C     SVEV_BETK     IFEQ      *BLANKS
+     C     SVEV_FNKD     ANDEQ     *BLANKS
+     C                   GOTO      TDT309
+     C                   ENDIF
+      *____________________________________
+      * Betalningssætt før transportkostnad
+      *""""""""""""""""""""""""""""""""""""
+     C                   ADD       1             W0074
+     C                   EVAL      ADS='TDT+10+++'+%trimr(SVEV_BETK)
+     C                             +'++++'+%trimr(SVEV_FNKD)+WAPSTR
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+
+     C     TDT309        TAG
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Meldingsslutt                                      UNT00 /
+      *////////////////////////////////////////////////////////////
+     C     UNT00         BEGSR
+
+     C                   ADD       1             W0074
+     C                   EVAL      ØN154=W0074
+     C                   EXSR      SRNE
+
+     C                   EVAL      ADS='UNT+' + %trimr(ØAN) + '+'
+     C                                 + %trimr(W0062) + WAPSTR
+     C                   EVAL      AXV=1
+     C     ' '           CHECKR(E) ADS           AXH
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+     C                   ENDSR

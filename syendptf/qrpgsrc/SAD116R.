@@ -1,0 +1,168 @@
+     H*debug(*yes)
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *
+     FECMSG1    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E           K DISK
+     FEDIS2     IF   E           K DISK    RENAME(EDISR:EDISR2)
+     F                                     PREFIX(S2_)
+      *
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D LF              c                   x'25'
+      *
+     D OrgNr           s             17
+      * Status = Pre-alert  / On-Arrival / Cancelled
+     D Status          s             20
+     D JSONstring      s          32000
+     D WFILNAM         S            200
+     D XLIB            S             11
+     D WFIL            S            512
+     D timeData        S               Z                                        Z=Timestamfield
+      *
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *   EDIDTA data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+      *
+     c                   exsr      init
+      *
+      * tEMPORÆRE HARDKODEDE VERDIER
+      *
+     c                   exsr      LagFil
+      *
+     c                   exsr      OpdEDIS
+      *
+     c                   seton                                        lr
+     c                   return
+      *
+      ***************************************************************
+     C     LagFil        BEGSR
+      ***************************************************************
+     C                   time                    Timedata
+     C                   movel     timedata      TS               26            må være 26 lang
+     c
+      *
+      * Lag fil og set codepage (pc)
+      *
+     C     '":[{'        SCAN      Uerrort                                33
+     C                   IF        *IN33
+     C                   EVAL      WFil = UPRO + '.json'
+     C                   ELSE
+     C                   EVAL      WFil = UPRO + '.txt'
+     C                   END
+      *
+     C                   EVAL      XLIB = '/' + UELIBF
+      * ByggFlr kan gjerne flyttes til annet prog. men det er gjort på millisekunder..
+     c                   exsr      ByggFlr
+     C                   EVAL      WFilNam  = %TRIM(XLIB) + '/KURERMANIFEST/'   Fil i error
+     C                             + 'json_Ut/error/' + %TRIM(TS) + '-'
+     C                             + %TRIM(Wfil)
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=865' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     c                   exsr      LagJson
+      *
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   ENDSR
+      *
+      *********************************************************************
+     c     LagJson       begsr
+      *********************************************************************
+      /free
+
+        // Start JSON
+        jsonstring =Uerrort;
+        rc = fputs(%trimr(jsonstring) + LF: File_o);
+
+      /end-free
+     C                   ENDSR
+
+
+      ***************************************************************
+     C     OpdEDIS       BEGSR
+      ***************************************************************
+     C     ECMSG1K       CHAIN     ECMSG1                             32
+     C     1             CHAIN     EDIC                               32
+     C                   ADD       1             CSN
+     C                   UPDATE    EDICR
+     C                   eval      s0004 = ECIIDC
+     C                   eval      s0010 = ECIIDI
+     C                   eval      s0020 = 'KM' + %TRIM(UPRO)
+     C                   eval      s0026 = 'SAD116R'
+     C                   eval      ssn   = CSN
+     C                   eval      ssr   = 'R'
+     C                   eval      sst   = 'C'
+     C                   move      wdt           sdt
+     C                   move      wtm           stm
+     C                   eval      slib  = '*LIB'
+     C                   eval      sfile = '*IFS'
+     C                   eval      smbr  = *BLANKS
+     C                   eval      sifs  = WFilNam
+     C                   write     edisr
+      *
+     C                   ENDSR
+      *
+      ***************************************************************
+     C     init          BEGSR
+      ***************************************************************
+     c     *entry        plist
+     c                   parm                    UPRO              8
+     c                   parm                    Uerrort       32000
+      *
+      * hent  sad header-data
+      *
+     C     ECMSG1K       KLIST
+     C                   KFLD                    ECSR
+     C                   KFLD                    EC0065
+     C                   EVAL      ECSR   = 'R'
+     C                   EVAL      EC0065 = 'KURERM'
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+     C
+     c                   endsr
+      *
+      **********************************************
+     C     ByggFlr       begsr
+      **********************************************
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      * for Oscar/Java-bruk
+     C                   EVAL      Fldr = %TRIM(XLIB) + '/KURERMANIFEST/'
+     C                                      +'json_Ut/error'
+     c                   call      'ARC040C1'
+     c                   parm                    Fldr             60
+      *
+     c                   endsr
+      *

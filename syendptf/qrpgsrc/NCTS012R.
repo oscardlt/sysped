@@ -1,0 +1,2571 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12305 * 01 CB  PTF12 FEIL VARIABELNAVN I BILDE: VARSLING
+12307 * 02 CB  PTF12 Ikke krav til bestemmelseslandkode
+12322 * 03 OR  PTF12 Løpenr fra HEADF legges ut to ganger, rettet
+12322 * 03 OR  PTF12 til ekspedisjonssted + løpenr
+12340 * 04 CB  PTF12 Endring logikk Dispatch country
+12342 * 05 CB  PTF12 Nye pgm i PT for å plukke exportdeklarsjoner
+12343 * 06 CB  PTF12 Feil i summering av grunnlag for garantibelöp
+XXXXX * XX CB  PTF12 Generellt fjernet overgangstester
+12345 * 07 CB  PTF12 Test at AV/BE.LK og UCR-ref er blanke hvis de finnes på consignment
+12347 * 08 CB  PTF12 Ikke summer vekter ved ant.kolli = 0
+12355 * 09 CB  PTF12 Manuellt upprättade HC ärver extern ref fra foregående HC
+********************************************************************
+      *
+      **************************************************************
+      *** PROGRAM SKAL ARBEIDE MED EL.TRANSITTERING (LINJE)      ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER       ***
+      *** LEDIGE INDIKATORER 01 02 09-11 13-16 18 20 23 24
+      *** LEDIGE INDIKATORER 32 49-51 95-97
+      *** ALLE VARIABLER SOM STARTER MED 'X' ER ARBERDSVAR.      ***
+      ***   OG DEFINERES I PROGRAM                               ***
+      **************************************************************
+      *
+     FSYPTFF    IF   E           K DISK
+     FTRXREF    UF A E           K DISK
+     FFRISOL01  IF   E           K DISK
+N05  FFRISOK    IF   E           K DISK    RENAME(FRISOKR:FRISOKRX)
+     FNCTSESTD  IF   E           K DISK    PREFIX(STD_)
+     FNCTSEH    UF   E           K DISK
+     FTRUGH     UF   E           K DISK
+     FKODTVAL2  IF   E           K DISK
+     FNCTSEC    UF A E           K DISK
+     FNCTSEC01  IF   E           K DISK    RENAME(NCTSECR:NCTSECR1)
+     FNCTSECAM  UF A E           K DISK
+     FNCTSEI    UF A E           K DISK
+     FNCTSEIAM  UF A E           K DISK
+     FNCTSEI03  IF   E           K DISK    RENAME(NCTSEIR:NCTSEIR3)
+     F                                     PREFIX(I3_)
+     FTRUHL     IF   E           K DISK
+     FTRUVCN    UF   E           K DISK
+     FTRUVDK    UF A E           K DISK
+     FTRUVFS    UF   E           K DISK
+     FTRUVMN    UF   E           K DISK
+     FTRUVTD    UF   E           K DISK
+     FTRUVVT    UF   E           K DISK
+     FTRKODL01  IF   E           K DISK
+     FTRFKDF    IF   E           K DISK
+     FKODTS2    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FTARI      IF   E           K DISK
+     FHEADF     UF   E           K DISK
+     FHEAD14    IF   E           K DISK    RENAME(HEADFR:HEADFR14)
+     FSAEH      IF   E           K DISK
+     FSAEV      IF   E           K DISK
+     FSAEVCN    IF   E           K DISK
+     FTURER14   IF   E           K DISK
+     FNCTS012D  CF   E             WORKSTN
+     F                                     SFILE(SUBFIL:ZRECNO)
+     F                                     SFILE(SUBFIL2:ZRECN2)
+     F                                     INFDS(FBAREA)
+     D LI              S              5  0 DIM(200)
+     D AV              S              4  0 DIM(200)
+     D OP              S              7  0 DIM(200)
+      *
+     D FBAREA          DS
+     D  WSCLOC               382    383B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  SYRG                   1     14
+     D  SYFOR9                 1      9
+     D  SYFORE                 1     11
+     D                 DS
+     D  W2AITX                 1    120
+     D  W2AITX110              1    110
+     D                 DS
+     D  TCAITX                 1    120
+     D  TCAITX110              1    110
+     D                 DS
+     D  UAVD                   1      4  0
+     D  UTDN                   5     11  0
+     D  UUR                   12     12
+     D  UWS                   13     22
+     D  UTVIN                 23     23
+     D  UIN27                 24     24
+     D  UIN34                 25     25
+     D  UIN36                 26     26
+     D  UVKB                  27     39  3
+     D  U1N07                 40     42
+     D  UDK                   43     47
+     D  UKDC                  48     48
+     D  UALK                  49     50
+     D  UBLK                  51     52
+     D  UPRO                  53     60  0
+     D  ULSTL                 61     64  0
+     D  UZREFF                65     81
+     D  UZUNIK                82     90  0
+      * OBS! HUSK INITIERE ALLE FELTER PÅ TR011R
+     D  UPARM2                 1    128
+      *
+     C                   EXSR      INIT
+      *
+     C     START         TAG
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   Z-ADD     0             ZRECNO
+     C                   MOVE      W3LIGM        W3LI
+     C                   MOVE      *ZEROS        XLI
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C  N31NCTSECK1      SETLL     NCTSEC
+     C   31NCTSECK12     SETLL     NCTSEC01
+     C     START1        TAG
+     C  N31NCTSEHK       READE(N)  NCTSEC                                 94
+     C   31NCTSEHK       READE(N)  NCTSEC01                               94
+     C  N94              MOVE      TCLI          W3LI
+     C   94              MOVE      *BLANKS       WSNR
+      *
+     C     START2        TAG
+      *
+     C  N94              DO
+     C                   DO        99998
+     C                   ADD       1             ZRECNO
+     C                   IF        TCLI > XLI
+     C                   MOVE      TCLI          XLI               5 0
+     C                   END
+     C                   MOVE      TCLI          XLI2              5 0
+     C  N31              MOVE      TCLI          X_LINNR
+     C   31              MOVE      TCLN          X_LINNR
+     C                   WRITE     SUBFIL
+     C  N31NCTSEHK       READE(N)  NCTSEC                                 94
+     C   31NCTSEHK       READE(N)  NCTSEC01                               94
+     C  N94              MOVE      TCLI          W3LI
+     C  N94              END
+     C                   END
+      *
+     C     XHOPD         IFEQ      'J'
+     C     ZRECNO        IFEQ      0
+     C                   EXSR      HOPD
+     C                   GOTO      START
+     C                   ELSE
+     C                   MOVE      'N'           XHOPD
+     C                   END
+     C                   END
+      *
+     C     XHOPD2        IFEQ      'J'
+     C     ZRECNO        IFEQ      0
+     C                   EXSR      HOPD2
+     C                   GOTO      START
+     C                   ELSE
+     C                   MOVE      'N'           XHOPD2
+     C                   END
+     C                   END
+      *
+     C                   Z-ADD     ZRECNO        YRECNO            5 0
+     C     ZRECNO        IFGT      1
+     C                   Z-ADD     1             ZRECNO
+     C                   END
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+     C     ZRECNO        IFEQ      0
+     C                   EXFMT     NYWRK
+     C                   ELSE
+     C                   WRITE     SUBCTL
+     C                   EXFMT     BUNN
+     C                   END
+      *
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+     C     XRECNO        IFEQ      0
+     C                   Z-ADD     ZRECNO        XRECNO            4 0
+     C                   END
+      *
+     C                   SETOFF                                       989930
+      *
+      *** F03 OG 27 PÅ ---> AVBRYTTE SPØRRING
+     C   03
+     CAN 27              MOVE      *ZEROS        UFLAGG
+     C   03
+     CAN 27              GOTO      SLUTT
+      *
+     C   10              DO
+     C                   EXSR      HOPD
+     C                   GOTO      START
+     C                   END
+     C   11              DO
+     C                   EXSR      HOPD3
+     C                   GOTO      START
+     C                   END
+      *** F12 ---> AVBRYTTE REGISTRERING AV DETALJE LINJER
+     C   12              Z-ADD     1             UFLAGG
+     C   12              GOTO      SLUTT
+      *  07 = SØKE OPPDRAG
+     C   07              DO
+     C                   MOVE      'S'           UTYPE             1
+     C                   CALL      'SYFM21'
+     C                   PARM                    UTYPE
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    USG               3
+     C                   GOTO      START3
+     C                   END
+      *
+     C   03
+     COR 17              DO
+     C                   EXSR      PRINT
+      *** F12 ---> AVBRYTTE F3/F17
+     C   12              Z-ADD     4             LINNBR
+     C   12              Z-ADD     2             POSNBR
+     C   12              GOTO      START3
+     C                   GOTO      SLUTT
+     C                   END
+      *
+      *** F5  ---> VISE 1. SIDE PÅ SUBFIL.
+     C   05              GOTO      START
+      *** F6  ---> LAGE NYE DETALJE LINJER
+     C   06              GOTO      START5
+      *** F8  ---> VELGE SORTERINGSMÅTE OG START POST FOR SUBFIL
+     C   08              GOTO      START7
+      *
+      *** ROLL UP ---> BLA TIL NESTE SIDE
+     C   25              DO
+     C                   Z-ADD     YRECNO        ZRECNO
+     C                   SETOFF                                       25
+     C                   GOTO      START2
+     C                   END
+      *
+      *** SJEKKE OM BRUKER HAR VALGT OPSJONER. HIVS SÅ,T UTFØRE DISSE.
+     C     ZRECNO        IFNE      0
+     C                   EXSR      HENTSR
+     C                   END
+      *** 98 PÅ ---> BRUKER HAR IKKE VALGT OPSJON. VISE SAMME POSTER
+      ***            I SUBFIL DVS. SAMME RECORDNR.
+     C   98XRECNO        IFNE      0
+     C                   Z-ADD     XRECNO        ZRECNO
+     C                   END
+      *** 41 AV ---> BRUKER HAR SLETTET NOEN DETALJE LINJER.
+      ***            VISE 1. SIDE PÅ SUBFIL
+     C  N41              GOTO      START
+     C                   GOTO      START3
+      *
+      *** LAGE NYE DETALJE LINJER
+     C     START5        TAG
+     C                   Z-ADD     10            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   EXSR      MOVB2
+      *
+     C     START6        TAG
+     C  N30W2LI          IFGT      0
+     C                   EXSR      TSTOPL
+     C                   END
+     C                   EXFMT     VARELI
+     C                   MOVEA     '000000000000'*IN(79)
+     C                   MOVEA     '00000000'    *IN(71)
+     C                   MOVE      '0'           *IN30
+      *  07 = SØKE OPPDRAG
+     C   07              DO
+     C                   MOVE      'S'           UTYPE             1
+     C                   CALL      'SYFM21'
+     C                   PARM                    UTYPE
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    USG               3
+     C                   EVAL      *IN90 = *OFF
+     C                   GOTO      START6
+     C                   END
+      *
+      *** F4  ---> SØKE DATA FOR ET ELLER ANNET FELT.
+     C   04              DO
+     C                   EXSR      SOKDTA
+     C                   GOTO      START6
+     C                   END
+      *
+     C   12W2LI          IFGT      0
+     C                   EXSR      DLTOPL
+     C                   END
+      *
+      *** F12 --> AVBRYTTE REGISTRERING AV NYE DETALJE LINJER.
+     C  N12              DO
+      *** TESTE INNTASTEDE DATA. HVIS FEIL, SETTE IND. PÅ OG VISE
+      *** FEILMELDING.
+     C                   EXSR      TESTB1
+     C   30              GOTO      START6
+     C     XNYOPD        IFEQ      'J'
+     C                   EXSR      HOPD2
+     C                   GOTO      START
+     C                   END
+      *
+     C     W2LI          IFEQ      0
+     C                   ADD       1             XLI
+     C                   MOVE      XLI           W2LI
+     C                   END
+      *
+     C   15              DO
+     C                   EXSR      TILKOD
+     C                   GOTO      START6
+     C                   END
+      *
+      *** HVIS IKKE FEIL, OPPDATERE FIL, SUBFIL OG VISE DEN PÅ SKJERMEN
+     C                   EXSR      OPDCONS
+      *
+     C                   MOVE      'N'           XOPDWF            1
+     C                   EXSR      WRKITEM
+      *
+     C                   MOVEA     '11'          *IN(91)
+     C                   WRITE     SUBCTL
+     C                   GOTO      START5
+     C                   END
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C                   GOTO      START3
+      *
+      *** VELGE SORTERINGSMÅTE OG START POST FOR SUBFIL
+      *** 31 PÅ    ---> SORTERE PÅ UTGÅENDE LINJENR         (NCTSEC01)
+      *** 31 AV    ---> SORTERE PÅ REGISTRERINGS REKKEFØLGE (NCTSEC)
+     C     START7        TAG
+     C                   MOVE      *ZEROS        W3LN
+     C                   EXFMT     VAREL2
+     C   12              GOTO      START3
+     C     W3LN          COMP      0                                  3131
+     C                   MOVE      W3LI          W3LIGM            5 0
+     C                   GOTO      START
+      *
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+     C***********************************************
+     C     HOPD          BEGSR
+     C***********************************************
+     C     UPRO          IFEQ      0
+     C                   MOVE      UPRO          WSPRO
+     C     STPLUK        TAG
+     C                   EXFMT     HENTPRO
+     C                   MOVE      '0'           *IN30
+     C   12              GOTO      SLPLUK
+     C     WSPRO         CHAIN     TURER14                            30
+     C   30              IF        THDK = 'ENTRY' OR THDK = 'EXIT'
+     C     WSPRO         CHAIN     HEAD14                             30
+     C                   END
+     C   30              GOTO      STPLUK
+     C                   MOVE      WSPRO         UPRO
+     C                   END
+      *
+     C                   CALL      'NCTS019R'
+     C                   PARM      UAVD          UAVD2             4 0
+     C                   PARM      UTDN          UTDN2             7 0
+     C     ULI2          PARM      XLI           ULI2              5 0
+     C                   PARM      UDK           UDK2              5
+     C     UPRO          PARM      UPRO          UPRO2             8 0
+     C                   PARM      ULSTL         ULSTL2            4 0
+     C                   PARM                    UFLAGG            1 0
+      *
+     C     ULI2          IFGT      XLI
+     C                   MOVE      'J'           XHOPD
+     C     NCTSEHK       SETLL     NCTSEC
+     C     NCTSEHK       READE(N)  NCTSEC                                 33
+     C     *IN33         DOWEQ     '0'
+     C     TCLI          IFGT      XLI
+     C                   EXSR      CHGCONS
+     C   12              LEAVE
+     C                   END
+     C     NCTSEHK       READE(N)  NCTSEC                                 33
+     C  N33              ENDDO
+     C                   MOVE      ULI2          XLI
+     C                   END
+      *
+     C                   MOVE      'N'           XHOPD
+      *
+     C     SLPLUK        ENDSR
+      *
+     C***********************************************
+     C     HOPD2         BEGSR
+     C***********************************************
+     C                   CLEAR                   SAEVR
+     C                   MOVE      UAVD          TCAVD
+     C                   MOVE      UTDN          TCTDN
+     C     XNYOPD        IFEQ      'J'                                          1<-B
+     C                   MOVE      W2AVD2        TCAVD2
+     C                   MOVE      W2TDN2        TCTDN2
+     C                   ADD       1             XLI
+     C                   MOVE      XLI           TCLI
+     C                   MOVE      XLI           TCLN
+     C                   MOVE      XLI           XLI3
+     C                   ELSE                                                   1
+     C                   MOVE      UAVD          TCAVD2
+     C                   MOVE      UTDN          TCTDN2
+     C                   MOVE      *ZEROS        TCLI
+     C                   MOVE      *ZEROS        TCLN
+     C                   MOVE      *ZEROS        XLI3              5 0
+     C                   END                                                    1<-E
+     C     HEDFK3        CHAIN     HEADF                              34
+      * OPPDATER STATUS FOR Å VISE AT LISTE ER SKREVET
+     C  N34UDK           IFEQ      'T1   '                                      1<-B
+     C                   MOVE      'A'           TRTSTA
+     C                   ELSE                                                   1
+     C                   MOVE      'B'           TRTSTA
+     C                   END                                                    1<-E
+     C  N34              UPDATE    HEADFR
+     C   34              EVAL      HETRCN = *BLANKS
+     C     HEDFK3        CHAIN     SAEH                               35
+     C     *IN35         IFEQ      '1'                                          1<-B
+     C     *IN34         IFEQ      '0'                                           2<-B
+      * IKKE FINNE SAD-EKSPORT, BRUK OPPDRAGSOPPLYSNINGER
+     C                   ADD       1             TCLI
+     C                   MOVE      TCLI          TCLN
+     C                   Z-ADD     HEVKT         TCVKTB
+     C                   IF        HETLL <> *BLANKS                               3<-B
+S05  C*                  EVAL      TCPDTY = 'N830'
+S03  C*                  EVAL      TCPDRF = %TRIM(HETLL) + ' ' + %TRIM(HETLL)
+S05  C*                  EVAL      TCPDRF = %TRIM(HETLE) + ' ' + %TRIM(HETLL)
+     C                   ELSE                                                     3
+     C                   EVAL      TCPDTY = *BLANKS
+     C                   EVAL      TCPDRF = *BLANKS
+     C                   END                                                      3<-E
+     C                   EXSR      HADR11
+N05  C     FRISOKK       CHAIN     FRISOK
+N05  C                   IF        %FOUND
+N05  C                   MOVEL     FSSOK         TCUCR
+N05  C                   MOVEL     FSSOK         TCXEXT
+N05  C                   ELSE
+N05  C                   MOVE      *BLANKS       TCUCR
+N05  C                   MOVE      *BLANKS       TCXEXT
+N05  C                   ENDIF
+     C                   WRITE     NCTSECR
+     C                   END                                                     2<-E
+     C                   ELSE                                                   1
+N05  C*                  MOVE      SELKA         TCALK
+     C                   MOVE      SELKB         TCBLK
+     C                   Z-ADD     SEVKB         TCVKTB
+     C                   IF        SETLL <> *BLANKS                               3<-B
+S05  C*                  EVAL      TCPDTY = 'N830'
+S05  C*                  EVAL      TCPDRF = %TRIM(SETLE) + ' ' + %TRIM(SETLL)
+     C                   ELSE                                                     3
+     C                   EVAL      TCPDTY = *BLANKS
+     C                   EVAL      TCPDRF = *BLANKS
+     C                   END                                                      3<-E
+N05  C     FRISOKK       CHAIN     FRISOK
+N05  C                   IF        %FOUND
+N05  C                   MOVEL     FSSOK         TCUCR
+N05  C                   MOVEL     FSSOK         TCXEXT
+N05  C                   ELSE
+N05  C                   MOVE      *BLANKS       TCUCR
+N05  C                   MOVE      *BLANKS       TCXEXT
+N05  C                   ENDIF
+     C                   EXSR      HADR12
+     C                   WRITE     NCTSECR
+      *
+     C                   Z-ADD     0             TILI
+     C                   Z-ADD     0             TILI2
+     C     HEDFK3        SETLL     SAEV
+     C     HEDFK3        READE     SAEV                                   34
+     C                   MOVE      *OFF          *IN33
+     C  N34              DOW       *IN33 = *OFF                                  2<-B
+     C     HEDFK3        READE     SAEV                                   33
+     C     SVVKTB        IFNE      0                                              3<-B
+     C                   LEAVE
+     C                   END                                                      3<-E
+     C                   ENDDO                                                   2<-E
+      *
+      * IKKE FINN SAD-EKSPORT (*IN34 PÅ) ELLER FLERE VARELINJER (*IN33 AV)
+      * ELLER FORHÅNDSVARSLING
+     C                   IF        *IN34                                         2<-B
+     C                   CLEAR                   SAEVR
+     C                   MOVE      TCAVD         TIAVD
+     C                   MOVE      TCTDN         TITDN
+     C                   MOVE      TCLI          TILI
+     C                   ADD       1             TILI2
+     C                   Z-ADD     SEVKB         TIVKB
+     C                   MOVE      *ZEROS        TIVKN
+     C                   MOVEL     HEVS1         TICTX
+     C                   MOVEL     HEGM1         TIPMRK
+     C                   EVAL      TIPNT  = SENTK
+     C                   EVAL      TINTS  = SENTK
+     C                   IF        THKDC = '1'
+     C                   EVAL      TICNR  = HETRCN
+     C                   END
+N05  C     SETLE         IFNE      *BLANKS
+N05  C     SETLL         IFNE      *BLANKS
+N05  C                   EVAL      TISDTY = 'NZZZ'
+N05  C                   EVAL      TISDRF = %TRIM(SETLE) + ' ' + %TRIM(SETLL)
+N05  C                   ENDIF
+N05  C                   ENDIF
+N05  C                   IF        TIPTY  = *BLANKS AND SVNT01 > 0
+N05  C                   EVAL      TIPTY  ='CT'
+N05  C                   ENDIF
+     C                   WRITE     NCTSEIR
+     C                   ELSE                                                    2
+      * FINN KUN EN SAD-EKSPORT LINJE ELLER FORHÅNDSVARSLING
+     C     HEDFK3        SETLL     SAEV
+     C     HEDFK3        READE     SAEV                                   34
+     C                   DOW       *IN34 = *OFF                                    4<-B
+     C                   IF        SVVKTB <> 0                                      5<-B
+     C                   MOVE      TCAVD         TIAVD
+     C                   MOVE      TCTDN         TITDN
+     C                   MOVE      TCLI          TILI
+     C                   ADD       1             TILI2
+     C                   MOVEL     SVVNT         TICCH
+     C                   Z-ADD     SVVKTB        TIVKB
+     C                   Z-ADD     SVVKTN        TIVKN
+     C                   Z-ADD     SVNTM         TINTS
+     C                   MOVEL     SVEH01        TIPTY
+     C                   MOVE      SVNT01        TIPNT
+     C                   EVAL      TIPMRK = SVFT01
+     C                   EVAL      TICTX  = SVVT01
+     C                   IF        THKDC = '1'
+     C     SAEVCNK       CHAIN     SAEVCN                             33
+     C  N33              EVAL      TICNR = SVCNR
+     C                   END
+N05  C     SETLE         IFNE      *BLANKS
+N05  C     SETLL         IFNE      *BLANKS
+N05  C                   EVAL      TISDTY = 'NZZZ'
+N05  C                   EVAL      TISDRF = %TRIM(SETLE) + ' ' + %TRIM(SETLL)
+N05  C                   ENDIF
+N05  C                   ENDIF
+N05  C                   IF        TIPTY  = *BLANKS AND SVNT01 > 0
+N05  C                   EVAL      TIPTY  ='CT'
+N05  C                   ENDIF
+     C                   WRITE     NCTSEIR
+     C                   END                                                        5<-E
+     C     HEDFK3        READE     SAEV                                   34
+     C                   ENDDO                                                     4<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+     C                   MOVE      TCLI          XLI
+     C                   MOVE      'J'           XHOPD2
+     C                   MOVE      '1'           *IN40
+     C                   MOVE      '0'           *IN90
+      *
+     C     NCTSEHK       SETLL     NCTSEC
+     C     NCTSEHK       READE(N)  NCTSEC                                 33
+     C     *IN33         DOWEQ     '0'
+     C     TCLI          IFGT      XLI3
+     C                   EXSR      CHGCONS
+     C   12              LEAVE
+     C                   END
+     C     NCTSEHK       READE(N)  NCTSEC                                 33
+     C  N33              ENDDO
+      *
+     C                   MOVE      'N'           XHOPD2
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     HOPD3         BEGSR
+      ***********************************************
+     C     *LIKE         DEFINE    SEAVD         UTHAVD
+     C     *LIKE         DEFINE    SETDN         UTHTDN
+N05  C                   CALL      'NCTS019R4'
+N05  C                   PARM      UAVD          UTHAVD
+N05  C                   PARM      UTDN          UTHTDN
+N05  C     ULI2          PARM      XLI           ULI2              5 0
+
+     C     ULI2          IFGE      XLI
+N05  C     ULI2          ANDLT     XLI
+     C                   MOVE      'J'           XHOPD
+     C                   MOVE      ULI2          TCLI
+     C     NCTSECK2      CHAIN(N)  NCTSEC                             33
+     C                   IF        *IN33 = *OFF
+     C                   EXSR      CHGCONS
+     C                   END
+     C                   MOVE      ULI2          XLI
+     C                   END
+
+     C                   MOVE      'N'           XHOPD
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     HADR11        BEGSR
+      ***********************************************
+     C                   MOVE      HEKNS         TCKNS
+     C                   MOVE      HENAS         TCNAS
+     C                   MOVE      HEADS1        TCAD1S
+     C                   MOVEL     HEADS3        TCPNS
+     C                   MOVEL     HEADS3        TCPSS
+     C     HEUR          IFEQ      'B'                                          1<-B
+     C     HEUR          OREQ      'D'
+     C     HEUR          OREQ      'G'
+     C                   MOVE      'NO'          TCLKS
+     C                   ELSE                                                   1
+     C                   MOVE      HELKA         TCLKS
+     C                   END                                                    1<-E
+      *
+     C     HEKNS         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       TCTINS
+     C                   ELSE                                                   1
+     C                   MOVE      HEKNS         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      TCTINS = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      TCTINS = TCLKS + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      TCTINS = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      TCTINS = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C                   MOVE      HEKNK         TCKNK
+     C                   MOVE      HENAK         TCNAK
+     C                   MOVE      HEADK1        TCAD1K
+     C                   MOVEL     HEADK3        TCPNK
+     C                   MOVEL     HEADK3        TCPSK
+     C     HEUR          IFEQ      'A'                                          1<-B
+     C     HEUR          OREQ      'C'
+     C     HEUR          OREQ      'F'
+     C                   MOVEL     'NO'          TCLKK
+     C                   ELSE                                                   1
+     C                   MOVEL     HELKA         TCLKK
+     C                   END                                                    1<-E
+     C     HEKNK         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       TCTINK
+     C                   ELSE                                                   1
+     C                   MOVE      HEKNK         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      TCTINK = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      TCTINK = TCLKK + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      TCTINK = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      TCTINK = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C     TCAD1S        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           TCAD1S
+     C                   END                                                    1<-E
+     C     TCAD1K        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           TCAD1K
+     C                   END                                                    1<-E
+      *
+     C                   WRITE     NCTSECAMR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HADR12        BEGSR
+     C***********************************************
+     C                   MOVE      SEKNK         TCKNS
+     C                   MOVE      SENAK         TCNAS
+     C                   MOVE      SEADK1        TCAD1S
+     C                   MOVEL     SEADK3        TCPNS
+     C                   MOVEL     SEADK3        TCPSS
+     C                   MOVEL     'NO'          TCLKS
+     C     SEKNK         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       TCTINS
+     C                   ELSE                                                   1
+     C                   MOVE      SEKNK         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      TCTINS = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      TCTINS = TCLKS + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      TCTINS = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      TCTINS = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C                   MOVE      SEKNS         TCKNK
+     C                   MOVE      SENAS         TCNAK
+     C                   MOVE      SEADS1        TCAD1K
+     C                   MOVEL     SEADS3        TCPNK
+     C                   MOVEL     SEADS3        TCPSK
+     C                   MOVEL     SELKB         TCLKK
+     C     SEKNS         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       TCTINK
+     C                   ELSE                                                   1
+     C                   MOVE      SEKNS         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      TCTINK = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      TCTINK = TCLKK + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      TCTINK = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      TCTINK = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C     TCAD1S        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           TCAD1S
+     C                   END                                                    1<-E
+     C     TCAD1K        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           TCAD1K
+     C                   END                                                    1<-E
+      *
+     C                   WRITE     NCTSECAMR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HADR21        BEGSR
+     C***********************************************
+     C                   MOVE      HEKNS         W2KNS
+     C                   MOVE      HENAS         W2NAS
+     C                   MOVE      HEADS1        W2AD1S
+     C                   MOVEL     HEADS3        W2PNS
+     C                   MOVEL     HEADS3        W2PSS
+     C     HEUR          IFEQ      'B'                                          1<-B
+     C     HEUR          OREQ      'D'
+     C     HEUR          OREQ      'G'
+     C                   MOVE      'NO'          W2LKS
+     C                   ELSE                                                   1
+     C                   MOVE      HELKA         W2LKS
+     C                   END                                                    1<-E
+     C     HEKNS         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       W2TINS
+     C                   ELSE                                                   1
+     C                   MOVE      HEKNS         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      W2TINS = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      W2TINS = W2LKS + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      W2TINS = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      W2TINS = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C                   MOVE      HEKNK         W2KNK
+     C                   MOVE      HENAK         W2NAK
+     C                   MOVE      HEADK1        W2AD1K
+     C                   MOVEL     HEADK3        W2PNK
+     C                   MOVEL     HEADK3        W2PSK
+     C     HEUR          IFEQ      'A'                                          1<-B
+     C     HEUR          OREQ      'C'
+     C     HEUR          OREQ      'F'
+     C                   MOVEL     'NO'          W2LKK
+     C                   ELSE                                                   1
+     C                   MOVEL     HELKA         W2LKK
+     C                   END                                                    1<-E
+     C     HEKNK         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       W2TINK
+     C                   ELSE                                                   1
+     C                   MOVE      HEKNK         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      W2TINK = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      W2TINK = W2LKK + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      W2TINK = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      W2TINK = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C     W2AD1S        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           W2AD1S
+     C                   END                                                    1<-E
+     C     W2AD1K        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           W2AD1K
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     HADR22        BEGSR
+      ***********************************************
+     C                   MOVE      SEKNK         W2KNS
+     C                   MOVE      SENAK         W2NAS
+     C                   MOVE      SEADK1        W2AD1S
+     C                   MOVEL     SEADK3        W2PNS
+     C                   MOVEL     SEADK3        W2PSS
+     C                   MOVEL     'NO'          W2LKS
+     C     SEKNK         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       W2TINS
+     C                   ELSE                                                   1
+     C                   MOVE      SEKNK         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      W2TINS = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      W2TINS = W2LKS + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      W2TINS = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      W2TINS = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C                   MOVE      SEKNS         W2KNK
+     C                   MOVE      SENAS         W2NAK
+     C                   MOVE      SEADS1        W2AD1K
+     C                   MOVEL     SEADS3        W2PNK
+     C                   MOVEL     SEADS3        W2PSK
+     C                   MOVEL     SELKA         W2LKK
+     C     SEKNS         IFEQ      0                                            1<-B
+     C                   MOVE      *BLANKS       W2TINK
+     C                   ELSE                                                   1
+     C                   MOVE      SEKNS         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            34
+     C                   EVAL      W2TINK = *BLANKS
+     C  N34              SELECT                                                  2<-B
+     C                   WHEN      EORI = *BLANKS                                2
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))   3<-B
+     C                   EVAL      W2TINK = W2LKK + SYFOR9
+     C                   ELSE                                                     3
+     C                   EVAL      W2TINK = *BLANKS
+     C                   END                                                      3<-E
+     C                   OTHER                                                   2
+     C                   EVAL      W2TINK = EORI
+     C                   ENDSL                                                   2<-E
+     C                   END                                                    1<-E
+      *
+     C     W2AD1S        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           W2AD1S
+     C                   END                                                    1<-E
+     C     W2AD1K        IFEQ      *BLANKS                                      1<-B
+     C                   MOVEL     '.'           W2AD1K
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TESTB1        BEGSR
+      ***********************************************
+     C                   MOVE      'N'           XNYOPD            1
+     C     W2XEXT        IFNE      *BLANKS
+     C     FRIKEY1       CHAIN     FRISOL01                           90
+     C   90FRIKEY2       CHAIN     FRISOL01                           90
+     C     *IN90         IFEQ      '1'
+     C                   Z-ADD     2             LINNBR
+     C                   Z-ADD     44            POSNBR
+     C                   MOVE      'SPO0001'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLTB1
+     C                   ELSE
+     C                   MOVE      FSAVD         W2AVD2
+     C                   MOVE      FSOPD         W2TDN2
+     C                   END
+     C                   END
+      *
+     C     W2AVD2        IFNE      0
+     C     W2TDN2        ORNE      0
+     C     HEDFK2        CHAIN(N)  HEADF                              90
+     C   90HEDFK2        CHAIN     SAEH                               33
+     C     *IN90         IFEQ      '1'
+     C     *IN33         ANDEQ     '1'
+     C                   Z-ADD     2             LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   MOVE      'YBC0818'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   ELSE
+     C  N90HEDFK2        CHAIN     SAEH                               33
+     C     *IN40         IFEQ      '0'
+     C     *IN33         ANDEQ     '0'
+     C                   MOVE      'J'           XNYOPD
+     C                   GOTO      SLTB1
+     C                   ELSE
+N05  C                   IF        XNYOPD='J'
+     C     W2NAS         IFEQ      *BLANKS
+     C  N90
+     CAN 33              EXSR      HADR21
+     C   90
+     CANN33              EXSR      HADR22
+     C                   END
+N05  C                   ENDIF
+     C     W2BLK         IFEQ      *BLANKS
+     C     UBLK          ANDNE     HELKA
+S02  C*                  MOVE      HELKA         W2BLK
+     C                   END
+     C     W2VKTB        IFEQ      0
+     C                   Z-ADD     HEVKT         W2VKTB
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+      *
+     C     W2KNS         IFNE      0
+     C     W2NAS         ORNE      *BLANKS
+     C                   EXSR      TESTSS
+     C                   END
+      *
+     C     W2KNK         IFNE      0
+     C     W2NAK         ORNE      *BLANKS
+     C                   EXSR      TESTKK
+     C                   END
+      *
+     C     W2DK          IFNE      *BLANKS
+     C     UDK           OREQ      'T-'
+     C                   MOVE      '031'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2DK          YKODE
+     C     TRK01K        CHAIN     TRKODL01                           81
+     C     *IN81         IFEQ      '1'
+     C     *IN30         ANDEQ     '0'
+     C                   Z-ADD     10            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   MOVE      'YBC0809'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   END
+     C                   END
+      *
+     C*    UALK          IFEQ      *BLANKS
+S04  C*                  IF        THDK = 'TIR' AND UALK = *BLANKS AND
+S04  C*                            W2ALK <> *BLANKS
+N04  C                   IF        W2ALK <> *BLANKS
+     C                   MOVE      W2ALK         KS2LK
+     C     KODS2K        CHAIN     KODTS2                             80
+     C     *IN80         IFEQ      '1'
+     C     *IN30         ANDEQ     '0'
+     C                   Z-ADD     10            LINNBR
+     C                   Z-ADD     30            POSNBR
+     C                   MOVE      'SPL0001'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   END
+S04  C*                  ELSE
+S04  C*                  MOVE      *BLANKS       W2ALK
+     C                   END
+N07  C     THALK         IFNE      *BLANKS
+N07  C     W2ALK         IFNE      *BLANKS
+N07  C                   Z-ADD     10            LINNBR
+N07  C                   Z-ADD     30            POSNBR
+N07  C                   MOVE      'YBC2299'     MSGNR
+N07  C                   MOVE      '1'           *IN30
+N07  C                   ENDIF
+N07  C                   ENDIF
+      *
+N02  C     UBLK          IFEQ      *BLANKS
+N02  C     W2BLK         ANDNE     *BLANKS
+     C                   MOVE      W2BLK         KS2LK
+     C     KODS2K        CHAIN     KODTS2                             79
+     C     *IN79         IFEQ      '1'
+     C     *IN30         ANDEQ     '0'
+     C                   Z-ADD     10            LINNBR
+     C                   Z-ADD     50            POSNBR
+     C                   MOVE      'SPL0001'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   END
+     C                   ELSE
+S07  C*                  MOVE      *BLANKS       W2BLK
+N07  C     UBLK          IFNE      *BLANKS
+N07  C     W2BLK         IFNE      *BLANKS
+N07  C                   Z-ADD     10            LINNBR
+N07  C                   Z-ADD     50            POSNBR
+N07  C                   MOVE      'YBC2297'     MSGNR
+N07  C                   MOVE      '1'           *IN30
+N07  C                   ENDIF
+N07  C                   ENDIF
+     C                   END
+      * UCR-ref
+     C                   IF        THUCR = *BLANKS
+      * Indikator er ikke valgt.
+     C                   ELSE
+S07  C*                  EVAL      W2UCR = *BLANKS
+N07  C     THUCR         IFNE      *BLANKS
+N07  C     W2UCR         IFNE      *BLANKS
+N07  C                   Z-ADD     11            LINNBR
+N07  C                   Z-ADD     40            POSNBR
+N07  C                   MOVE      'YBC2298'     MSGNR
+N07  C                   MOVE      '1'           *IN30
+N07  C                   ENDIF
+N07  C                   ENDIF
+     C                   END
+      *
+     C                   IF        W2ROLE <> *BLANKS
+     C                   MOVE      '704'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2ROLE        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           78
+     C                   IF        *IN78 AND *IN30 = *OFF
+     C                   MOVE      'YBC2245'     MSGNR
+     C                   Z-ADD     12            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2TATY <> 0 OR W2TAID <> *BLANKS
+     C                   MOVE      '750'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2TATY        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           77
+     C                   IF        *IN77 AND *IN30 = *OFF
+     C                   MOVE      'YBC2244'     MSGNR
+     C                   Z-ADD     12            LINNBR
+     C                   Z-ADD     60            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2TALK <> *BLANKS
+     C                   MOVE      W2TALK        KS2LK
+     C     KODS2K        CHAIN     KODTS2                             76
+     C                   IF        *IN76 AND *IN30 = *OFF
+     C                   MOVE      'SPL0001'     MSGNR
+     C                   Z-ADD     12            LINNBR
+     C                   Z-ADD     99            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2PDTY <> *BLANKS OR W2PDRF <> *BLANKS
+     C                   IF        %SUBST(THDK:1:2) = 'T2'
+     C                   MOVE      '178'         YUNIK
+     C                   ELSE
+     C                   MOVE      '214'         YUNIK
+     C                   END
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2PDTY        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           75
+     C                   IF        *IN75 AND *IN30 = *OFF
+     C                   MOVE      'YBC2246'     MSGNR
+     C                   Z-ADD     13            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2SDTY <> *BLANKS OR W2SDRF <> *BLANKS
+     C                   MOVE      '213'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2SDTY        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           74
+     C                   IF        *IN74 AND *IN30 = *OFF
+     C                   MOVE      'YBC2248'     MSGNR
+     C                   Z-ADD     14            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2TDTY <> *BLANKS OR W2TDRF <> *BLANKS
+     C                   MOVE      '754'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2TDTY        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           73
+     C                   IF        *IN73 AND *IN30 = *OFF
+     C                   MOVE      'YBC2249'     MSGNR
+     C                   Z-ADD     15            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2ADTY <> *BLANKS OR W2ADRF <> *BLANKS
+     C                   MOVE      '380'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2ADTY        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           72
+     C                   IF        *IN72 AND *IN30 = *OFF
+     C                   MOVE      'YBC2250'     MSGNR
+     C                   Z-ADD     16            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   IF        W2AICD <> *BLANKS OR W2AITX <> *BLANKS
+     C                   MOVE      '239'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     W2AICD        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           71
+     C                   IF        *IN71 AND *IN30 = *OFF
+     C                   MOVE      'YBC2251'     MSGNR
+     C                   Z-ADD     17            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C     SLTB1         ENDSR
+      *
+      ***********************************************
+     C     TESTSS        BEGSR
+      ***********************************************
+     C     W2KNS         IFNE      0                                            1<-B
+     C                   MOVE      W2KNS         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            89
+     C     *IN89         IFEQ      '1'                                           2<-B
+     C     *IN30         IFEQ      '0'                                            3<-B
+     C                   MOVE      'SPK0001'     MSGNR
+     C                   Z-ADD     3             LINNBR
+     C                   Z-ADD     13            POSNBR
+     C                   SETON                                        30
+     C                   END                                                      3<-B
+     C                   ELSE                                                    2
+     C                   IF        W2NAS = *BLANKS                                3<-B
+     C                   MOVE      KNAVN         W2NAS
+     C                   MOVE      ADR1          W2AD1S
+     C     SYPOGE        IFEQ      *BLANKS                                         4<-B
+     C                   MOVE      *BLANKS       W2PNS
+     C                   MOVEL     POSTNR        W2PNS
+     C                   ELSE                                                      4
+     C                   MOVEL     SYPOGE        W2PNS
+     C                   END                                                       4<-E
+     C                   MOVE      ADR3          W2PSS
+     C     SYLAND        IFNE      *BLANKS                                         4<-B
+     C                   MOVE      SYLAND        W2LKS
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C     W2TINS        IFEQ      *BLANKS                                        3<-B
+     C                   SELECT                                                    4<-B
+     C                   WHEN      EORI = *BLANKS                                  4
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))     5<-B
+     C                   EVAL      W2TINS = W2LKS + SYFOR9
+     C                   ELSE                                                       5
+     C                   EVAL      W2TINS = *BLANKS
+     C                   END                                                        5<-E
+     C                   OTHER                                                     4
+     C                   EVAL      W2TINS = EORI
+     C                   ENDSL                                                     4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     W2PNS         COMP      *BLANKS                                87
+     C  N30*IN87         IFEQ      '1'
+     C                   MOVE      'YBC1878'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C                   SETON                                        30
+     C                   END
+      *
+     C     W2PSS         COMP      *BLANKS                                86
+     C                   IF        *IN86 AND *IN30 = *OFF
+     C                   MOVE      'YBC1879'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     37            POSNBR
+     C                   SETON                                        30
+     C                   END
+      *
+     C                   MOVE      W2LKS         KS2LK
+     C     KODS2K        CHAIN     KODTS2                             85
+     C                   IF        *IN85 AND *IN30 = *OFF
+     C                   MOVE      'SPL0001'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     37            POSNBR
+     C                   SETON                                        30
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TESTKK        BEGSR
+      ***********************************************
+     C     W2KNK         IFNE      0                                            1<-B
+     C                   MOVE      W2KNK         KUNDNR
+     C     CUND1K        CHAIN     CUNDL01                            88
+     C     *IN88         IFEQ      '1'                                           2<-B
+     C     *IN30         IFEQ      '0'                                            3<-B
+     C                   MOVE      'SPK0001'     MSGNR
+     C                   Z-ADD     3             LINNBR
+     C                   Z-ADD     73            POSNBR
+     C                   SETON                                        30
+     C                   END                                                      3<-E
+     C                   ELSE                                                    2
+     C                   IF        W2NAK = *BLANKS                                3<-B
+     C                   MOVE      KNAVN         W2NAK
+     C                   MOVE      ADR1          W2AD1K
+     C     SYPOGE        IFEQ      *BLANKS                                         4<-B
+     C                   MOVE      *BLANKS       W2PNK
+     C                   MOVEL     POSTNR        W2PNK
+     C                   ELSE                                                      4
+     C                   MOVEL     SYPOGE        W2PNK
+     C                   END                                                       4<-E
+     C                   MOVE      ADR3          W2PSK
+     C     SYLAND        IFNE      *BLANKS                                         4<-B
+     C                   MOVE      SYLAND        W2LKK
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C     W2TINK        IFEQ      *BLANKS                                        3<-B
+     C                   SELECT                                                    4<-B
+     C                   WHEN      EORI = *BLANKS                                  4
+     C                   IF        ((SYFOR9 <> *BLANKS) AND (SYFOR9 <> *ZEROS))     5<-B
+     C                   EVAL      W2TINK = W2LKK + SYFOR9
+     C                   ELSE                                                       5
+     C                   EVAL      W2TINK = *BLANKS
+     C                   END                                                        5<-E
+     C                   OTHER                                                     4
+     C                   EVAL      W2TINK = EORI
+     C                   ENDSL                                                     4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     W2PNK         COMP      *BLANKS                                84
+     C  N30*IN84         IFEQ      '1'
+     C                   MOVE      'YBC1878'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     62            POSNBR
+     C                   SETON                                        30
+     C                   END
+      *
+     C     W2PSK         COMP      *BLANKS                                83
+     C  N30*IN83         IFEQ      '1'
+     C                   MOVE      'YBC1879'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     72            POSNBR
+     C                   SETON                                        30
+     C                   END
+      *
+     C                   MOVE      W2LKK         KS2LK
+     C     KODS2K        CHAIN     KODTS2                             82
+     C     *IN82         IFEQ      '1'
+     C     *IN30         IFEQ      '0'
+     C                   MOVE      'SPL0001'     MSGNR
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     97            POSNBR
+     C                   SETON                                        30
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HENTSR        BEGSR
+     C***********************************************
+      *** SJEKKE OM BRUKER HAR VALGT NOEN OPSJONER. HVIS IKKE, SETTER
+      *** IND. 98 PÅ OG GIR FEILMELDING TIL BRUKER.
+      *** OPSJON 2 ---> ENDRE DETALJE LINJE.
+      *** OPSJON 4 ---> SLETTE DETALJE LINJE.
+      *** OPSJON 5 ---> VISE DETALJE LINJE
+      *** LINNBR, POSNBR ---> RETUR POSISJON AV CURSOR
+     C                   SETON                                        41
+     C                   SETOFF                                       919299
+     C     *IN98         DOWEQ     '0'
+     C                   READC     SUBFIL                                 98
+     C   98              DO
+     C   99              SETOFF                                       98
+     C   98              MOVE      'DIV0012'     MSGNR
+     C   98              SETON                                            30
+     C                   Z-ADD     1             LINNBR
+     C                   GOTO      SLHENT
+     C                   END
+     C     ZRECNO        DIV       15            LINNBR
+     C                   MVR                     XLIN              2 0
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C  N27WSNR          IFEQ      '2'
+     C                   MOVE      ' '           WSNR
+     C                   EXSR      CHGCONS
+     C   12              GOTO      SLHENT
+     C                   END
+     C  N27WSNR          IFEQ      '4'
+     C                   EXSR      DLTCONS
+     C                   GOTO      SLHENT
+     C                   END
+     C     WSNR          IFEQ      '5'
+     C                   MOVE      ' '           WSNR
+     C                   EXSR      VISCONS
+     C   12              GOTO      SLHENT
+     C                   END
+     C     WSNR          IFEQ      '8'
+     C                   MOVE      ' '           WSNR
+     C                   MOVE      'J'           XOPDWF            1
+     C                   EXSR      WRKITEM
+     C   12              GOTO      SLHENT
+     C                   END
+     C                   END
+      *
+     C     SLHENT        TAG
+     C                   ADD       3             LINNBR
+     C                   Z-ADD     2             POSNBR
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     VISCONS       BEGSR
+      ***********************************************
+     C                   SETON                                        99
+      *
+     C     NCTSECK2      CHAIN(N)  NCTSEC                             33
+     C                   MOVE      TCLI          W2LI
+     C                   MOVE      TCDK          W2DK
+     C                   MOVE      TCALK         W2ALK
+     C                   MOVE      TCBLK         W2BLK
+     C                   MOVE      TCVKTB        W2VKTB
+     C                   MOVE      TCUCR         W2UCR
+     C                   MOVE      TCXEXT        W2XEXT
+     C                   MOVE      TCROLE        W2ROLE
+     C                   MOVE      TCIDR         W2IDR
+     C                   MOVE      TCTATY        W2TATY
+     C                   MOVE      TCTAID        W2TAID
+     C                   MOVE      TCTALK        W2TALK
+     C                   MOVE      TCPDTY        W2PDTY
+     C                   MOVE      TCPDRF        W2PDRF
+     C                   MOVE      TCPDIN        W2PDIN
+     C                   MOVE      TCSDTY        W2SDTY
+     C                   MOVE      TCSDRF        W2SDRF
+     C                   MOVE      TCSDIN        W2SDIN
+     C                   MOVE      TCTDTY        W2TDTY
+     C                   MOVE      TCTDRF        W2TDRF
+     C                   MOVE      TCADTY        W2ADTY
+     C                   MOVE      TCADRF        W2ADRF
+     C                   MOVE      TCAICD        W2AICD
+     C                   MOVE      TCAITX        W2AITX
+     C                   MOVE      TCTRCH        W2TRCH
+     C                   EXSR      TSTOPL
+     C                   MOVE      W2DK          TCDK
+     C                   MOVE      W2ALK         TCALK
+     C                   MOVE      W2BLK         TCBLK
+     C                   MOVE      W2VKTB        TCVKTB
+     C                   MOVE      W2UCR         TCUCR
+     C                   MOVE      W2XEXT        TCXEXT
+     C                   MOVE      W2ROLE        TCROLE
+     C                   MOVE      W2IDR         TCIDR
+     C                   MOVE      W2TATY        TCTATY
+     C                   MOVE      W2TAID        TCTAID
+     C                   MOVE      W2TALK        TCTALK
+     C                   MOVE      W2PDTY        TCPDTY
+     C                   MOVE      W2PDRF        TCPDRF
+     C                   MOVE      W2PDIN        TCPDIN
+     C                   MOVE      W2SDTY        TCSDTY
+     C                   MOVE      W2SDRF        TCSDRF
+     C                   MOVE      W2SDIN        TCSDIN
+     C                   MOVE      W2TDTY        TCTDTY
+     C                   MOVE      W2TDRF        TCTDRF
+     C                   MOVE      W2ADTY        TCADTY
+     C                   MOVE      W2ADRF        TCADRF
+     C                   MOVE      W2AICD        TCAICD
+     C                   MOVE      W2AITX        TCAITX
+     C                   MOVE      W2TRCH        TCTRCH
+     C     NCTSECK2      CHAIN(N)  NCTSECAM                           33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      *ZEROS        TCKNS
+     C                   MOVE      *BLANKS       TCNAS
+     C                   MOVE      *BLANKS       TCAD1S
+     C                   MOVE      *BLANKS       TCPNS
+     C                   MOVE      *BLANKS       TCPSS
+     C                   MOVE      *BLANKS       TCLKS
+     C                   MOVE      *BLANKS       TCTINS
+     C                   MOVE      *BLANKS       TCCPS
+     C                   MOVE      *BLANKS       TCTLS
+     C                   MOVE      *BLANKS       TCEMS
+     C                   MOVE      *ZEROS        TCKNK
+     C                   MOVE      *BLANKS       TCNAK
+     C                   MOVE      *BLANKS       TCAD1K
+     C                   MOVE      *BLANKS       TCPNK
+     C                   MOVE      *BLANKS       TCPSK
+     C                   MOVE      *BLANKS       TCLKK
+     C                   MOVE      *BLANKS       TCTINK
+     C                   END
+     C     STVIS         TAG
+     C                   EXFMT     VAREL3
+      *
+     C   15              DO
+     C                   MOVE      '1'           UIN27
+     C                   EXSR      TILKOD
+     C                   MOVE      *IN27         UIN27
+     C                   GOTO      STVIS
+     C                   END
+      *
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   UPDATE    SUBFIL
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     DLTCONS       BEGSR
+      ***********************************************
+     C                   Z-ADD     ZRECNO        XRECN2            4 0
+     C                   MOVE      *ZEROS        LI
+      *** OPERASJON 1
+     C                   MOVE      TCLI          LI(1)
+     C                   Z-ADD     1             XN                3 0
+     C     *IN98         DOWEQ     '0'                                          1<-B
+     C     STDLT1        TAG
+     C                   READC     SUBFIL                                 98
+     C  N98WSNR          IFEQ      '4'                                           2<-B
+     C                   MOVE      *ZEROS        XN2               3 0
+     C     XN2           DOWLT     XN                                             3<-B
+     C                   ADD       1             XN2
+     C                   END                                                      3<-E
+     C                   ADD       1             XN
+     C                   MOVE      TCLI          LI(XN)
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+      *** OPERASJON 2
+     C                   MOVE      '1'           *IN43
+     C                   WRITE     SUBCTL2
+     C                   MOVEA     '00'          *IN(43)
+     C                   Z-ADD     *ZEROS        ZRECN2
+     C                   MOVE      *ZEROS        XN2
+     C     XN2           DOWLT     XN                                           1<-B
+     C                   ADD       1             XN2
+     C     NCTSEHK       SETLL     NCTSEC
+     C                   SETOFF                                       44
+     C     STDLT2        TAG
+     C     NCTSEHK       READE(N)  NCTSEC                                 44
+     C  N44              DO                                                      2<-B
+     C     LI(XN2)       IFEQ      TCLI                                           3<-B
+     C                   ADD       1             ZRECN2
+     C                   MOVE      TCLI          XLI2              5 0
+     C                   WRITE     SUBFIL2
+     C                   END                                                      3<-E
+     C                   GOTO      STDLT2
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+      *** OPERASJON 3
+     C                   Z-ADD     1             ZRECN2
+     C     STDLT3        TAG
+     C                   MOVEA     '11'          *IN(41)
+     C                   WRITE     SUBCTL2
+     C                   EXFMT     BUNN2
+     C   25              GOTO      STDLT3
+     C   12              Z-ADD     XRECN2        ZRECNO
+     C  N12              DO                                                     1<-B
+     C                   MOVE      *ZEROS        ZRECN2
+     C     STDLT4        TAG
+     C                   ADD       1             ZRECN2
+     C     ZRECN2        CHAIN     SUBFIL2                            98
+     C  N98              DO                                                      2<-B
+     C     NCTSECK2      CHAIN     NCTSEC                             41
+     C  N41              DO                                                       3<-B
+     C                   DELETE    NCTSECR
+     C     NCTSECK2      CHAIN     NCTSECAM                           41
+     C  N41              DELETE    NCTSECAMR
+     C     NCTSECK2      SETLL     NCTSEI
+     C     NCTSECK2      READE     NCTSEI                                 41
+     C                   DOW       *IN41 = *OFF
+     C                   DELETE    NCTSEIR
+     C     NCTSECK2      READE     NCTSEI                                 41
+     C                   ENDDO
+     C     NCTSECK2      SETLL     NCTSEIAM
+     C     NCTSECK2      READE     NCTSEIAM                               41
+     C                   DOW       *IN41 = *OFF
+     C                   DELETE    NCTSEIAMR
+     C     NCTSECK2      READE     NCTSEIAM                               41
+     C                   ENDDO
+     C                   MOVE      TCLI          W2LI
+     C                   EXSR      DLTOPL
+     C                   GOTO      STDLT4
+     C                   END                                                     2<-E
+     C                   END
+     C                   EXSR      MOVB1
+     C                   END                                                    1<-E
+     C                   SETOFF                                       4198
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     CHGCONS       BEGSR
+      ***********************************************
+      *** FLYTTE DATA FRA SUBFIL TIL ARBEIDSVARIABLER
+     C     NCTSECK2      CHAIN(N)  NCTSEC                             33
+     C     NCTSECK2      CHAIN(N)  NCTSECAM                           33
+     C                   IF        *IN33
+     C                   EVAL      TCKNS  = 0
+     C                   EVAL      TCNAS  = *BLANKS
+     C                   EVAL      TCAD1S = *BLANKS
+     C                   EVAL      TCPNS  = *BLANKS
+     C                   EVAL      TCPSS  = *BLANKS
+     C                   EVAL      TCLKS  = *BLANKS
+     C                   EVAL      TCTINS = *BLANKS
+     C                   EVAL      TCCPS  = *BLANKS
+     C                   EVAL      TCTLS  = *BLANKS
+     C                   EVAL      TCEMS  = *BLANKS
+     C                   EVAL      TCKNK  = 0
+     C                   EVAL      TCNAK  = *BLANKS
+     C                   EVAL      TCAD1K = *BLANKS
+     C                   EVAL      TCPNK  = *BLANKS
+     C                   EVAL      TCPSK  = *BLANKS
+     C                   EVAL      TCLKK  = *BLANKS
+     C                   EVAL      TCTINK = *BLANKS
+     C                   END
+     C                   EVAL      *IN90 = *OFF
+     C                   EXSR      MOVCONSW
+      *
+     C     STCHG         TAG
+     C  N30              EXSR      TSTOPL
+     C                   EXFMT     VARELI
+     C                   MOVEA     '000000000000'*IN(79)
+     C                   MOVEA     '00000000'    *IN(71)
+     C                   MOVE      '0'           *IN30
+     C   04              DO
+     C                   EXSR      SOKDTA
+     C                   GOTO      STCHG
+     C                   END
+      *  07 = SØKE OPPDRAG
+     C   07              DO
+     C                   MOVE      'S'           UTYPE             1
+     C                   CALL      'SYFM21'
+     C                   PARM                    UTYPE
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    USG               3
+     C                   GOTO      STCHG
+     C                   END
+      *
+     C   15              DO
+     C                   EXSR      TILKOD
+     C                   GOTO      STCHG
+     C                   END
+      *
+     C     *IN12         IFEQ      '1'
+      *** F12 ---> AVBRYTTE ENDRING
+     C     XHOPD         IFNE      'J'
+     C     XHOPD2        ANDNE     'J'
+     C                   UPDATE    SUBFIL
+     C                   END
+     C                   ELSE
+      *** TESTE INNTASTEDE TADA. HVIS IKKE NOE FEIL, OPPDRATERE PÅ FIL
+     C                   EXSR      TESTB1
+     C   30              GOTO      STCHG
+     C                   EXSR      OPDCONS
+      *
+     C                   MOVE      'N'           XOPDWF            1
+     C                   EXSR      WRKITEM
+      *
+     C                   END
+      *
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     WRKITEM       BEGSR
+      ***********************************************
+      *
+     C                   CALL      'NCTS013R'
+     C                   PARM      UAVD          UAVD2             4 0
+     C                   PARM      UTDN          UTDN2             7 0
+     C                   PARM      TCLI          ULI2              5 0
+     C     *IN27         PARM      *IN27         UIN27             1
+     C     *IN36         PARM      *IN36         UIN36             1
+     C                   PARM                    UFLAGG            1 0
+      *
+      * Summere bruttovekt
+     C     NCTSECK2      CHAIN     NCTSEC                             33
+     C                   EVAL      TCVKTB = 0
+     C     NCTSECK2      SETLL     NCTSEI
+     C     NCTSECK2      READE(N)  NCTSEI                                 33
+     C                   DOW       *IN33 = *OFF
+N08  C                   IF        TIPNT > 0
+     C                   EVAL      TCVKTB = TCVKTB + TIVKB
+N08  C                   ENDIF
+     C     NCTSECK2      READE(N)  NCTSEI                                 33
+     C                   ENDDO
+     C                   UPDATE    NCTSECR
+      *
+     C                   IF        XOPDWF = 'J'
+     C                   UPDATE    SUBFIL
+     C                   ELSE
+     C                   EVAL      W2VKTB = TCVKTB
+     C                   END
+      *
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     OPDCONS       BEGSR
+      ***********************************************
+      *** 33 PÅ ---> NY LINJE.        33 AV ---> ENDRE EN LINJE
+     C     NCTSECK       CHAIN     NCTSEC                             33
+      *** FLYTTE INNTASTET DATA TIL FIL-VARIABLER OG OPPDATERE DEM.
+     C                   EXSR      MOVWCONS
+     C     *IN33         IFEQ      '0'
+     C                   UPDATE    NCTSECR
+     C                   ELSE
+     C                   WRITE     NCTSECR
+     C                   END
+      *
+      *** OPPDATERE PÅ SUBFIL
+     C                   MOVE      TCLI          XLI2              5 0
+      *
+     C     XHOPD         IFNE      'J'
+     C     XHOPD2        ANDNE     'J'
+     C   40              UPDATE    SUBFIL
+     C  N40              ADD       1             YRECNO
+     C  N40              Z-ADD     YRECNO        ZRECNO
+     C  N40              WRITE     SUBFIL
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TILKOD        BEGSR
+      ***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     MOVCONSW      BEGSR
+      ***********************************************
+     C                   SETON                                        99
+     C     XHOPD2        IFEQ      'J'
+     C                   Z-ADD     20            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   ELSE
+     C                   Z-ADD     10            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   END
+     C                   SETON                                        40
+      *
+     C*                  MOVE      TCLN          YLN               5 0
+     C                   MOVE      TCLI          W2LI
+     C                   MOVE      TCDK          W2DK
+     C                   MOVE      TCALK         W2ALK
+     C                   MOVE      TCBLK         W2BLK
+     C                   MOVE      TCVKTB        W2VKTB
+     C                   MOVE      TCUCR         W2UCR
+     C                   MOVE      TCROLE        W2ROLE
+     C                   MOVE      TCIDR         W2IDR
+     C                   MOVE      TCTATY        W2TATY
+     C                   MOVE      TCTAID        W2TAID
+     C                   MOVE      TCTALK        W2TALK
+     C                   MOVE      TCPDTY        W2PDTY
+     C                   MOVE      TCPDRF        W2PDRF
+     C                   MOVE      TCPDIN        W2PDIN
+     C                   MOVE      TCSDTY        W2SDTY
+     C                   MOVE      TCSDRF        W2SDRF
+     C                   MOVE      TCSDIN        W2SDIN
+     C                   MOVE      TCTDTY        W2TDTY
+     C                   MOVE      TCTDRF        W2TDRF
+     C                   MOVE      TCADTY        W2ADTY
+     C                   MOVE      TCADRF        W2ADRF
+     C                   MOVE      TCAICD        W2AICD
+     C                   MOVE      TCAITX        W2AITX
+     C                   MOVE      TCTRCH        W2TRCH
+     C                   MOVE      TCAVD2        W2AVD2
+     C                   MOVE      TCTDN2        W2TDN2
+N09  C                   MOVE      TCXEXT        W2XEXT
+     C     NCTSECK2      CHAIN(N)  NCTSECAM                           33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      *ZEROS        W2KNS
+     C                   MOVE      *BLANKS       W2NAS
+     C                   MOVE      *BLANKS       W2AD1S
+     C                   MOVE      *BLANKS       W2PNS
+     C                   MOVE      *BLANKS       W2PSS
+     C                   MOVE      *BLANKS       W2LKS
+     C                   MOVE      *BLANKS       W2TINS
+     C                   MOVE      *BLANKS       W2CPS
+     C                   MOVE      *BLANKS       W2TLS
+     C                   MOVE      *BLANKS       W2EMS
+     C                   MOVE      *ZEROS        W2KNK
+     C                   MOVE      *BLANKS       W2NAK
+     C                   MOVE      *BLANKS       W2AD1K
+     C                   MOVE      *BLANKS       W2PNK
+     C                   MOVE      *BLANKS       W2PSK
+     C                   MOVE      *BLANKS       W2LKK
+     C                   MOVE      *BLANKS       W2TINK
+     C                   ELSE
+     C                   MOVE      TCKNS         W2KNS
+     C                   MOVE      TCNAS         W2NAS
+     C                   MOVE      TCAD1S        W2AD1S
+     C                   MOVE      TCPNS         W2PNS
+     C                   MOVE      TCPSS         W2PSS
+     C                   MOVE      TCLKS         W2LKS
+     C                   MOVE      TCTINS        W2TINS
+     C                   MOVE      TCCPS         W2CPS
+     C                   MOVE      TCTLS         W2TLS
+     C                   MOVE      TCEMS         W2EMS
+     C                   MOVE      TCKNK         W2KNK
+     C                   MOVE      TCNAK         W2NAK
+     C                   MOVE      TCAD1K        W2AD1K
+     C                   MOVE      TCPNK         W2PNK
+     C                   MOVE      TCPSK         W2PSK
+     C                   MOVE      TCLKK         W2LKK
+     C                   MOVE      TCTINK        W2TINK
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     MOVWCONS      BEGSR
+      ***********************************************
+     C                   MOVE      UAVD          TCAVD
+     C                   MOVE      UTDN          TCTDN
+     C                   MOVE      ' '           TC01
+     C                   MOVE      W2LI          TCLI
+     C                   MOVE      W2DK          TCDK
+     C                   MOVE      W2ALK         TCALK
+     C                   MOVE      W2BLK         TCBLK
+     C                   MOVE      W2VKTB        TCVKTB
+     C                   MOVE      W2UCR         TCUCR
+     C                   MOVE      W2ROLE        TCROLE
+     C                   MOVE      W2IDR         TCIDR
+     C                   MOVE      W2TATY        TCTATY
+     C                   MOVE      W2TAID        TCTAID
+     C                   MOVE      W2TALK        TCTALK
+     C                   MOVE      W2PDTY        TCPDTY
+     C                   MOVE      W2PDRF        TCPDRF
+     C                   MOVE      W2PDIN        TCPDIN
+     C                   MOVE      W2SDTY        TCSDTY
+     C                   MOVE      W2SDRF        TCSDRF
+     C                   MOVE      W2SDIN        TCSDIN
+     C                   MOVE      W2TDTY        TCTDTY
+     C                   MOVE      W2TDRF        TCTDRF
+     C                   MOVE      W2ADTY        TCADTY
+     C                   MOVE      W2ADRF        TCADRF
+     C                   MOVE      W2AICD        TCAICD
+     C                   MOVE      W2AITX        TCAITX
+     C                   MOVE      W2TRCH        TCTRCH
+     C                   MOVE      W2AVD2        TCAVD2
+     C                   MOVE      W2TDN2        TCTDN2
+N09  C                   MOVE      W2XEXT        TCXEXT
+     C                   MOVE      *IN33         XIN33             1
+     C     NCTSECK2      CHAIN     NCTSECAM                           33
+     C                   MOVE      W2KNS         TCKNS
+     C                   MOVE      W2NAS         TCNAS
+     C                   IF        ((W2AD1S = *BLANKS) AND (W2NAS <> *BLANKS))
+     C                   EVAL      W2AD1S = '.'
+     C                   END
+     C                   MOVE      W2AD1S        TCAD1S
+     C                   MOVE      W2PNS         TCPNS
+     C                   MOVE      W2PSS         TCPSS
+     C                   MOVE      W2LKS         TCLKS
+     C                   MOVE      W2TINS        TCTINS
+     C                   MOVE      W2CPS         TCCPS
+     C                   MOVE      W2TLS         TCTLS
+     C                   MOVE      W2EMS         TCEMS
+     C                   MOVE      W2KNK         TCKNK
+     C                   MOVE      W2NAK         TCNAK
+     C                   IF        ((W2AD1S = *BLANKS) AND (W2NAK <> *BLANKS))
+     C                   EVAL      W2AD1S = '.'
+     C                   END
+     C                   MOVE      W2AD1K        TCAD1K
+     C                   MOVE      W2PNK         TCPNK
+     C                   MOVE      W2PSK         TCPSK
+     C                   MOVE      W2LKK         TCLKK
+     C                   MOVE      W2TINK        TCTINK
+     C     *IN33         IFEQ      '1'
+     C     TCKNS         IFNE      0
+     C     TCNAS         ORNE      *BLANKS
+     C     TCKNK         ORNE      0
+     C     TCNAK         ORNE      *BLANKS
+     C                   WRITE     NCTSECAMR
+     C                   END
+     C                   ELSE
+     C     TCKNS         IFNE      0
+     C     TCNAS         ORNE      *BLANKS
+     C     TCKNK         ORNE      0
+     C     TCNAK         ORNE      *BLANKS
+     C                   UPDATE    NCTSECAMR
+     C                   ELSE
+     C                   DELETE    NCTSECAMR
+     C                   END
+     C                   END
+     C                   MOVE      XIN33         *IN33
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     MOVB1         BEGSR
+      ***********************************************
+     C                   MOVE      *BLANKS       TC01
+     C                   MOVE      *ZEROS        TCLI
+     C                   MOVE      *ZEROS        TCLN
+     C                   MOVE      *BLANKS       TCXEXT
+     C                   MOVE      *BLANKS       TCALK
+     C                   MOVE      *BLANKS       TCBLK
+     C                   MOVE      *ZEROS        TCVKTB
+     C                   MOVE      *BLANKS       TCUCR
+     C                   MOVE      *BLANKS       TCROLE
+     C                   MOVE      *BLANKS       TCIDR
+     C                   MOVE      *BLANKS       TCTATY
+     C                   MOVE      *BLANKS       TCTAID
+     C                   MOVE      *BLANKS       TCTALK
+     C                   MOVE      *BLANKS       TCPDTY
+     C                   MOVE      *BLANKS       TCPDRF
+     C                   MOVE      *BLANKS       TCPDIN
+     C                   MOVE      *BLANKS       TCSDTY
+     C                   MOVE      *BLANKS       TCSDRF
+     C                   MOVE      *BLANKS       TCSDIN
+     C                   MOVE      *BLANKS       TCTDTY
+     C                   MOVE      *BLANKS       TCTDRF
+     C                   MOVE      *BLANKS       TCADTY
+     C                   MOVE      *BLANKS       TCADRF
+     C                   MOVE      *BLANKS       TCAICD
+     C                   MOVE      *BLANKS       TCAITX
+     C                   MOVE      *BLANKS       TCTRCH
+     C                   MOVE      *ZEROS        TCAVD2
+     C                   MOVE      *ZEROS        TCTDN2
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     MOVB2         BEGSR
+      ***********************************************
+     C                   SETOFF                                       40
+     C                   MOVEA     '00'          *IN(28)
+     C                   MOVEA     '0000'        *IN(45)
+     C                   MOVE      *BLANKS       W2XEXT
+     C                   MOVE      *ZEROS        W2LI
+     C                   MOVE      *BLANKS       W2DK
+     C                   MOVE      *BLANKS       W2ALK
+     C                   MOVE      *BLANKS       W2BLK
+     C                   MOVE      *ZEROS        W2VKTB
+     C                   MOVE      *BLANKS       W2UCR
+     C                   MOVE      *BLANKS       W2ROLE
+     C                   MOVE      *BLANKS       W2IDR
+     C                   MOVE      *BLANKS       W2TATY
+     C                   MOVE      *BLANKS       W2TAID
+     C                   MOVE      *BLANKS       W2TALK
+     C                   MOVE      *BLANKS       W2PDTY
+     C                   MOVE      *BLANKS       W2PDRF
+     C                   MOVE      *BLANKS       W2PDIN
+     C                   MOVE      *BLANKS       W2SDTY
+     C                   MOVE      *BLANKS       W2SDRF
+     C                   MOVE      *BLANKS       W2SDIN
+     C                   MOVE      *BLANKS       W2TDTY
+     C                   MOVE      *BLANKS       W2TDRF
+     C                   MOVE      *BLANKS       W2ADTY
+     C                   MOVE      *BLANKS       W2ADRF
+     C                   MOVE      *BLANKS       W2AICD
+     C                   MOVE      *BLANKS       W2AITX
+     C                   MOVE      *BLANKS       W2TRCH
+     C                   MOVE      *ZEROS        W2AVD2
+     C                   MOVE      *ZEROS        W2TDN2
+     C                   MOVE      *ZEROS        W2KNS
+     C                   MOVE      *BLANKS       W2NAS
+     C                   MOVE      *BLANKS       W2AD1S
+     C                   MOVE      *BLANKS       W2PNS
+     C                   MOVE      *BLANKS       W2PSS
+     C                   MOVE      *BLANKS       W2LKS
+     C                   MOVE      *BLANKS       W2TINS
+     C                   MOVE      *BLANKS       W2CPS
+     C                   MOVE      *BLANKS       W2TLS
+     C                   MOVE      *BLANKS       W2EMS
+     C                   MOVE      *ZEROS        W2KNK
+     C                   MOVE      *BLANKS       W2NAK
+     C                   MOVE      *BLANKS       W2AD1K
+     C                   MOVE      *BLANKS       W2PNK
+     C                   MOVE      *BLANKS       W2PSK
+     C                   MOVE      *BLANKS       W2LKK
+     C                   MOVE      *BLANKS       W2TINK
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     PRINT         BEGSR
+      ***********************************************
+     C   17              Z-ADD     2             UFLAGG            1 0
+     C   03              Z-ADD     3             UFLAGG            1 0
+      *
+      * Summere bruttovekt og antall kolli
+     C                   MOVE      *ZEROS        X_THVPOS
+     C                   MOVE      *ZEROS        X_THVKB
+     C                   MOVE      *ZEROS        X_THNTK
+     C     NCTSEHK       SETLL     NCTSEI
+     C     NCTSEHK       READE(N)  NCTSEI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   ADD       1             X_THVPOS
+     C                   ADD       TIVKB         X_THVKB
+     C     TIPNT         IFEQ      0
+     C                   ELSE
+     C                   ADD       TIPNT         X_THNTK
+     C                   END
+     C     TIPTY         IFEQ      'VQ'
+     C     TIPTY         OREQ      'VG'
+     C     TIPTY         OREQ      'VL'
+     C     TIPTY         OREQ      'VY'
+     C     TIPTY         OREQ      'VR'
+     C     TIPTY         OREQ      'VO'
+     C     TIPTY         OREQ      'VS'
+     C                   ADD       1             X_THNTK
+     C                   END
+     C     NCTSEHK       READE(N)  NCTSEI                                 33
+     C  N33              ENDDO
+     C     NCTSEHK       CHAIN     NCTSEH                             33
+     C                   EVAL      THVPOS = X_THVPOS
+     C                   EVAL      THVKB  = X_THVKB
+     C                   EVAL      THNTK  = X_THNTK
+     C                   UPDATE    NCTSEHR
+      *
+     C                   MOVE      *ZEROS        AV
+     C                   MOVE      *ZEROS        OP
+     C                   MOVE      *ZEROS        WSTBL
+     C                   MOVE      '0'           *IN99
+      *
+     C                   MOVE      'N'           XKOLLI            1
+     C     NCTSEHK       SETLL     NCTSEI
+     C     NCTSEHK       READE(N)  NCTSEI                                 33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      '1'           *IN12
+     C                   MOVE      'YBC0841'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLPRT
+     C                   ELSE
+     C     TIPTY         IFNE      'NE'
+     C     TIPTY         ANDNE     'NF'
+     C     TIPTY         ANDNE     'NG'
+     C     TIPTY         ANDNE     'VQ'
+     C     TIPTY         ANDNE     'VG'
+     C     TIPTY         ANDNE     'VL'
+     C     TIPTY         ANDNE     'VY'
+     C     TIPTY         ANDNE     'VR'
+     C     TIPTY         ANDNE     'VO'
+     C     TIPTY         ANDNE     'VS'
+     C                   MOVE      'J'           XKOLLI            1
+     C     TIPNT         IFEQ      0
+     C                   Z-ADD     TINTS         XNTT              5 0
+     C                   ELSE
+     C                   Z-ADD     TIPNT         XNTT
+     C                   END
+     C                   END
+     C     *IN33         DOWEQ     '0'
+      *
+     C     HEDFK3        CHAIN     SAEH                               33
+     C                   IF        (*IN33 OR
+     C                             ((*IN33 = *OFF) AND (SEBEL1 = 0)))
+     C                   MOVE      '1'           *IN99
+     C                   ELSE
+     C     1             DO        200           XNR3              3 0
+     C                   IF        AV(XNR3) = 0
+     C                   MOVE      TCAVD2        AV(XNR3)
+     C                   MOVE      TCTDN2        OP(XNR3)
+     C                   LEAVE
+     C                   END
+     C                   IF        ((AV(XNR3) = TCAVD2) AND (OP(XNR3) = TCTDN2))
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   END
+      *
+     C     TICTX         IFEQ      *BLANKS
+     C                   MOVE      '1'           *IN12
+     C                   MOVE      'YBC0833'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLPRT
+     C                   END
+     C     TIPTY         IFNE      'NE'
+     C     TIPTY         ANDNE     'NF'
+     C     TIPTY         ANDNE     'NG'
+     C     TIPTY         ANDNE     'VQ'
+     C     TIPTY         ANDNE     'VG'
+     C     TIPTY         ANDNE     'VL'
+     C     TIPTY         ANDNE     'VY'
+     C     TIPTY         ANDNE     'VR'
+     C     TIPTY         ANDNE     'VO'
+     C     TIPTY         ANDNE     'VS'
+     C                   MOVE      'J'           XKOLLI            1
+     C     TIPNT         IFEQ      0
+     C                   ADD       TINTS         XNTT
+     C                   ELSE
+     C                   ADD       TIPNT         XNTT
+     C                   END
+     C                   END
+     C     NCTSEHK       READE(N)  NCTSEI                                 33
+     C  N33              ENDDO
+     C                   END
+      *
+     C     XNTT          IFEQ      0
+     C     XKOLLI        ANDEQ     'J'
+     C                   MOVE      '1'           *IN12
+     C                   MOVE      'SPN0003'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLPRT
+     C                   END
+      *
+     C     ULSTL         IFGT      0
+     C     NCTSEHK       SETLL     TRUHL
+     C     NCTSEHK       READE     TRUHL                                  33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      '1'           *IN12
+     C                   MOVE      'YBC0842'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   GOTO      SLPRT
+     C                   END
+     C                   END
+      *
+     C                   IF        (((THGKD <> '2') AND (THGKD <> '4')) OR
+     C                               (THGBL = 0))
+     C                             AND THDK <> 'ENTRY' AND THDK <> 'EXIT'
+     C     UAVD          CHAIN     NCTSESTD                           33
+     C                   MOVE      *ZEROS        XBEL1            11 0
+      *
+S06  C*                  IF        AV(1) = 0
+S06   * Summere vareverdi fra Item.
+S06  C*    NCTSEHK       SETLL     NCTSEI03
+S06  C*    NCTSEHK       READE     NCTSEI03                               33
+S06  C*                  MOVE      *ZEROS        X_TIAVD2
+S06  C*                  MOVE      *ZEROS        X_TITDN2
+S06  C*                  IF        I3_TIAVD2 = 0
+S06  C*                  MOVE      '1'           *IN99
+S06  C*                  ELSE
+S06  C*                  MOVE      '0'           *IN99
+S06  C*                  END
+S06  C*                  DOW       *IN33 = *OFF
+S06  C*                  IF        I3_TIAVD2 <> 0 AND
+S06  C*                            (I3_TIAVD2 <> X_TIAVD2 OR
+S06  C*                             I3_TITDN2 <> X_TITDN2)
+S06  C*                  MOVE      I3_TIAVD2     SEAVD
+S06  C*                  MOVE      I3_TITDN2     SETDN
+S06  C*    SAEHK         CHAIN     SAEH                               33
+S06  C*    SEVAL1        CHAIN     KODTVAL2                           33
+S06  C*                  EVAL(H)   XBEL1 = SEBEL1 * SEVKU / KVAOMR
+S06  C*                  ADD       XBEL1         WSTBL
+S06  C*                  MOVE      I3_TIAVD2     X_TIAVD2
+S06  C*                  MOVE      I3_TITDN2     X_TITDN2
+S06  C*                  END
+S06  C*    NCTSEHK       READE     NCTSEI03                               33
+S06  C*                  ENDDO
+S06  C*
+S06  C*                  ELSE
+S06  C* Summere vareverdi fra eksportfortolling
+S06  C*    1             DO        200           XNR3
+S06  C*                  IF        AV(XNR3) = 0
+S06  C*                  LEAVE
+S06  C*                  END
+S06  C*                  MOVE      AV(XNR3)      SEAVD
+S06  C*                  MOVE      OP(XNR3)      SETDN
+S06  C*    SAEHK         CHAIN     SAEH                               33
+S06  C*    SEVAL1        CHAIN     KODTVAL2                           33
+S06  C*                  EVAL(H)   XBEL1 = SEBEL1 * SEVKU / KVAOMR
+S06  C*                  ADD       XBEL1         WSTBL
+S06  C*                  ENDDO
+S06  C*
+S06  C*                  END
+S06  C*
+N06   * Summere vareverdi
+N06  C                   EVAL      WSTBL=*ZEROS
+N06  C                   EVAL      *IN69=*OFF
+N06  C     NCTSEHK       SETLL     NCTSEC01
+N06  C     NCTSEHK       READE     NCTSEC01                               69
+N06  C     *IN69         DOWEQ     *OFF
+N06   *
+N06  C                   IF        TCAVD2 > 0
+N06  C                   IF        TCTDN2 > 0
+N06  C                   EVAL      SEAVD=TCAVD2
+N06  C                   EVAL      SETDN=TCTDN2
+N06  C     SAEHK         CHAIN     SAEH
+N06  C                   IF        %FOUND(SAEH)
+N06  C     SEVAL1        CHAIN     KODTVAL2
+N06  C                   IF        %FOUND(KODTVAL2)
+N06  C                   EVAL(H)   XBEL1 = SEBEL1 * SEVKU / KVAOMR
+N06  C                   ADD       XBEL1         WSTBL
+N06  C                   ENDIF
+N06  C                   ENDIF
+N06  C                   ENDIF
+N06  C                   ENDIF
+N06   *
+N06  C     NCTSEHK       READE     NCTSEC01                               69
+N06  C                   ENDDO
+     C                   IF        THGBL = 0
+S06  C* N99              EVAL(H)   WSGBL = WSTBL * STD_THGPR / 100
+N06  C                   EVAL(H)   WSGBL = WSTBL * STD_THGPR / 100
+     C                   ELSE
+     C                   MOVE      THGBL         WSGBL
+     C                   END
+      * OMREGN BELØP
+     C                   IF        THGVK <> 'NOK'
+     C     THGVK         SETLL     KODTVAL2
+     C     THGVK         READE     KODTVAL2                               33
+     C                   DOW       *IN33 = *OFF
+     C     THGVK         READE     KODTVAL2                               33
+     C                   ENDDO
+     C                   EVAL(H)   WSTBL = WSTBL / KVAKRS * KVAOMR
+     C                   END
+      *
+     C                   IF        STD_THGPR = 0
+     C                   Z-ADD     30            WSGPR
+     C                   ELSE
+     C                   EVAL      WSGPR = STD_THGPR
+     C                   END
+     C     STPRT         TAG
+     C                   MOVE      WSGBL         XSGBL            11 0
+     C                   MOVE      WSGPR         XSGPR             5 2
+     C                   EXFMT     TSTGRBL
+     C   10              DO
+     C                   CALL      'TR026R'
+     C                   PARM                    WSTBL
+     C                   PARM                    THGVK
+     C                   PARM                    FICURR
+     C                   PARM                    UFLAGG
+     C                   EVAL(H)   WSGBL = WSTBL * WSGPR / 100
+     C                   GOTO      STPRT
+     C                   END
+     C   12              GOTO      SLPRT
+     C                   IF        ((WSGPR <> XSGPR) AND (WSGBL = XSGBL))
+     C                   EVAL(H)   WSGBL = WSTBL * WSGPR / 100
+     C                   GOTO      STPRT
+     C                   END
+N01  C     THGFT1        CHAIN(N)  TRUGH
+     C                   IF        TGGBL <> 0
+     C                   EVAL      XBEL1 = WSGBL + TGGBLB - THGBL
+     C                   IF        XBEL1 > TGGBL
+     C                   EXFMT     VARSLING
+     C                   MOVE      '1'           *IN12
+     C                   GOTO      SLPRT
+     C                   END
+     C     WSGBL         CABEQ     0             STPRT
+     C     NCTSEHK       CHAIN     NCTSEH                             33
+     C                   EVAL      XBEL1 = WSGBL - THGBL
+     C                   MOVE      WSGBL         THGBL
+     C                   UPDATE    NCTSEHR
+      * OPPDATER TOTAL PÅ NY GARANTI
+     C  N33              IF        ((THGFT1 <> *BLANKS) AND
+     C                             ((THGKD <= '1') OR
+     C                               (THGKD >= '6')))
+     C     THGFT1        CHAIN     TRUGH                              33
+     C                   IF        *IN33 = *OFF
+     C                   EVAL      TGGBLB = TGGBLB + XBEL1
+     C                   UPDATE    TRUGHR
+     C                   IF        TGGBLB > TGGBL
+     C                   Z-ADD     100           XPRM
+     C                   ELSE
+     C     TGGBLB        DIV       TGGBL         XPRM              5 2
+     C                   MULT      100           XPRM
+     C                   END
+     C                   IF        ((XPRM > TGPRM) AND (TGPRM <> 0))
+     C                   EXFMT     VARSLING
+     C                   END
+     C                   END
+     C                   END
+     C                   ELSE
+     C     NCTSEHK       CHAIN     NCTSEH                             33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      WSGBL         THGBL
+     C                   UPDATE    NCTSEHR
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   IF        *IN27 = *OFF
+     C                   SELECT
+     C                   WHEN      UIN34 = '1' AND THST928 = 'J'
+     C                             AND THST056 <> 'J'
+     C                   MOVE      '013'         U1N07                          Endring
+     C                   WHEN      UIN34 = '1' AND THTRNR = *BLANKS
+     C                   MOVE      '015'         U1N07
+     C                   WHEN      UIN34 = '1' AND THTRNR <> *BLANKS
+     C                   MOVE      '013'         U1N07                          Endring
+     C                   OTHER
+     C                   MOVE      '   '         U1N07
+     C                   ENDSL
+     C                   CALL      'NCTS012RT'
+     C                   PARM      UPARM2        UPARM1
+     C                   PARM                    UFLAGG
+      *
+     C     UFLAGG        COMP      1                                      12
+     C                   END
+      *
+     C     SLPRT         ENDSR
+      *
+      ***********************************************
+     C     SOKDTA        BEGSR
+      ***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+      *
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDGE     13
+     C     POSNBR        ANDLE     20
+     C                   MOVE      *BLANKS       USØKKN           30
+     C                   CALL      'SOEKKUN'
+     C                   PARM                    W2KNS
+     C                   PARM                    FIFIRM
+     C                   PARM                    USØKKN
+     C                   Z-ADD     73            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      *
+     C     LINNBR        IFEQ      3
+     C     POSNBR        ANDGE     73
+     C     POSNBR        ANDLE     80
+     C                   MOVE      *BLANKS       USØKKN           30
+     C                   CALL      'SOEKKUN'
+     C                   PARM                    W2KNK
+     C                   PARM                    FIFIRM
+     C                   PARM                    USØKKN
+     C                   Z-ADD     11            LINNBR
+     C                   Z-ADD     40            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      *
+     C     LINNBR        IFEQ      10
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     14
+     C                   MOVE      '031'         UUNIK             3
+     C                   MOVE      *BLANKS       UKODE            10
+     C                   MOVEL     W2DK          UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2            3
+     C                   MOVEL     UKODE         W2DK
+     C                   Z-ADD     30            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      *
+     C     LINNBR        IFEQ      10
+     C     POSNBR        ANDGE     30
+     C     POSNBR        ANDLE     31
+     C                   CALL      'SYFI10L'
+     C                   PARM                    W2ALK
+     C                   PARM                    USPED
+     C                   Z-ADD     50            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      *
+     C     LINNBR        IFEQ      10
+     C     POSNBR        ANDGE     50
+     C     POSNBR        ANDLE     51
+     C                   CALL      'SYFI10L'
+     C                   PARM                    W2BLK
+     C                   PARM                    USPED
+     C                   Z-ADD     11            LINNBR
+     C                   Z-ADD     40            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * ADDITIONAL SUPPLY CHAIN ACTOR: Role
+     C     LINNBR        IFEQ      12
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     12
+     C                   MOVE      '704'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVEL     W2ROLE        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2ROLE
+     C                   Z-ADD     30            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * DEPARTURE TRANSPORT MEANS: TYPE
+     C     LINNBR        IFEQ      12
+     C     POSNBR        ANDGE     60
+     C     POSNBR        ANDLE     61
+     C                   MOVE      '750'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2TATY        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2TATY
+     C                   Z-ADD     63            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * DEPARTURE TRANSPORT MEANS: LAND
+     C     LINNBR        IFEQ      12
+     C     POSNBR        ANDGE     99
+     C     POSNBR        ANDLE     100
+     C                   CALL      'SYFI10L'
+     C                   PARM                    W2TALK
+     C                   PARM                    USPED
+     C                   Z-ADD     13            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * PREVIOUS DOCUMENT: TYPE
+     C     LINNBR        IFEQ      13
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     13
+     C                   IF        %SUBST(THDK:1:2) = 'T2'
+     C                             OR %SUBST(W2DK:1:2) = 'T2'
+     C                   MOVE      '178'         UUNIK
+     C                   ELSE
+     C                   MOVE      '214'         UUNIK
+     C                   END
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2PDTY        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2PDTY
+     C                   Z-ADD     15            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * SUPPORTING DOCUMENT: TYPE
+     C     LINNBR        IFEQ      14
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     13
+     C                   MOVE      '213'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2SDTY        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2SDTY
+     C                   Z-ADD     15            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * TRANSPORT DOCUMENT: TYPE
+     C     LINNBR        IFEQ      15
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     13
+     C                   MOVE      '754'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2TDTY        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2TDTY
+     C                   Z-ADD     15            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * ADDITIONAL REFERENCE: TYPE
+     C     LINNBR        IFEQ      16
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     13
+     C                   MOVE      '380'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2ADTY        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2ADTY
+     C                   Z-ADD     15            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * ADDITIONAL INFORMATION: CODE
+     C     LINNBR        IFEQ      17
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     15
+     C                   MOVE      '239'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2AICD        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2AICD
+     C                   Z-ADD     18            LINNBR
+     C                   Z-ADD     10            POSNBR
+     C                   GOTO      SLSOK
+     C                   END
+      * Betalingsmåte
+     C     LINNBR        IFEQ      19
+     C     POSNBR        ANDGE     10
+     C     POSNBR        ANDLE     10
+     C                   MOVE      '116'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVE      'TRS'         UTYPE2            3
+     C                   MOVEL     W2TRCH        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         W2TRCH
+     C                   GOTO      SLSOK
+     C                   END
+      *
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+      *
+     C     SLSOK         ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     FRIKEY1       KLIST
+     C                   KFLD                    WSKODE            3
+     C                   KFLD                    W2XEXT           35
+     c                   move      '*CE'         wskode
+     C     FRIKEY2       KLIST
+     C                   KFLD                    WSKOD2            3
+     C                   KFLD                    W2XEXT
+     c                   move      '*CR'         wskod2
+N05  C     FRISOKK       KLIST
+N05  C                   KFLD                    W2AVD2
+N05  C                   KFLD                    W2TDN2
+N05  C                   KFLD                    WSKODE
+     C     HEDFK2        KLIST
+     C                   KFLD                    W2AVD2
+     C                   KFLD                    W2TDN2
+     C     HEDFK3        KLIST
+     C                   KFLD                    TCAVD2
+     C                   KFLD                    TCTDN2
+     C     SAEVCNK       KLIST
+     C                   KFLD                    SVAVD
+     C                   KFLD                    SVTDN
+     C                   KFLD                    SVLI
+     C     NCTSEHK       KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C     SAEHK         KLIST
+     C                   KFLD                    SEAVD
+     C                   KFLD                    SETDN
+     C     NCTSECK       KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    W2LI
+     C     NCTSECK1      KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    W3LI
+     C     NCTSECK12     KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    W3LN
+     C     NCTSECK2      KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    TCLI
+     C     KODS2K        KLIST
+     C                   KFLD                    KS2UNI
+     C                   KFLD                    KS2LK
+     C                   MOVE      'S2 '         KS2UNI
+     C     CUND1K        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C     TRK01K        KLIST
+     C                   KFLD                    YUNIK             3
+     C                   KFLD                    YKODE            10
+      *
+     C     *ENTRY        PLIST
+     C     UPARM2        PARM      UPARM2        UPARM1          128
+     C                   PARM                    UFLAGG            1 0
+      *
+     C     'NCTS0100'    CHAIN     SYPTFF                             33
+     C                   IF        *IN33
+     C                   MOVE      99999999      X_FASE5           8 0
+     C                   ELSE
+     C                   MOVE      PTFDT         X_FASE5
+     C                   END
+      *
+     C     *LIKE         DEFINE    THVPOS        X_THVPOS
+     C     *LIKE         DEFINE    THVKB         X_THVKB
+     C     *LIKE         DEFINE    THNTK         X_THNTK
+     C     *LIKE         DEFINE    TIAVD2        X_TIAVD2
+     C     *LIKE         DEFINE    TITDN2        X_TITDN2
+      *
+     C     FIFIRM        SETLL     FIRM
+     C                   READ      FIRM                                   33
+     C                   MOVE      UIN27         *IN27
+     C                   MOVE      UIN36         *IN36
+     C                   MOVE      *ZEROS        XLI
+     C                   MOVE      *BLANKS       W2AITX
+     C                   MOVE      *BLANKS       TCAITX
+      *** UUR = 'F' -> SJØSPEDISJON
+     C     UUR           COMP      'F'                                    60
+     C  N60UUR           COMP      'G'                                    60
+      *
+     C                   MOVE      *ZEROS        TCLI
+     C                   MOVE      'N'           USPED             1
+     C  N27UPRO          IFGT      0
+     C     ULSTL         ORGT      0
+     C     NCTSEHK       CHAIN(N)  HEADF                              33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      'J'           XHOPD             1
+     C                   MOVE      'N'           XHOPD2            1
+     C                   ELSE
+     C                   MOVE      'J'           XHOPD2
+     C                   END
+     C                   ELSE
+     C                   MOVE      'J'           XHOPD2
+     C                   END
+     C                   MOVEA     '01'          *IN(31)
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVEL     WDT           UIDAG             8 0
+      *
+     C     NCTSEHK       CHAIN(N)  NCTSEH                             33
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TSTOPL        BEGSR
+      ***********************************************
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     DLTOPL        BEGSR
+      ***********************************************
+      *** SLETTE ITEM
+     C     NCTSECK       SETLL     NCTSEI
+     C     NCTSECK       READE     NCTSEI                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    NCTSEIR
+     C     NCTSECK       READE     NCTSEI                                 33
+     C  N33              ENDDO
+      *** SLETTE ITEM AVSENDER/MOTTAKER
+     C     NCTSECK       SETLL     NCTSEIAM
+     C     NCTSECK       READE     NCTSEIAM                               33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    NCTSEIAMR
+     C     NCTSECK       READE     NCTSEIAM                               33
+     C  N33              ENDDO
+      *** SLETTE CONTAINERNR PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVCN
+     C     NCTSECK       READE     TRUVCN                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVCNR
+     C     NCTSECK       READE     TRUVCN                                 33
+     C  N33              ENDDO
+      *** SLETTE DOKUMENTER PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVDK
+     C     NCTSECK       READE     TRUVDK                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVDKR
+     C     NCTSECK       READE     TRUVDK                                 33
+     C  N33              ENDDO
+      *** SLETTE FØLSOMME VARER PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVFS
+     C     NCTSECK       READE     TRUVFS                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVFSR
+     C     NCTSECK       READE     TRUVFS                                 33
+     C  N33              ENDDO
+      *** SLETTE MERKE & NR PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVMN
+     C     NCTSECK       READE     TRUVMN                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVMNR
+     C     NCTSECK       READE     TRUVMN                                 33
+     C  N33              ENDDO
+      *** SLETTE TIDLIGERE DOKUMENTER PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVTD
+     C     NCTSECK       READE     TRUVTD                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVTDR
+     C     NCTSECK       READE     TRUVTD                                 33
+     C  N33              ENDDO
+      *** SLETTE VAREBESKRIVELSER PGA. AVBRYT NY REGISTRERING
+     C     NCTSECK       SETLL     TRUVVT
+     C     NCTSECK       READE     TRUVVT                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    TRUVVTR
+     C     NCTSECK       READE     TRUVVT                                 33
+     C  N33              ENDDO
+      *
+     C                   ENDSR
+      *

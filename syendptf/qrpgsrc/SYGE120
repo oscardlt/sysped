@@ -1,0 +1,198 @@
+     fheadf     if   e           k disk
+     ftrackl02  if   e           k disk
+     ‚* Prototype for syge120
+     d syge120         pr                  extpgm('SYGE120')
+     d heavd_                              like(heavd)
+     d heopd_                              like(heopd)
+     d nextact_                            like(nextact)
+     d term_                               like(term)
+     ‚* *ENTRY Interface for Main Procedure
+     d syge120         pi
+     d heavd                          4  0
+     d heopd                          7  0
+     d nextact                        3
+     d term                          20
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d actfins         s              1
+     d te2txt          s              7
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      /free
+       exsr init;
+
+       select;
+       when trslag = 'FF';
+         exsr testff;
+       when trslag = 'VF';
+         exsr testvf;
+       other;
+         exsr testho;
+       endsl;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************
+       begsr init;
+         //**********************************************
+         //--------------------------------------------------------------
+         chain ( heavd : heopd ) headf;
+         if not %found;
+           *inlr=*on;
+           return;
+         endif;
+
+         te2txt = *blanks;
+       endsr;
+
+       //**********************************************
+       begsr testff;
+         //**********************************************
+         // FF.oppdrag er henting hos avsender - el lev til terminal
+         nextact = 'COL';
+         // alleredde hentet/levering neste ??
+         ttacti  = 'COL';
+         exsr tstact;
+         if actfins  = 'Y';
+           nextact  = 'LET';
+         endif;
+         // Også leveringen ferdig
+         if nextact  = 'LET';
+           ttacti  = 'TE2';
+           te2txt  = 'Levert ';
+           exsr tstact;
+           if actfins  = 'Y';
+             nextact  = 'FER';
+           endif;
+         endif;
+
+         if nextact  = 'LET';
+           term     = hesdt;
+         endif;
+
+       endsr;
+
+       //**********************************************
+       begsr testvf;
+         //**********************************************
+         // VF.oppdrag er henting på terminal  - el lev til mottaker (eller term)
+         nextact = 'HET';
+         // alleredde hentet/levering neste ??
+         ttacti  = 'TE2';
+         te2txt  = 'Hentet ';
+         exsr tstact;
+         if actfins  = 'Y';
+           nextact  = 'POD';
+         endif;
+         // Også leveringen ferdig (sjekk både Term og POD)
+         if nextact  = 'POD';
+           ttacti  = 'TE2';
+           te2txt  = 'Levert ';
+           exsr tstact;
+           if actfins  = 'Y';
+             nextact  = 'FER';
+           endif;
+         endif;
+         if nextact  = 'POD';
+           ttacti  = 'POD';
+           exsr tstact;
+           if actfins  = 'Y';
+             nextact  = 'FER';
+           endif;
+         endif;
+
+         if nextact  = 'HET';
+           term     = hesdf;
+         endif;
+
+       endsr;
+
+       //**********************************************
+       begsr testho;
+         //**********************************************
+         // i utgangspunkett hjenting hos avsender / leverong til mottaker
+         // men derso oppdraghet har FF-dup foran seg eller VF-dup etter så er det til terminal
+         // HO.oppdrag er henting hos avsender(el. term) /  - el lev til terminal (eller mottaker)
+         nextact = 'COL';
+         if trslag = 'HO'
+           and hesdff <> *blanks;
+           nextact = 'HET';
+         endif;
+         // alleredde hentet/levering neste ??
+         ttacti  = 'COL';
+         exsr tstact;
+         if actfins  = 'Y';
+           nextact  = 'POD';
+         else;
+           // prøv også om henting på term finnes
+           ttacti  = 'TE2';
+           te2txt  = 'Hentet ';
+           exsr tstact;
+           if actfins  = 'Y';
+             nextact  = 'POD';
+           endif;
+         endif;
+         //*
+         if nextact  = 'POD';
+           // hvis den har viderefrakt etter seg da skal HO levere til terminal
+           if trslag = 'HO'
+             and hesdvt <> *blanks;
+             nextact = 'LET';
+           endif;
+           // Også leveringen ferdig
+           if nextact  = 'POD';
+             ttacti  = 'POD';
+             exsr tstact;
+             if actfins  = 'Y';
+               nextact  = 'FER';
+             else;
+               // prøv også om Levering  term finnes
+               ttacti  = 'TE2';
+               te2txt  = 'Levert ';
+               exsr tstact;
+               if actfins  = 'Y';
+                 nextact  = 'FER';
+               endif;
+             endif;
+           endif;
+         endif;
+
+
+         if nextact  = 'HET';
+           term     = hesdff;
+         endif;
+         if nextact  = 'LET';
+           term     = hesdvt;
+         endif;
+
+       endsr;
+
+       //**********************************************
+       begsr tstact;
+         //**********************************************
+         // Sjekk om en gitt ACTKOD finnes på oppdraget (og ikke er kopiert fra annet i kjeden..)
+         // Ved TE2 må også 7 første av tekst  stemme (Hentet / Levert )  - kan finnes fler TE2..
+         actfins = 'N';
+         setll ( heavd : heopd : ttfbnr : ttacti ) trackl02;
+         reade ( heavd : heopd : ttfbnr : ttacti ) trackl02;
+         dow not %eof;
+           if ttedre <> 'KOP';
+             if ttacti <> 'TE2';
+               actfins = 'Y';
+               leave;
+             else;
+               if %subst(tttexl:1:7) = te2txt;
+                 actfins = 'Y';
+                 leave;
+               endif;
+             endif;
+           endif;
+           reade ( heavd : heopd : ttfbnr : ttacti ) trackl02;
+         enddo;
+
+       endsr;
+      /end-free

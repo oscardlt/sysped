@@ -1,0 +1,742 @@
+     H DFTACTGRP(*NO)
+      *
+      ***********************************************************
+      *** PROGRAM SKAL REGISTRERE KURERMANIFEST (OPPDRAG)     ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01-02 06-08 10 11 13-26
+      *** LEDIGE INDIKATORER 27-29 31 32 34-48 50-81          ***
+      ***********************************************************
+      *
+     FSADH      IF   E           K DISK
+     FSADKMCL1  UF A E           K DISK
+     FSADKML02  IF   E           K DISK
+     FTRACKF    O  A E             DISK
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FKODTS2    IF   E           K DISK
+     FKODTVAL2  IF   E           K DISK
+     F*TRKODL01  IF   E           K DISK
+     FKOFAST    IF   E           K DISK
+     FSAD114D   CF   E             WORKSTN INFDS(FBAREA)
+     D                SDS
+     D  UUSR                 254    263
+     D FBAREA          DS
+     D  WSCLOC               382    383B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WSDTRD                 1      2  0
+     D  WSDTRM                 3      4  0
+     D  WSDTRA                 5      6  0
+     D  WSDTR                  1      6  0
+     D                 DS
+     D  KMDTRC                 1      2  0
+     D  KMDTRA                 3      4  0
+     D  KMDTRM                 5      6  0
+     D  KMDTRD                 7      8  0
+     D  KMDTR                  1      8  0
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+     D                 DS
+     D  SYRG                   1     14
+     D  SYFOR9                 1      9
+     D  SYFORE                 1     11
+     D                 DS
+     D  POSTNR                 1      4  0
+     D  POSTNR_A               1      4
+      *
+      *  Prototype for 'SAD061F'
+     d SAD061F         pr                  extpgm('SAD061F')
+     d wsval_                              like(wsval)
+     d usidt_                              like(usidt)
+      *  Prototype for 'SOEKKUN'
+     d SOEKKUN         pr                  extpgm('SOEKKUN')
+     d wskns_                              like(wskns)
+     d fifirm_                             like(fifirm)
+     d wsnas_                              like(wsnas)
+      *  Prototype for 'SYFI10L'
+     d SYFI10L         pr                  extpgm('SYFI10L')
+     d wslks_                              like(wslks)
+     d usped_                              like(usped)
+      *  Prototype for 'SYFAKDA'
+     d SYFAKDA         pr                  extpgm('SYFAKDA')
+     d kftyp_                              like(kftyp)
+     d uupdat_                             like(uupdat)
+     d xkfkod_                             like(xkfkod)
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'UUIDC'
+     d UUIDC           pr                  extpgm('UUIDC')
+     d kmuuid_                             like(kmuuid)
+      *  Prototype for 'SAD117R'
+     d SAD117R         pr                  extpgm('SAD117R')
+     d upro_                               like(upro)
+     d ucn_                                like(ucn)
+     d mcvoec_                             like(mcvoec)
+     d utype_                              like(utype)
+     d uflagg_                             like(uflagg)
+      *  Prototype for SAD114R
+     d sad114r         pr
+     d uavd_                               like(uavd)
+     d upro_                               like(upro)
+     d utdn_                               like(utdn)
+     d ucn_                                like(ucn)
+     d utype_                              like(utype)
+     d uflagg_                             like(uflagg)
+      *  *ENTRY Interface for Main Procedure
+     d sad114r         pi
+     d uavd                           4  0
+     d upro                           8  0
+     d utdn                           7  0
+     d ucn                            2  0
+     d utype                          3a
+     d uflagg                         1  0
+      *
+     d i               s              3  0
+     d max_ucn         s              2  0
+     d uupdat          s              1a
+     d usidt           s              8  0
+     d usped           s              1a
+     d xkfkod          s              5a
+     d xpos            s              3  0
+     d x_nestecn       s              2  0
+      *
+      /free
+
+         exsr init;
+
+         dow *in03 = *off and *in12 = *off;                       // 1<b
+           exfmt bilde01;
+           for i = 80 to 99;       // Sett indikator 80-99 av.    // 2<b
+             *in(i) = *off;
+           endfor;                                                // 2<e
+           *in30 = *off;
+
+           select;                                                // 2<b
+           when *in04;                                            // 2
+             exsr srsok;
+           when *in12;                                            // 2
+           when *in49 and mcavd <> 0;                             // 2
+           // Spørring med SAD-oppdrag
+             *in03 = *on;
+           when *in49;                                            // 2
+           // Spørring uten SAD-oppdrag
+             ucn = wscn;
+             sad117r (upro: ucn: mcvoec: utype: uflagg);
+           other;                                                 // 2
+             exsr testb1;
+             if *in30 = *off;                                     // 3<b
+               exsr opdopd;
+               if mcavd = 0;                                      // 4<b
+                 ucn = mccn;
+                 sad117r (upro: ucn: mcvoec: utype: uflagg);
+                 if uflagg <> 1;                                  // 5<b
+                   *in03 = *on;
+                 endif;                                           // 5<e
+               else;                                              // 4
+                 *in03 = *on;
+               endif;                                             // 4<e
+             endif;                                               // 3<e
+           endsl;                                                 // 2<e
+         enddo;                                                   // 1<e
+
+         select;
+         when *in12;
+           uflagg = 1;
+         other;
+           uflagg = 0;
+         endsl;
+
+         *inlr = *on;
+         return;
+
+      //*********************************************
+       begsr srsok;
+
+       linnbr = wscloc / 256;
+       posnbr = wscloc - (%int(linnbr) * 256);
+
+       select;
+       when linnbr = 5 and posnbr >= 15 and posnbr <= 22;
+       // SØK AVSENDER
+         soekkun (wskns: fifirm: wsnas);
+         if wskns <> 0;
+           exsr tests;
+         endif;
+         linnbr = 8;
+         posnbr = 15;
+       when linnbr = 7 and posnbr >= 91 and posnbr <= 92;
+       // SØK AVSENDERS landkode
+         syfi10l (wslks: usped);
+         linnbr = 8;
+         posnbr = 15;
+       when linnbr = 10 and posnbr >= 15 and posnbr <= 22;
+       // FRISØK MOTTAKER
+         soekkun (wsknk: fifirm: wsnak);
+         if wsknk <> 0;
+           exsr testk;
+         endif;
+         linnbr = 13;
+         posnbr = 15;
+       when linnbr = 12 and posnbr >= 91 and posnbr <= 92;
+       // FRISØK MOTTAKERS landkode
+         syfi10l (wslkk: usped);
+         linnbr = 13;
+         posnbr = 15;
+       when linnbr = 15 and posnbr >= 93 and posnbr <= 96;
+       //* Dokumenttype
+         kftyp = 'SADKMTDOCT';
+         uupdat = 'N';
+         xkfkod = *blanks;
+         syfakda (kftyp: uupdat: xkfkod);
+         if xkfkod <> *blanks;
+           wstrft = xkfkod;
+         endif;
+         linnbr = 16;
+         posnbr = 15;
+       when linnbr = 18 and posnbr >= 15 and posnbr <= 17;
+       //* Valutakode
+         sad061f (wsval: usidt);
+         posnbr = 28;
+       when linnbr = 18 and posnbr >= 28 and posnbr <= 29;
+       //* Avsenderlandkode
+         syfi10l (wslka: usped);
+         posnbr = 39;
+       other;
+        msgnr = 'DIV1037';
+        *in30 = *on;
+       endsl;
+
+       endsr;
+
+      //*********************************************
+       begsr testb1;
+
+       // TEST AVSENDER
+       if wskns <> 0;
+         exsr tests;
+       endif;
+
+       //if wsrgs = *blanks;
+       //  *in98 = *on;
+       //endif;
+
+       if wsnas = *blanks;
+         *in97 = *on;
+       endif;
+
+       if wsads1 = *blanks;
+         *in96 = *on;
+       endif;
+
+       if wspns = *blanks;
+         *in95 = *on;
+       endif;
+
+       if wsads3 = *blanks;
+         *in94 = *on;
+       endif;
+
+       chain ('S2 ': wslks) kodts2;
+       if not %found;
+         *in93 = *on;
+       endif;
+
+       if wscms <> *blanks or wscmst <> *blanks;
+         if wscms = *blanks;
+           *in92 = *on;
+         else;
+           xpos = %scan('@': wscms);
+           if xpos > 0;
+             wscmst = 'EM';
+           else;
+             wscmst = 'TE';
+           endif;
+         endif;
+       endif;
+
+       // TEST MOTTAGER
+       if wsknk <> 0;
+         exsr testk;
+       endif;
+
+       //if wsrgk = *blanks;
+       //  *in90 = *on;
+       //endif;
+
+       if wsnak = *blanks;
+         *in89 = *on;
+       endif;
+
+       if wsadk1 = *blanks;
+         *in88 = *on;
+       endif;
+
+       if wspnk = *blanks;
+         *in87 = *on;
+       endif;
+
+       if wsadk3 = *blanks;
+         *in86 = *on;
+       endif;
+
+       chain ('S2 ': wslkk) kodts2;
+       if not %found;
+         *in85 = *on;
+       endif;
+
+       if wscmk <> *blanks or wscmkt <> *blanks;
+         if wscmk = *blanks;
+           *in84 = *on;
+         else;
+           xpos = %scan ('@': wscmk);
+           if xpos > 0;
+             wscmst = 'EM';
+           else;
+             wscmst = 'TE';
+           endif;
+         endif;
+       endif;
+
+       wstrf = %scanRpl(' ':'':wstrf);
+       if wstrf = *blanks;
+         *in83 = *on;
+       endif;
+
+       kfkod = wstrft;
+       chain ('SADKMTDOCT': kfkod) kofast;
+       if not %found;
+         *in82 = *on;
+       endif;
+
+       if utdn = 0;
+       // MANUELL REGISTRERING CONSIGNMENT (OPPDRAG)
+         chain wsval kodtval2;
+         if not %found;
+           *in81 = *on;
+         endif;
+
+         chain ('S2 ': wslka) kodts2;
+         if not %found;
+           *in80 = *on;
+         endif;
+       endif;
+
+       exsr hmsg;
+
+       endsr;
+
+      //*********************************************
+       begsr hmsg;
+
+       select;
+       when *in99;
+         msgnr = 'YBC2053';
+         *in30 = *on;
+         linnbr = 5;
+         posnbr = 15;
+       when *in98;
+         msgnr = 'YBC2054';
+         *in30 = *on;
+         linnbr = 5;
+         posnbr = 33;
+       when *in97;
+         msgnr = 'YBC2055';
+         *in30 = *on;
+         linnbr = 6;
+         posnbr = 33;
+       when *in96;
+         msgnr = 'YBC2056';
+         *in30 = *on;
+         linnbr = 6;
+         posnbr = 46;
+       when *in95;
+         msgnr = 'YBC2052';
+         *in30 = *on;
+         linnbr = 7;
+         posnbr = 46;
+       when *in94;
+         msgnr = 'YBC2057';
+         *in30 = *on;
+         linnbr = 7;
+         posnbr = 56;
+       when *in94;
+         msgnr = 'YBC2057';
+         *in30 = *on;
+         linnbr = 7;
+         posnbr = 56;
+       when *in93;
+         msgnr = 'YBC2058';
+         *in30 = *on;
+         linnbr = 7;
+         posnbr = 91;
+       when *in92;
+         msgnr = 'YBC2059';
+         *in30 = *on;
+         linnbr = 8;
+         posnbr = 15;
+       when *in91;
+         msgnr = 'YBC2060';
+         *in30 = *on;
+         linnbr = 10;
+         posnbr = 15;
+       when *in90;
+         msgnr = 'YBC2061';
+         *in30 = *on;
+         linnbr = 10;
+         posnbr = 33;
+       when *in89;
+         msgnr = 'YBC2062';
+         *in30 = *on;
+         linnbr = 11;
+         posnbr = 15;
+       when *in88;
+         msgnr = 'YBC2063';
+         *in30 = *on;
+         linnbr = 11;
+         posnbr = 46;
+       when *in87;
+         msgnr = 'YBC2070';
+         *in30 = *on;
+         linnbr = 12;
+         posnbr = 46;
+       when *in86;
+         msgnr = 'YBC2064';
+         *in30 = *on;
+         linnbr = 12;
+         posnbr = 52;
+       when *in85;
+         msgnr = 'YBC2065';
+         *in30 = *on;
+         linnbr = 12;
+         posnbr = 91;
+       when *in84;
+         msgnr = 'YBC2066';
+         *in30 = *on;
+         linnbr = 13;
+         posnbr = 15;
+       when *in83;
+         msgnr = 'YBC2075';
+         *in30 = *on;
+         linnbr = 15;
+         posnbr = 15;
+       when *in82;
+         msgnr = 'YBC2076';
+         *in30 = *on;
+         linnbr = 15;
+         posnbr = 93;
+       when *in81;
+         msgnr = 'SPV0014';
+         *in30 = *on;
+         linnbr = 18;
+         posnbr = 15;
+       when *in80;
+         msgnr = 'SPL0013';
+         *in30 = *on;
+         linnbr = 18;
+         posnbr = 28;
+       endsl;
+
+       endsr;
+
+      //*********************************************
+       begsr movkmw;
+
+       wsdtrd = kmdtrd;
+       wsdtrm = kmdtrm;
+       wsdtra = kmdtra;
+       wsavd  = uavd;
+       wstdn  = utdn;
+       wscn   = ucn;
+
+       wskns  = mckns;
+       wsrgs  = mcrgs;
+       wsnas  = mcnas;
+       wsads1 = mcads1;
+       wsads2 = mcads2;
+       wspns  = mcpns;
+       wsads3 = mcads3;
+       wslks  = mclks;
+       wscms  = mccms;
+       wscmst = mccmst;
+       wscps  = mccps;
+       wsknk  = mcknk;
+       wsrgk  = mcrgk;
+       wsnak  = mcnak;
+       wsadk1 = mcadk1;
+       wsadk2 = mcadk2;
+       wspnk  = mcpnk;
+       wsadk3 = mcadk3;
+       wslkk  = mclkk;
+       wscmk  = mccmk;
+       wscmkt = mccmkt;
+       wscpk  = mccpk;
+       if utype = 'CPY';
+         wstrf  = *blanks;
+         wstrft = *blanks;
+       else;
+         wstrf  = mctrf;
+         wstrft = mctrft;
+       endif;
+       wstype = mctype;
+       wsval  = mcval;
+       wslka  = mclka;
+       wsvoec = mcvoec;
+
+       endsr;
+
+      //*********************************************
+       begsr movwkm;
+
+       mckns  = wskns;
+       mcrgs  = wsrgs;
+       mcnas  = wsnas;
+       mcads1 = wsads1;
+       mcads2 = wsads2;
+       mcpns  = wspns;
+       mcads3 = wsads3;
+       mclks  = wslks;
+       mccms  = wscms;
+       mccmst = wscmst;
+       mccps  = wscps;
+       mcknk  = wsknk;
+       mcrgk  = wsrgk;
+       mcnak  = wsnak;
+       mcadk1 = wsadk1;
+       mcadk2 = wsadk2;
+       mcpnk  = wspnk;
+       mcadk3 = wsadk3;
+       mclkk  = wslkk;
+       mccmk  = wscmk;
+       mccmkt = wscmkt;
+       mccpk  = wscpk;
+       mctrf  = wstrf;
+       mctrft = wstrft;
+       mctype = wstype;
+       mcval  = wsval;
+       mclka  = wslka;
+       mcvoec = wsvoec;
+
+       endsr;
+
+      //*********************************************
+       begsr movsaw;
+
+       wsdtrd = kmdtrd;
+       wsdtrm = kmdtrm;
+       wsdtra = kmdtra;
+       wsavd  = uavd;
+       wstdn  = utdn;
+       wscn   = ucn;
+
+       wskns  = sikns;
+       wsrgs  = *blanks;
+       wsnas  = sinas;
+       wsads1 = siads1;
+       wsads2 = siads2;
+       wspns  = %subst(siads3:1:9);
+       wsads3 = siads3;
+       wslks  = *blanks;
+       wscms  = *blanks;
+       wscmst = *blanks;
+       wscps  = *blanks;
+       wsknk  = siknk;
+       wsrgk  = sirg;
+       wsnak  = sinak;
+       wsadk1 = siadk1;
+       wsadk2 = siadk2;
+       wspnk  = %subst(siadk3:1:9);
+       wsadk3 = siadk3;
+       wslkk  = 'NO';
+       wscmk  = *blanks;
+       wscmkt = *blanks;
+       wscpk  = *blanks;
+       wstrf  = *blanks;
+       wstrft = *blanks;
+       wstype = '11';
+       wsval  = *blanks;
+       wslka  = *blanks;
+       wsvoec = *blanks;
+
+       endsr;
+
+      //*********************************************
+       begsr tests;
+
+       chain (fifirm: wskns) cundl01;
+       if %found;
+         wsnas  = knavn;
+         wsads1 = adr1;
+         wsads2 = adr2;
+         wsads3 = adr3;
+         select;
+         when postnr = 0;
+           wspns = sypoge;
+         other;
+           wspns = postnr_a;
+         endsl;
+         if syfor9 <> *zeros;
+           wsrgs = syrg;
+         endif;
+       else;
+         *in99 = *on;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr testk;
+
+       chain (fifirm: wsknk) cundl01;
+       if %found;
+         wsnak  = knavn;
+         wsadk1 = adr1;
+         wsadk2 = adr2;
+         wsadk3 = adr3;
+         select;
+         when postnr = 0;
+           wspnk = sypoge;
+         other;
+           wspnk = postnr_a;
+         endsl;
+         if syfor9 <> *zeros;
+           wsrgk = syrg;
+         endif;
+       else;
+         *in99 = *on;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr opdopd;
+
+       if utype = 'CPY';
+         *in33 = *on;
+       else;
+         chain (upro: uavd: utdn: ucn) sadkmcl1;
+         if %found;
+           *in33 = *off;
+         else;
+           *in33 = *on;
+         endif;
+       endif;
+
+       exsr ttsr;
+
+       exsr movwkm;
+
+       // 33 ER PÅ VED NY OPD
+       if *in33;
+         mcavd = uavd;
+         mcpro = upro;
+         mctdn = utdn;
+         if utype = 'MAN' or utype = 'CPY';
+           mccn = x_nestecn;
+           ucn  = mccn;
+         else;
+           mccn = ucn;
+         endif;
+         mcst = ' ';
+         write sadkmcfr;
+         else;
+         update sadkmcfr;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr init;
+
+       syge15c (wdt: wtm);
+
+       usped = 'N';
+       wsdtr = 0;
+       kmdtr = 0;
+
+       if utype = 'DSP';
+         *in49 = *on;
+       endif;
+
+       select;
+       when utype = 'PLK' or utype = 'PLA';
+         *in33 = *on;
+       when utype = 'MAN';
+         max_ucn = 99;
+         setgt (upro: uavd: utdn: max_ucn) sadkmcl1;
+         readpe(n) (upro: uavd: utdn) sadkmcl1;
+         if %eof;
+           x_nestecn = 1;
+         else;
+           x_nestecn = mccn + 1;
+         endif;
+         clear sadkmcfr;
+         *in33 = *on;
+       when utype = 'CPY';
+         max_ucn = 99;
+         setgt (upro: uavd: utdn: max_ucn) sadkmcl1;
+         readpe(n) (upro: uavd: utdn) sadkmcl1;
+         if %eof;
+           x_nestecn = 1;
+         else;
+           x_nestecn = mccn + 1;
+         endif;
+         chain(n) (upro: uavd: utdn: ucn) sadkmcl1;
+         mccn = 0;
+         *in33 = *off;
+       other;
+         chain upro sadkml02;
+         chain(n) (upro: uavd: utdn) sadkmcl1;
+       endsl;
+
+       if *in33;
+         chain (uavd: utdn) sadh;
+         exsr movsaw;
+         if utype = 'PLA';
+           exsr opdopd;
+           *inlr = *on;
+           return;
+         endif;
+       else;
+         exsr movkmw;
+       endif;
+
+       setll *loval firm;
+       read firm;
+
+       write windowsz;
+
+       endsr;
+
+      //*********************************************
+       begsr ttsr;
+
+       ttavd  = uavd;
+       ttopd  = utdn;
+       tttur  = upro;
+       ttacti = 'KMC';
+       ttdate = wdt_n;
+       ttdate = wdt_n;
+       tttime = wtm_n;
+       tttiml = wtm_n;
+       ttuser = uusr;
+       if *in33;
+         tttext = 'Oppdrag er plukket til manifest.';
+         tttexl = 'Oppdrag er plukket til manifest.';
+         ttedev = 'CRT';
+       else;
+         tttext = 'Info. av oppdrag er endret.';
+         tttexl = 'Info. av oppdrag er endret.';
+         ttedev = 'CHG';
+       endif;
+
+       write trackfr;
+
+       endsr;
+
+      /end-free

@@ -1,0 +1,443 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 lager workfil større
+10XXX * 02 CB  PTF10 Legg in / i forkant av rootkatalog
+10XXX * 03 CB  PTF10 MAsse endringer vedr. leserekkefølge, ingen merking
+10XXX * 04 YBC PTF10 OPPDATER EDISX MÅ SKJE FØR CPYF
+12XXX * 05 CB  PTF12 Tøm arbetsfil
+12XXX * 06 SH  PTF12 ikke legg timestamp på ALTINN
+12XXX * 07 CB  PTF12 Avslutt hvis komponent er låst
+12XXX * 08 CB  PTF12 Vent mellom oversikt og henting
+12XXX * 09 CB  PTF12 Feil i PTF08
+12XXX * 10 YBC PTF12 Test om det er XML - CCSID 1208
+********************************************************************
+     H DATEDIT(*DMY)
+     H DFTACTGRP(*NO)
+     FEDIC      UF   E             DISK
+     FEDII      IF   E           K DISK
+     FEDISX     O  A E             DISK
+     FEDI10F8   UF A E           K DISK
+      *_______________________________________________________
+      * Les lenker i en katalog  og kopier dem til DB2 i SYEDI
+      * Dette program fungerer kun for 1024 bytes recordlengde.
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *_____________________________
+      * Prototype for API prosedyrer
+      *"""""""""""""""""""""""""""""
+     Dlstat            PR            10I 0 EXTPROC('lstat')
+     D                                 *   VALUE
+     D                                 *   VALUE
+
+     Dopendir          PR              *   EXTPROC('opendir')
+     D                                 *   VALUE
+
+     Dreaddir          PR              *   EXTPROC('readdir')
+     D                                 *   VALUE
+
+     Dclosedir         PR            10I 0 EXTPROC('closedir')
+     D                                 *   VALUE
+     D SndPgmMsg       PR              N
+     D Qmsgid                         7    CONST
+     D Qmsgf                         20    CONST
+     D Qmsg                         128    CONST
+     D Qmsgtp                        10    CONST OPTIONS(*NOPASS)
+
+      *   stat data structure fra prosedyre: lstat()
+     D StatDS          DS           128
+     D  st_mode                      10U 0
+     D  st_ino                       10U 0
+     D  st_nlink                      5U 0
+     D  reserved1                     2A
+     D  st_uid                       10U 0
+     D  st_gid                       10U 0
+     D  st_size                      10U 0
+     D  st_atime                     10U 0
+     D  st_mtime                     10U 0
+     D  st_ctime                     10U 0
+     D  st_dev                       10U 0
+     D  st_blksize                   10I 0
+     D  st_allocsize                 10I 0
+     D  st_objtype                   10A
+     D  reserved2                     2A
+     D  st_codepage                   5U 0
+     D  st_reserved1                 62A
+     D  st_ino_gen_id                10U 0
+
+      *   direntry data structure fra prosedyre: readdir()
+     D DirEntry        DS
+     D d_reserved1                   16A
+     D d_fileno_genid                10U 0
+     D d_fileno                      10U 0
+     D d_reclen                      10U 0
+     D d_reserved3                   10I 0
+     D d_reservedØ4                   6A
+     D d_reserved5                    2A
+     D d_ccsid                       10I 0
+     D d_country_id                   2A
+     D d_language_id                  3A
+     D d_nls_reserved                 3A
+     D d_namelen                     10U 0
+     D d_name                       640A
+
+     D Null            S              1A   Inz(X'00')
+     D RETURNInt       S             10I 0
+     D RETURNDir       S               *
+     D PtrToEntry      S               *
+     D RtnEntry        S                   BASED(PtrToEntry) Like(DirEntry)
+     D EntryName       S            120A
+     D EntryPath       S            256A
+     D EntryPath2      S            256A
+     D EntryPath3      S            256A
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D HHMMSS          S              6  0
+     D DirError        C                   'Feil ved åpning av katalog'
+
+      *   Input Parametere
+     D DirName         S            100A
+     D DirName2        S            100A
+     D FullName        S            256A
+
+      *   Arbeidsvariabler
+     D Outfile         DS
+     D  OutFilNam                    10    INZ('Q3        ')
+     D  OutFilLib                    10    INZ('QTEMP     ')
+      *
+     D                 DS
+     D  CMNA                   1      1    INZ('A')
+     D  CMN                    2     10S 0
+     D  MBR                    1     10
+      *
+     D ObjVar          S             90
+     D ObjVarLen       S             10I 0 Inz(%size(ObjVar))
+     D ObjVarFmt       S              8
+     D ObjTyp          S             10
+     D Tstampz         S               Z
+     D Tstampa         S             26
+
+     D APIERR          DS
+     D  ERRSIZ                 1      4B 0 INZ(256)
+     D  ERRLEN                 5      8B 0 INZ(0)
+     D  ERRMIC                 9     15
+     D  ERRNBR                16     16
+     D  ERRDTA                17    272
+
+      *   SYEDI data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+
+     D PSDS           SDS           512
+
+     C                   EVAL      FullName = %trimr(DirName) + Null
+      * Åpne katalog
+     C                   EVAL      RETURNDir = opendir(%addr(FullName))
+      * Avslutt hvis feil ved åpning av katalog
+     C                   IF        RETURNDir = *Null
+     C                   CALLP     SndPgmMsg('CPF9898':'QCPFMSG'
+     C                                       :DirError)
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   ENDIF
+
+     C                   DOU       PtrToEntry = *Null
+      * Les neste katalog lenke
+     C                   EVAL      PtrToEntry = readdir(RETURNDir)
+      * Lenknavn er i feltet d_name
+     C                   IF        PtrToEntry <> *Null
+     C                   EVAL      DirEntry = RtnEntry
+      * Hent katalog lenknavn
+     C                   EVAL      EntryName = %str(%addr(d_name))
+      * Vilken typ av lenke ?
+     C                   EVAL      EntryPath = %trim(DirName) + '/'
+     C                             + %trimr(EntryName) + Null
+     C                   EVAL      RETURNInt = lstat(%addr(EntryPath)
+     C                                         : %addr(StatDS))
+     C                   IF        st_objtype='*STMF'
+     C                   CLEAR                   EDI10F8R
+     C                   EVAL      FPATH = %trim(DirName) + '/'
+     C                             + %trimr(EntryName)
+     C                   EVAL      FNAME = %str(%addr(d_name))
+     C                   MOVEL     st_ctime      FTIME
+     C                   WRITE     EDI10F8R
+     C                   ENDIF
+      * Skriv lenk til fil
+     C                   ENDIF
+     C                   ENDDO
+      * Lukk katalog
+     C                   EVAL      RETURNInt = closedir(RETURNDir)
+      * Kopier streamfile til PF
+     C                   EXSR      CPYSTMF
+
+     C                   EVAL      *INLR = *ON
+      *////////////////////////////////////////////////////////////
+      *  Kopiere fra streamfile til DB2                   CPYSTMF /
+      *////////////////////////////////////////////////////////////
+     C     CPYSTMF       BEGSR
+S09   *
+S09  C*                  EVAL      CmdLine = 'DLYJOB DLY(30)'
+S09  C*                  EVAL      CmdLen = %len(%trim(CmdLine))
+S09  C*                  CALL      'QCMDEXC'     Qcmdexc
+
+     C                   EVAL      *IN51=*OFF
+     C     *LOVAL        SETLL     EDI10F8
+     C                   READ      EDI10F8                                51
+N09  C                   IF        *IN51=*OFF
+N09  C                   EVAL      CmdLine = 'DLYJOB DLY(3)'
+N09  C                   EVAL      CmdLen = %len(%trim(CmdLine))
+N09  C                   CALL      'QCMDEXC'     Qcmdexc
+N09  C                   ENDIF
+     C     *IN51         DOWEQ     *OFF
+      * Kopiere til qtemp/q3
+     C*                  EVAL      EntryPath2 = %trim(DirName) + '/'
+     C*                            + %trimr(EntryName)
+     C                   EVAL      EntryPath2 = FPATH
+     C                   EVAL      EntryName = FNAME
+N10   * Test om det er XML
+N10  C     '.xml'        SCAN      FNAME                                  33
+      * Prøv først med ENDLINFMT(*ALL)
+     C                   EVAL      CmdLine = 'CPYFRMSTMF FROMSTMF(' + X'7D'
+     C                             + %trimr(EntryPath2) + X'7D' + ')'
+     C                             + ' TOMBR(' + X'7D'
+     C                             + '/QSYS.LIB/QTEMP.LIB/Q3.FILE/Q3.MBR'
+     C                             + X'7D' + ')'
+     C                             + ' MBROPT(*REPLACE) ENDLINFMT(*ALL)'
+     C                             + ' TABEXPN(*NO)'
+N10  c                   if        *in33 = *on
+N10  c                   eval      CmdLine = %trim(CmdLine)+' STMFCCSID(1208)'
+N10  c                   endif
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc                98
+      * Hvis feil ved kopiering er objektet mest sannsynlig låst (av ftp rutine)
+      * hopp over denne gangen, blir lest neste gang.
+     C                   IF        *IN98
+     C                   GOTO      CPY9
+     C                   ENDIF
+      * Hvor mange records blev kopiert ?
+     C                   CALL      'EDI10C91K'
+     C                   PARM                    NBRREC           10 0
+      * Hvis lik eller under 1 så prøv med ENDLINFMT(*FIXED)
+     C     NBRREC        IFLE      0
+
+     C                   EVAL      CmdLine = 'CPYFRMSTMF FROMSTMF(' + X'7D'
+     C                             + %trimr(EntryPath2) + X'7D' + ')'
+     C                             + ' TOMBR(' + X'7D'
+     C                             + '/QSYS.LIB/QTEMP.LIB/Q3.FILE/Q3.MBR'
+     C                             + X'7D' + ')'
+     C                             + ' MBROPT(*REPLACE) ENDLINFMT(*FIXED)'
+     C                             + ' TABEXPN(*NO)'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc
+
+     C                   ENDIF
+      * Hvor mange records blev kopiert ?
+     C                   CALL      'EDI10C91K'
+     C                   PARM                    NBRREC           10 0
+      * Hente og oppdater neste meldingsnummer (kun for unik mbr-navn)
+     C     NBRREC        IFGE      1
+     C     1             CHAIN     EDIC                               20
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+N04   * Skriv til X-ref fil for filnavn/katalognavn
+N04  C                   TIME                    Tstampz
+N04  C                   MOVEL     Tstampz       Tstampa
+N04  C                   CLEAR                   EDISXR
+N06  C     Xdir          ifne      'ALTINN'
+N04  C                   EVAL      SXIFSOBJ= %trimr(DirName2)
+N04  C                             + '/'
+N04  C                             + %trimr(Tstampa)
+N04  C                             + '-'
+N04  C                             + %trimr(EntryName)
+N06  C                   ELSE
+N06  C                   EVAL      SXIFSOBJ= %trimr(DirName2)
+N06  C                             + '/'
+N06  C                             + %trimr(EntryName)
+N06  C                   end
+N04  C                   EVAL      SXWORKM = MBR
+N04  C                   WRITE     EDISXR
+      * Kopiere fra qtemp/q3 til *LIBL/EDIRE1K
+N07  C                   Z-ADD     0             CPYFX             1 0
+N07  C     CPY8          TAG
+N07  C                   ADD       1             CPYFX
+     C                   EVAL      CmdLine = 'CPYF FROMFILE(QTEMP/Q3)'
+     C                             + ' TOFILE(EDI79F1K) TOMBR('
+     C                             + MBR
+     C                             + ') MBROPT(*REPLACE) FMTOPT(*NOCHK)'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+S07  C*                  CALL      'QCMDEXC'     Qcmdexc
+N07  C                   CALL      'QCMDEXC'     Qcmdexc                98
+N07  C                   IF        *IN98
+N07  C                   EVAL      CmdLine = 'DLYJOB DLY(5)'
+N07  C                   EVAL      CmdLen = %len(%trim(CmdLine))
+N07  C                   CALL      'QCMDEXC'     Qcmdexc
+N07  C                   IF        CPYFX > 5
+N07  C                   GOTO      CPY9
+N07  C                   ELSE
+N07  C                   GOTO      CPY8
+N07  C                   ENDIF
+N07  C                   ENDIF
+      * Slett eventuellt duplikatnavn i BACK katalog før flytting
+     C                   EVAL      EntryPath3 = %trim(DirName) + '/BACKUP/'
+     C                             + %trimr(EntryName)
+     C                   EVAL      CmdLine = 'RMVLNK OBJLNK(' + X'7D'
+     C                             + %trimr(EntryPath3) + X'7D' + ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc                98
+      * Flytte objekt
+S04  C*                  TIME                    Tstampz
+S04  C*                  MOVEL     Tstampz       Tstampa
+N06  C     Xdir          ifne      'ALTINN'
+     C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+     C                             + %trimr(EntryPath2) + X'7D'
+     C                             + ') TOOBJ(' +X'7D'
+     C                             + %trimr(DirName2)
+     C                             + '/'
+     C                             + %trimr(Tstampa)
+     C                             + '-'
+     C                             + %trimr(EntryName)
+     C                             + X'7D' + ') '
+N06  C                   ELSE
+N06  C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+N06  C                             + %trimr(EntryPath2) + X'7D'
+n06  C                             + ') TOOBJ(' +X'7D'
+n06  C                             + %trimr(DirName2)
+N06  C                             + '/'
+n06  C                             + %trimr(EntryName)
+N06  C                             + X'7D' + ') '
+N06  C                   END
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc
+S04   * Skriv til X-ref fil for filnavn/katalognavn
+S04  C*                  CLEAR                   EDISXR
+S04  C*                  EVAL      SXIFSOBJ= %trimr(DirName2)
+S04  C*                            + '/'
+S04  C*                            + %trimr(Tstampa)
+S04  C*                            + '-'
+S04  C*                            + %trimr(EntryName)
+S04  C*                  EVAL      SXWORKM = MBR
+S04  C*                  WRITE     EDISXR
+     C                   ENDIF
+
+     C     CPY9          TAG
+
+     C                   READ      EDI10F8                                51
+     C                   ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Init av PGM                                       *INZSR /
+      *////////////////////////////////////////////////////////////
+     C     *INZSR        BEGSR
+
+     C     *ENTRY        PLIST
+     C                   PARM                    Xdir             35
+
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+
+     C                   TIME                    HHMMSS
+
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+
+      * Lag streng for katalognavn
+S02  C*                  EVAL      DirName = %trimr(UELIBF) + 'X/'
+S02  C*                            + %trimr(Xdir)
+S02  C*                            + ('/EDIRE1K')
+N02  C                   EVAL      DirName = '/' + %trimr(UELIBF) + 'X/'
+N02  C                             + %trimr(Xdir)
+N02  C                             + ('/EDIRE1K')
+      * Kan bli overstyrt fra utvekslings id
+     C     Xdir          CHAIN     EDII                               51
+     C     *IN51         IFEQ      *OFF
+     C     INIFSR        ANDNE     *BLANKS
+     C                   EVAL      DirName = %trimr(INIFSR)
+     C                   ENDIF
+      * Backupkatalog
+     C                   EVAL      DirName2= %trimr(DirName) + '/BACKUP'
+
+      * Finnes ouput fil ?
+     C                   CALL      'QUSROBJD'
+     C                   PARM                    ObjVar
+     C                   PARM                    ObjVarLen
+     C                   PARM      'OBJD0100'    ObjVarFmt
+     C                   PARM                    OutFile
+     C                   PARM      '*FILE'       ObjTyp
+     C                   PARM                    APIERR
+      * Lag outfile hvis nødvendig
+     C                   IF        ERRMIC = 'CPF9812'
+     C                   EVAL      CmdLine = 'CRTPF FILE('
+     C                             + %trimr(OutFilLib) + '/'
+     C                             + %trimr(OutFilNam) + ')'
+S01  C*                            + ' RCDLEN(80) SIZE(1000000 10000 30)'
+S01  C*                            + ' RCDLEN(1024)'
+N01  C                             + ' RCDLEN(1024) SIZE(1000000 10000 30)'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc
+N05  C                   ELSE
+N05  C                   EVAL      CmdLine = 'CLRPFM FILE('
+N05  C                             + %trimr(OutFilLib) + '/'
+N05  C                             + %trimr(OutFilNam) + ')'
+N05  C                   EVAL      CmdLen = %len(%trim(CmdLine))
+N05  C                   CALL      'QCMDEXC'     Qcmdexc
+     C                   ENDIF
+      * Tøm arbetsfil
+     C                   READ      EDI10F8                                51
+     C     *IN51         DOWEQ     *OFF
+     C                   DELETE    EDI10F8R
+     C                   READ      EDI10F8                                51
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *-------------------------------------------------------------------------
+      * Send pgm message
+      *-------------------------------------------------------------------------
+     P SndPgmMsg       B
+     D                 PI              N
+     D Msgid                          7    CONST
+     D MsgF                          20    CONST
+     D Msgdta                       128    CONST
+     D Msgtp                         10    CONST OPTIONS(*NOPASS)
+      * Work variables
+     D Qmsgid          S              7
+     D Qmsgf           S             20
+     D Qmsgdta         S            128
+     D Qmsgln          S             10I 0
+     D Qmsgtp          S             10
+     D Qmsgq           S             10
+     D Qmsgqn          S             10I 0 INZ(3)
+     D Qmsgky          S              4
+     D Qmsger          S             15
+      * Hvis bibliotek er lik blank set in *LIBL
+     C                   EVAL      Qmsgid = Msgid
+     C                   EVAL      Qmsgf = Msgf
+     C                   EVAL      Qmsgdta = Msgdta
+     C                   IF        %subst(Qmsgf:11:10) = *blank
+     C                   EVAL      %subst(Qmsgf:11:10) = '*LIBL'
+     C                   ENDIF
+     C                   EVAL      Qmsgln = %len(%trim(Qmsgdta))
+     C                   EVAL      Qmsgq = '*'
+     C                   EVAL      Qmsgtp = '*DIAG'
+     C                   IF        %PARMs > 3
+     C                   EVAL      Qmsgtp = Msgtp
+     C                   ENDIF
+     C                   IF        Qmsgtp = '*STATUS'
+     C                   EVAL      Qmsgq = '*EXT'
+     C                   ENDIF
+      *
+     C                   CALL      'QMHSNDPM'                           99
+     C                   PARM                    Qmsgid
+     C                   PARM                    Qmsgf
+     C                   PARM                    Qmsgdta
+     C                   PARM                    Qmsgln
+     C                   PARM                    Qmsgtp
+     C                   PARM                    Qmsgq
+     C                   PARM                    Qmsgqn
+     C                   PARM                    Qmsgky
+     C                   PARM      *LOVAL        Qmsger
+      *
+     C                   RETURN    *ON
+     P                 E

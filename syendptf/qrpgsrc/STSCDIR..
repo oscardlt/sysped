@@ -1,0 +1,556 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STSCDIR MODULE(*LIBL/STSCDIR
+CRTPGM*         *LIBL/INCGI) ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+P090xx* 01 JOV PTF9 parameter SEMI (kall fra TKTerm)
+P090xx* 02 JOV PTF9 parameter FRASYMNU=Y (= avslutt til ved å close vindu)
+P100xx* 03 JOV PTF10 Evt avvikskode på kolli oppdateres
+P100xx* 04 JOV PTF10 Åpne for skyting av avvikende lengde kolli..  OBS!!! KUN IN/OUT=DOKUFM!!!
+P100xx* 05 JOV PTF10 term-kode som begynner på T_ = Term.Kontroll, Til fil DOKUFT
+P100xx* 06 JOV PTF10 ALERT-BOKS(MEN VELLYKKET SKYTING) VED UKJENT/OVERTALLIG VED TERM.KONTROLL
+P100xx* 07 JOV PTF10 PTF 6 nå gjnnnomført (først var det kun justert tekst)
+      *              På klientside - error ved ingen kolli-avvikskoder rettet
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 08 JOV PTF11 hardkodet 'IN   '/'OUT  ' byttet: IN.../OU...
+      * 09 JOV PTF11 AUTO-SWITCH IN.../OU...  I2.../O2...  DERSOM TEI/TEU FINNES
+      * 10 JOV PTF11 halvfakbrikata for tidsmåling  - LogTime = J / N
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 11 JOV PTF12 Slurvete bruk av chain-indikator  - "FEIL FEILMELDING"
+      * 12 JOV PTF12 Semi=J=JSON (+ rydde/slette fysisk stjernemerket..)
+      * 13 JOV PTF12 ignorere generell godsmerke i DOKUFM1 (kun I/E)
+********************************************************************
+      ***********************************************************
+      * OBS!!! Logikken i dette prog brø være så lett som mulig for å få best mulig responstid.
+      *        Vil av enkelte kjøres over GPRS...
+      ***********************************************************
+      *  TERM = "IN..." eller "OU..." oppdaterer DOKUFM    -> TEI /TEU i T&T-logg
+      *  ALT ANNET oppdaterer DOKUFN = inn/ut fremmed term -> TE2 i T&T-logg
+      *  (om ingen parametre  er satt i esped er "IN   " / "OUT  " de eneste 2 gyldige... )
+      *   Når parametre bygges i eSped så MÅ "IN   " / "OUT  " også bygges for å være gyldige)
+      *
+      ***********************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    usropn
+     FDOKUFM1   UF   E           K DISK    usropn
+     FDOKUFN1   IF A E           K DISK    usropn
+N05  FDOKUFT    IF A E           K DISK    usropn
+N09  FTRACKL02  IF A E           K DISK    usropn
+N10  FCGILOGTI  O  A E             DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          s             10
+N07  D VERSJ           s             10
+     D FUNK            s              1
+     D TERM            s              5
+     D WSLEST          s              5
+     D WSLESTN         s              5  0
+     D FEILMELDING     s            170
+     D FEILKODE        s              1
+N01  D SEMI            s              1
+N02  D FRASYMNU        s              1
+N03  D AVVKOD          s              5
+N03  D AVVTXT          s             30
+N12  D JSONstring      s          32000
+N12  D Error           s            200
+N12  D InfoMsg         s            200
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+      *
+     D                 DS
+     D  WSCLID35               1     35
+     D   WSCLID                1     20
+     D   WSCLID_1_2            1      2
+     D   WSCLIDKey             3     37
+     D   WSCLID18              3     20
+      * Normalt 20 lang med 00 i front (da skal 00 bort før chain), ekstra kort/lang=Chain med hele
+N04  D   WSCL19               19     19                                         Blank=Kort
+N04  D   WSCL21               21     21                                         Utfylt=laaang
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      6  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+     D                 DS
+     D WDsDT                   1      8
+     D  WDsDTÅÅ                1      4
+     D  WDsDTMM                5      6
+     D  WDsDTDD                7      8
+     D WDsDTT12                1     12  0
+     D  WDsDTTID               9     14  0
+     D WDsDTT14                1     14
+     D                 DS
+     D FN_DTT12                1     12  0
+     D  FNDATE                 1      8  0
+     D  FNTIME                 9     14  0
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+N10   * Get program start time for calculating execution time
+N10  C                   move      'J'           logTime           1
+N10  C                   time                    timedata1
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+      *
+     C                   exsr      UPDFIL
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+N12   * VED JSON -  JSON-streng
+N12  c                   if        semi='J'
+N12   /free
+N12     JSONstring='{'
+N12     +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+N12     +'¬infoMsg¬ : ¬'+%trim(infoMsg)+'¬, '
+N12     +'¬errMsg¬ : ¬'+%trim(Error)+'¬}';
+N12   /end-free
+N12  c                   call      'JSONFIX'
+N12  c                   parm                    JSONstring
+N12  C                   CALLP     updHTMLvar2('JSONstring'
+N12  C                                         :%addr(JSONstring)
+N12  C                                         :%len(JSONstring))
+N12  C                   callp     wrtsection('JSONlin')
+N12  c                   endif
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     DOKUFM1
+     C                   close     DOKUFN1
+N09  C                   close     TRACKL02
+N05  c     TstTell       ifeq      'T_'
+N05  C                   close     DOKUFT
+N05  c                   endif
+     c                   eval      rc = docmd('DLTOVR FILE(DOKUFM1) LVL(*JOB)')
+     c                   eval      rc = docmd('DLTOVR FILE(DOKUFN1) LVL(*JOB)')
+N10   * skal CPU-tid loggføres (i periode) for analyse??
+N10  c                   if        LogTime='J'
+N10  C                   time                    timedata2
+N10  C     timedata2     subdur    timedata1     ms:*ms
+N10  c                   open      CGILOGTI
+N10  C                   eval      CGLPROG = 'STSCDIR'
+N10  C                   movel     timedata2     CGLTIME
+N10  C     Hex25:'|'     xlate     FEILMELDING   FEILMELDING
+N10  C                   eval      CGLTEXT = FEILMELDING
+N10  C                   eval      CGLCTIM = ms / 1000000
+N10  c                   write     CGILOGTIR
+N10  c                   close     CGILOGTI
+N10  c                   endif
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      wsCLID = zhbgetvar('CLID')
+n04  C                   eval      wsCLID35 = zhbgetvar('CLID')
+     C                   eval      wsuser = zhbgetvar('USER')
+N07  C                   eval      VERSJ = zhbgetvar('V')
+     C                   eval      Funk   = zhbgetvar('FUNK')
+     C                   eval      TERM   = zhbgetvar('TERM')
+     c     Term          ifeq      *blanks
+     C                   eval      TERM   = 'IN'
+     c                   end
+N05  C                   movel     TERM          TstTell           2
+     C                   eval      WSLEST     = zhbgetvar('WSLEST')
+     C                   EVAL      WSLESTN= c2n2(WSLEST)
+     C                   eval      SEMI     = zhbgetvar('SEMI')
+N02  C                   eval      FRASYMNU = zhbgetvar('FRASYMNU')
+N08  C                   if        %subst(TERM:1:2)<>'IN' and
+N08  C                             %subst(TERM:1:2)<>'OU'
+     c                   move      'J'           Fremmed           1
+     c                   end
+N03  C                   eval      AVVKOD = zhbgetvar('AVVKOD')
+N03  C                   eval      AVVTXT = zhbgetvar('AVVTXT')
+      *
+     C                   eval      HTTP_UserA =getenv('HTTP_USER_AGENT':
+     C                             qusec)
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'STSCDIR'
+     c     SEMI          ifeq      'Y'
+     C                   eval      Mbr = 'STSCDIRT'
+     c                   end
+N12  c     SEMI          ifeq      'J'
+N12  C                   eval      Mbr = 'JSON'
+N12  c                   end
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *=====================================================================******
+     C     SetTop        begsr
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updhtmlvar('CLID':WSCLID)
+N04  C                   callp     updhtmlvar('CLID':WSCLID35)
+     C                   callp     updhtmlvar('WSLEST':
+     C                             %trim(%editc(WSLESTN:'3')))
+     C                   callp     updHTMLvar('FEILTXT':FEILMELDING)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     C                   callp     updhtmlvar('TERM':TERM)
+N02  C                   callp     updHTMLvar('FRASYMNU':FRASYMNU)
+      *
+     C                   endsr
+     C***********************************************
+     C     UPDFIL        BEGSR
+     C***********************************************
+      * 1. GANG (eller v/Nullstill) - KOMMER INN MED BLANK
+     C     WSCLID        CABEQ     *BLANKS       UTLES
+      *
+N04  C     WSCL19        ifne      ' '
+N04  C     WSCL21        andeq     ' '
+     C     WSCLID_1_2    IFNE      '00'
+     C                   eval      FEILMELDING ='Strekkode '+WSCLID+' MÅ '+
+     C                             'begynne med 00 (Kolli-ID)'
+     C                   eval      FEILKODE = 'X'
+     c                   goto      utles
+     c                   end
+N04  c                   endif
+      *
+N04   * Normalt 20 lang med 00 i front (da skal 00 bort før chain), ekstra kort/lang=Chain med hele
+N04  C     WSCL19        ifne      ' '
+N04  C     WSCL21        andeq     ' '
+     C     WSCLIDKey     CHAIN     DOKUFM1                            33
+N04  c                   else
+N04  C     WSCLID35      CHAIN     DOKUFM1                            33
+N04  c                   endif
+N13   * les kun psoter som er kolli-IDs - ignorer generelty godsmerke...
+N13  c                   if        *in33='0' and FMST<>'I' and FMST<>'E'
+N13  c     NextID        tag
+N13  C     WSCL19        ifne      ' '
+N13  C     WSCL21        andeq     ' '
+N13  C     WSCLIDKey     READE     DOKUFM1                                33
+N13  c                   else
+N13  C     WSCLID35      READE     DOKUFM1                                33
+N13  c                   endif
+N13  c                   if        *in33='0' and FMST<>'I' and FMST<>'E'
+N13  c                   goto      NextId
+N13  c                   endif
+N13  c                   endif
+N13   *
+N11  C                   if        *in33='0'
+N09   * IN... term - men allerede skutt - switch til I2...
+N09  C                   if        %subst(TERM:1:2)= 'IN'
+N09  C                             and FMITER <> ' '
+N09  C                   eval      TTACTI = 'TEI'
+N09  c     TT2KEY        Chain     TRACKL02                           33
+N09  c                   if        *in33='0'
+N09  c                   eval      TERM='I2'+%subst(TERM:3:3)
+N09  c                   endif
+N09  c                   endif
+N09   * OU... term - men allerede skutt - switch til O2...
+N09  C                   if        %subst(TERM:1:2)= 'OU'
+N09  C                             and FMUTER <> ' '
+N09  C                   eval      TTACTI = 'TEU'
+N09  c     TT2KEY        Chain     TRACKL02                           33
+N09  c                   if        *in33='0'
+N09  c                   eval      TERM='I2'+%subst(TERM:3:3)
+N09  c                   endif
+N09  c                   endif
+N11  c                   setoff                                       33
+N11  c                   endif
+      *
+N05  c     TstTell       ifeq      'T_'
+N05  C     T_Key         CHAIN     DOKUFT                             34
+N05  C     *IN34         IFEQ      *off
+N05  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)+' ER alt'
+N06  c                                         +' skutt term.kontr. ' + TERM
+N05  C                   eval      FEILKODE = 'X'
+N05  c                   goto      utles
+N05  c                   end
+N05  c                   exsr      SkrivT_
+      * ved UKJENT/overtallig gis ALERTboks (men den ER alt skrevet vellykket til fila)
+N06  C     *IN33         IFEQ      *on
+N06  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)
+N06  C                                         +' er UKJENT/OVERTALLIG! '
+N07  C                   eval      FEILKODE = 'I'                               I=Info(men alertbox)
+N06  C                   endif
+N05  c                   goto      utles
+N05  c                   endif
+     C     *IN33         IFEQ      *on
+N04  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)
+N04  C                                         +' er UKJENT! '
+     C                   eval      FEILKODE = 'X'
+     c                   goto      utles
+     c                   end
+      *
+     c     Fremmed       ifeq      'J'
+     C                   update    DOKUFMR
+     c     FremKeyMax    setgt     DOKUFN1
+     C     FremKey       readpe    DOKUFN1                                33
+     c     *in33         ifeq      '0'
+      * hvis eldre enn en time - OK å skyte på ny (RETUR etter forsøk på levering)
+      *    200908271635 - 200908271534 = 101 (1 time 1 minutt)
+     c     WDsDTT12      sub       FN_DTT12      Diff             12 0
+     c     Diff          iflt      100
+N04  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)+' ER alt'
+N04  c                                         +' skutt terminal ' + TERM
+     c                                         +' (For mindre en 60 min. siden)'
+     C                   eval      FEILKODE = 'X'
+     c                   goto      utles
+     c                   end
+     c                   end
+     c                   end
+      *
+     c                   select
+      * INN
+N08  C                   when      %subst(TERM:1:2)= 'IN'
+      *Allerede skutt inn?
+     C     FMITER        ifne      ' '
+E04  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)+' ER alt'
+E04  c                                         +' skutt INN terminal!'
+     C                   eval      FEILKODE = 'X'
+     C                   update    DOKUFMR
+     c                   goto      utles
+     C                   end
+      *oppdater..
+     C                   add       1             WSLESTN
+     C                   MOVE      WDsDt         FMItDt
+     C                   MOVE      XTID          FMItTm
+     C                   MOVE      WSUSER        FMItUs
+N03  C                   MOVEL     AVVKOD        FMLEDI
+     c                   move      'X'           FMITER
+      *
+     C                   update    DOKUFMR
+      * returner sist vellykkede skutte kolliID som ren info hvis TKterm
+     c     SEMI          ifeq      'Y'
+N12  c     SEMI          oreq      'J'
+N04  c     WSCL21        ifeq      *blanks
+N04  C                   eval      FEILMELDING =Hex25+%trim(WSCLID35)
+N04  c                                   +' vellykket'
+N04  c                                   +Hex25+'skutt INN terminal'
+N04  c                   else
+N04  C                   eval      FEILMELDING =Hex25+%trim(WSCLID35)+Hex25
+N04  c                                   +' vellykket skutt INN terminal'
+N04  c                   endif
+     c                   end
+      * UT
+N08  C                   when      %subst(TERM:1:2)= 'OU'
+      *Allerede skutt ut ?
+     C     FMUTER        ifne      ' '
+E04  C                   eval      FEILMELDING ='Kll '+%trim(WSCLID35)+' ER alt'
+E04  c                                         +' skutt UT terminal'
+     C                   eval      FEILKODE = 'X'
+     C                   update    DOKUFMR
+     c                   goto      utles
+     C                   end
+      *oppdater..
+     C                   add       1             WSLESTN
+     C                   MOVE      WDsDt         FMUtDt
+     C                   MOVE      XTID          FMUtTm
+     C                   MOVE      WSUSER        FMUtUs
+     c                   move      'X'           FMUTER
+N03  C                   MOVE      AVVKOD        FMLEDI
+     C                   update    DOKUFMR
+      * returner sist vellykkede skutte kolliID som ren info hvis TKterm
+     c     SEMI          ifeq      'Y'
+N12  c     SEMI          oreq      'J'
+N04  c     WSCL21        ifeq      *blanks
+N04  C                   eval      FEILMELDING =Hex25+%trim(WSCLID35)
+N04  c                                   +' vellykket'
+N04  c                                   +Hex25+'skutt UT terminal'
+N04  c                   else
+N04  C                   eval      FEILMELDING =Hex25+%trim(WSCLID35)+Hex25
+N04  c                                   +' vellykket skutt UT terminal'
+N04  c
+N04  c                   endif
+     c                   end
+      *
+     c                   other
+     C                   add       1             WSLESTN
+     C                   MOVE      WSCLID        FNCLID                         18 siste !!
+     C                   MOVE      TERM          FNTERM
+     C                   MOVE      WDsDt         FNDate
+     C                   MOVE      XTID          FNTime
+     C                   MOVE      WSUSER        FNUser
+     C                   MOVE      WDsDt         FNDatL
+     C                   MOVE      XTID          FNTimL
+N03  C                   MOVEL     AVVKOD        FNTEXT
+     C                   write     DOKUFNR
+      * returner sist vellykkede skutte kolliID som ren info hvis TKterm
+     c     SEMI          ifeq      'Y'
+N12  c     SEMI          oreq      'J'
+     C                   eval      FEILMELDING =Hex25+WSCLID +' vellykket'
+     c                                   +Hex25+'skutt terminal '+TERM
+     c                   end
+     C                   endsl
+      * kall prog som sjekker om komplett (i batch)
+     c                   move      FMAVD         AAAVD
+     c                   move      FMOPD         AAOPD
+     c                   move      FMFBNR        AAFBNR
+     c                   call      'STSCDIR2C'
+     c                   parm                    AAAVD             4
+     c                   parm                    AAOPD             7
+     c                   parm                    AAFBNR            3
+     c                   parm      TERM          AATERM            5
+     c                   parm      ' '           UUFunk            1
+     c                   parm      '01'          TIMER             2
+     c                   parm      WSUSER        AAUSER           10
+     c                   parm      WDsDTT14      AADtTid          14
+      *
+     C     UTLES         TAG
+      *
+N12  c     SEMI          ifeq      'J'
+N12  c     FEILMELDING   andne     *blanks
+N12  c                   eval      FEILMELDING=%scanRpl(Hex25:' ':FEILMELDING)
+N12  C                   if        FEILKODE = 'X'
+N12  c                   eval      Error  = FEILMELDING
+N12  c                   else
+N12  c                   eval      InfoMsg= FEILMELDING
+N12  c                   endif
+N12  c                   endif
+      *
+     C     UtUpd         ENDSR
+      *
+N05  C***********************************************
+N05  C     SkrivT_       BEGSR
+N05  C***********************************************
+N05  C                   add       1             WSLESTN
+N05  c                   clear                   DOKUFTR
+N05  C                   MOVE      WSCLID35      FTCLID
+N05  C                   MOVE      TERM          FTTERM
+N05  C                   MOVE      WDsDt         FTDate
+N05  C                   MOVE      XTID          FTTime
+N05  C                   MOVE      WSUSER        FTUser
+N05  C                   MOVEL     AVVKOD        FTTEXT
+N05  C  N33              MOVEL     FMAVD         FTAVD
+N05  C  N33              MOVEL     FMOPD         FTOPD
+N05  C  N33              MOVEL     FMFBNR        FTFBNR
+N05  C                   write     DOKUFTR
+N05   * returner sist vellykkede skutte kolliID som ren info hvis TKterm
+N05  c     SEMI          ifeq      'Y'
+N12  c     SEMI          oreq      'J'
+N05  C                   eval      FEILMELDING =Hex25+%trim(WSCLID35)+Hex25
+S06  c                                   +' vellykket skutt term.kontr. ' +TERM
+N05  c
+N05  c                   endif
+N05  C                   ENDSR
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C                   open      BRIDF
+      * MEN chain BRIDF for å validere user..
+     C     WSUSER        CHAIN     BRIDF                              33
+     C     *in33         ifeq      *on
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':'STS01B':'/CGITAG/')
+     c                   move      *blanks       FeilUsr          50
+     C                   eval      FeilUsr ='"'+%trim(WSUSER)+'" var ikke '+
+     c                             ' rett pålogget!!!'
+     C                   callp     updHTMLvar('FEILTXT':FeilUsr)
+     C                   callp     updHTMLvar('FEILKODE':'1')
+     C                   callp     wrtsection('all')
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C                   MOVE      *ON           *INLR
+     C                   return
+     c                   end
+      * Funksjon A=Avslutt / gå til meny
+      * OBS!!! dersom menyen skal parameterstyres må dette etter open av brparf..
+     c     Funk          ifeq      'A'
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':'STS02':'/CGITAG/')
+     C                   callp     updHTMLvar('USER':WSUSER)
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     wrtsection('all')
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C                   MOVE      *ON           *INLR
+     C                   return
+     c                   end
+      * Funksjon N=Nullstill (burde kunne fikses via script rett i browser, men...)
+     c     Funk          ifeq      'N'
+     C                   move      *zeros        WSLESTN
+     c                   end
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * Override til frcratio 1 for å sikre at fil er oppdatert før call på T&T-oppdat i batch.
+     c                   eval      rc = docmd('OVRDBF FILE(DOKUFM1) +
+     c                             FRCRATIO(1) OVRSCOPE(*JOB) SECURE(*YES)')
+     c                   eval      rc = docmd('OVRDBF FILE(DOKUFN1) +
+     c                             FRCRATIO(1) OVRSCOPE(*JOB) SECURE(*YES)')
+     C                   open      DOKUFM1
+     C                   open      DOKUFN1
+N09  C                   open      TRACKL02
+N05  c     TstTell       ifeq      'T_'
+N05  C                   open      DOKUFT
+N05  c                   endif
+      *
+     C                   MOVE      *BLANKS       FEILMELDING
+     C                   MOVE      *BLANKS       FEILKODE
+     c     FremKeyMax    Klist
+     c                   Kfld                    TERM
+     c                   kfld                    WSCLID18
+     c                   kfld                    MaxDate
+     c                   move      99999999      Maxdate           8 0
+     c     FremKey       Klist
+     c                   Kfld                    TERM
+     c                   kfld                    WSCLID18
+N05  c     T_Key         Klist
+N05  c                   Kfld                    F_DATE            8 0
+N05  c                   Kfld                    TERM
+N05  c                   kfld                    WSCLID35
+N09  c     TT2KEY        Klist
+N09  c                   Kfld                    FMAVD
+N09  c                   Kfld                    FMOPD
+N09  c                   Kfld                    NULLFBNR          3 0
+N09  c                   kfld                    TTACTI
+      *  hent dagens dato /tid  WDsDTT=datoTid (14)  WDsDT = dato (8)
+      *  (flyttet til init N02 - ingen annen merking )
+     C                   TIME                    XTIME
+     C                   MOVE      XDD           WDsDTDD
+     C                   MOVE      XMM           WDsDTMM
+     C                   MOVE      XÅÅ           WDsDTÅÅ
+     C                   MOVE      XTID          WDsDTTID
+     C                   MOVE      *zeros        FN_DTT12
+N05  C                   MOVE      WDsDt         F_DATE
+      *
+     C                   ENDSR

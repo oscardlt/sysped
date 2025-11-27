@@ -1,0 +1,227 @@
+     H DFTACTGRP(*NO)
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER DOKUMENTKODER FRA TVINN      ***
+      ***********************************************************
+      *
+     FXMLRCAF   IF   E           K DISK
+     FXMLRCVF   IF   E           K DISK
+     FKODTSB    UF A E           K DISK
+     FKODTSC    UF A E           K DISK
+      *
+     D                sds
+     D ZUSER                 254    263
+     D                 ds
+     D KSBKD                   1      3
+     D KSCKD                   1      3
+     D                 ds
+     D KSBFT                   1     60
+     D KSCFT                   1     60
+      *  Prototype for syti03r
+     d syti03r         pr
+     d usn_                                like(usn)
+      *  *ENTRY Interface for Main Procedure
+     d syti03r         pi
+     d usn                            9
+      *----------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *----------------------------------------------------------------------
+     d i               s             10i 0
+     d xie             s              1A
+     d xan08           s              8A
+     d xntkd           s              3s 0
+     d kd              s              3a   dim(90)
+     d dtsl            s              8s 0 dim(90)
+     d x1_xrlev1       s                   like(xrlev1)
+     d x1_xrlev2       s                   like(xrlev2)
+     d x2_xrlev1       s                   like(xrlev1)
+     d x2_xrlev2       s                   like(xrlev2)
+     d x2_xrlev3       s                   like(xrlev3)
+     d x_ksckd         s                   like(ksckd)
+     d x_kscft         s                   like(kscft)
+     D UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *----------------------------------------------------------------------
+      /free
+
+       exsr init;
+
+       setll (xrsn) xmlrcaf;
+       reade (xrsn) xmlrcaf;
+       dow not %eof;
+         select;
+         when xratn = 'xsi:schemaLocation' and
+              xratv = 'utfoerselsreferanse.xsd';
+           xie = 'E';
+         when xratn = 'xsi:schemaLocation' and
+              xratv = 'innfoerselsreferanse.xsd';
+           xie = 'I';
+         endsl;
+         reade (xrsn) xmlrcaf;
+       enddo;
+
+       if xie <> *blanks;
+         exsr srxml1;
+       endif;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************                ------
+       begsr srxml1;
+       //**********************************************
+
+         X1_XRLEV1 = 1;
+         X1_XRLEV2 = 0;
+
+         chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'versjon';
+           when xrnv = 'referanse';
+             exsr srxml2;
+           endsl;
+           x1_xrlev1 = x1_xrlev1 + 1;
+           chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         enddo;
+
+         exsr sltref;
+
+         endsr;
+
+       //**********************************************
+       begsr srxml2;
+       //**********************************************
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'kode';
+             x_ksckd = xrverd;
+             xntkd = xntkd + 1;
+             kd(xntkd) = xrverd;
+           when xrnv = 'beskrivelse';
+             x_kscft = xrverd;
+             x_kscft = %xlate(lo:up:x_kscft);
+           when xrnv = 'fomdato';
+           when xrnv = 'tomdato';
+             if xrverd = *blanks;
+               dtsl(xntkd) = 0;
+             else;
+               xan08    = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                        + %subst(xrverd:9:2);
+               dtsl(xntkd) = %dec(xan08:8:0);
+             endif;
+           endsl;
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+         exsr opdref;
+
+       endsr;
+
+       //**********************************************
+       begsr opdref;
+       //**********************************************
+
+         select;
+         when xie = 'E';
+           chain (x_ksckd) kodtsc;
+         when xie = 'I';
+           chain (x_ksckd) kodtsb;
+         endsl;
+         kscft = x_kscft;
+         if %found;
+           select;
+           when xie = 'E';
+             update kodtscr;
+           when xie = 'I';
+             update kodtsbr;
+           endsl;
+         else;
+           ksckd = x_ksckd;
+           select;
+           when xie = 'E';
+             write kodtscr;
+           when xie = 'I';
+             write kodtsbr;
+           endsl;
+         endif;
+
+       endsr;
+
+       //**********************************************
+       begsr sltref;
+       //**********************************************
+
+         // Slett avsluttet referansekoder
+         for i = 1 to xntkd;
+           if dtsl(i) <> 0;
+             select;
+             when xie = 'E';
+               chain (kd(i)) kodtsc;
+               if %found;
+                 delete kodtscr;
+               endif;
+             when xie = 'I';
+               chain (kd(i)) kodtsb;
+               if %found;
+                 delete kodtsbr;
+               endif;
+             endsl;
+           endif;
+         endfor;
+
+         // Slett referansekoder som ikke finnes i nedlastningsfil
+         select;
+         when xie = 'E';
+           setll *loval kodtsc;
+           read kodtsc;
+           dow not %eof;
+             for i = 1 to xntkd;
+               if kd(i) = ksckd;
+                 update kodtscr;
+                 leave;
+               endif;
+             endfor;
+             if i > xntkd;
+               delete kodtscr;
+             endif;
+             read kodtsc;
+           enddo;
+         when xie = 'I';
+           setll *loval kodtsb;
+           read kodtsb;
+           dow not %eof;
+             for i = 1 to xntkd;
+               if kd(i) = ksbkd;
+                 update kodtsbr;
+                 leave;
+               endif;
+             endfor;
+             if i > xntkd;
+               delete kodtsbr;
+             endif;
+             read kodtsb;
+           enddo;
+         endsl;
+
+       endsr;
+
+       //**********************************************
+       begsr init;
+       //**********************************************
+
+         xrsn = %dec(usn:9:0);
+
+       endsr;
+
+      /end-free

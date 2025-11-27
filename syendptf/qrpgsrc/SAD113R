@@ -1,0 +1,425 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL PLUKK OPPDRAG TIL KURERMANIFEST        ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 07 09-14 17-24             ***
+      *** LEDIGE INDIKATORER 29 31 32       52-75 78-89       ***
+      ***********************************************************
+      *
+     H DFTACTGRP(*NO)
+     FSADH      UF   E           K DISK
+     FSADH2     IF   E           K DISK    RENAME(SADHR:SADHR2)
+     FSADH2B    IF   E           K DISK    RENAME(SADHR:SADHR2B)
+     FSADH3     IF   E           K DISK    RENAME(SADHR:SADHR3)
+     FSADH3B    IF   E           K DISK    RENAME(SADHR:SADHR3B)
+     FSADH16    IF   E           K DISK    RENAME(SADHR:SADHR16)
+     FSADV      IF   E           K DISK
+     FSADKMCL2  IF   E           K DISK
+     FSAD113D   CF   E             WORKSTN SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                SDS
+     D  UUSR                 254    263
+     D                 DS
+     D  SVCRE1                 1      3
+     D  SVCRE2                 4      6
+     D  SVCRE3                 7      9
+     D  SVCRE4                10     12
+     D  SVCRE5                13     15
+     D  SVCRE6                16     18
+     D  SVCRE7                19     21
+     D  SVCRE8                22     24
+     D  SVCRE9                25     27
+     D  SVCRE10               28     30
+     D  CRE                    1     30    DIM(10)
+     D                 DS
+     D  xdt                    1      8a
+     D  xdt_n                  1      8  0
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SAD005A'
+     d SAD005A         pr                  extpgm('SAD005A')
+     d u_avd_                              like(u_avd)
+     d u_tdn_                              like(u_tdn)
+     d uflagg_                             like(uflagg)
+      *  Prototype for 'SAD114R'
+     d SAD114R         pr                  extpgm('SAD114R')
+     d u_avd_                              like(u_avd)
+     d upro_                               like(upro)
+     d u_tdn_                              like(u_tdn)
+     d u_ln_                               like(u_ln)
+     d xtype_                              like(xtype)
+     d uflagg_                             like(uflagg)
+      *  Prototype for SAD113R
+     d sad113r         pr
+     d uavd_                               like(uavd)
+     d upro_                               like(upro)
+     d uuuid_                              like(uuuid)
+     d uflagg_                             like(uflagg)
+      *  *ENTRY Interface for Main Procedure
+     d sad113r         pi
+     d uavd                           4  0
+     d upro                           8  0
+     d uuuid                         36a
+     d uflagg                         1  0
+      *
+     d i               s              3  0
+     d u_avd           s              4  0
+     d u_tdn           s              7  0
+     d u_ln            s              2  0
+     d wdt             s              8a
+     d wtm             s              6a
+     d xtype           s              3a
+     d xrecno          s              4  0
+     d x_sidt          s                   like(sidt)
+      *
+      /free
+
+         exsr init;
+
+         exsr srsok;
+
+         dow *in03 = *off;
+           exsr srvisopd;
+         enddo;
+
+         *inlr = *on;
+         return;
+
+      // ********************************************
+       begsr srvisopd;
+
+       *in93 = *on;
+       write subctl;
+       *in93 = *off;
+       *in94 = *off;
+       zrecno = 0;
+
+       dow *in03 = *off;            // START                                   // 1<b
+
+         exsr setkey;
+         exsr lesrec;
+
+         dow not %eof;                                                         // 2<b
+           zrecno = zrecno + 1;
+           write subfil;
+           exsr lesrec;
+         enddo;                                                                // 2<e
+
+         select;                                                               // 2<b
+         when zrecno = 0;                                                      // 2
+           linnbr = 5;
+           posnbr = 5;
+         when zrecno > 19;                                                     // 2
+           zrecno = 1;
+           linnbr = 6;
+           posnbr = 2;
+         other;                                                                // 2
+           linnbr = 6;
+           posnbr = 2;
+         endsl;                                                                // 2<e
+
+         dow *in03 = *off;          // START3                                  // 2<b
+           *in91 = *on;
+           *in92 = *on;
+           write bunn;
+           if zrecno = 0;                                                      // 3<b
+             exfmt nyvare;
+           else;                                                               // 3
+             exfmt subctl;
+           endif;                                                              // 3<e
+
+           *in30 = *off;
+           *in98 = *off;
+           *in99 = *off;
+           select;                                                             // 3<b
+           when *in03 or *in12;                                                // 3
+             *inlr = *on;
+             return;
+           when *in08;                                                         // 3
+             exsr srsok;      // handle om START0
+             leave;           // til start
+           when *in20;                                                         // 3
+             exsr plkalle;    // Plukk alle oppdrag
+             leave;           // til start
+           when w2avd <> 0 and w2tdn <> 0;                                     // 3
+           // Direkt plukk
+             chain (w2avd: w2tdn) sadh;
+             if %found;                                                        // 4<b
+               setll (siavd: sitdn) sadkmcl2;
+               reade (siavd: sitdn) sadkmcl2;
+               dow not %eof;                                                   // 5<b
+                 if mcst = ' ' or mcst = 'C' or mcpro = upro;                  // 6<b
+                   leave;
+                 endif;                                                        // 6<e
+                 reade (siavd: sitdn) sadkmcl2;
+               enddo;                                                          // 5<e
+               if %eof (sadkmcl2);                                             // 5<b
+               // Oppdrag er ok til plukk. Sjekk linje med VEC
+                 chain (siavd: sitdn) sadv;
+                 if %found;                                                    // 6<b
+                   for i = 1 to 10;                                            // 7<b
+                     if cre(i) = 'VEC';                                        // 8<b
+                       exsr plkopd;
+                       w2avd = 0;
+                       w2tdn = 0;
+                     endif;                                                    // 8<e
+                   endfor;                                                     // 7<e
+                 endif;                                                        // 6<e
+               endif;                                                          // 5<e
+             endif;                                                            // 4<e
+           when zrecno > 0;                                                    // 3
+             exsr hent;
+           endsl;                                                              // 3<e
+
+         enddo;                     // START3                                  // 2<e
+
+       enddo;                       // START                                   // 1<e
+
+       endsr;
+
+      // ********************************************
+       begsr srsok;
+
+       w3trid = *blanks;
+       w3avd  = 0;
+       w3tdn  = 0;
+       w3kns  = 0;
+       w3knk  = 0;
+
+       dow *in12 = *off;
+         exfmt varel2;
+         *in98 = *off;
+         *in99 = *off;
+         *in30 = *off;
+         if *in12 = *on;
+           leave;
+         endif;
+         select;
+         when w3trid <> *blanks;
+           *in41 = *on;
+           *in42 = *off;
+           *in43 = *off;
+           *in44 = *off;
+           leave;
+         when w3kns <> 0;
+           *in41 = *off;
+           *in42 = *on;
+           *in43 = *off;
+           *in44 = *off;
+           leave;
+         when w3knk <> 0;
+           *in41 = *off;
+           *in42 = *off;
+           *in43 = *on;
+           *in44 = *off;
+           leave;
+         when w3avd <> 0 and w3tdn <> 0;
+           *in41 = *off;
+           *in42 = *off;
+           *in43 = *off;
+           *in44 = *on;
+           leave;
+         endsl;
+       enddo;
+
+       *in93 = *on;
+       *in94 = *off;
+       write subctl;
+       *in93 = *off;
+       *in94 = *off;
+       zrecno = 0;
+       exsr setkey;
+
+       endsr;
+
+      // ********************************************
+       begsr hent;
+
+       msgnr = *blanks;
+       *in90 = *off;
+       *in91 = *off;
+       *in92 = *off;
+       *in98 = *off;
+       *in99 = *off;
+       readc subfil;
+       dow not %eof;
+         select;
+         when wsnr = 1;
+           if x_ref <> '*** PLUKKET ***';
+             *in99 = *on;
+             exsr plkopd;
+           endif;
+         when wsnr = 5;
+           *in99 = *on;
+           exsr visopd;
+         endsl;
+         readc subfil;
+       enddo;
+
+       if *in99 = *off;
+         msgnr = 'DIV0012';
+         *in30 = *on;
+       endif;
+       *in99 = *off;
+
+       endsr;
+
+      // ********************************************
+       begsr plkopd;
+
+       xtype = 'PLK';
+       u_avd = siavd;
+       u_tdn = sitdn;
+       u_ln = 0;
+       sad114r (u_avd: upro: u_tdn: u_ln: xtype: uflagg);
+       if *in99;
+         if uflagg = 0;
+           x_ref = '*** PLUKKET ***';
+         endif;
+         if *in90 = *off;
+           wsnr = 0;
+           update subfil;
+         endif;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr visopd;
+
+       u_avd = siavd;
+       u_tdn = sitdn;
+       sad005a (u_avd: u_tdn: uflagg);
+       if *in90 = *off;
+         wsnr = 0;
+         update subfil;
+       endif;
+
+       endsr;
+
+      // ********************************************
+       begsr plkalle;
+
+       xtype = 'PLA';
+       u_ln = 0;
+       xrecno = 1;
+       chain xrecno subfil;
+       dow %found;
+         u_avd = siavd;
+         u_tdn = sitdn;
+         sad114r (u_avd: upro: u_tdn: u_ln: xtype: uflagg);
+         xrecno = xrecno + 1;
+         chain xrecno subfil;
+       enddo;
+
+       endsr;
+
+      // ********************************************
+       begsr setkey;
+
+       select;
+       when *in41;
+         setll w3trid sadh16;
+       when *in42;
+         if w3avd = 0;
+           setll (w3kns: x_sidt) sadh2b;
+         else;
+           setll (w3avd: w3kns: x_sidt) sadh2;
+        endif;
+       when *in43;
+         if w3avd = 0;
+           setll (w3knk: x_sidt) sadh3b;
+         else;
+           setll (w3avd: w3knk: x_sidt) sadh3;
+        endif;
+       when *in44;
+         setll (w3avd: w3tdn) sadh;
+       endsl;
+
+       endsr;
+
+      // ********************************************
+       begsr lesrec;
+
+       dow *in94 = *off;
+
+         select;
+         when *in41;
+           reade w3trid sadh16;
+         when *in42;
+           if w3avd = 0;
+             reade w3kns sadh2b;
+           else;
+             reade (w3avd: w3kns) sadh2;
+          endif;
+         when *in43;
+           if w3avd = 0;
+             reade w3knk sadh3b;
+           else;
+             reade (w3avd: w3knk) sadh3;
+          endif;
+         when *in44;
+           reade w3avd sadh;
+         endsl;
+
+         if %eof;
+           *in94 = *on;
+           leave;
+         else;
+           if sist <> ' ' and *in41 = *off
+              or sist = ' ' and w3st <> ' ' and *in41
+              or sist = 'F' and w3st <> 'F' and *in41;
+           else;
+              setll (siavd: sitdn) sadkmcl2;
+              reade (siavd: sitdn) sadkmcl2;
+              dow not %eof;
+                if mcst = ' ' or mcst = 'C' or mcpro = upro;
+                  leave;
+                endif;
+                reade (siavd: sitdn) sadkmcl2;
+              enddo;
+              if %eof (sadkmcl2);
+                chain (siavd: sitdn) sadv;
+                if %found;
+                  if *in41;
+                  // PLUKK FRA TR.MIDDEL. IKKE TEST OM VOEC-NR.
+                    leave;
+                  endif;
+                  for i = 1 to 10;
+                    if cre(i) = 'VEC';
+                    // Oppdrag er funnet. Ut subrutine (do-løke)
+                      leave;
+                    endif;
+                  endfor;
+                endif;
+              endif;
+           endif;
+         endif;
+
+       enddo;
+
+       endsr;
+
+      // ********************************************
+       begsr init;
+
+       syge15c (wdt: wtm);
+       xdt = wdt;
+       // SETT DATO FOR EN MÅNED SIDEN
+       if %subst(wdt:5:2) = '01';
+         %subst(xdt:5:2) = '12';
+         x_sidt = xdt_n - 10000;
+       else;
+         x_sidt = xdt_n - 100;
+       endif;
+       w2nr = 1;
+       w3st = 'F';
+
+       endsr;
+
+      /end-free

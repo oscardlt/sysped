@@ -1,0 +1,262 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQFRAB MODULE(*LIBL/TJINQFRAB *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 takle kortere koder enn 3 lang, inkludere komma i testen
+      * 02 JOV PTF12 Parm HEURU = AVVIKENDE BRUKERID / MAL FOR HEURx -parametre
+      * 03 JOV PTF12 komma bode foran og bak i test mot FRstreng (sikre mot feil ved korte frankat.)
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FKODTFR    IF   E           K DISK    USROPN
+     FKODTFRLF  IF   E           K DISK    USROPN
+     F                                     RENAME(KOFRR:KOFRLFR)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D FRANKA          S              3
+N02  D Modul1_2        S              2
+     D BESKR           S             28
+     D GetVal          S              1                                         J=Get/validate
+     D FullInfo        S              1                                         J=Ret. full info
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+s03  D*Tstkod          S              4
+N03  D Tstkod          S              5
+N01  D r               S              9  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬franka¬ : ¬'+%trim(FRANKA)+'¬, '
+        +'¬beskr¬ : ¬'+%trim(BESKR)+'¬, '
+        +'¬getVal¬ : ¬'+%trim(getVal)+'¬, '
+        +'¬fullInfo¬ : ¬'+%trim(fullInfo)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"frankaturer" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Hæmta avdelningar
+      *
+     c     Error         ifeq      *blanks
+     C     FRANKK        SETLL     KODTFR
+     C     BESKR         SETLL     KODTFRLF
+     C     BESKR         IFEQ      *BLANKS
+     C                   READ      KODTFR                                 55
+     C                   ELSE
+     C                   READ      KODTFRLF                               55
+     C                   ENDIF
+     C     *IN55         DOWEQ     *OFF
+      * guldig for denne bruker ??
+S01  C*    KFRKOD        scan      FrString                               35
+S01  c*    *IN35         cabeq     '0'           Next
+E01   * ligger i lang streng med komma forran(også den første) og bak hver (også den siste)
+N01   * medta komma i testen for ikke å få tilfeldige tilslag (f.eks ,S, = Sender betaler)
+N01  c*                  eval      tstKod = %trim(KFRKOD)+','
+N03  c                   eval      tstKod = ','+%trim(KFRKOD)+','
+N01  c                   eval      r = %scan(%trim(tstKod):FrString)
+N01  c                   if        r = 0
+N01  c                   goto      next
+N01  c                   endif
+
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬franka¬ : ¬'+%trim(KFRKOD)+'¬, '
+          +'¬beskr¬ : ¬'+%trim(KFRNTX)+'¬ ';
+       if FullInfo='J';
+        JSONstring=%trim(JSONstring)+', '
+          +'¬beskrEn¬ : ¬'+%trim(KFRTTX)+'¬, '
+          +'¬ccpp¬ : ¬'+%trim(KFRCP)+'¬ ';
+       endif;
+       JSONstring=%trim(JSONstring)+'}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ved get/Validate  er det kun en
+     c     GetVal        ifeq      'J'
+     c                   leave
+     c                   endif
+
+     C     NEXT          TAG
+
+     C     BESKR         IFEQ      *BLANKS
+     C                   READ      KODTFR                                 55
+     C                   ELSE
+     C                   READ      KODTFRLF                               55
+     C                   ENDIF
+     C                   ENDDO
+     C     UTLES         TAG
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     BRPARF
+     C  N50              CLOSE     KODTFR
+     C  N50              CLOSE     KODTFRLF
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      FRANKA  = zhbgetvar('FRANKA')
+     C                   EVAL      BESKR   = zhbgetvar('BESKR')
+     C                   EVAL      GetVal  = zhbgetvar('GetVal')
+     C                   EVAL      FullInfo= zhbgetvar('FullInfo')
+N02  C                   EVAL      Modul1_2= zhbgetvar('Modul1_2')
+     C
+     c                   endsr
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C     FRANKK        KLIST
+     C                   KFLD                    KFRUNI
+     C                   KFLD                    FRANKA
+     C                   EVAL      KFRUNI  = 'FR'
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      BRPARF
+     C  N50              OPEN      KODTFR
+     C  N50              OPEN      KODTFRLF
+     C                   IF        *IN50=*OFF
+     C                   IF        GetVal='J'
+     C     FRANKK        CHAIN     KODTFR                             30
+     C   30              eval      Error = 'Delivery term not found'
+     C                   ENDIF
+S02  C*                  ENDIF
+N02   * AVVIKENDE BRUKERID / MAL FOR HEURx -parametre
+N02  c                   move      'HEURU'       PAID
+N02  c     BrParKey      chain     BRPARF
+N02  c                   if        %found
+N02  c                   movel     PAVRDA        HEURxUsr         10
+N02  c                   endif
+N02
+      * gyldige frankaturer   for denne bruker
+     C                   move      *blanks       FrString        500
+     C                   MOVE      'HEURF'       PAID
+N02  c     Heur2         tag
+     C     BrParKey      setll     BRPARF
+     C     BrParKey      reade     BRPARF                                 33
+     C     *in33         doweq     '0'
+N02  c                   if        Modul1_2 <> *blanks and
+N02  c                             Modul1_2 <> %subst(PAVRDA:1:2)
+N02  c                   goto      NextRec
+N02  c                   endif
+N03  c                   if        FrString = *blanks
+N03  c                   eval      FrString = ','
+N03  c                   endif
+     c                   eval      FrString = %trim(FrString)
+     c                                      + %trim(%subst(PAVRDA:3))+','
+N02  c     NextRec       tag
+     C     BrParKey      reade     BRPARF                                 33
+     c                   enddo
+N02   * hvis ingen typer på useren - sjekk om det finnes på dummy/mal-user HEURXUSR
+N02  C                   if        FrString = *blanks and
+N02  C                             HEURxUSR<>*blanks and
+N02  C                             PABRID  <>HEURxUSR
+N02  C                   eval      PABRID  = HEURxUSR
+N02  C                   goto      HEUR2
+N02  C                   endif
+N02   *
+N02  C                   ENDIF
+N02  C                   MOVE      BIBRID        PABRID
+      *
+     c                   endsr

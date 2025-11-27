@@ -1,0 +1,129 @@
+     h DFTACTGRP(*NO)
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E             DISK
+      *
+      * Input: wdir - mappe der zip-fil ligger
+      *        wfile - zip-fil
+      * Output: wdir2 - mål mappe der unzipped filer ligger
+     d arca022r        pr
+     d wdir_                               like(wdir)
+     d wfile_                              like(wfile)
+     d wdir2_                              like(wdir2)
+
+     d arca022r        pi
+     d wdir                         100
+     d wfile                        512
+     d wdir2                        100
+
+     d  xdirunzip      s            128
+     d  wcmd           s           2048
+     d  wcmd1          s            256
+     d  wcmd2          s            256
+     d  wcmd3          s            256
+     d  wcmd4          s            256
+     d  wcmd5          s            256
+     d  wcmd6          s            256
+     d  wcmd7          s            256
+     d  wcmd8          s            256
+     d  wfile1         s            128
+     d  wfile2         s            128
+     d  x7D            s              1
+     d  pos            s              5U 0
+     d  xpos           s              5S 0
+     d  xpos2          s              5S 0
+     d  xdt            s              8A
+     d  xtm            s              6A
+     d timedata1       s               z
+
+     d runcmd          pr                  extpgm('QCMDEXC')
+     d  Cmd                         200a   const
+     d  len                          15p 5 const
+
+       x7D=x'7D';
+
+       xpos = %scan('.zip' : wfile);
+       if xpos = 0;
+         *inlr = *on;
+         return;
+       endif;
+       xdirunzip = %trim(wdir) + '/' + %subst(wfile:1:xpos-1);
+       wdir2 = xdirunzip;
+
+       // Følgende 3 kommando for å sikre en tom mål mappe.
+       // 1. Slett fil i mål mappe hvis det finnes fra før.
+       wcmd1='rm ' + %trim(xdirunzip) + '/*';          // Slett filer i mål mappe
+       // 2. Slett mål mappe hvis det finnes fra før.
+       wcmd2='rmdir ' + %trim(xdirunzip);              // Slett mål mappe
+       // 3. Bygg mål mappe
+       wcmd3='mkdir ' + %trim(xdirunzip);              // Lag ny mål mappe
+
+       // Se: https://www.ibm.com/support/pages/using-jar-command-unzip-files
+       // 1. Sett current mappe til mål mappe
+       wcmd4='cd ' + %trim(xdirunzip);                 // Mål mappe
+       // 2. UNZIP fil til mål mappe
+       wcmd5='jar -xvf ' + %trim(wdir) + '/' + %trim(wfile);   // Mappe hvor zip-fil ligger
+
+       // Følgende 3 kommando for å flytte zip-fil til backup mappe
+       // 1. Sjekk om backup mappe finnes. Hvis ikke, lage det.
+       wcmd6='mkdir ' + %trim(wdir) + '/BACKUP';               // Lag backup mappe
+       // 2. Fjern samme zip-fil i backup mappe
+       wcmd7='rm ' + %trim(wdir) + '/BACKUP/' + %trim(wfile);  // Fjern zip-fil i backup mappe
+       timedata1 = %timestamp();
+      /end-free
+     C                   movel     timedata1     xan26            26
+      /free
+       // 3. flytt zip-fil til backup mappe
+       wcmd8='mv ' + %trim(wdir) + '/' + %trim(wfile)  + ' '
+             + %trim(wdir) + '/BACKUP/' + %trim(xan26) + '-'
+             + %trim(wfile);                           // Flytt fil i backup mappe med timestemple
+
+       wcmd = 'QSH CMD(' + x7D +
+                      %trim(wcmd1) + ';' +
+              ' '   + %trim(wcmd2) + ';' +
+              ' '   + %trim(wcmd3) + ';' +
+              ' '   + %trim(wcmd4) + ';' +
+              ' '   + %trim(wcmd5) + ';' +
+              ' '   + %trim(wcmd6) + ';' +
+              ' '   + %trim(wcmd7) + ';' +
+              ' '   + %trim(wcmd8) + ';' +
+              x7D + ')';
+
+       RunCmd(Wcmd :%len(%trim(Wcmd)));
+
+       chain 1 edic;
+       csn = csn + 1;
+       update edicr;
+
+       // Finn referanse fra zip-filnavn.
+       // Bring har referanse etter ZipAttachments_ i zip-filnavn.
+       xpos2 = %scan('ZipAttachments_' : wfile);
+       if xpos2 = 0;
+         xpos2 = 1;
+       else;
+         xpos2 = xpos2 + 15;
+       endif;
+       s0004  = 'ZIP-AVSENDER';
+       s0010  = 'ZIP-MOTTAKER';
+       // Referanse oppdates i S0020
+       s0020  = %subst(wfile:xpos2:xpos-xpos2);
+       s0026  = s0020;
+       s0036  = 1;
+       ssn    = csn;
+       ssr    = 'R';
+       sst    = 'C';
+       xdt    = %subst(xan26:1:4) + %subst(xan26:6:2) + %subst(xan26:9:2);
+       xtm    = %subst(xan26:12:2) + %subst(xan26:15:2) + %subst(xan26:18:2);
+       sdt    = %dec(xdt:8:0);
+       stm    = %dec(xtm:6:0);
+       slib   = '*LIBL';
+       sfile  = '*IFS';
+      /end-free
+     C                   move      ssn           xan09             9
+      /free
+       smbr   = 'Z' + xan09;
+       sifs   = %trim(wdir) + '/BACKUP/'
+              + %trim(xan26) + '-' + %trim(wfile);
+       write edisr;
+
+       *inlr=*on;
+      /end-free

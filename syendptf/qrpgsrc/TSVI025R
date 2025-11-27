@@ -1,0 +1,160 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVI025R MODULE(*LIBL/TSVI025R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     Fsviv      UF A E           K DISK    USROPN
+     F                                     PREFIX(X)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D sviv_SYAVA      S              4
+     D sviv_SYAV       S              4  0
+     D sviv_SYOPA      S              7
+     D sviv_SYOP       S              7  0
+     D ok              S              1
+     D JSONstring      S          32000
+     D Error           S            150
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C  N50              EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      * Parameter ok 'N'=minst 1 error finns
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(sviv_SYAVA)+'¬, '
+        +'¬opd¬ : ¬'+%trim(sviv_SYOPA)+'¬, '
+        +'¬ok¬ : ¬'+%trim(ok)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"checkitemerror" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     sviv
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      sviv_SYAVA = zhbgetvar('AVD')
+     C                   EVAL      sviv_SYAV  = c2n2(sviv_SYAVA)
+     C                   EVAL      sviv_SYOPA = zhbgetvar('OPD')
+     C                   EVAL      sviv_SYOP  = c2n2(sviv_SYOPA)
+     c                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C  N50BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     svivKey       klist
+     C                   kfld                    sviv_SYAV
+     C                   kfld                    sviv_SYOP
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      sviv
+
+     c                   endsr
+      *
+      *______________________________________________________
+      * TEST                                             TEST
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     TEST          BEGSR
+      * Uppdatera errorkod på de som har 0 i statistiskt värde
+     C     svivKey       SETLL     sviv
+     C     svivKey       READE     sviv                                   51
+     C     *IN51         DOWEQ     *OFF
+     C                   IF        XSVIV_STVA = *ZEROS
+     C                   EVAL      XSVIV_ERR='X'
+     C                   UPDATE    svivR
+     C                   ENDIF
+     C     svivKey       READE     sviv                                   51
+     C                   ENDDO
+      * Finnes det minst 1 post med errorkode ?
+     C                   EVAL      OK=*BLANKS
+     C                   EVAL      *IN51=*OFF
+     C     svivKey       SETLL     sviv
+     C     svivKey       READE(N)  sviv                                   51
+     C     *IN51         DOWEQ     *OFF
+     C                   IF        XSVIV_ERR <> *BLANKS
+     C                   EVAL      OK='N'
+     C                   LEAVE
+     C                   ENDIF
+     C     svivKey       READE     sviv                                   51
+     C                   ENDDO
+     C                   ENDSR

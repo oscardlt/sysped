@@ -1,0 +1,598 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER XML-FIL TIL LOGISTIKKSYSTEM  ***
+      *** KOMPLETT.NO Tollager,                               ***
+      ***    A=Vareinngang (M.rapp+Vareposter mm)             ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 04 07 09-11 13-24          ***
+      *** LEDIGE INDIKATORER 27-29 31 32 34-39 41-88 95-97    ***
+      ***********************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *
+N01   * sjekk om NCTS alt ER laget.../hvis lossetillatelse foreligger - frigi..
+N02   * write till LLMRF lå inne i SR LAGTET, dermed ble ikke Mrapp-header laget når TET finnes.
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+12138 * 03 JOV PTF12 T-papirtype - eget felt i godsjf (var 3 siste av avg.tollsted)
+********************************************************************
+      *
+     FXMLRCVF02 IF   E           K DISK    RENAME(XMLRCVFR:XMLRCVFR02)          Tags/values/Paths..
+      * Override av Samme fysiske fil XMLRCVF for å kunne lese på flere steder samtidig..
+     FXMLRCVF03 IF   E           K DISK    RENAME(XMLRCVFR:XMLRCVFR03)
+     FXMLRCLF   IF   E           K DISK                                         Ekstras..
+     FXMLRCAF   IF   E           K DISK                                         Attributter
+      *
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FLLLSDF    IF   E           K DISK
+     FLLVADR    IF   E           K DISK
+     F                                     RENAME(LLVADRR:LLVADR0)
+     FLLVADR3   UF A E           K DISK
+     FLLVARE01  UF A E           K DISK
+     FLLTARF    UF A E           K DISK
+     FLLAGJF    O  A E           K DISK
+     FLLLISF    O  A E           K DISK
+     FLLMRT     UF A E           K DISK
+     FLLMRF     O  A E             DISK
+     FLLMRFL03  IF   E           K DISK    RENAME(LLMRFR:LLMRFR3)
+     FLLTELL    UF   E             DISK
+     FGODSJF    O  A E             DISK
+     FGODSJL05  IF   E           K DISK
+     F                                     RENAME(GODSJR:GODSJR5)
+     FTRISTD    UF   E           K DISK
+S01  F*RIH      O  A E             DISK
+N01  FTRIH05    IF A E           K DISK
+     FEDIC      UF   E             DISK
+S01  F*DIM      O  A E             DISK
+N01  FEDIM4     IF A E           K DISK
+     FTVIND     UF A E           K DISK
+     D                 DS
+     D  GOAVG                  1     15
+     D  GOTTYP                13     15
+     D                 DS
+     D  TIAVD                  1      4  0
+     D  XITDN                  5     11  0
+     D  TISG                  12     14
+     D  X14S                   1     14
+     D                 DS
+     D  X0068Æ                 1      8
+     D  X0068A                 9     16  0
+     D  X0068B                17     22  0
+     D  X0068Å                 1     22
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+      *
+      * Les Z1SYS_HEADER01 (=Starten på mottaksrap-header)
+     C                   Z-ADD     0             X001_XRLEV1
+     C     STSRXML1      TAG
+     C                   ADD       1             X001_XRLEV1
+     C                   Z-ADD     1             X001_XRLEV2
+     C                   Z-ADD     0             X001_XRLEV3
+     C                   Z-ADD     0             X001_XRLEV4
+     C                   Z-ADD     0             X001_XRLEV5
+     C                   Z-ADD     0             X001_XRLEV6
+     C                   Z-ADD     0             X001_XRLEV7
+     C                   Z-ADD     0             X001_XRLEV8
+     C                   Z-ADD     0             X001_XRLEV9
+      * (innhold i attributtfil er ikke interessant her, men følger mønsteret for SYXML15..)
+      * (det finnes kun EN atributtverdi på dette nivå SEGMENT=.. derfor ingen leseloop.)
+     C     XMLKEY01      CHAIN     XMLRCAF                            33
+     C     *IN33         ifeq      *off
+     C                   EXSR      SRXML2
+     C                   endif
+      *
+N01  C     FriGi         ifeq      'J'
+N01  c                   call      'SYXML17B2'
+N01  c                   parm                    TITRNR                         MRN-nr
+N01  c                   parm                    TIDK                           T2/T1/T-
+N01  c                   endif
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+     c                   clear                   LLMRFR
+     C                   MOVE      XKJED         MRGRUP
+     C                   MOVE      XPNR          MRKJED
+      * Behandle alle felt på headernivå (MRapp-header)
+     C                   EVAL      X002_XRLEV1 = XRLEV1
+     C                   EVAL      X002_XRLEV2 = XRLEV2
+     C                   EVAL      X002_XRLEV3 = 1
+     C                   EVAL      X002_XRLEV4 = 0
+      *
+     C     XMLKEY02      CHAIN     XMLRCVF02                          33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   SELECT                                                  2<-B
+     C                   WHEN      XRNV = 'MATERIAL_DOC_NO'                      2<-B
+     c                   eval      MRLREF = XRVERD
+     C                   WHEN      XRNV = 'DATE'                                 2<-B
+     c                   eval      MRDT   = %int(XRVERD)
+     C                   WHEN      XRNV = 'TEXT2'                                2<-B
+     c                   eval      MRFT2  = XRVERD                               EWM Inbound Deli no
+     C                   WHEN      XRNV = 'VENDOR'                               2<-B
+     c                   eval      MRLNR  = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_NAME'                          2<-B
+     c                   eval      MRLNA  = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_ADDR1'                         2<-B
+     c                   eval      MRLAD1 = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_POST_CODE'                     2<-B
+     c                   eval      MRLAD3 = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_CITY'                          2<-B
+     c                   eval      MRLAD3 = %trim(MRLAD3)+' '+XRVERD
+      * TREFF <Z1SYS_ITEM01> = siste tag header
+     C                   WHEN      XRNV = 'MRN_NO'                               2<-B
+     c                   eval      MRTRNR = XRVERD
+     C                   exsr      SROPDHea
+      * TREFF <Z1SYS_ITEM01> - (start EN varelinje)
+     C                   WHEN      XRNV = 'Z1SYS_ITEM01'                         2
+     C                   exsr      SRXML3
+     C                   ENDSL                                                   2<-E
+     C                   ADD       1             X002_XRLEV3
+     C     XMLKEY02      CHAIN     XMLRCVF02                          33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML3        BEGSR
+      ***********************************************
+      * Denne SR behandler EN varelinje (en artikkel)
+      * Dvs - Leser ALLE tagger på gitt Nivå 3(eksempel=8), med Nivå4 1,2,3....
+      * Eksempel:
+      *  N1   N2   N3   N4   N5  TAG NAVN     VERDI
+      *   1    1    8    0    0  Z1SYS_ITEM01
+      *   1    1    8    1    0  MATERIAL_DOC 5000120060
+      *   1    1    8    2    0  INVOICE_NO   2244977111
+      *   1    1    8    3    0  MATERIAL     320826
+      *
+     c                   clear                   LLAGJR
+      * behandle alle felt på linjenivå
+     C                   EVAL      X003_XRLEV1 = XRLEV1
+     C                   EVAL      X003_XRLEV2 = XRLEV2
+     C                   EVAL      X003_XRLEV3 = XRLEV3
+     C                   EVAL      X003_XRLEV4 = 1
+     C                   EVAL      X003_XRLEV5 = 0
+      *
+     C     XMLKEY03      CHAIN     XMLRCVF03                          33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+      *
+     C                   SELECT
+     C*                  WHEN      XRNV = 'MATERIAL_DOC_NO'
+     c*                  eval      VAANRL = XRVERD
+     C                   WHEN      XRNV = 'INVOICE_NO'
+     c                   move      *blanks       TmpInvNr         20
+     c                   eval      TmpInvNr= XRVERD
+     C                   WHEN      XRNV = 'MATERIAL'
+     c                   eval      VAANR  = XRVERD
+     C                   WHEN      XRNV = 'QUANTITY'
+     c                   eval(H)   VAOANT = %float(XRVERD)
+     c                   eval      VASALD = VAOANT
+     c                   eval      VASALD = VAOANT
+     c                   eval      VASAE0 = VAOANT
+     C                   WHEN      XRNV = 'DESCRIPTION'
+     c                   eval      VAVARE = XRVERD
+     C                   WHEN      XRNV = 'BATCH_NO'
+     c                   eval      VASENR = XRVERD
+     C                   WHEN      XRNV = 'PRICE'
+     c                   eval(H)   VAVERD = %float(XRVERD)
+     C                   WHEN      XRNV = 'CURRENCY'
+     c                   eval      VAFAR  = XRVERD
+     C                   WHEN      XRNV = 'WEIGHT'
+     c                   eval(H)   VAVKT0 = %float(XRVERD)
+     c                   eval(H)   VAVKTS = VAVKT0 * VAOANT
+     c                   WHEN      XRNV = 'COMMODITY'                           TOLLtariffnr
+     c                   move      *blanks       TmpTarNr         20
+     c                   eval      TmpTarNr= XRVERD
+     c                   WHEN      XRNV = 'COUNTRY_ORIG'
+     c                   move      *blanks       TmpOriLK          2
+     c                   eval      TmpOriLk= XRVERD
+     C                   WHEN      XRNV = 'PO_NUMBER'
+     c                   eval      VAEON  = XRVERD
+     C                   WHEN      XRNV = 'PO_ITEM'
+     c                   eval(H)   VAELN  = %float(XRVERD)
+     C                   WHEN      XRNV = 'STGE_LOC'
+     c                   eval      VALLOK = 'KOTL '+XRVERD
+     c                   eval      VALLT  = 'A  '                               Lokasj.type
+      * TREFF <MOVEMENT_TYPE> ER DET SLUTT  (siste element i linja)
+     C                   WHEN      XRNV = 'MOVEMENT_TYPE'
+     c*                  eval      xxxxxx = XRVERD
+     c*                  if        XRVERD = 'ADD'
+     c*                  xxxxxxxxx
+     c*                  endif
+     C                   exsr      SROPDLin
+     C                   ENDSL
+      *
+     C                   ADD       1             X003_XRLEV4
+     C     XMLKEY03      CHAIN     XMLRCVF03                          33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SROPDHEA      BEGSR
+      ***********************************************
+      *
+      * Sjekk om kombinasjon MRNnr / unikt vareinngangsnr <TEXT2> finnes fra før..
+      * Hvis den finnes - avbryt
+      * (XML-fil inneh. kun en vareingang, så en trenger ikke lese videre til neste header. HOPP UT)
+     C                   call      'SYXML17A2'
+     C                   parm                    MRGRUP
+     C                   parm                    MRKJED
+     C                   parm                    MRTRNR
+     C                   parm                    MRFT2
+     C                   parm                    Finnes            1
+     c     Finnes        ifeq      'J'
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     c                   endif
+      ***
+      * OPPDATER LEVERANDØR
+     C     MRLNR         IFNE      *BLANKS
+     C     LVA3K         CHAIN     LLVADR3                            33
+     C     *IN33         IFEQ      '0'
+     C                   eval      VADRNA  = MRLNA
+     C                   eval      SONAVN  = MRLNA
+     C                   eval      VADRN1  = MRLAD1
+     C                   eval      VADRN2  = *blanks
+     C                   eval      VADRN3  = MRLAD3
+     C                   UPDATE    LLVADRR
+     C                   ELSE
+     C     LVA0K         SETLL     LLVADR
+     C     LVA0K1        READPE    LLVADR                                 33
+     C     *IN33         IFEQ      '0'
+     C     VADRNR        ADD       1             XADRNR            5 0
+     C                   ELSE
+     C                   Z-ADD     2             XADRNR
+     C                   END
+     C                   CLEAR                   LLVADRR
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      XPNR          KUNDNR
+     C                   MOVE      XADRNR        VADRNR
+     C                   MOVE      MRLNR         VAKURE
+     C                   eval      VADRNA  = MRLNA
+     C                   eval      SONAVN  = MRLNA
+     C                   eval      VADRN1  = MRLAD1
+     C                   eval      VADRN2  = *blanks
+     C                   eval      VADRN3  = MRLAD3
+     C                   WRITE     LLVADRR
+     C                   END
+     C                   END
+      * OPPRETT MOTTAKSRAPPORT
+     C     LMRTK         CHAIN     LLMRT                              33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      MTNR          MRMRNR
+      *
+     C                   ADD       1             MTNR
+     C                   UPDATE    LLMRTR
+     C                   ELSE
+     C                   Z-ADD     1             MRMRNR
+     C                   Z-ADD     2             MTNR
+     C                   MOVE      XKJED         MTGRUP
+     C                   MOVE      XPNR          MTKJED
+     C                   WRITE     LLMRTR
+     C                   END
+      *
+N01   * Finnes TET fra før fra før ??
+N01  c                   move      'N'           FriGi             1
+N01  c     MRTRNR        chain     TRIH05                             33
+N01  c     *in33         ifeq      *on
+N01  c                   exsr      LagTet
+N01  c                   else
+N02   * TET finnes - da må Godsnr hentes fra TET
+N02  C                   MOVEL     TIGN          MRGN
+N01   * - er lossetillatelse mottatt - i så fall FRIGI / send xml til SAP
+N01  c     EDIMkey       setll     EDIM4
+N01  c     EDIMkey       reade     EDIM4                                  33
+N01  c     *in33         doweq     '0'
+N01  c     M1225         cabeq     '043'         UtTETlog
+N01  c     EDIMkey       reade     EDIM4                                  33
+N01  c                   enddo
+N01  c     UtTETlog      tag
+N01   * Hit med 33 *OFF = Lossetillatelse foreligger... (frigi, men vent til fil er ferdig)
+N01  c     *in33         ifeq      *off
+N01  c                   move      'J'           FriGi
+N01  c                   else
+N01   * sjekk om det er forpassing (Oppr godsnr da lagt inn i GODSJF felt) hent T-type./FRIGI
+N03   ** logge i en overgang ??? ved forpassing skal nå original MRN ligge i eget felty
+N01  c     MRGN          chain     GODSJL05                           33
+N01  c     *in33         ifeq      *off
+S03  c*    GOTYPE        andge     '2011'
+S03  c*    GOTYPE        andle     '2099'
+N03  c     GOORTN        andne     *blanks
+S03  c*                  movel     GOTTYP        TIDK
+N03  c                   movel     GOORTY        TIDK
+N01  c                   move      'J'           FriGi
+N01  c                   endif
+N01  c                   endif
+N01  c                   endif
+N02   *
+N02   * Mottaksrapp header skrives førs når TET er laget (eller finnes)
+N02  C                   WRITE     LLMRFR
+N02   *
+N01  C                   ENDSR
+N01   ***********************************************
+N01  C     LAGTET        BEGSR
+N01   ***********************************************
+      *
+      * TILDEL GODSNR
+     c                   move      '1'           Ulager
+     C                   CALL      'SYGE51'
+     C                   PARM                    UÅR               4
+     C                   PARM                    UKODE             5
+     C                   PARM                    UDGNR             3
+     C                   PARM                    ULager            1
+     C                   PARM                    MRGN
+      * OPPDATER I GODSJF
+     C                   MOVE      MRGN          GOGN
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C                   MOVE      KNAVN         GOMOTT
+     C                   MOVEL     MRTRNR        GOTRNR                         Transitnr
+N03  C                   MOVEL     MRMOTT        GOTRTY                         T-pap.tupe
+     C                   MOVE      WDT           GOTRDT
+     C                   WRITE     GODSJR
+      *
+S02  C*                  WRITE     LLMRFR
+      *
+      * SEND TET-IMPORT (IE07) TIL TOLLVESENET
+      * OPPRETTE EN POST I TET-IMPORT
+     C*                  Z-ADD     1             TIAVD
+     C                   Z-ADD     10            TIAVD
+     C     TIAVD         CHAIN     TRISTD                             33
+     C                   MOVE      TITDN         XTDN
+     C                   ADD       1             TITDN
+     C                   UPDATE    TRISTDR
+     C                   EVAL      TIST   = 'Q'
+s01  C*                  EVAL      TITDN  = TITDN
+N01  C                   EVAL      TITDN  = XTDN
+     C                   EVAL      TISG   = 'GLG'
+     C                   MOVE      WDT           TIDT
+     C                   EVAL      TIENKL = 'J'
+     C                   EVAL      TIGN   = MRGN
+     C                   EVAL      TITRNR = MRTRNR
+     C                   EVAL      TIALK  = 'DE'
+     C                   EVAL      TI0035 = S0035
+     C                   EVAL      TIMF   = '007'
+     C                   WRITE     TRIHR
+      *
+      * OPPRETTE EN POST I EDIM
+     C     1             CHAIN     EDIC                               33
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+     C                   Z-ADD     CMN           MMN
+     C                   MOVE      WDT           M0068A
+     C     M0068A        CHAIN     TVIND                              32
+     C   32              Z-ADD     M0068A        D0068A
+     C   32              Z-ADD     0             D0068B
+     C                   ADD       1             D0068B
+     C   32              WRITE     TVINDF
+     C  N32              UPDATE    TVINDF
+     C                   MOVE      D0068B        M0068B
+     C                   EVAL      M0004  = S0004
+     C                   EVAL      M0010  = S0010
+     C                   EVAL      M0035  = S0035
+     c                   eval      XITDN  = TITDN
+     C                   EVAL      M0062  = X14S
+     C                   EVAL      M0065  = 'CUSDEC'
+     C                   EVAL      X0068Æ = S0004
+     C                   EVAL      X0068A = M0068A
+     C                   EVAL      X0068B = M0068B
+     C                   MOVEL     X0068Å        M0068
+     C                   EVAL      M1001  = 'TEI'
+     C                   EVAL      M1225  = '007'
+     C                   EVAL      M1N07  = '007'
+     C                   EVAL      MSR    = 'S'
+     C                   EVAL      MAVD   = TIAVD
+     C                   EVAL      MTDN   = TITDN
+     C                   WRITE     EDIMR
+      *
+     C                   ENDSR
+      *
+      *
+      ***********************************************
+     C     SROPDLIN      BEGSR
+      ***********************************************
+      *
+      * OPPDATER ARTIKKELREGISTER
+     C     LVA1K         CHAIN     LLVARE01                           33
+     C     *IN33         IFEQ      '1'
+     C                   CLEAR                   LLVARER
+     C                   MOVE      'A'           LVAKT
+     C                   MOVE      XKJED         LVGRUP
+     C                   MOVE      XPNR          LVPNR
+     C                   MOVE      VAANR         LVANR
+     C                   MOVE      VAVARE        LVVB
+     C                   MOVE      'STK'         LVEH0
+     C                   MOVEL     'STYKK'       LVEH0T
+     C                   MOVE      'ESK'         LVEH1
+     C                   MOVEL     'ESKE'        LVEH1T
+     C                   MOVE      'KRT'         LVEH2
+     C                   MOVEL     'KARTONG'     LVEH2T
+     C                   MOVE      'PAL'         LVEH3
+     C                   MOVEL     'PALL'        LVEH3T
+     C                   MOVE      'STK'         LVMEH
+     C                   Z-ADD     0             LVMIN
+     C                   END
+     C     VAVKT0        IFEQ      0
+     C                   Z-ADD     0.01          LVVKT0
+     C                   ELSE
+     C                   MOVE      VAVKT0        LVVKT0
+     C                   END
+     C     *IN33         IFEQ      '1'
+     C                   MOVEL     'SAPXML'      LVBUSE
+     C                   MOVE      WDT           LVBDAT
+     C                   MOVE      WTM           LVBKL
+     C                   WRITE     LLVARER
+     C                   ELSE
+     C                   UPDATE    LLVARER
+     C                   END
+      * Oppdater Tariffnr
+     C                   MOVE      XKJED         LTGRUP
+     C                   MOVE      XPNR          LTPNR
+     C                   MOVE      VAANR         LTANR
+     C                   MOVE      'NO'          LTLK
+     C     LLTARKey      CHAIN     LLTARF                             33
+     C                   MOVE      TmpTarNr      LTTANR
+     C                   MOVE      '91'          LTFYL
+     C                   MOVE      TmpOriLK      LTLKOP
+     c   33              write     LLTARFR
+     c  N33              update    LLTARFR
+      *
+      * OPPDATER LAGER-innlegspost
+     C     3             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        VAMN
+     C                   MOVE      XKJED         VAGRUP
+     C                   MOVE      XPNR          VAKJED
+     C                   MOVE      MRMRNR        VAMRNR
+     C                   MOVE      99999999      VADATO                         ENNÅ IKKE AKTIVERT!!
+     C                   MOVEL     'SAPXML'      VABUSE
+     C                   MOVE      WDT           VABDAT
+     C                   MOVE      WTM           VABKL
+      *
+     C                   WRITE     LLAGJR
+      *
+      * Oppdater Tariffnr
+     C                   MOVE      VAMN          LIMN
+     C                   Z-ADD     1             LILN
+     C                   MOVE      'FAK'         LIKD
+     C                   MOVEL     TmpInvNr      LITXT
+      *har ikke eget invdate-felt bruker MRAPdato(=dagens)
+     C                   MOVE      MRDT          LITXT
+     c                   write     LLLISFR
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SROPDInv      BEGSR
+      ***********************************************
+      *
+      * OPPDATER invoice (i lisensfil)
+      *
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SROPDTar      BEGSR
+      ***********************************************
+      *
+      * OPPDATER Tolltarifffil (under varefil)
+      *
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+      *
+     C                   MOVE      USN           XRSN
+      *
+      * Keys for å lese XML på ulike nivå..
+     C     XMLKEY01      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X001_XRLEV1
+     C                   KFLD                    X001_XRLEV2
+     C                   KFLD                    X001_XRLEV3
+     C                   KFLD                    X001_XRLEV4
+     C                   KFLD                    X001_XRLEV5
+     C                   KFLD                    X001_XRLEV6
+     C                   KFLD                    X001_XRLEV7
+     C                   KFLD                    X001_XRLEV8
+     C                   KFLD                    X001_XRLEV9
+     C     XMLKEY02      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X002_XRLEV1
+     C                   KFLD                    X002_XRLEV2
+     C                   KFLD                    X002_XRLEV3
+     C                   KFLD                    X002_XRLEV4
+     C     XMLKEY03      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    X003_XRLEV1
+     C                   KFLD                    X003_XRLEV2
+     C                   KFLD                    X003_XRLEV3
+     C                   KFLD                    X003_XRLEV4
+     C                   KFLD                    X003_XRLEV5
+      *
+     C     *LIKE         DEFINE    XRLEV1        X001_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X001_XRLEV2
+     C     *LIKE         DEFINE    XRLEV3        X001_XRLEV3
+     C     *LIKE         DEFINE    XRLEV4        X001_XRLEV4
+     C     *LIKE         DEFINE    XRLEV5        X001_XRLEV5
+     C     *LIKE         DEFINE    XRLEV6        X001_XRLEV6
+     C     *LIKE         DEFINE    XRLEV7        X001_XRLEV7
+     C     *LIKE         DEFINE    XRLEV8        X001_XRLEV8
+     C     *LIKE         DEFINE    XRLEV9        X001_XRLEV9
+     C     *LIKE         DEFINE    XRLEV1        X002_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X002_XRLEV2
+     C     *LIKE         DEFINE    XRLEV3        X002_XRLEV3
+     C     *LIKE         DEFINE    XRLEV4        X002_XRLEV4
+     C     *LIKE         DEFINE    XRLEV1        X003_XRLEV1
+     C     *LIKE         DEFINE    XRLEV2        X003_XRLEV2
+     C     *LIKE         DEFINE    XRLEV3        X003_XRLEV3
+     C     *LIKE         DEFINE    XRLEV4        X003_XRLEV4
+     C     *LIKE         DEFINE    XRLEV5        X003_XRLEV5
+     C     *LIKE         DEFINE    XRLEV6        X003_XRLEV6
+     C     *LIKE         DEFINE    XRNV          X001_XRNV
+      *
+      * Øvrige keys..
+     C     LVA3K         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XPNR
+     C                   KFLD                    MRLNR
+     C     LVA0K         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XPNR
+     C                   KFLD                    XADRNR            5 0
+     C                   MOVE      99999         XADRNR
+     C     LVA0K1        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XPNR
+     C     LMRTK         KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C     LVA1K         KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    VAANR
+     C     LLTARKey      KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    LTANR
+     C                   KFLD                    LTLK
+     C     CUNDL01K      KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XPNR
+N01   *
+N01  C     EDIMKEY       KLIST
+N01  c                   KFLD                    XSR               1
+N01  c                   KFLD                    TIAVD
+N01  c                   KFLD                    TITDN
+N01  c                   move      'R'           XSR
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     10            XPNR              8 0
+     C     *LIKE         DEFINE    TITDN         XTDN
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           WDT08             8 0
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+     C                   ENDSR
+      *

@@ -1,0 +1,135 @@
+     H DFTACTGRP(*NO)
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER VALUTAKURS FRA TVINN         ***
+      ***********************************************************
+      *
+     FXMLRCVF   IF   E           K DISK
+     FKODTVAL2  UF A E           K DISK
+      *
+     D                sds
+     D ZUSER                 254    263
+      *  Prototype for syti01r
+     d syti01r         pr
+     d usn_                                like(usn)
+      *  *ENTRY Interface for Main Procedure
+     d syti01r         pi
+     d usn                            9
+      *----------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *----------------------------------------------------------------------
+     d xan08           s              8A
+     d x1_xrlev1       s                   like(xrlev1)
+     d x1_xrlev2       s                   like(xrlev2)
+     d x2_xrlev1       s                   like(xrlev1)
+     d x2_xrlev2       s                   like(xrlev2)
+     d x2_xrlev3       s                   like(xrlev3)
+     d x_kvakod        s                   like(kvakod)
+     d x_kvakrs        s                   like(kvakrs)
+     d x_kvaomr        s                   like(kvaomr)
+     d x_kvadt         s                   like(kvadt)
+     d x_kvaxxx        s                   like(kvaxxx)
+     D UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *----------------------------------------------------------------------
+      /free
+
+       exsr init;
+
+       exsr srxml1;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************                ------
+       begsr srxml1;
+       //**********************************************
+
+         X1_XRLEV1 = 1;
+         X1_XRLEV2 = 0;
+
+         chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'versjon';
+           when xrnv = 'omregningskurs';
+             exsr srxml2;
+           endsl;
+           x1_xrlev1 = x1_xrlev1 + 1;
+           chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         enddo;
+
+         endsr;
+
+       //**********************************************
+       begsr srxml2;
+       //**********************************************
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'valutakode';
+             x_kvakod = xrverd;
+           when xrnv = 'valutabeskrivelse';
+             x_kvaxxx = xrverd;
+             x_kvaxxx = %xlate(lo:up:x_kvaxxx);
+           when xrnv = 'valutakurs';
+             x_kvakrs = %dec(xrverd:11:3);
+           when xrnv = 'omregningsenhet';
+             x_kvaomr = %float(xrverd);
+           when xrnv = 'fomdato';
+             if xrverd = *blanks;
+               x_kvadt  = 0;
+             else;
+               xan08    = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                        + %subst(xrverd:9:2);
+               x_kvadt  = %dec(xan08:8:0);
+             endif;
+           when xrnv = 'tomdato';
+           endsl;
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+         exsr opdkurs;
+
+       endsr;
+
+       //**********************************************
+       begsr opdkurs;
+       //**********************************************
+
+         chain (x_kvakod: x_kvadt) kodtval2;
+         kvakrs = x_kvakrs;
+         kvaomr = x_kvaomr;
+         kvaxxx = x_kvaxxx;
+         if %found;
+           update kovar;
+         else;
+           kvauni = 'VA';
+           kvakod = x_kvakod;
+           kvadt  = x_kvadt;
+           kvasta = ' ';
+           kvagkr = 0;
+           kvagv  = 0;
+           write kovar;
+         endif;
+
+       endsr;
+
+       //**********************************************
+       begsr init;
+       //**********************************************
+
+         xrsn = %dec(usn:9:0);
+
+       endsr;
+
+      /end-free

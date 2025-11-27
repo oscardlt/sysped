@@ -1,0 +1,241 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 monitor cpf indkatop 98
+10XXX * 02 YBC PTF10 ENTRYNAME ER ØKT TIL 200
+12058 * 03 CB  PTF12 bruker nå Cration (Changed) Time isteden for LAst Access Time
+********************************************************************
+      *
+      *********************************************************************
+      * Fjerner objekt elder en xx dager fra gitt mappe                   *
+      *       Innparameter: Mappenavn (full path)                         *
+      *                     Antall dager (som IKKE fjernes)               *
+      *********************************************************************
+     H DFTACTGRP(*NO)
+xxxxxD DGR             S              5
+xxxxxD DGRN            S              5S 0
+xxxxxD U_OF            S             10S 0
+     D Idag            S               Z
+     D IdagMinusX      S               Z
+     D UTC             S               Z
+     D A_Date          S               Z
+xxxxxD UTCA            S             26    inz('1970-01-01-00.00.00.000000')
+      *_____________________________
+      * Prototype for API prosedyrer
+      *"""""""""""""""""""""""""""""
+     Dlstat            PR            10I 0 EXTPROC('lstat')
+     D                                 *   VALUE
+     D                                 *   VALUE
+
+     Dopendir          PR              *   EXTPROC('opendir')
+     D                                 *   VALUE
+
+     Dreaddir          PR              *   EXTPROC('readdir')
+     D                                 *   VALUE
+
+     Dclosedir         PR            10I 0 EXTPROC('closedir')
+     D                                 *   VALUE
+     D SndPgmMsg       PR              N
+     D Qmsgid                         7    CONST
+     D Qmsgf                         20    CONST
+     D Qmsg                         128    CONST
+     D Qmsgtp                        10    CONST OPTIONS(*NOPASS)
+
+      *   stat data structure fra prosedyre: lstat()
+     D StatDS          DS           128
+     D  st_mode                      10U 0
+     D  st_ino                       10U 0
+     D  st_nlink                      5U 0
+     D  reserved1                     2A
+     D  st_uid                       10U 0
+     D  st_gid                       10U 0
+     D  st_size                      10U 0
+     D  st_atime                     10U 0
+     D  st_mtime                     10U 0
+     D  st_ctime                     10U 0
+     D  st_dev                       10U 0
+     D  st_blksize                   10I 0
+     D  st_allocsize                 10I 0
+     D  st_objtype                   10A
+     D  reserved2                     2A
+     D  st_codepage                   5U 0
+     D  st_reserved1                 62A
+     D  st_ino_gen_id                10U 0
+
+      *   direntry data structure fra prosedyre: readdir()
+     D DirEntry        DS
+     D d_reserved1                   16A
+     D d_fileno_genid                10U 0
+     D d_fileno                      10U 0
+     D d_reclen                      10U 0
+     D d_reserved3                   10I 0
+     D d_reservedØ4                   6A
+     D d_reserved5                    2A
+     D d_ccsid                       10I 0
+     D d_country_id                   2A
+     D d_language_id                  3A
+     D d_nls_reserved                 3A
+     D d_namelen                     10U 0
+     D d_name                       640A
+
+     D Null            S              1A   Inz(X'00')
+     D RETURNInt       S             10I 0
+     D RETURNDir       S               *
+     D PtrToEntry      S               *
+     D RtnEntry        S                   BASED(PtrToEntry) Like(DirEntry)
+S02  D*EntryName       S            120A
+N02  D EntryName       S            200A
+     D EntryPath       S            256A
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D HHMMSS          S              6  0
+     D DirError        C                   'Feil ved åpning av katalog'
+
+      *   Input Parametere
+     D DirName         S            100A
+     D FullName        S            256A
+
+      *
+     D ObjVar          S             90
+     D ObjVarLen       S             10I 0 Inz(%size(ObjVar))
+     D ObjVarFmt       S              8
+     D ObjTyp          S             10
+
+     D APIERR          DS
+     D  ERRSIZ                 1      4B 0 INZ(256)
+     D  ERRLEN                 5      8B 0 INZ(0)
+     D  ERRMIC                 9     15
+     D  ERRNBR                16     16
+     D  ERRDTA                17    272
+
+      *
+     C                   EXSR      INIT
+
+      * HOVEDRUTINE
+
+      * Vis liste over filer i katalogbane (gå i løkke)
+     C                   EXSR      LESKAT
+
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C     *entry        PLIST
+     C                   PARM                    DirName
+     C                   PARM                    DGR
+     C                   move      DGR           DGRN
+xxxxx * Dagens dato- timestamp f.eks:  '2006-11-09-18.49.07.013000'
+     c                   time                    Idag
+      * Sammenligningsdato er x antall dager lavere
+     C     Idag          subdur    DGRN:*days    IdagMinusX
+      * API-en angir tid for sist accessed ved sekund offset fra UTC
+      * http://en.wikipedia.org/wiki/Unix_time (Coordinated Universal Time (UTC)=1970.01.01 )
+xxxxxc                   movel     UTCA          UTC
+      *
+      *
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Les fra katalog og legg ut oversikt               LESKAT /
+      *////////////////////////////////////////////////////////////
+     C     LESKAT        BEGSR
+     C                   EVAL      FullName = %trimr(DirName) + Null
+      * Åpne katalog
+     C                   EVAL      RETURNDir = opendir(%addr(FullName))
+      * Avslutt hvis feil ved åpning av katalog
+     C                   IF        RETURNDir = *Null
+     C                   CALLP     SndPgmMsg('CPF9898':'QCPFMSG'
+     C                                       :DirError)
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   ENDIF
+
+     C                   DOU       PtrToEntry = *Null
+      * Les neste katalog lenke
+     C                   EVAL      PtrToEntry = readdir(RETURNDir)
+      * Lenknavn er i feltet d_name
+     C                   IF        PtrToEntry <> *Null
+     C                   EVAL      DirEntry = RtnEntry
+      * Hent katalog lenknavn
+     C                   EVAL      EntryName = %str(%addr(d_name))
+     C                   EVAL      EntryPath = %trim(DirName) + '/'
+     C                             + %trimr(EntryName) + Null
+     C                   EVAL      RETURNInt = lstat(%addr(EntryPath)
+     C                                         : %addr(StatDS))
+      * benytt accessed time (i sekund fra UTC )
+S03  c*                  z-add     st_atime      U_OF             10 0          UTC offsett
+N03  c                   z-add     st_ctime      U_OF             10 0          UTC offsett
+     C     UTC           adddur    U_OF:*seconds A_Date
+      * Fil/dato ?
+     C                   IF        ((st_objtype='*STMF') and
+     C                             (A_Date < IdagMinusX))
+      * Funnet fil som er mer en xx dager gammel - skap fulnav uten null / SLETT
+     C                   EVAL      EntryPath = %trim(DirName) + '/'
+     C                             + %trimr(EntryName)
+     C                   EVAL      CmdLine = 'DEL OBJLNK(' + X'7D'
+     C                             + %trimr(EntryPath) + X'7D' + ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+s01  C*                  CALL      'QCMDEXC'     Qcmdexc
+n01  C                   CALL      'QCMDEXC'     Qcmdexc                98
+     C                   ENDIF
+      *
+     C                   ENDIF
+     C                   ENDDO
+      * Lukk katalog
+     C                   EVAL      RETURNInt = closedir(RETURNDir)
+     C                   ENDSR
+      *-------------------------------------------------------------------------
+      * Send pgm message
+      *-------------------------------------------------------------------------
+     P SndPgmMsg       B
+     D                 PI              N
+     D Msgid                          7    CONST
+     D MsgF                          20    CONST
+     D Msgdta                       128    CONST
+     D Msgtp                         10    CONST OPTIONS(*NOPASS)
+      * Work variables
+     D Qmsgid          S              7
+     D Qmsgf           S             20
+     D Qmsgdta         S            128
+     D Qmsgln          S             10I 0
+     D Qmsgtp          S             10
+     D Qmsgq           S             10
+     D Qmsgqn          S             10I 0 INZ(3)
+     D Qmsgky          S              4
+     D Qmsger          S             15
+      * Hvis bibliotek er lik blank set in *LIBL
+     C                   EVAL      Qmsgid = Msgid
+     C                   EVAL      Qmsgf = Msgf
+     C                   EVAL      Qmsgdta = Msgdta
+     C                   IF        %subst(Qmsgf:11:10) = *blank
+     C                   EVAL      %subst(Qmsgf:11:10) = '*LIBL'
+     C                   ENDIF
+     C                   EVAL      Qmsgln = %len(%trim(Qmsgdta))
+     C                   EVAL      Qmsgq = '*'
+     C                   EVAL      Qmsgtp = '*DIAG'
+     C                   IF        %PARMs > 3
+     C                   EVAL      Qmsgtp = Msgtp
+     C                   ENDIF
+     C                   IF        Qmsgtp = '*STATUS'
+     C                   EVAL      Qmsgq = '*EXT'
+     C                   ENDIF
+      *
+     C                   CALL      'QMHSNDPM'                           99
+     C                   PARM                    Qmsgid
+     C                   PARM                    Qmsgf
+     C                   PARM                    Qmsgdta
+     C                   PARM                    Qmsgln
+     C                   PARM                    Qmsgtp
+     C                   PARM                    Qmsgq
+     C                   PARM                    Qmsgqn
+     C                   PARM                    Qmsgky
+     C                   PARM      *LOVAL        Qmsger
+      *
+     C                   RETURN    *ON
+     P                 E

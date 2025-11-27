@@ -1,0 +1,105 @@
+             PGM        PARM(&BATCH)
+             DCL        VAR(&INST) TYPE(*CHAR) LEN(1) VALUE('1')
+             DCL        VAR(&BATCH) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&LIB) TYPE(*CHAR) LEN(10) VALUE('          ')
+             DCL        VAR(&STMF) TYPE(*CHAR) LEN(30) +
+                            VALUE('                              ')
+             DCL        VAR(&FILE) TYPE(*CHAR) LEN(15) VALUE('               ')
+             CHGVAR     VAR(&BATCH) VALUE('J')
+/*             */
+/* SETTER ROUT */
+/*             */
+             CD /
+             MONMSG     MSGID(CPF0000)
+             RTVDTAARA  DTAARA(EDIDTA (171 10)) RTNVAR(&LIB)
+             CHGVAR     VAR(&FILE) VALUE('TARIFF.TXT')
+/*                                                       */
+/* STMF  EKSEMPELVIS:  SYSPEDF/TOLL/TARIFF.TXT           */
+/*                                                       */
+             CHGVAR     VAR(&STMF) VALUE(&LIB *TCAT '/TOLL/' *TCAT &FILE)
+/*                                        */
+/* HENT FRA TOLLVESENET                   */
+/*                                        */
+             CALL SYTIHENTC PARM(&STMF &FILE)
+             DLTF       FILE(QTEMP/SYTIRCV)
+             MONMSG     MSGID(CPF0000)
+/*                                        */
+/* LAGER MOTTAKSFILEN                     */
+/*                                        */
+             CRTPF      FILE(QTEMP/SYTIRCV) RCDLEN(512) SIZE(5000000 +
+                          10000 10)
+/*                                                */
+/* Konverter fra PC-tekst-fil, til FLAT tekstfil  */
+/*                                                */
+             QSYS/CPYFRMSTMF FROMSTMF(&STMF) +
+                          TOMBR('QSYS.LIB/QTEMP.LIB/SYTIRCV.FILE/SYTI+
+                          RCV.MBR') MBROPT(*REPLACE) CVTDTA(*TBL) +
+                          TBL('qsys.lib/sysped.lib/QTCPEBCNO.tbl')
+/*                              */
+/* Filen finnes ikke - hopp ut  */
+/*                              */
+             MONMSG     MSGID(CPFA095) EXEC(DO)
+             SNDPGMMSG  MSG('Aktuell txt-fil finnes ikke i IFS +
+                          /home/sytoll/   Konvertering IKKE +
+                          kjørt!!!') MSGTYPE(*INFO)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+/*                                                    */
+/* konverterer tariffen, henter kapittel fra TARIKAP  */
+/* Inn: SYTIRCV,TARIKAP    Ut: TARINY                 */
+/*                                                    */
+             CLRPFM     FILE(TARINY)
+
+             CALL       PGM(SYTITA1) PARM(&INST &BATCH)
+
+ /*                                               */
+ /* MODULEN IKKE INSTALLERT?? ELLER 0 POSTER LEST */
+ /*                                               */
+             IF         COND(&INST = '1') THEN(GOTO CMDLBL(SLUTT))
+ /*                               */
+ /* FEIL INNFIL  ENDRET FILLAYOUT */
+ /*                               */
+             IF         COND(&INST = '2') THEN(DO)
+             SNDPGMMSG  MSG('Formatet på den nedlastede fil stemmer +
+                          ikke med din programversjon. Ta +
+                          .......... kontakt med SYSTEMA for å få +
+                          oppgradert ditt program.)') MSGTYPE(*INFO)
+             GOTO CMDLBL(SLUTT)
+             ENDDO
+
+             OVRPRTF    FILE(LISTE) OUTQ(*JOB)
+
+ /*                                                 */
+ /* Oppdater GAMLE TARIFFnr, SLETT UTGÅTTE i TARI   */
+ /*                                                 */
+             OVRDBF     FILE(TARIGM) TOFILE(TARI)
+             CALL       PGM(SYTITA2)
+ /*                                   */
+ /* LEGG TIL HELT NYE NR i TARIFFEN   */
+ /*                                   */
+             CALL       PGM(SYTITA3)
+ /*                                        */
+ /* SLETTER I SOKTARI DE SOM IKKE FINNES   */
+ /*                                        */
+             CALL       PGM(SYTITA6)
+ /*                                        */
+ /*       SLETTER I BEREGNINGSMÅTE         */
+ /*                                        */
+             CALL       PGM(SYTITA7)
+ /*                                        */
+ /*       OPPDATER KODE FOR TOLLBEREGNING  */
+ /*                                        */
+             CALL       PGM(SYTITA8)
+
+ /*                                        */
+ /*       SETTER SLUTTDATO                 */
+ /*                                        */
+             CALL       PGM(SYTITASLU)
+
+             SNDPGMMSG  MSG('Konvertering av aktuell(e) fil(er) ER +
+                          KJØRT. Sjekk utkrift "LISTE".......... +
+                          (For hver konvertert fil: EN LISTE for +
+                          nye/endrede. EN LISTE for slettede.)') +
+                          MSGTYPE(*INFO)
+
+SLUTT:       ENDPGM

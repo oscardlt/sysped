@@ -1,0 +1,192 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 API-key  / HTTPS
+********************************************************************
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+     D Origin          s            256A
+     D Destin          s            256A
+     D SECONDS         s             11  0
+     D RESULTAT        s              3
+      *
+      *  Typisk svar er..:
+      *    pr 05.09.2016 returnere kun ant sekunder = Duration/value
+      *
+      *   <DistanceMatrixResponse>
+      *   <status>OK</status>
+      *   <origin_address>Orshaugvegen 50, 4050 Sola, Norway</origin_address>
+      *   <destination_address>5954 Mongstad, Norway</destination_address>
+      *   <row>
+      *   <element>
+      *   <status>OK</status>
+      *   <duration>
+      *   <value>21634</value>
+      *   <text>6 hours 1 min</text>
+      *   </duration>
+      *   <distance>
+      *   <value>278736</value>
+      *   <text>279 km</text>
+      *   </distance>
+      *   </element>
+      *   </row>
+      *   </DistanceMatrixResponse>
+      *
+      *
+      *
+     C                   EXSR      INIT
+
+      /free
+
+        *inlr = *on;
+
+        // ****************************************************
+        //  Bygg parametrene...
+        //  System iNetwork to a temporary file in the IFS
+        // ****************************************************
+          Enc = http_url_encoder_new();
+          http_url_encoder_addvar_s(Enc : 'origins'
+                                        : %trim(Origin));
+          http_url_encoder_addvar_s(Enc : 'destinations'
+                                        : %trim(Destin));
+N01       http_url_encoder_addvar_s(Enc : 'key'
+N01                              : 'AIzaSyB8I9_qNlV0dcIr8CQaHUishwQL38hd-To');
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+s01     //url = 'http://maps.googleapis.com/maps/api/distancematrix/xml?'
+n01       url = 'https://maps.googleapis.com/maps/api/distancematrix/xml?'
+               + http_url_encoder_getstr(Enc);
+
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+        // unlink(filename);
+        // return;
+
+      /end-free
+      *  HER KOMMER VURDERING AV RESuLTAT / NYTT FORSØK MM...
+     C*                  MOVE      xxxxx         yyyy
+     C*                  xxxxx
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      * Svar ved EN origin , EN destinatin  vil være EN ROW med ett element
+     C     *ENTRY        PLIST
+     C                   PARM                    ORIGIN
+     C                   PARM                    DESTIN
+     C                   PARM                    SECONDS
+     C                   PARM                    RESULTAT
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+      /free
+
+            select;
+            when name = 'status'
+                 and path='/DistanceMatrixResponse/row/element';
+               RESULTAT= value;
+            when name = 'value'
+                 and path='/DistanceMatrixResponse/row/element/duration';
+               Seconds = %int(value);
+            endsl;
+
+      /end-free
+     P                 E

@@ -1,0 +1,326 @@
+      *
+      *    REGENERERE STATISTIKK
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 JOV PTF12 Update direkte på FAK11 i leseloop (ikke chain via fakt i fall dupl. lnr)
+      *              kall syst35 uansett rufsete, tar første ved dupliket, MEN unngår OMMAT og OMMAT
+********************************************************************
+S01  F*FAKT      UF   E           K DISK
+S01  F*FAK11     IF   E           K DISK
+S01  F*                                    RENAME(FAKTR:FAKT11R)
+N01  FFAK11     UF   E           K DISK
+N01  FFAKT      IF   E           K DISK
+N01  F                                     RENAME(FAKTR:FAKDUMR)
+     FHEADF     UF   E           K DISK
+     FHEAD1     UF   E           K DISK
+     F                                     RENAME(HEADFR:HEAD1R)
+     FSTATREK   UF A E           K DISK
+     FFIRSTA    UF   E           K DISK
+     D                 DS
+     D  HEDTOP                 1      8  0
+     D  HEDTÅ                  1      4  0
+     D  HEDTM                  5      6  0
+     D  HEDTD                  7      8  0
+     D                 DS
+     D  STRDT                  1      8  0
+     D  STRDTÅ                 1      4  0
+     D  STRDTM                 5      6  0
+     D  STRDTD                 7      8  0
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      6  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+      *
+     C                   EXSR      INIT
+      *
+      * SKJEKKER HVOR LANGT REKONSTRUKSJON ER KOMMET
+      *
+     C                   MOVE      'A'           STRKEY
+     C     STRKEY        CHAIN(N)  STATREK                            33
+      *
+      * HVIS RECORD FINNES OG STATUS = F ER REKONSTRUKSJON FERDIG
+      *
+     C  N33STRST         IFEQ      'F'
+     C                   SETON                                        LR
+     C                   RETURN
+     C                   ELSE
+      * HVIS RECORD FINNES GÅ RETT TIL LES AV VARELINJER MED Z-STATUS
+     C                   GOTO      ST3
+     C                   END
+      *
+      * 1. GJENNOMKJØRING AV REKONTRUKSJON
+      * SKRIV REKONSTRUKSJONS RECORD
+      * MERK HE01 I HEADF PÅ ALLE RECORDS TIL ' '
+      *
+     C                   EXSR      RUNDE1
+     C                   Z-ADD     1             UFLAGG
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+      *
+     C*
+     C*
+     C     ST3           TAG
+      *
+      * LESER ALLE FAKTURALINJER MED Z-STATUS
+      *
+     C                   EXSR      LESZ
+      * 35 ER KONTROLLERT AVSLUTNING MELLOM 2330 OG 0200
+     C   35              GOTO      SLUTT
+      *
+      * OPPDATER ANTALL OG VEKT AV 0-OPPDRAG PÅ STATISTIKK
+      *
+     C                   EXSR      NULLSR
+      *
+     C     SLUTT         TAG
+     C                   MOVE      'J'           UEND              1
+     C                   EXSR      OPDSTA
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     OPDSTA        BEGSR
+     C***********************************************
+     C                   CALL      'SYST35'
+     C                   PARM                    FAAVD
+     C                   PARM                    FAOPD
+     C                   PARM                    FALI
+     C                   PARM                    XXOPD
+     C                   PARM                    UEND
+     C                   PARM                    UTREKK
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TREKKS        BEGSR
+     C***********************************************
+     C     FAKTK         SETLL     FAKT                               34
+     C                   MOVE      *ZEROS        XBELØP           13 2
+     C                   MOVE      *ZEROS        XBELØK           13 2
+     C     STTREK        TAG
+s01  C*    FAKTK         READE(N)  FAKT                                   34
+n01  C     FAKTK         READE     FAKT                                   34
+     C  N34              DO
+     C     FAKDA         IFEQ      'K'
+     C                   ADD       FABELN        XBELØK
+     C                   ELSE
+     C                   ADD       FABELN        XBELØP
+     C                   END
+     C                   GOTO      STTREK
+     C                   END
+      * HVIS BÅDE INN TEKTSLINJER OG KOSTNADSLINJER HVER FOR SEG I SUM
+      * GIKK I 0, TREKK ANTALL OG VEKTER.
+      * (SIDEN ALLE FAKT.LINJER ER BEHANDLET FERDIG FOR HELE OPPDRAGET
+      * KAN EN ANTA AT BELØPSMESSIG ER ALT RIKTIG TILBAKEFØRT.....)
+     C     XBELØP        IFEQ      0
+     C     XBELØK        ANDEQ     0
+     C                   MOVE      XAVD          FAAVD
+     C                   MOVE      XOPD          FAOPD
+     C                   MOVE      'J'           XXOPD
+     C                   MOVE      'J'           UTREKK
+     C                   EXSR      OPDSTA
+     C                   MOVE      'N'           XXOPD
+     C                   MOVE      'N'           UTREKK
+     C     FAKTK         CHAIN     HEADF                              34
+     C* N34                MOVE ' '       HEST
+     C  N34              MOVE      'O'           HEST
+     C  N34              MOVE      ' '           HE01
+     C  N34              EXCEPT    OPDHEA
+     C                   END
+      *
+     C                   SETOFF                                       34
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     RUNDE1        BEGSR
+     C***********************************************
+     C     FIFIRM        SETLL     FIRSTA                             33
+     C                   READ      FIRSTA                                 33
+     C                   Z-ADD     1             FISTNR
+     C                   EXCEPT    OPDFIR
+     C                   Z-ADD     1             STRFN
+     C                   Z-ADD     1             STRKN
+     C                   Z-ADD     1             STRAVD
+     C                   Z-ADD     1             STROPD
+     C                   TIME                    XTIME
+     C                   MOVE      XDD           STRDTD
+     C                   MOVE      XMM           STRDTM
+     C                   MOVE      XÅÅ           STRDTÅ
+     C                   MOVE      XTID          STRTID
+     C                   WRITE     STATREKR
+      *
+      * SETTER OPPDATERINGSKODE TIL ' ' PÅ ALLE RECORD
+      *
+     C                   SETOFF                                       34
+     C     *LOVAL        SETLL     HEAD1
+     C     *IN34         DOWEQ     '0'
+     C                   READ      HEAD1                                  34
+     C     *IN34         IFEQ      '0'
+      *
+     C     HEST          IFEQ      'O'
+     C     HEDTM         IFEQ      0
+     C     HEDTR         ANDEQ     0
+     C                   MOVE      'J'           HE01
+     C                   ELSE
+     C                   MOVE      ' '           HE01
+     C                   END
+     C                   EXCEPT    OPDHE1
+     C                   END
+     C                   END
+     C                   END
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C*
+     C     FAK11K        KLIST
+     C                   KFLD                    YOPKO             1
+     C                   KFLD                    FAAVD
+     C                   KFLD                    FAOPD
+     C                   KFLD                    FAFAKT
+     C                   KFLD                    FAKUNR
+     C                   MOVE      'Z'           YOPKO
+      *
+     C     FAKTK         KLIST
+     C                   KFLD                    XAVD
+     C                   KFLD                    XOPD
+S01  C*    FAKTKO        KLIST
+S01  C*                  KFLD                    FAAVD
+S01  C*                  KFLD                    FAOPD
+S01  C*                  KFLD                    FALI
+     C     STAT1K        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UFLAGG            1 0
+     C                   MOVE      *ZEROS        UFLAGG
+     C                   ENDSR
+      *
+     C***********************************************
+     C     NULLSR        BEGSR
+     C***********************************************
+      *
+      *
+     C                   MOVE      'J'           XXOPD
+     C                   MOVE      *ZEROS        FALI
+      *
+     C     *LOVAL        SETLL     HEAD1                              34
+     C     START3        TAG
+     C                   READ(N)   HEAD1                                  34
+     C  N34HE01          IFNE      'J'
+     C     HEST          ANDEQ     'O'
+     C                   MOVE      HEAVD         FAAVD
+     C                   MOVE      HEOPD         FAOPD
+     C                   EXSR      OPDSTA
+     C                   END
+     C  N34              GOTO      START3
+      *
+      * IKKE FLERE RECORDS I HEADF
+      * REKONSTRUKSJON ER FERDIG
+      *
+     C     STRKEY        CHAIN     STATREK                            33
+     C                   MOVE      'F'           STRST
+     C                   UPDATE    STATREKR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     LESZ          BEGSR
+     C***********************************************
+      *
+      * LESER ALLE FAKTURALINJER MED STATUS Z
+      *
+      *
+     C                   MOVE      STRFN         FAFAKT
+     C                   MOVE      STRKN         FAKUNR
+     C                   MOVE      STRAVD        FAAVD
+     C                   MOVE      STROPD        FAOPD
+     C                   MOVE      'N'           XXOPD             1
+     C                   MOVE      'N'           UEND              1
+     C                   MOVE      'N'           UTREKK            1
+     C     FAK11K        SETLL     FAK11
+     C                   MOVEA     '00'          *IN(33)
+      *
+     C     START         TAG
+     C     YOPKO         READE     FAK11                                  33
+     C  N33              DO                                                     1<-B
+     C     FAFAKT        IFNE      XFN                                           2<-B
+     C     FAKUNR        ORNE      XKN
+     C     FAAVD         ORNE      XAVD2
+     C     FAOPD         ORNE      XOPD2
+     C                   MOVE      FAFAKT        XFN               6 0
+     C                   MOVE      FAKUNR        XKN               8 0
+     C                   MOVE      FAAVD         XAVD2             4 0
+     C                   MOVE      FAOPD         XOPD2             7 0
+     C     STRKEY        CHAIN     STATREK                            35
+     C                   MOVE      FAFAKT        STRFN
+     C                   MOVE      FAKUNR        STRKN
+     C                   MOVE      FAAVD         STRAVD
+     C                   MOVE      FAOPD         STROPD
+     C                   UPDATE    STATREKR
+      *
+      * AVSLUTTER KONTOLLERT VED MIDNATT
+      *
+     C                   TIME                    XTID              6 0
+     C     XTID          IFGT      233000                                         3<-B
+     C     XTID          ORLT      020000
+     C                   SETON                                        35
+     C                   GOTO      ST4
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   EXSR      OPDSTA
+S01  C*    FAKTKO        CHAIN     FAKT                               32
+S01  C* N32              MOVE      'O'           FAOPKO
+S01  C* N32              EXCEPT    NYOPKO
+N01  C                   MOVE      'O'           FAOPKO
+N01  C                   EXCEPT    NYOPKO
+      * NÅR EN ER FERDIG MED EN HEL KRED.NOTA
+      * (NEGATIV, MEN IKKE FRA KOSTN.F,  OG  AVD/OPPDRAG ER SKIFTET..)
+      * SJEKK OM HELE OPPDRAGET GÅR I 0.
+     C   34XAVD          IFNE      FAAVD                                         2<-B
+     C     XOPD          ORNE      FAOPD
+     C                   MOVE      FAAVD         YAVD              4 0
+     C                   MOVE      FAOPD         YOPD              7 0
+     C                   MOVE      FAKDA         YKDA              1
+     C                   MOVE      FABELN        YBELN            13 2
+     C                   EXSR      TREKKS
+     C                   MOVE      YKDA          FAKDA
+     C                   MOVE      YBELN         FABELN
+     C                   MOVE      YAVD          FAAVD
+     C                   MOVE      YOPD          FAOPD
+     C                   END                                                     2<-E
+      *
+     C  N34FAKDA         IFNE      'K'
+     C     FABELN        ANDLT     0
+     C                   SETON                                        34
+     C                   MOVE      FAAVD         XAVD              4 0
+     C                   MOVE      FAOPD         XOPD              7 0
+     C                   END
+      *
+     C                   GOTO      START
+     C                   END                                                    1<-E
+      *
+     C     ST4           TAG
+     C   34              EXSR      TREKKS
+     C                   ENDSR
+      *
+     C*
+     OFAKTR     E            NYOPKO
+     O                       FAOPKO
+     OHEAD1R    E            OPDHE1
+     O                       HE01
+     OHEADFR    E            OPDHEA
+     O                       HEST
+     O                       HE01
+     OFIRSTAR   E            OPDFIR
+     O                       FISTNR

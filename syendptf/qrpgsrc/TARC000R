@@ -1,0 +1,195 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TARC000R MODULE(*LIBL/TARC000R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for 'ARCA000CLW'
+     d arca000clw      pr                  extproc('ARCA000CLW')
+     d wtype_                              like(wtype)
+     d wstring_                            like(wstring)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+     ‚* Variable for
+     D WUSER           S             10
+     D WTYPE           S              2
+     D WSTRING         S             20
+     D AVD             S              4
+     D AVDN            S              4  0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D                 DS
+     D avdopd                  1     20
+     D avdopda                 1      4S 0
+     D avda                    1      4
+     D avdopdo                 5     11S 0
+     D LDADTA         UDS
+     D  UFIRMA                 3      4
+     D  UAVD                  15     18
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+
+         exsr Parse;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start.(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WUSER)+'¬, '
+        +'¬type¬ : ¬'+%trim(WTYPE)+'¬, '
+        +'¬avd¬ : ¬'+%trim(AVD)+'¬, '
+        +'¬opd¬ : ¬'+%trim(OPD)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"skilleark" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if  error = *blanks;
+      /end-free
+     C                   OUT       LDADTA
+     C                   call      'ARCA000CLW'
+     C                   parm                    wtype
+     C                   parm                    wstring
+      /free
+       //arca000clw(wtype:wstring);
+       //______________________________________________________________________
+       // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+       //""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+          JSONstring=*blanks;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ok¬ : ¬'+ 'ok' +'¬}';
+       jsonfix ( jsonstring );
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       endif;
+      //__________________________________
+      //Skriv JSON-Liste/Array  Avslutning
+      //""""""""""""""""""""""""""""""""""
+          JSONstring = ']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+      *______________________________
+      * Skriv JSON-string Avsluttning
+      *""""""""""""""""""""""""""""""
+          JSONstring = '}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       exsr exit;
+
+       //_______________________________________________
+       // Close output html and quit                exit
+       //"""""""""""""""""""""""""""""""""""""""""""""""
+       begsr exit;
+         close bridf;
+         close brparf;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+       //_______________________________________________
+       // hent input                               parse
+       //"""""""""""""""""""""""""""""""""""""""""""""""
+       begsr     Parse;
+         wuser   = zhbgetvar('USER');
+         wtype   = zhbgetvar('TYPE');
+         avd     = zhbgetvar('AVD');
+         avdn    = c2n2(avd);
+         opd     = zhbgetvar('OPD');
+         opdn    = c2n2(opd);
+
+       /end-free
+     C     *DTAARA       DEFINE    *LDA          LDADTA
+     C                   IN        LDADTA
+       /free
+
+         avdopda = avdn;
+         avdopdo = opdn;
+         wstring = avdopd;
+         uavd    = avda;
+
+        endsr;
+       //_______________________________________________
+       //  INIT          Begsr                      init
+       //"""""""""""""""""""""""""""""""""""""""""""""""
+       begsr     init;
+         open bridf;
+         // Test innlogging
+         chain wuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         open brparf;
+         chain (wuser:bikunr:'ASUSR') brparf;
+         ufirma=bifirm;
+
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       endsr;

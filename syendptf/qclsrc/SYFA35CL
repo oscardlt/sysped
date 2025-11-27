@@ -1,0 +1,160 @@
+/*  TESTER OM BILAG I LØSNING 1  */
+/*  FJERNE QPGMR TEST            */
+/*  INNFØRT VISMA                */
+/*  PARM SYFA35 L1KJOR           */
+             PGM
+             DCL        VAR(&FAKO) TYPE(*CHAR) LEN(1) VALUE('F')
+             DCL        VAR(&BILL1) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&PRTF) TYPE(*CHAR) LEN(10) +
+                          VALUE('SYFA35P   ')
+             DCL        VAR(&FIRMA) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&AAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&PER) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&JANEI) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&NRBE) TYPE(*DEC) LEN(3 0) VALUE(110)
+             DCL        VAR(&PRT110) TYPE(*CHAR) LEN(10) /* Printernavn+
+                          til JOURNALEN  */
+             DCL        VAR(&PT110) TYPE(*CHAR) LEN(10) /* Papirtype +
+                          til JOURNALEN */
+             DCL        VAR(&IN01) TYPE(*LGL) LEN(1) VALUE('0')
+             DCL        VAR(&AUT) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10)
+/*           DCL        VAR(&PGMR) TYPE(*CHAR) LEN(10)     */
+/*______________*/
+/* LES FIRMAFIL */
+/*""""""""""""""*/
+             DCLF       FILE(FIRML1) RCDFMT(*ALL)
+             RCVF       DEV(*FILE) RCDFMT(*FILE)
+             RTVJOBA    JOB(&WS)
+ /* VARIABEL &JOB BYTTET MED &WS FOR Å SAMSVARE FAKT/KOSTN.SIDE */
+             CALL       PGM(INLIBL)
+
+
+/*********************************************************************/
+/* SKJEKKER FILLAG I LØSNING 1                                       */
+/*********************************************************************/
+             RTVDTAARA  DTAARA(EDIDTA (193 1)) RTNVAR(&BILL1)
+             IF         COND(&BILL1 = 'Y') THEN(DO)
+             CALL       PGM(HR900SY) PARM(&BILL1)
+             IF         COND(&BILL1 = 'J') THEN(DO)
+             RETURN
+             ENDDO
+             ENDDO
+/**********************************************************************/
+             ALCOBJ     OBJ((SYFA35CL *PGM *EXCL) (SYKS35CL *PGM +
+                          *EXCL) (SYFA39 *PGM *EXCL))
+             MONMSG     MSGID(CPF0000) EXEC(DO)
+             SNDBRKMSG  MSG('En annen kjører overføring til regnskap +
+                          eller oppdatering på statistikk') +
+                          TOMSGQ(&WS)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+             DLCOBJ     OBJ((SYFA35CL *PGM *EXCL) (SYKS35CL *PGM +
+                          *EXCL) (SYFA39 *PGM *EXCL))
+
+             CALL       PGM(*LIBL/SYFAFICL) PARM(&IN01)
+             IF         COND(&IN01 *EQ '1') THEN(DO)
+             SNDBRKMSG  MSG('Du er ikke registrert som +
+                          regskapsbruker. Overføringen er ikke +
+                          startet') TOMSGQ(&WS)
+             GOTO SLUTT
+             ENDDO
+/*           RTVUSRPRF  GRPPRF(&PGMR)                                  */
+/*           IF         COND(&PGMR *NE QPGMR) THEN(DO)                 */
+/*           SNDBRKMSG  MSG('Du mangler henvisning til gruppeprofil +  */
+/*                        QPGMR. Overføringen er ikke startet.') +     */
+/*                        TOMSGQ(&WS)                                  */
+/*           GOTO SLUTT                                                */
+/*           ENDDO                                                     */
+/*                                     */
+/*REGNSKAP    */
+/*                                     */
+/* */
+/* KALLER SYFA70 FOR Å OPPDATERE PROSJEKTREGISTER */
+/* */
+             CALL       PGM(SYFA70)
+/* */
+/* OVERSTYRER SKRIVERFIL                          */
+/* */
+             CALL       PGM(GETPRTB) PARM(&NRBE &PRT110 &PT110)
+             OVRPRTF    FILE(&PRTF) OUTQ(&PRT110) PAGESIZE(48 132) +
+                          CPI(10) OVRFLW(48) +
+                          FORMTYPE(&PT110)
+/*                                                */
+/* HAR KUNDEN ARKIVSYSTEM ???                     */
+/*                                                */
+             CALL       PGM(ARC016) PARM(&JANEI)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             OVRPRTF    FILE(&PRTF) OUTQ(SYARKIV) HOLD(*YES)
+             ENDDO
+
+    /* */
+/* */
+/* KALLER SYFA35 FOR Å OPPDATERE POSTERINGER      */
+/* */
+             CALL       PGM(SYFA35) PARM(&AUT &L1KJOR)
+/* INGENTING Å OVERFØRE - HOPP UT */
+             IF         COND(&AUT *EQ '1') THEN(DO)
+             SNDBRKMSG  MSG('Det finnes ingen poster i +
+                          posteringsfilen til økonomi - overføring +
+                          avbrytes') TOMSGQ(&WS)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+/*                                                */
+/* OPPDATERER ARKIV                               */
+/*                                                */
+             IF         COND(&JANEI = 'J') THEN(DO)
+             RTVDTAARA  DTAARA(*LDA (1 2)) RTNVAR(&FIRMA)
+             ADDLIBLE   LIB(IBMENDA)
+             MONMSG     MSGID(CPF0000)
+             CALL       PGM(ARK001CL) PARM(&FIRMA &PRTF &AAR &PER)
+             RMVLIBLE   LIB(IBMENDA)
+             ENDDO
+/* */
+/* KALLER V005NY FOR Å OPPDATERE NATIVE ØKONOMI   */
+/* FOR LØSNING 1 KUNDENE                          */
+/* */
+             DLTOVR     FILE(*ALL)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) VALUE('                 -
+             ')
+             IF         COND(&L1KJOR = 'J') THEN(DO)
+             CALL       PGM(VC005SY)
+             CALL       PGM(INLIBL)
+             ENDDO
+             CPYF       FROMFILE(POSTA0) TOFILE(BACKUPA) +
+                          MBROPT(*REPLACE)
+             MONMSG     MSGID(CPF2817)
+             CPYF       FROMFILE(POSTB0) TOFILE(BACKUPB) +
+                          MBROPT(*REPLACE)
+             MONMSG     MSGID(CPF2817)
+/*                                             */
+/* VISMA.NET TILPASSING                        */
+/*                                             */
+             IF         COND(&L1KJOR = 'V') THEN(DO)
+             RMVM       FILE(VISTRAFAK) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             CPYF       FROMFILE(POSTB0) TOFILE(VISTRAFAK) +
+                          TOMBR(&WS) MBROPT(*ADD) FMTOPT(*MAP +
+                          *DROP)
+             MONMSG     MSGID(CPF2817)
+             CALL       PGM(VISM35CL) PARM(&FAKO &WS)
+             ENDDO
+             CLRPFM     FILE(POSTB0)
+             CLRPFM     FILE(POSTA0)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) VALUE('                 -
+             ')
+
+             SNDPGMMSG  MSG('Utskrift av dagbok er sendt i jobkø +
+                          QBATCH i bibliotek QGPL')
+
+
+/*OPPDATER STATISTIKK (ALLE FAKTLINJER/OPPDRAG M. STATUS "T" */
+/*FAKT.LINJER FRA KOSTN.SYSTEM HOLDES TILBAKE TIL OPPDRAGET  */
+/*ER STATISTIKKOPPDATERT (BASERT PÅ FAKTURA EL. NULLFAKTURA) */
+
+             SBMJOB     CMD(CALL PGM(SYFA39CL)) JOB(STATOPDAT) +
+                          JOBD(*USRPRF) JOBQ(SYJOBQAV)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             SIGNOFF    LOG(*LIST)
+             ENDDO
+ SLUTT:      ENDPGM

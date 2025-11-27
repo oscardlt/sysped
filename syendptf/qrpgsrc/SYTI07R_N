@@ -1,0 +1,494 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+********************************************************************
+     H DFTACTGRP(*NO)
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER TOLLSATS FRA TVINN           ***
+      ***********************************************************
+      *
+     FXMLRCVF   IF   E           K DISK
+     FTARINY    UF A E           K DISK
+     FTARIKAP   IF   F   19     4AIDISK    KEYLOC(1)
+      *
+     D                sds
+     D ZUSER                 254    263
+     D                UDS
+     D  UDATO                101    108  0
+     D                 ds
+     D xsats82                 1      8  2
+     D xsats                   2      8  2
+      *  Prototype for syti07r
+     d syti07r_n       pr
+     d usn_                                like(usn)
+     d uok_                                like(uok)
+      *  *ENTRY Interface for Main Procedure
+     d syti07r_n       pi
+     d usn                            9
+     d uok                            1
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *----------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *----------------------------------------------------------------------
+     d wdt             s              8
+     d wtm             s              6
+     d xidag           s              8s 0
+     d xan08           s              8A
+N02  d x_opdtariff     s              1A
+     d xlandgr         s              5A
+     d xenhet          s              1A
+     d xfomdato        s              8s 0
+     d pfomdato        s              8s 0
+     d xtomdato        s              8s 0
+     d ptomdato        s              8s 0
+     d x1_xrlev1       s                   like(xrlev1)
+     d x1_xrlev2       s                   like(xrlev2)
+     d x2_xrlev1       s                   like(xrlev1)
+     d x2_xrlev2       s                   like(xrlev2)
+     d x2_xrlev3       s                   like(xrlev3)
+     d x3_xrlev1       s                   like(xrlev1)
+     d x3_xrlev2       s                   like(xrlev2)
+     d x3_xrlev3       s                   like(xrlev3)
+     d x3_xrlev4       s                   like(xrlev4)
+     d x4_xrlev1       s                   like(xrlev1)
+     d x4_xrlev2       s                   like(xrlev2)
+     d x4_xrlev3       s                   like(xrlev3)
+     d x4_xrlev4       s                   like(xrlev4)
+     d x4_xrlev5       s                   like(xrlev5)
+     d x5_xrlev1       s                   like(xrlev1)
+     d x5_xrlev2       s                   like(xrlev2)
+     d x5_xrlev3       s                   like(xrlev3)
+     d x5_xrlev4       s                   like(xrlev4)
+     d x5_xrlev5       s                   like(xrlev5)
+     d x5_xrlev6       s                   like(xrlev6)
+     d x_tatanr        s                   like(tatanr)
+     d x_tatar         s                   like(tatar)
+     d x_tastk         s                   like(tastk)
+     d x_taenhe        s                   like(taenhe)
+     d x_taordk        s                   like(taordk)
+     ITARIKAP   NS  02
+     I                                  5   19  NYALFA
+
+      *----------------------------------------------------------------------
+      /free
+
+       exsr init;
+
+       exsr srxml1;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************                ------
+       begsr srxml1;
+       //**********************************************
+
+         X1_XRLEV1 = 1;
+         X1_XRLEV2 = 0;
+
+         chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'versjon';
+           when xrnv = 'vare';
+N04          xfomdato = 0;
+             exsr srxml2;
+           endsl;
+           x1_xrlev1 = x1_xrlev1 + 1;
+           chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         enddo;
+
+         endsr;
+
+       //**********************************************
+       begsr srxml2;
+       //**********************************************
+       // Kjøres når tag <vare> er lest = ett varenummer
+       // Under ett varenummer: <avtalesatser> kjør srxml3=Finn alle landgrupper
+       // Under avtalesatser  : <avtale> kjør srxml4=EN landgruppe
+       // Under avtale        : <sats> kjør srxml5= for å finne satser for denne landgruppe
+       //                       srxml5 tester mot sist leste gruppe for å oppdatere korrekte land
+       // Gml versjon: Satser for alle landgrupper samles før skriv til TARINY (i srxml2)
+       // "Nytt" 2024: Innen EN landgruppe kan det ligge flere <sats> kun skilt av Start(slutt)-dato
+       // Gammel versjon tok ikke høyde for dette og fanget kun "først og beste"
+       //
+       //
+       //Eksempel (der vi ser at under gruppe TAL = Albania (og alle andre) ligger 2 ulike satser):
+       //  <vare>
+       //      <id>04072100</id>
+       //      <enhet>Kg</enhet>
+       //      <enhetBeskrivelse>Per kilo.</enhetBeskrivelse>
+       //      <avtalesatser>
+       //          <avtale>
+       //              <landgruppe>TAL</landgruppe>
+       //              <sats>
+       //                  <satsVerdi>0,00</satsVerdi>
+       //                  <satsEnhet>K</satsEnhet>
+       //                  <satsEnhetBeskrivelse>Per kg</satsEnhetBeskrivelse>
+       //                  <fomdato>2024-11-05</fomdato>
+       //                  <tomdato>2024-12-16</tomdato>
+       //              </sats>
+       //              <sats>
+       //                  <satsVerdi>10,29</satsVerdi>
+       //                  <satsEnhet>K</satsEnhet>
+       //                  <satsEnhetBeskrivelse>Per kg</satsEnhetBeskrivelse>
+       //                  <fomdato>2024-12-17</fomdato>
+       //                  <tomdato></tomdato>
+       //              </sats>
+       //          </avtale>
+       //          <avtale>
+       //              <landgruppe>TALL</landgruppe>
+       //              ....
+       //                  ......
+       //
+       // ANNEN UTFORDRING - NÅR BÅDE K OG P-SATS FINNES
+       //                    (ser ut for å kun være innen TALL-gruppa)
+       //      <id>21069095</id>
+       //
+       //              <landgruppe>TALL</landgruppe>
+       //              <sats>
+       //                  <satsVerdi>31,71</satsVerdi>
+       //                  <satsEnhet>K</satsEnhet>
+       //                  <satsEnhetBeskrivelse>Per kg</satsEnhetBeskrivelse>
+       //                  <fomdato>2024-10-23</fomdato>
+       //                  <tomdato></tomdato>
+       //              </sats>
+       //              <sats>
+       //                  <satsVerdi>25,50</satsVerdi>
+       //                  <satsEnhet>P</satsEnhet>
+       //                  <satsEnhetBeskrivelse>Prosent av verdien</satsEnhetBeskrivelse>
+       //                  <fomdato>2024-10-23</fomdato>
+       //                  <tomdato></tomdato>
+       //              </sats>
+       //
+       //
+       //
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'id';
+
+            // Dummy START
+             if xrverd = '04072100';
+               x_tatanr = %dec(xrverd:8:0);  // DUMMY DEBUG
+             endif;
+             x_tatanr = %dec(xrverd:8:0);
+             if x_tatanr = 7135019;
+               x_tatanr = x_tatanr;
+             endif;
+            // Dummy SLUTT
+
+           when xrnv = 'enhet';
+             select;
+             when xrverd = 'Kg' or xrverd = 'K';
+               x_taordk = 'V';
+             when xrverd = 'P';
+               x_taordk = 'P';
+             when xrverd = 'S';
+               x_taordk = 'A';
+             endsl;
+           when xrnv = 'enhetBeskrivelse';
+           when xrnv = 'annenEnhet';
+             if xrverd <> *blanks;
+               x_tastk = 'J';
+               x_taenhe = xrverd;
+             endif;
+           when xrnv = 'annenEnhetBeskrivelse';
+           when xrnv = 'avtalesatser';
+             exsr srxml3;
+           endsl;
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+
+       endsr;
+
+       //**********************************************
+       begsr srxml3;
+       //**********************************************
+       // <avtalesatser> et nettopp lest = Finn alle landgrupper
+         uok = 'J';
+
+         x3_xrlev1 = xrlev1;
+         x3_xrlev2 = xrlev2;
+         x3_xrlev3 = 1;
+         x3_xrlev4 = 0;
+
+         chain (xrsn:x3_xrlev1:x3_xrlev2:x3_xrlev3:x3_xrlev4) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'avtale';
+             exsr srxml4;
+           endsl;
+           x3_xrlev3 = x3_xrlev3 + 1;
+           chain (xrsn:x3_xrlev1:x3_xrlev2:x3_xrlev3:x3_xrlev4) xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srxml4;
+       //**********************************************
+       // <avtale> et nettopp lest = Finn alle satser for aktuell landgruppe
+
+         x4_xrlev1 = xrlev1;
+         x4_xrlev2 = xrlev2;
+         x4_xrlev3 = xrlev3;
+         x4_xrlev4 = 1;
+         x4_xrlev5 = 0;
+
+         chain (xrsn:x4_xrlev1:x4_xrlev2:x4_xrlev3:x4_xrlev4:x4_xrlev5)
+               xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'landgruppe';
+             xlandgr = xrverd;
+           when xrnv = 'sats';
+               exsr srxml5;
+           endsl;
+           x4_xrlev4 = x4_xrlev4 + 1;
+           chain (xrsn:x4_xrlev1:x4_xrlev2:x4_xrlev3:x4_xrlev4:x4_xrlev5)
+                 xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr srxml5;
+       //**********************************************
+       // <sats> et nettopp lest = Finn alle satser for aktuell landgruppe
+
+         x5_xrlev1 = xrlev1;
+         x5_xrlev2 = xrlev2;
+         x5_xrlev3 = xrlev3;
+         x5_xrlev4 = xrlev4;
+         x5_xrlev5 = 1;
+         x5_xrlev6 = 0;
+
+         chain (xrsn:x5_xrlev1:x5_xrlev2:x5_xrlev3:x5_xrlev4:x5_xrlev5
+               :x5_xrlev6) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'satsVerdi';
+             xsats82 = %dec(xrverd:8:2);
+           when xrnv = 'satsEnhet';
+             select;
+N01          when xsats = 0;
+N01            xenhet = 'F';
+             when xrverd = 'K';
+               xenhet = 'V';
+             when xrverd = 'S' or xrverd = 'L';
+               xenhet = 'A';
+             when xrverd = 'P';
+               xenhet = 'P';
+             when xrverd = 'H';
+               xenhet = 'W';
+             other;
+               xenhet = 'V';
+             endsl;
+           when xrnv = 'fomdato';
+               xan08 = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                     + %subst(xrverd:9:2);
+                   xfomdato = %dec(xan08:8:0);
+           when xrnv = 'tomdato';
+                 xan08 = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                         + %subst(xrverd:9:2);
+                 if xrverd = *blanks;
+                   xtomdato = 0;
+                 else;
+                   xan08 = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                         + %subst(xrverd:9:2);
+                   xtomdato = %dec(xan08:8:0);
+                 endif;
+           endsl;
+           x5_xrlev5 = x5_xrlev5 + 1;
+           chain (xrsn:x5_xrlev1:x5_xrlev2:x5_xrlev3:x5_xrlev4:x5_xrlev5
+                 :x5_xrlev6) xmlrcvf;
+         enddo;
+           // Har nå bevart nøkkelverdier i denne <sats>..</sats> strukturen ccain / update
+           // Teori / forutsetning - Start gyldighetsdato er alltid avvikende når en ny tar over
+           //  MEN når ett tariffnr har både KG og % sats så kan de ha lik start-dato
+
+        // x_tatar = *blanks;                    // forberedt extention 3 lang
+         x_tatar = %subst(xlandgr:2);
+         chain (x_tatanr:x_tatar:xfomdato) tariny;
+         if not(%found);
+            clear TARIR;
+         endif;
+           select;
+           when xlandgr = 'TALL';            //Alle land/ordinær
+             taordk = xenhet;
+             taordb = xsats;
+           when xlandgr = 'TEF';             //EU-land
+             taefk = xenhet;
+             taefb = xsats;
+           when xlandgr = 'TEFT';            //EFTA-land
+             taeftk = xenhet;
+             taeftb = xsats;
+           when xlandgr = 'TIST';            //IN, LK, TH. India, Srilanka, Thailand
+             taistk = xenhet;
+             taistb = xsats;
+           when xlandgr = 'TGCC';            //SA, AE, QA, BH, KW, OM. Gulf-land
+             tan13k = xenhet;
+             tan13b = xsats;
+           when xlandgr = 'TGS1';            //Minst utviklede land
+             tamulk = xenhet;
+             tamulb = xsats;
+           when xlandgr = 'TGS2';            //Ordinære utviklingsland
+             taoulk = xenhet;
+             taoulb = xsats;
+           when xlandgr = 'TGS7' or xlandgr = 'TGS8' or xlandgr = 'TGS9';  //BW, NA, SZ
+             tan11k = xenhet;
+             tan11b = xsats;
+           when xlandgr = 'TGSP';            //GSP-land, lavere mellominnteksland
+             tan12k = xenhet;
+             tan12b = xsats;
+           when xlandgr = 'TH';              //GL. Grønland
+             tagrlk = xenhet;
+             tagrlb = xsats;
+           when xlandgr = 'TI';              //FO, Færøyene
+             tafÆrk = xenhet;
+             tafÆrb = xsats;
+           when xlandgr = 'TOES';            //EØS-land
+             taeØsk = xenhet;
+             taeØsb = xsats;
+           when xlandgr = 'TSAC';            //BW, NA, SZ, ZA, LS. SACU-land
+             tan02k = xenhet;
+             tan02b = xsats;
+           when xlandgr = 'TTYR';            //TR, Tyrkia
+             tatyrk = xenhet;
+             tatyrb = xsats;
+           when xlandgr = 'TXI';             //PS. Vestbreddeb og Gazastripen
+             tavgak = xenhet;
+             tavgab = xsats;
+           when xlandgr = 'TSZ';             //Swaziland
+             tatsjk = xenhet;
+             tatsjb = xsats;
+           when xlandgr = 'TCL';             //Chile
+             tabulk = xenhet;
+             tabulb = xsats;
+           when xlandgr = 'TMK';             //Nord-Makedonia
+             tapolk = xenhet;
+             tapolb = xsats;
+           when xlandgr = 'TKR';             //SØR-KOREA
+             taromk = xenhet;
+             taromb = xsats;
+           when xlandgr = 'TRS';             //Serbia
+             tan05k = xenhet;
+             tan05b = xsats;
+           when xlandgr = 'TAL';             //Albania
+             tan06k = xenhet;
+             tan06b = xsats;
+           when xlandgr = 'TUA';             //UKRAINA
+             tan07k = xenhet;
+             tan07b = xsats;
+           when xlandgr = 'TJO';             //Jordan
+             taungk = xenhet;
+             taungb = xsats;
+           when xlandgr = 'TTN';             //TUNISIA
+             taslok = xenhet;
+             taslob = xsats;
+           when xlandgr = 'TMA';             //Marokko
+             tamark = xenhet;
+             tamarb = xsats;
+           when xlandgr = 'TPE';             //Peru
+             tan08k = xenhet;
+             tan08b = xsats;
+           when xlandgr = 'TME';             //Montenegro
+             tan09k = xenhet;
+             tan09b = xsats;
+           when xlandgr = 'THK';             //Hongkong
+             tan10k = xenhet;
+             tan10b = xsats;
+           when xlandgr = 'TMX';             //Mexico
+             tamexk = xenhet;
+             tamexb = xsats;
+           when xlandgr = 'TLB';             //Libanon
+             tan01k = xenhet;
+             tan01b = xsats;
+           when xlandgr = 'TEG';             //Egypt
+             tan03k = xenhet;
+             tan03b = xsats;
+           when xlandgr = 'TCA';             //Canada
+             tan04k = xenhet;
+             tan04b = xsats;
+           when xlandgr = 'TPA';             //Panama
+             tan14k = xenhet;
+             tan14b = xsats;
+           when xlandgr = 'TCR';             //Costa Rica
+             tan15k = xenhet;
+             tan15b = xsats;
+           when xlandgr = 'TCO';             //Columbia
+             tan16k = xenhet;
+             tan16b = xsats;
+           when xlandgr = 'TBA';             //BOSNIA-HERCEGOVINA
+             tan17k = xenhet;
+             tan17b = xsats;
+           when xlandgr = 'TGE';             //Georgia
+             tan18k = xenhet;
+             tan18b = xsats;
+           when xlandgr = 'TIL';             //Israel
+             taisrk = xenhet;
+             taisrb = xsats;
+           when xlandgr = 'TPH';             //Filippinene
+             tan19k = xenhet;
+             tan19b = xsats;
+           when xlandgr = 'TGB';             //Storbritania
+             tan20k = xenhet;
+             tan20b = xsats;
+           when xlandgr = 'TID';             //Indonesia
+             tan22k = xenhet;
+             tan22b = xsats;
+           when xlandgr = 'TEC';             //ECUADOR
+             tan23k = xenhet;
+             tan23b = xsats;
+           when xlandgr = '???';             //???
+             tan24k = xenhet;
+             tan24b = xsats;
+           when xlandgr = '???';             //???
+             tan25k = xenhet;
+             tan25b = xsats;
+           when xlandgr = '???';             //???
+             tan26k = xenhet;
+             tan26b = xsats;
+           endsl;
+           if not %found(TARINY);
+           // alle andre felt fra høyere nivå..
+              tatanr = x_tatanr;
+              tatar = %subst(xlandgr:2);
+              tadato = xfomdato;
+              tadts  = xtomdato;
+              tadtr  = xidag;
+              write TARIR;
+           else;
+              update TARIR;
+           endif;
+
+       endsr;
+
+
+       //**********************************************
+       begsr init;
+       //**********************************************
+
+         xrsn = %dec(usn:9:0);
+         syge15c ( wdt : wtm );
+         xidag = %dec(wdt:8:0);
+         udato = xidag;
+         xsats82 = 0;
+         uok = 'N';
+
+       endsr;
+
+      /end-free

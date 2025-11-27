@@ -1,0 +1,221 @@
+     H DFTACTGRP(*NO)
+     FSADEFL07  UF   E           K DISK
+     FTRACKF    O  A E             DISK
+     FECMSG1    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E             DISK
+     D                SDS
+     D  UUSR                 254    263
+     D                 DS
+     D  wdt                    1      8
+     D  xdt                    1      8  0
+     D                 DS
+     D  wtm                    1      6
+     D  xtm                    1      6
+     D                 DS
+     D  efpro                  1      8  0
+     D  efpro_a                1      8
+     D                 DS
+     D  efata                  1      8  0
+     D  efataa                 1      4
+     D  efatam                 5      6
+     D  efatad                 7      8
+     D                 DS
+     D  efatm                  1      6  0
+     D  efatmh                 1      2
+     D  efatmm                 3      4
+     D  efatms                 5      6
+      *  Prototype for 'ARCRAN'
+     d*ARCRAN          pr                  extpgm('ARCRAN')
+     d*newran_                             like(newran)
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SYGE128'
+     d SYGE128         pr                  extpgm('SYGE128')
+     d udtno_                              like(udtno)
+     d utdno_                              like(utdno)
+     d udtgm_                              like(udtgm)
+     d utdgm_                              like(utdgm)
+     d umod_                               like(umod)
+      *  Prototype for 'SAD140C'
+     d SAD140C         pr                  extpgm('SAD140C')
+     d uuid_                               like(uuid)
+     d ustatus_                            like(ustatus)
+     d uata_                               like(uata)
+     d ufil_                               like(ufil)
+      *  Prototype for 'SAD142C2'
+     d SAD142C2        pr                  extpgm('SAD142C2')
+     d ufrafil_                            like(ufrafil)
+     d utilfil_                            like(utilfil)
+      *  Prototype for SAD142R
+     d sad142r         pr
+      *  *ENTRY Interface for Main Procedure
+     d sad142r         pi
+      *
+     d*newran          s             10
+     d uuid            s             36
+     d ustatus         s             30
+     d uata            s             30
+     d ufil            s             45
+     d ufrafil         s             60
+     d utilfil         s             50
+     d udtno           s              8  0
+     d utdno           s              6  0
+     d udtgm           s              8  0
+     d utdgm           s              6  0
+     d umod            s              1
+     d xpos            s              3  0
+     d xpos2           s              3  0
+      *   SYEDI data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+      *
+      /free
+
+         exsr init;
+
+         // Hent status for alle som er sendt uten feil.
+         setll ('C': xdt) sadefl07;
+         readpe 'C' sadefl07;
+         dow not %eof;
+
+           sad140c (efuuid: ustatus: uata: ufil);
+
+           select;
+           when ustatus = 'COMPLETED';
+             efst = 'Z';
+             efst2 = 'C';
+             exsr ttsr;
+             exsr opdedis;
+             if uata <> *blanks;
+               efataa = %subst(uata:1:4);
+               efatam = %subst(uata:6:2);
+               efatad = %subst(uata:9:2);
+               efatmh = %subst(uata:12:2);
+               efatmm = %subst(uata:15:2);
+               efatms = %subst(uata:18:2);
+               udtno  = 0;
+               utdno  = 0;
+               udtgm  = efata;
+               utdgm  = efatm;
+               umod   = '2';
+               syge128 (udtno: utdno: udtgm: utdgm: umod);
+               efata  = udtno;
+               efatm  = utdno;
+             endif;
+           endsl;
+
+           update sadeffr;
+
+           readpe 'C' sadefl07;
+         enddo;
+
+         // Hent status for alle som er sendt med feil.
+         setll ('M': xdt) sadefl07;
+         readpe 'M' sadefl07;
+         dow not %eof;
+
+           sad140c (efuuid: ustatus: uata: ufil);
+
+           select;
+           when ustatus = 'COMPLETED';
+             efst = 'Z';
+             efst2 = 'C';
+             exsr ttsr;
+             exsr opdedis;
+             if uata <> *blanks;
+               efataa = %subst(uata:1:4);
+               efatam = %subst(uata:6:2);
+               efatad = %subst(uata:9:2);
+               efatmh = %subst(uata:12:2);
+               efatmm = %subst(uata:15:2);
+               efatms = %subst(uata:18:2);
+               udtno  = 0;
+               utdno  = 0;
+               udtgm  = efata;
+               utdgm  = efatm;
+               umod   = '2';
+               syge128 (udtno: utdno: udtgm: utdgm: umod);
+               efata  = udtno;
+               efatm  = utdno;
+             endif;
+           endsl;
+
+           update sadeffr;
+
+           readpe 'M' sadefl07;
+         enddo;
+
+         *inlr = *on;
+         return;
+
+      // ********************************************
+       begsr opdedis;
+
+         chain ('R': 'EXPREM') ecmsg1;
+         chain 1 edic;
+         csn = csn + 1;
+         update edicr;
+         s0004 = ECIIDI;
+         s0010 = ECIIDC;
+         s0020 = 'EF' + %TRIM(EFPRO_A);
+         s0026 = 'SAD142R';
+         ssn   = CSN;
+         ssr   = 'R';
+         sst   = 'C';
+         s0036 = 5;
+         sdt   = %dec(wdt:8:0);
+         stm   = %dec(wtm:6:0);
+         slib  = '*LIB';
+         sfile = '*IFS';
+         smbr  = *BLANKS;
+       /end-free
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+      /free
+         xpos = %scan('/': ufil);
+         dow xpos <> 0;
+           xpos2 = xpos;
+           xpos  = xpos + 1;
+           xpos = %scan('/': ufil: xpos);
+         enddo;
+         ufrafil = '/' + %trim(UELIBF) + '/EXPRESSMANIFEST/json_Inn/Backup/'
+                  + %subst(Ufil:xpos2+1:45-xpos2);
+         //arcran (newran);
+         utilfil = %trim(S0020) + '_' + %trim(wdt) + '-' + %trim(wtm) + '.json';
+         //       + '_' + %trim(newran) + '.json';
+         sad142c2 (ufrafil: utilfil);
+         sifs  = '/' + %trim(UELIBF) + '/EXPRESSMANIFEST/json_Inn/Backup/'
+                + %trim(utilfil);
+         write edisr;
+
+       endsr;
+
+      // ********************************************
+       begsr init;
+
+         syge15c (wdt: wtm);
+
+       endsr;
+
+      //***********************************************
+       begsr ttsr;
+
+       ttavd  = efavd;
+       tttur  = efpro;
+       ttacti = 'EFC';
+       ttdate = %dec(wdt:8:0);
+       ttdatl = ttdate;
+       tttime = %dec(wtm:6:0);
+       ttuser = uusr;
+       tttext = 'Ekspresfortolling manifest er komplett.';
+       tttexl = 'Ekspresfortolling manifest er komplett.';
+       ttedev = 'CMP';
+
+       write trackfr;
+
+       endsr;
+
+       /end-free

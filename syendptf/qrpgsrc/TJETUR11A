@@ -1,0 +1,198 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJETUR11A MODULE(*LIBL/TJETUR11A *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFERJ      IF   E           K DISK    USROPN
+     FLEVEL01   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WSFROM          S              5
+     D WSTO            S              5
+     D WSLENG          S              3
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D WA              S             15
+
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+          +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"ferryDepartures" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * Hent Ferjeposter
+     C                   EXSR      GetFerr
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FERJ
+     C  N50              CLOSE     LEVEL01
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WSFROM  = zhbgetvar('WSFROM')
+     C     LO:UPC        XLATE     WSFROM        WSFROM
+     C                   EVAL      WSTO    = zhbgetvar('WSTO')
+     C     LO:UPC        XLATE     WSTO          WSTO
+     C                   EVAL      WSLENG  = zhbgetvar('WSLENG')                norm: 10  12 ol..
+     C     LO:UPC        XLATE     WSLENG        WSLENG                         men in case alfa..
+      *
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     LEVEL01K      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    FEFIRM
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      FERJ
+     C  N50              OPEN      LEVEL01
+     c                   endsr
+      *
+      *
+      *
+      ****************************************************
+     C     GetFerr       begsr
+      ****************************************************
+      *
+     C     *loval        setll     FERJ
+     C                   read      FERJ
+     C                   dow       not %eof
+     C                   if        WSFROM <> *blanks and WSFROM <> FEFROM
+     c                   goto      nextRec
+     c                   endif
+     C                   if        WSTO   <> *blanks and WSTO   <> FETO
+     c                   goto      nextRec
+     c                   endif
+     C                   if        WSLENG <> *blanks and WSLENG <> FELENG
+     c                   goto      nextRec
+     c                   endif
+     C                   exsr      skrivPost
+     c     NextRec       tag
+     C                   read      FERJ
+     c                   enddo
+      *
+     c                   endsr
+      *
+      *******************************************************
+     C     SkrivPost     BEGSR
+      *******************************************************
+     C                   ADD       1             ANTLEST
+      * hente tillegsdata
+     c                   move      *blanks       LNAVN
+     c     LEVEL01K      CHAIN     LEVEL01                            33
+      * ....
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+        +'¬fefirm¬ : ¬'+%trim(%editc(fefirm:'Z'))+'¬, '
+        +'¬levNavn¬ : ¬'+%trim(LNAVN)+'¬, '
+        +'¬fefrom¬: ¬'+%trim(fefrom)+'¬, '
+        +'¬feto¬: ¬'+%trim(feto)+'¬, '
+        +'¬fetime¬: ¬'+%trim(%editc(fetime:'X'))+'¬, '
+        +'¬feleng¬: ¬'+%trim(feleng)+'¬, '
+        +'¬fecurr¬ : ¬'+%trim(fecurr)+'¬, '
+        +'¬fepri1¬ : ¬'+%trim(%editc(fepri1:'M'))+'¬, '
+        +'¬fepri2¬ : ¬'+%trim(%editc(fepri2:'M'))+'¬, '
+        +'¬fetxt¬ : ¬'+%trim(fetxt)+'¬}';
+      /end-free
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   ENDSR

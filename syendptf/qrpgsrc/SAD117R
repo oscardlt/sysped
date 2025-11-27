@@ -1,0 +1,452 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL VEDLIKEHOLDE KURERMANIFEST - VARELINJE ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 07 09-14 17-24             ***
+      *** LEDIGE INDIKATORER 29 31 32       52-75 78-89       ***
+      ***********************************************************
+      *
+     H DFTACTGRP(*NO)
+     FSADKMVL1  UF A E           K DISK
+     FTARI      IF   E           K DISK
+     FSAD117D   CF   E             WORKSTN SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WSVNT                  1      8  0
+     D  WSVNT_A                1      8
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                SDS
+     D  UUSR                 254    263
+      *
+     d wtm             s              6a
+     d wsli            s                   like(mvli)
+     d xidag           s              8  0
+     d xlin            s              5  0
+     d yrecno          s              5  0
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'SAD010A'
+     d SAD010A         pr                  extpgm('SAD010A')
+     d wsvnt_a_                            like(wsvnt_a)
+     d xidag_                              like(xidag)
+      *  Prototype for SAD117R
+     d sad117r         pr
+     d upro_                               like(upro)
+     d ucn_                                like(ucn)
+     d uvoec_                              like(uvoec)
+     d utype_                              like(utype)
+     d uflagg_                             like(uflagg)
+      *  *ENTRY Interface for Main Procedure
+     d sad117r         pi
+     d upro                           8  0
+     d ucn                            2  0
+     d uvoec                         17a
+     d utype                          3a
+     d uflagg                         1  0
+      *
+      /free
+
+         exsr init;
+
+         *in93 = *on;
+         write subctl;
+         *in93 = *off;
+         *in94 = *off;
+         zrecno = 0;
+
+         dow *in03 = *off;            // START                                   // 1<b
+
+           wsli = 0;
+           setll (upro: ucn) sadkmvl1;
+           reade(n) (upro: ucn) sadkmvl1;
+
+           dow not %eof;                                                         // 2<b
+             wsli = mvli;
+             zrecno = zrecno + 1;
+             write subfil;
+             reade(n) (upro: ucn) sadkmvl1;
+           enddo;                                                                // 2<e
+           wsli = wsli + 1;        // NESTE LINJENR
+           yrecno = zrecno;
+           if zrecno > 19;                                                       // 2<b
+             zrecno = 1;
+           endif;                                                                // 2<e
+
+           dow *in03 = *off;               // START3                             // 2<b
+           // vis subfil og få input
+             *in91 = *on;
+             *in92 = *on;
+             write bunn;
+             if zrecno = 0;                                                      // 3<b
+               exfmt nyvare;
+             else;                                                               // 3
+               exfmt subctl;
+             endif;                                                              // 3<e
+
+             *in30 = *off;
+             *in98 = *off;
+             *in99 = *off;
+             if *in03;                                                           // 3<b
+               uflagg = 3;
+               *inlr = *on;
+               return;
+             endif;                                                              // 3<e
+             if *in05;                                                           // 3<b
+               *in93 = *on;
+               write subctl;
+               *in93 = *off;
+               *in94 = *off;
+               zrecno = 0;
+               leave;
+             endif;                                                              // 3<e
+             if *in06;                                                           // 3<b
+               exsr crtlin;
+               *in93 = *on;
+               write subctl;
+               *in93 = *off;
+               *in94 = *off;
+               zrecno = 0;
+               leave;
+             endif;                                                              // 3<e
+             if *in12;                                                           // 3<b
+               uflagg = 1;
+               *inlr = *on;
+               return;
+             endif;                                                              // 3<e
+
+             if zrecno <> 0;                                                     // 3<b
+               exsr hent;
+             endif;                                                              // 3<e
+
+           enddo;                                                                // 2<e
+
+         enddo;                                                                  // 1<e
+
+         *inlr = *on;
+         return;
+
+      //*********************************************
+       begsr hent;
+
+       msgnr = *blanks;
+       *in90 = *off;
+       *in91 = *off;
+       *in92 = *off;
+       *in98 = *off;
+       *in99 = *off;
+
+       readc subfil;
+       dow not %eof;
+         if mvvoec <> '* SLETTET *';
+           linnbr = zrecno / 15;
+           xlin = zrecno - (%int(linnbr) * 15);
+           select;
+           when wsnr = 2;
+             *in99 = *off;
+             exsr chglin;
+           when wsnr = 4;
+             *in99 = *off;
+             exsr sltlin;
+           endsl;
+         endif;
+
+         readc subfil;
+       enddo;
+
+       if *in98 and *in99 = *off;
+         msgnr = 'DIV0012';
+         *in30 = *on;
+       endif;
+       *in99 = *off;
+
+       endsr;
+
+      //*********************************************
+       begsr chglin;
+
+       exsr movkmw;
+       linnbr = 25;
+       posnbr = 2;
+
+       dow *in12 = *off;
+         exfmt vareli;
+         *in85 = *off;
+         *in86 = *off;
+         *in87 = *off;
+         *in88 = *off;
+         *in89 = *off;
+         *in90 = *off;
+         *in30 = *off;
+
+         select;
+         when *in04;
+           exsr srsok;
+         when *in12;
+           update subfil;
+         other;
+         // TESTE INNTASTEDE TADA. HVIS IKKE NOE FEIL, OPPDRATERE PÅ FIL
+           exsr testb1;
+           if *in30 = *off;
+             exsr opdkmv;
+             *in12 = *on;
+           endif;
+         endsl;
+
+       enddo;
+
+       if xlin = 0;
+         linnbr = 19;
+       else;
+         linnbr = xlin;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr sltlin;
+
+       exfmt varel2;
+
+       select;
+       when *in12;
+         update subfil;
+       other;
+         chain (upro: ucn: mvli) sadkmvl1;
+         if %found;
+           delete sadkmvfr;
+           mvvoec = '* SLETTET *';
+         endif;
+       endsl;
+
+       wsnr =0;
+       update subfil;
+
+       if xlin = 0;
+         linnbr = 19;
+       else;
+         linnbr = xlin;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr crtlin;
+
+      ***********************************************
+       exsr movb2;
+       linnbr = 25;
+       posnbr = 2;
+
+       dow *in12 = *off;
+         exfmt vareli;
+         *in85 = *off;
+         *in86 = *off;
+         *in87 = *off;
+         *in88 = *off;
+         *in89 = *off;
+         *in90 = *off;
+         *in30 = *off;
+
+         select;
+         when *in04;
+           exsr srsok;
+         when *in12;
+           update subfil;
+         other;
+         // TESTE INNTASTEDE TADA. HVIS IKKE NOE FEIL, OPPDRATERE PÅ FIL
+           exsr testb1;
+           if *in30 = *off;
+             exsr opdkmv;
+             *in12 = *on;
+             *in91 = *on;
+             *in92 = *on;
+             write subctl;
+           endif;
+         endsl;
+
+       enddo;
+
+       endsr;
+
+      //*********************************************
+       begsr testb1;
+
+       if wsbl = 0;
+         linnbr = 25;
+         posnbr = 2;
+         msgnr = 'SPT0033';
+         *in30 = *on;
+         *in90 = *on;
+       endif;
+
+       if *in30 = *off;
+         chain wsvnt tari;
+         if not %found;
+           linnbr = 25;
+           posnbr = 15;
+           msgnr = 'SPT0033';
+           *in30 = *on;
+           *in89 = *on;
+         else;
+           wsvs = *blanks;
+           wsvs = taalfa;
+         endif;
+       endif;
+
+       if wsvktb = 0 and wsvktn = 0;
+         *in88 = *on;
+         if *in30 = *off;
+           linnbr = 25;
+           posnbr = 24;
+           msgnr = 'SPV0001';
+           *in30 = *on;
+         endif;
+       else;
+         select;
+         when wsvktb <> 0 and wsvktn = 0;
+           eval(h) wsvktn = wsvktb * 0.9;
+         when wsvktb = 0 and wsvktn <> 0;
+           eval(h) wsvktb = wsvktn * 1.1;
+         endsl;
+       endif;
+
+       if wsnt = 0;
+         *in87 = *on;
+         if *in30 = *off;
+           linnbr = 25;
+           posnbr = 46;
+           msgnr = 'YBC0824';
+           *in30 = *on;
+         endif;
+       endif;
+
+       if uvoec = *blanks and wsvoec = *blanks;
+         *in86 = *on;
+         if *in30 = *off;
+           linnbr = 25;
+           posnbr = 52;
+           msgnr = 'YBC2077';
+           *in30 = *on;
+         endif;
+       endif;
+
+       if wsvs = *blanks;
+         *in85 = *on;
+         if *in30 = *off;
+           linnbr = 25;
+           posnbr = 70;
+           msgnr = 'YBC0840';
+           *in30 = *on;
+         endif;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr opdkmv;
+
+       chain (upro: ucn: mvli) sadkmvl1;
+       // FLYTTE INNTASTET DATA TIL FIL-VARIABLER OG OPPDATERE DEM.
+       exsr movwkm;
+       if %found (sadkmvl1);
+         update sadkmvfr;
+       else;
+         write sadkmvfr;
+         wsli = wsli + 1;
+       endif;
+
+       wsnr = 0;
+       if *in40;
+         update subfil;
+       else;
+         yrecno = yrecno + 1;
+         zrecno = yrecno;
+         write subfil;
+       endif;
+
+       endsr;
+
+      //*********************************************
+       begsr movb2;
+
+       *in40  = *off;
+       mvpro  = upro;
+       mvcn   = ucn;
+       mvli   = wsli;
+       wsbl   = 0;
+       wsvnt  = 0;
+       wsvktb = 0;
+       wsvktn = 0;
+       wsnt   = 0;
+       if wsvoec = *blanks;
+         wsvoec = uvoec;
+       endif;
+       wsvs = *blanks;
+
+       endsr;
+
+      //*********************************************
+       begsr movwkm;
+
+       mvbl   = wsbl;
+       mvvnt  = wsvnt;
+       mvvktb = wsvktb;
+       mvvktn = wsvktn;
+       mvnt   = wsnt;
+       mvvoec = wsvoec;
+       mvvs   = wsvs;
+
+       endsr;
+
+      //*********************************************
+       begsr movkmw;
+
+       *in40  = *on;
+       //wsli   = mvli;
+       wsbl   = mvbl;
+       wsvnt  = mvvnt;
+       wsvktb = mvvktb;
+       wsvktn = mvvktn;
+       wsnt   = mvnt;
+       wsvoec = mvvoec;
+       wsvs   = mvvs;
+
+       endsr;
+
+      //*********************************************
+       begsr srsok;
+
+       linnbr = wscloc / 256;
+       posnbr = wscloc - (%int(linnbr) * 256);
+
+       select;
+       when linnbr = 25 and posnbr >= 15 and posnbr < 22;
+         sad010a (wsvnt_a: xidag);
+         posnbr = 24;
+       other;
+         msgnr = 'DIV1037';
+       endsl;
+
+       endsr;
+
+      //*********************************************
+       begsr init;
+
+       if utype = 'DSP';
+         *in49 = *on;
+       endif;
+
+       wdt = *zeros;
+       syge15c (wdt: wtm);
+       xidag = wdt_n;
+
+       endsr;
+
+      /end-free

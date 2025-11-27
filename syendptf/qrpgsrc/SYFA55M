@@ -1,0 +1,765 @@
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      ****************************************************************************************
+      * Hente-oppdrag,  Send instruksjonsmail                                                *
+      ****************************************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF12 paramter for språk/webuser - hent avs-mailadrees (ved web)
+11XXX * 02 JOV PTF12 Arkivere sendt mail
+11XXX * 03 SH  PTF12 mmail kommando retter fra STMF->HTML
+11XXX * 04 JOV PTF12 loggfør sendt mail
+      * 05 JOV PTF12 Hvis lagring i google cloud send rett dit (den rutinen sletter lokalt)
+      * 06 JOV PTF12 Også mottakers ref i oppdrags/posisjons-header
+********************************************************************
+     FTurer14   IF   E           K DISK
+     FHead11    IF   E           K DISK
+     FFREETXT2  IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+     FSYPARL3   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+N05  FFIRMGOOG  IF   E           K DISK
+     FFRISOK    IF   E           K DISK
+     FARKIVP    O    E             DISK
+N04  FTRACKF    O  A E           K DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D SDATA           S           1000
+     D WFilNam         S            256
+     D SMS             S             15
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                SDS
+     D  ZUSER                254    263
+      *
+N01  D TmpTxt1         S            100
+N01  D TmpTxt2         S            100
+N01  D TmpTxt3         S            100
+N01  D TmpTxt4         S            100
+N01  D TmpTxt5         S            100
+N01  D TmpTxt6         S            100
+N01  D TmpTxt7         S            100
+N01  D TmpTxt8         S            100
+N01  D TmpTxt9         S            100
+     D LINK            S            150
+     D LINK2           S            150
+     D MailSMS         S             70
+     D Emne            S             70
+     D AvAd            S             50
+     D AvNa            S             50
+     D Madr            S             50
+     D timedata1       S               z                                        z=Timestamfield
+     D                 DS
+     D  HXSNDN                 1     20
+     D  Snd17                  4     20
+      *
+     C                   EXSR      INIT
+      *
+      *
+     C                   EXSR      LAGHENTM
+     C                   EXSR      SendMail
+N04  C                   EXSR      TTSR
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     LAGHENTM      BEGSR
+      ******************************************************************************
+      * Lag fil og set codepage (pc)
+     C                   time                    Timedata1
+     C                   movel     timedata1     TS26             26            må være 26 lang
+     C                   movel     TS26          TS               22
+      *                                                 typisk TS er nå  2012-09-08-17.39.49.73
+     C                   EVAL      WFilNam ='/SYSPEDDEV/TEMP/'
+     C                                     + TS + '_' + TURNR + '.html'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+      * LEGG UT HTML TOP / STYLE MM  (se f.esk SYSPED/HTMLSRC.EISO15 for inlin css.)
+     C                   EVAL      SDATA  = '<HTML>'
+     C                             + '<style type="text/css"> '
+     c                             + 'th {font-size: 15pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'td {font-size: 10pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'BODY {'
+     c                             + '  font-size:10pt;'
+     c                             + '  font-family: arial,'
+     c                             + '  helvetica, helv;'
+     c**                           + '  background-color: #E6E6FA;'
+     c                             + '  margin-top: 50px;'
+     c                             + '  margin-right: 5px;'
+     c                             + '  margin-bottom: 5px;'
+     c                             + '  margin-left: 50px;'
+     c                             + '} '
+     c                             + '</style>  '
+      * slå på Border ved utvikling (om en lager EN linje som ikke dekker 2 kolonner blir det surr.)
+     c*                            + '<Body><table width="500" border="1">'
+     c                             + '<Body><table width="500">'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)       Skriv til IFS-fil
+      *
+N01   * Definere tekstkonstanter avhengig av språk
+N01   * En KUNNE definert ALLE tekst-kosntanter i EN rutine i toppen, MEN det ville være
+N01   * uoversikltig å lese (hvis ikke lange kreative feltnavn), Definere drefor fortløpende i Tmp..
+N01   * (kun først eksempel er endringsmerket, resten=Se Syfa55m.G /
+N01   *      prinsipp=meld-kontanter først ut på seferate linjer deretter bytte mer Tmp-variable..)
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Manifest for trip'
+N01  c                   eval      TmpTxt2 = 'Truck:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Godsliste for tur'
+N01  c                   eval      TmpTxt2 = 'Bil:'
+N01  c                   endsl
+     C                   Eval      EMNE  =  %trim(FIFT)
+S01  C*                                   +' Godsliste for tur '
+N01  C                                    +' '+%trim(TmpTxt1)+' '
+     C                                    +%trim(%editc(TUPRO:'Z'))
+S01  C*                                   +' Bil: ' +TUBILN
+N01  C                                    +' '+%trim(TmpTxt2)+' '
+N01  C                                    +TUBILN
+      *
+N02   * Gjenta emne som linje 1 i mailen (mest emd tanke på arkivert dokument/html..)
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Date:'
+N01  c                   eval      TmpTxt2 = 'Time:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Dato:'
+N01  c                   eval      TmpTxt2 = 'Tid:'
+N01  c                   endsl
+N02  C                   EVAL      SDATA  = '<tr><td colspan=2><b>'
+N02  C                                    +%trim(EMNE)+' &nbsp;&nbsp;&nbsp; '
+N02  C                                    +' &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; '
+N01  C                                    +' '+%trim(TmpTxt1)+' '
+     C                                    +%subst(WDT:1:4)+'.'
+     C                                    +%subst(WDT:5:2)+'.'
+     C                                    +%subst(WDT:7:2)
+N01  C                                    +' '+%trim(TmpTxt2)+' '
+     C                                    +%subst(WTM:1:2)+':'
+     C                                    +%subst(WTM:3:2)+':'
+     C                                    +%subst(WTM:5:2)
+N02  C                                    +'</b>'
+N02  c                                    + '</td></tr>'
+N02  C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+N02   *
+N02  C                   EVAL      SDATA  = '<tr><td colspan=2>&nbsp;</td></tr>'        Blank
+N02  C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * merknad gitt i bestillingsbildet ?
+     c                   if        UUMERK <> *blanks
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Remarks:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Merknad:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2><b>'
+     C                                    +%trim(TmpTxt1)+' '
+     C                                    +%trim(UUMERK)+'</b>'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * <hr> = horisontal line
+     C                   EVAL      SDATA  = '<tr><td colspan=2><hr></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     c                   endif
+      *
+      *
+     C     TUPRO         setll     HEAD11
+     C     TUPRO         reade     HEAD11
+     C                   dow       not %eof
+      *
+     C                   EXSR      HOVED
+      *
+     C     TUPRO         reade     HEAD11
+     c                   enddo
+     C                   EXSR      BUNN
+      * close file
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     HOVED         BEGSR
+      ******************************************************************************
+      *
+     C                   Movel     HEAVD         AvdOpd           11
+     C                   Move      HEOPD         AvdOpd
+      * Fraktbrevsnr fra frie søkeveier ..
+     c                   if        Snd17 = *blanks
+     c     IFBkey        chain     FRISOK
+     c                   if        %found
+     c                   eval      Snd17 = FSSOK
+     c                   endif
+     c                   endif
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Position:'
+N01  c                   eval      TmpTxt2 = 'Senders ref:'
+N06  c                   eval      TmpTxt9 = 'Recievers ref:'
+N01  c                   eval      TmpTxt3 = 'Our ref:'
+N01  c                   eval      TmpTxt4 = 'Shipment no:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Posisjon:'
+N01  c                   eval      TmpTxt2 = 'Senders ref:'
+N06  c                   eval      TmpTxt9 = 'Mottakers ref:'
+N01  c                   eval      TmpTxt3 = 'Vår ref:'
+N01  c                   eval      TmpTxt4 = 'Sendingsnr:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    +%trim(TmpTxt1)+' '
+     C                                    + %trim(HEPOS1)
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</b>'
+     C                                    +%trim(TmpTxt2)+' '
+     C                                    + %trim(HERFA)
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+N06  C                                    +%trim(TmpTxt9)+' '
+N06  C                                    + %trim(HERFK)
+N06  C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    +%trim(TmpTxt3)+' '
+     C                                    + %trim(%editc(HEAVD:'Z'))+'/'
+     C                                    + %trim(%editc(HEOPD:'Z'))
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    +%trim(TmpTxt4)+' '
+     C                                    +Snd17
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Coll.place/time:'
+N01  c                   eval      TmpTxt2 = 'Deliv.place/time:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Hentested/tid:'
+N01  c                   eval      TmpTxt2 = 'Lever.sted/tid:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             +%trim(TmpTxt1)+' '
+     C                             +'<b>'+%trim(%editw(TRSDFD:'    .  .  '))
+     C                             + ' '
+     C                             + %trim(%editw(TRSDFK:'  :  '))
+     C                             + '</b></td><td>'
+     C                             +%trim(TmpTxt2)+' '
+     C                             +'<b>'
+     C                             + %trim(%editw(TRSDTD:'    .  .  '))
+     C                             + ' '
+     C                             + %trim(%editw(TRSDTK:'  :  '))
+     C                             + '</b></td><td></tr>'
+     C                   EVAL      SDATA  = %trim(SDATA )
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HENAS  + '</td><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HENAK  + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADS1 + '</td><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADK1 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     c                   IF        HEADS2<>*blanks or HEADK2<>*blanks
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADS2 + '</td><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADK2 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   endif
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADS3 + '</td><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADK3 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td colspan=2>&nbsp;</td></tr>'        Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * Varelinje/gosmerke på samme linje..
+     C                   EVAL      SDATA  = '<tr><td colspan=2><b>'
+     C                                    + %trim(%editc(HENT:'Z'))
+     C                             + '</b> ' + %trim(HEVS1)
+     C                   if        HEVS2<>' '
+     C                   EVAL      SDATA  = %trim(SDATA ) +', '
+     C                             + %trim(HEVS2)
+     c                   endif
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Weight:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Vekt:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             +%trim(TmpTxt1)+' '
+     C                             +'<b>'+ %trim(%editc(HEVKT:'Z'))+'</b>'
+
+     C                   if        HEM3<>0
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Volume:'
+N01  c                   eval      TmpTxt2 = 'M3'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Volum:'
+N01  c                   eval      TmpTxt2 = 'M3'
+N01  c                   endsl
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             +%trim(TmpTxt1)+' '
+     C                             +'<b>'+ %trim(%editw(HEM3:'  0 ,   '))
+     C                             +' '+%trim(TmpTxt2)+'</b>'
+     c                   endif
+
+     C                   if        HELM<>0
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Load meters:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Lastemeter:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             +%trim(TmpTxt1)+' '
+     C                             + '<b>'
+     C                             + %trim(%editw(HELM:'0 ,  '))
+     C                             + '</b>'
+     c                   endif
+
+     c                   if        HEGM1<>' '
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Marks:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Merking:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             +%trim(TmpTxt1)+' '
+     C                             + %trim(HEGM1)
+     c                   endif
+
+     C                   if        HEGM2<>' '
+     C                   EVAL      SDATA  = %trim(SDATA ) +', '
+     C                             + %trim(HEGM2)
+     c                   endif
+     C                   EVAL      SDATA  = %trim(SDATA ) + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td colspan=2>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * LINKER SKRIVES 2 OG 2 (EN I HVER KOLONNE)
+      * selve linken for fraktbrevsprint
+     C                   EVAL      LINK   = 'http://'
+     C                             + %trim(ARCPAE) + '/sycgip/syfa12es.pgm'
+     c                             +'?user='+%trim(SYVRDA)
+     c                             +'&avd='+%trim(%editc(HEAVD:'Z'))
+     c                             +'&opd='+%trim(%editc(HEOPD:'Z'))
+      *
+      * selve linken for CMR
+     C                   EVAL      LINK2  = 'http://'
+     C                             + %trim(ARCPAE) + '/sycgip/esop11cm.pgm'
+     c                             +'?user='+%trim(SYVRDA)
+     c                             +'&avd='+%trim(%editc(HEAVD:'Z'))
+     c                             +'&opd='+%trim(%editc(HEOPD:'Z'))
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Click here to write waybill.'
+N01  c                   eval      TmpTxt2 = 'Click here to write CMR.'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Klikk her for å skrive ut '
+N01  c                                     + 'fraktbrev.'
+N01  c                   eval      TmpTxt2 = 'Klikk her for å skrive ut '
+N01  c                                     + 'CMR-fraktbrev.'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<a href="'+%trim(LINK)
+     c                                    + '" target="PfW">'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</a></td><td>'
+     C                                    + '<a href="'+%trim(LINK2)
+     c                                    + '" target="PfW">'
+     C                                    + %trim(TmpTxt2)
+     c                                    + '</a></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * selve linken for labelprint
+     C                   EVAL      LINK   = 'http://'
+     C                             + %trim(ARCPAE) + '/sycgip/ss115.pgm'
+     c                             +'?user='+%trim(SYVRDA)+'&curtur='+AvdOpd
+     c                             +'&labeltyp=L&lay=HE&copyprt=J'
+      * linken for spørring oppdrag
+     C                   EVAL      LINK2  = 'http://'
+     C                             + %trim(ARCPAE) + '/sycgip/syso02.pgm'
+     c                             +'?user='+%trim(SYVRDA)
+     c                             +'&UsrSpcName=InT5WXz4BJ'
+     c                             +'&heavd='+%trim(%editc(HEAVD:'Z'))
+     c                             +'&heopd='+%trim(%editc(HEOPD:'Z'))
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Click here to write labels.'
+N01  c                   eval      TmpTxt2 = 'Click here for shipment status '
+N01  c                                     + 'and more details.'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Klikk her for å skrive ut '
+N01  c                                     + 'merkelapper.'
+N01  c                   eval      TmpTxt2 = 'Klikk her for oppdragsstatus '
+N01  c                                     + 'og flere detaljer.'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<a href="'+%trim(LINK)
+     c                                    + '" target="PmW">'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</a></td><td>'
+     C                                    + '<a href="'+%trim(LINK2)
+     c                                    + '" target="SoW">'
+     C                                    + %trim(TmpTxt2)
+     c                                    + '</a></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td colspan=2>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * meld til transp
+     C                   EXSR      FRITRANS
+      *
+      * <hr> = horisontal line
+     C                   EVAL      SDATA  = '<tr><td colspan=2><hr></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     FRITRANS      BEGSR
+      ******************************************************************************
+      *
+     C                   MOVE      'N'           XLEDERTXT         1
+     C                   EVAL      FRTKOD = 'G'
+     C     FREETXT2K     SETLL     FREETXT2
+     C     FREETXT2K     READE     FREETXT2                               33
+     C                   DOW       *IN33 = *OFF
+      *
+     C                   IF        XLEDERTXT = 'N'
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Message to transporter:'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Melding til transportør:'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   MOVE      'J'           XLEDERTXT         1
+     C                   END
+      *
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>'
+     C                             + %trim(FRTTXT)
+     c                             + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C     FREETXT2K     READE     FREETXT2                               33
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     BUNN          BEGSR
+      ******************************************************************************
+      *
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Best regards'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Med vennlig hilsen'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + FIFT
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + '<img src="http://'+%trim(ARCPAE)
+     c                                    + '/syspeddev/systematop1.jpg">'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Telephone'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Telefon'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + %trim(TmpTxt1)+' '
+     C                                    + TLF
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'This email is created automatic'
+N01  C                                     + 'ly by the booking system.'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Denne eposten er skapt'
+N01  C                                     + ' automatisk av booking systemet.'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+N01  C                   select
+N01  c     WSSPRAK       wheneq    'EN'
+N01  c                   eval      TmpTxt1 = 'Please do not reply to the mail.'
+N01  c                   other
+N01  c                   eval      TmpTxt1 = 'Vennligst ikke svar på den.'
+N01  c                   endsl
+     C                   EVAL      SDATA  = '<tr><td colspan=2>'
+     C                                    + %trim(TmpTxt1)
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '</table></Body></HTML>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    TURNR             8
+     C                   PARM                    UUMAIL           50
+     C                   PARM                    UUMERK           50
+     c                   parm                    WebUser          10            Blank
+     c                   parm                    WSSPRAK           2
+      *
+     C                   MOVE      TURNR         TUPRO
+     C     TUPRO         CHAIN     TURER14
+     c                   if        not %found
+     c                   seton                                        LR
+     c                   return
+     c                   endif
+      *
+N01  c                   move      ZUSER         WSUSER           10
+N01  c                   if        WebUser <> *blanks
+N01  C                   MOVE      WebUser       PABRID
+N01  C                   MOVE      'ASUSR'       PAID
+N01  C     BrParKey      chain     BRPARF                             33
+N01  C  N33              MOVEL     PAVRDA        WSUSER
+N01  C                   endif
+      *
+S01  c*                  call      'SYGE73CL'
+S01  c*                  parm                    epostf           70
+S01  c                   call      'EPOS04'
+N01  c                   parm                    WSUSER
+N01  c                   parm                    DIRENA            8
+N01  c                   parm                    DIREAD            8
+N01  c                   parm                    epostf           70
+     C                   EVAL      AvNa =epostf
+     C                   EVAL      AvAd =epostf
+     C                   EVAL      Madr   = UUMAIL
+     c     FREETXT2K     klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    FRTKOD
+     c     IFBkey        klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    FSKODE
+     c                   move      'IFB'         FSKODE
+      *
+     c     sypak         klist
+     c                   kfld                    sykd              5
+     c                   move      'ESUSR'       SYKD
+     c     sypak         chain     SYPARL3                            33
+     C   33              EVAL      SYVRDA = 'NN'
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+     C     FIFIRM        CHAIN     FIRMARC                            33
+N02  C                   if        %subst(ARCANE:1:1)<>'/'
+N02  C                   eval      ARCANE = '/'+ARCANE
+N02  C                   endif
+      *
+      * hent telefonnr
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   EVAL      PABRID = '*KUNDFT*' + %TRIM(FIFIRM)
+     C                   MOVE      'TLF  '       PAID
+     C     BrParKey      CHAIN     BRPARF                             33
+     c  n33              movel     PAVRDA        TLF              20
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SendMail      BEGSR
+      ******************************************************************************
+      * Send via MMAIL
+     C                   EVAL      CmdLine = 'ADDLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+      * Appo i Emne gir error/sender ikke i MMMAIL (uten at bruker får varsel)
+     c     x'7D':'"'     xlate     EMNE          EMNE
+     C                   EVAL      CmdLine = 'EMLHTML SUBJECT('+ X'7D'
+     C                             + %trimr(Emne) + X'7D' + ') '
+     C                             + 'FROMNAME(' + X'7D'
+     C                             + %trimr(AvNa) + X'7D' + ') '
+     C                             + 'FROMADDR('  + X'7D'
+     C                             + %trimr(AvAd) + X'7D' + ') '
+     C                             + 'TO('+ X'7D'+%trimr(Madr)+ X'7D'+'/'+ X'7D'
+     C                             + %trimr(Madr)+ X'7D'+'/*TO) '
+E03  C                             + 'HTML('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+N02   * kopier mailen til arkivet
+N02   * hent random/unik streng for arkivlenke
+N02  C                   CALL      'ARCRAN'
+N02  C                   PARM                    UNIK             10
+N02  c                   EVAL      ARSTAT = 'A'
+N02  c                   EVAL      ARTYPE = 'gm'
+N02  c                   EVAL      ARFIRM = FIFIRM
+N02  c                   EVAL      ARUNDE = 'T:'+ TURNR
+N02  c                   move      WDT           ARDATE
+N02  c                   move      WTM           ARTIME
+N02  c                   EVAL      ARLINK = ARTYPE+%subst(WDT:1:4)+TURNR+'PM'
+N02  c                                    + UNIK+'.html'
+N02  c                   EVAL      ARRFK  = 'to:'+ Madr
+N02  C*                  EVAL      FRA = WFilNam
+N02  C*                  EVAL      TIL = %trim(ARCANE)+'/'+ARLINK
+N02  C*                  CALL      'ARCAMOVC'
+N02  C*                  PARM                    FRA             120
+N02  C*                  PARM                    TIL             120
+N02  C*                  PARM                    OkMov             1
+N02   * Får tegnsetts-problem dersom en benytter arcamovc..
+      ***     MOV OBJ('/sss/sss') TOOBJ('/bbb/bb')
+N02  C                   EVAL      CmdLine = 'MOV OBJ('+ X'7D'
+N02  C                             + %trim(WFilNam)+ X'7D'+ ') TOOBJ('+ X'7D'
+N02  C                             + %trim(ARCANE)+'/'+%trim(ARLINK)+ X'7D'+')'
+N02  C                   EVAL      CmdLen = %len(%trim(CmdLine))
+N02  C                   CALL      'QCMDEXC'                            98
+N02  C                   PARM                    CmdLine
+N02  C                   PARM                    Cmdlen
+N02  c*                  if        OkMov = 'J'
+N02  c                   WRITE     ARKIVR
+N02  c*                  endif
+N02   *
+n05  C     FIFIRM        chain     FIRMGOOG
+n05  C                   if        %found and GOBUID <> *blanks
+n05  c                   eval      Companyid = GOBUID
+n05  c                   eval      UlocalPath= '/'+%trim(ARCANE)+'/'
+n05  c                   eval      USrcFile  = ARLINK
+n05  c                   eval      UNewFile  = *blanks
+n05  c                   eval      Udelete   = 'J'
+n05  c                   call      'ARC99WSU1'
+n05  c                   parm                    Companyid        10
+n05  c                   parm                    UlocalPath      100
+n05  c                   parm                    uSrcFile        120
+n05  c                   parm                    udelete           1
+n05  c                   parm                    uNewFile         60
+n05  c                   parm                    Uok               1
+n05  c                   endif
+N02   *
+     C                   EVAL      CmdLine = 'RMVLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   ENDSR
+      *
+N04
+N04   ******************************************************************************
+N04  C     TTSR          BEGSR
+N04   ******************************************************************************
+N04  C                   MOVE      TUPRO         TTTUR
+N04  C                   MOVE      WDT           TTDATE
+N04  C                   MOVE      WTM           TTTIME
+N04  C                   MOVE      WDT           TTDATL
+N04  C                   MOVE      WTM           TTTIML
+N04  C                   MOVE      'CMS'         TTACTI
+N04  C                   MOVE      ZUSER         TTUSER
+N04  c                   if        WebUser <> *blanks
+N04  C                   MOVE      WebUser       TTUSER
+N04  c                   endif
+N04  C                   EVAL      TTTEXT ='Mail with manifest link '
+N04  C                             + TURNR  +' sent to ' + UUMAIL
+N04  C                   EVAL      TTTEXL ='Mail med manifestlenke '
+N04  C                             + TURNR  +' sendt til ' +UUMAIL
+N04  C                   MOVE      'S'           TTMANU
+N04  C                   write     TRACKFR
+N04   *
+N04  c                   if        UUMERK <>*blanks
+N04  C                   MOVE      'CMM'         TTACTI
+N04  C                   EVAL      TTTEXT ='Remarks: ' + UUMERK
+N04  C                   EVAL      TTTEXL ='Merknad: ' + UUMERK
+N04  C                   write     TRACKFR
+N04  c                   endif
+N04  C                   ENDSR
+N04   *

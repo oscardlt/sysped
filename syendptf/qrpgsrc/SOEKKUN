@@ -1,0 +1,679 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr *Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 VIS ORGANISASJONSNR
+10XXX * 02 JOV PTF10 ORG '000000000'->*blanks, Vis mailadr i kundebilde(DDS)
+10XXX * 03 JOV PTF10 IKKE returner navn ved søk på kunde
+10XXX * 04 JOV PTF10 hvis kundenr gitt i INPUT ikke utfør autosøk
+10XXX * 05 sh  PTF10 cursorposisjon
+10XXX * 06 sh  PTF10 utterligere litt cursorfix + tlf i subfil
+10XXX * 07 sh  PTF10 alltid cursor i kundnavn 1. gang
+10XXX * 08 YBC PTF10 LANDKODE ER MED SØKING
+10XXX * 09 SH  PTF10 feil ved foretaksnummer
+10XXX * 10 JOV PTF10 Forbedre PTF7 + åpne for søk via kundenr igjen
+10XXX *              Ptf08 funker ikke ved rulling - rettet
+10XXX *              Filter på type ( blank = alle F=faktkun/A=Adr.kun)
+11058A* 11 CB  PTF11 SØK ALFA VIA F2 FOR MEST BRUKTE KUNDER ØVERST
+      * **OBS** i INIT SR så er *IN02 på automatisk. Kan settes av for
+      *         de kunder som ikke vil ha mest brukte øverst.
+11058 * 12 CB  PTF11 SETT F2 AV HVIS INGEN TREFFER
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 13 JOV PTF12 dft F2 kun ved Alfa utfylt i INIT-rutine
+      * 14 JOV PTF12 F2 vist i DDS / cursor-plassering
+12XXX * 15 YBC PTF12 CURSORPLASSERING. RETTELSE PÅ ENDRING 14.
+12XXX * 16 YBC PTF12 NUSTILL CAVD
+********************************************************************
+      *
+      ***********************************************************
+      *** PROGRAM FOR ALFABETISK SØKING PÅ KUNDER             ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 02 06-11 13-24
+      *** LEDIGE INDIKATORER 27 28 31 32 34-41 43-77 79 86-90 95-97
+      ***********************************************************
+     FCUNDC01   IF A E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FCUNDL02   IF   E           K DISK    RENAME(KUNDR:KUNDR2)
+     FCUNDL03   IF   E           K DISK
+     FCUNDL04   IF   E           K DISK
+     FCUNDL05   IF   E           K DISK
+     FCUNDL06   IF   E           K DISK    RENAME(KUNDR:KUNDR6)
+N08  FCUNDL08   IF   E           K DISK    RENAME(KUNDR:KUNDR8)
+     FCUNDLFO   IF   E           K DISK    RENAME(KUNDR:KUNDLFO)
+     FVADR      IF   E           K DISK
+     FARKIVL11  IF   E           K DISK
+     FSOEKUNFM  CF   E             WORKSTN SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+N11  FSOEKUNW   IF   E           K DISK
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WSFOR2                 1     14
+     D  AF                     1     14
+     D                                     DIM(14)
+     D                 DS
+     D  WSFO14                 1     14
+     D  W2FORE                 1     11
+     D                 DS
+     D  W2POST                 1      4
+     D  W2PO11                 1      1
+     D  W2PO12                 1      2
+     D  W2PO13                 1      3
+     D  W2PO14                 1      4  0
+     D  W2PO24                 2      4
+     D  W2PO34                 3      4
+     D  W2PO44                 4      4
+     D                 DS
+     D  W2ALF2                 1     10
+     D  AL                     1     10
+     D                                     DIM(10)
+     D                 DS
+     D  SYRG                   1     14
+     D  SYFORE                 1      9
+N01  D                 DS
+N01  D  SYKONT                 2      8  0
+N01  D  XXTKRE                 1      8  0
+N01  D                 DS
+N02  D  WSPNRST                1     28
+N02  D  WSPNR                  1      4
+N02  D  WSADR3                 6     28
+N11  D                SDS
+N11  D   JobName             244    253A
+     C*
+     C                   EXSR      INIT
+     C*
+     C     START         TAG
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   Z-ADD     *ZEROS        ZRECNO
+     C                   MOVE      W2KUNR        X2KUNR            8 0
+     C                   MOVE      W2ALFA        X2ALFA           10
+N10  C                   MOVE      W2LAND        X2LAND            2
+N10  C                   MOVE      W2TYPE        X2TYPE            1
+     C                   MOVE      W2POST        X2POST            4
+N14  C**                 MOVE      W2PNRU        X2PNRU            9
+N14  C**                 MOVE      *blanks       X2PNRUMAX         9
+N14  C**                 eval      X2PNRUMAX=%trim(W2PNRU)+'999999999'
+N06  c     w2alfa        ifeq      *blanks
+N10  c     w2kunr        andeq     *zeros
+N09  c     w2fore        andeq     *blanks
+N15  c                   EVAL      FORSTE = 'N'
+N06  c                   goto      start3
+N06  c                   end
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     c     X2KUNR        ifne      *zeros
+     C     KUND1K        SETLL     CUNDL01
+     c                   else
+N08  C   80              IF        W2LAND = *BLANKS
+N11  C                   IF        *IN02 = *OFF
+     C   80PRIKU         SETLL     CUNDL02
+N11  C                   ENDIF
+N11  C                   IF        *IN80
+N11  C                   IF        *IN02
+N11  C                   CALL      'SOEKKUNW'
+N11  C                   PARM                    UFIRMA
+N11  C                   PARM                    W2ALFA
+N11  C                   ENDIF
+N11  C                   ENDIF
+     C     JobName       SETLL     SOEKUNW
+N08  C                   ELSE
+N08  C     CUNDL08K1     SETLL     CUNDL08
+N08  C                   END
+     C   81KUND3K        SETLL     CUNDL03
+     C   82KUND4K        SETLL     CUNDL04
+     C   83KUND5K        SETLL     CUNDL05
+     C   84KUND6K        SETLL     CUNDL06
+     C   85KUNDFOK       SETLL     CUNDLFO
+     c                   end
+      *
+      *
+     C     START1        TAG
+     c     X2KUNR        ifne      *zeros
+     C     UFIRMA        READE     CUNDL01                                94
+     c                   else
+N08  C   80              IF        W2LAND = *BLANKS
+N11  C                   IF        *IN02 = *OFF
+     C   80UFIRMA        READE     CUNDL02                                94
+N11  C                   ENDIF
+N11  C                   IF        *IN80
+N11  C                   IF        *IN02
+N11  C     JobName       READE     SOEKUNW                                94
+N11  C     KUND1K2       CHAIN     CUNDL01                            52
+N11  C                   ENDIF
+N11  C                   ENDIF
+N08  C                   ELSE
+N08  C     CUNDL08K2     READE     CUNDL08                                94
+N08  C                   END
+     C   81WFIPO3        READE     CUNDL03                                94
+     C   82WFIPO4        READE     CUNDL04                                94
+     C   83WFIPO5        READE     CUNDL05                                94
+     C   84WFIPO6        READE     CUNDL06                                94
+     C   85UFIRMA        READE     CUNDLFO                                94
+     C  N94W2ALF2        COMP      SONAVN                               94
+     c  N94wsfor2        comp      syrg                                 94
+     c                   end
+N10   * filter på ativ/inaktiv
+N10  c     *in94         ifeq      *off
+N10  c     X2TYPE        ifeq      'F'
+N10  c     AKTKOD        cabeq     'I'           Start1
+N10  c                   endif
+N10  c     X2TYPE        ifeq      'A'
+N10  c     AKTKOD        cabne     'I'           Start1
+N10  c                   endif
+N14  c**   X2PNRU        ifne      *blank
+N14  c**   SYPOGE        iflt      X2PNRU
+N14  c**   SYPOGE        orgt      X2PNRUmax
+N14  c**                 goto      Start1
+N14  c**                 endif
+N14  c**                 endif
+N10  c                   endif
+      *
+     C     START2        TAG
+     C                   MOVE      'N'           AKUNJN            1
+      *
+     C  N94              DO
+     C                   MOVE      X2ALFA        W2ALFA
+     C                   MOVE      X2POST        W2POST
+      *
+     C                   DO        5
+     C                   ADD       1             ZRECNO
+     C                   MULT(H)   -1            ODDE              1 042
+N02  C                   MOVE      *blanks       WSPNRST
+     C     VADRK         CHAIN     VADR                               78
+     C     *IN78         IFEQ      '0'
+     C                   MOVEL     VADRN1        WSADR1
+S01  C*                  MOVE      VADRN2        WSADR2
+S02  C*                  MOVE      *ZEROS        WSPNR
+S02  C*                  MOVEL     VADRN3        WSADR3
+N02  C                   MOVEL     VADRN3        WSPNRST
+     C                   ELSE
+     C                   MOVEL     ADR1          WSADR1
+S01  C*                  MOVE      ADR2          WSADR2
+     C                   MOVE      POSTNR        WSPNR
+N02  C*                  MOVE      ADR3          WSADR3
+N02  C                   MOVEL     ADR3          WSADR3
+N02  C     POSTNR        IFEQ      0                                              3<-B
+N02  C     SYPOGE        IFEQ      *BLANKS
+N02  C                   MOVEL     ADR3          WSPNRST
+N02  C                   ELSE
+N02  C                   EVAL      WSPNRST=%trim(SYPOGE)+' '+ADR3
+N02  C                   END
+N02  C                   END
+     C                   MOVE      *BLANKS       VADRNA
+     C                   MOVE      *BLANKS       VADRN1
+     C                   MOVE      *BLANKS       VADRN2
+     C                   MOVE      *BLANKS       VADRN3
+     C                   END
+N02   * Mode fro vis Epsot - vis den i pnr/sted-felt
+N02  c     EpoJN         Ifeq      'J'
+N02  C                   MOVEL     SYEPOS        WSPNRST
+N02  C                   end
+     C     AKTKOD        COMP      'I'                                    70
+     C   70              MOVE      'J'           AKUNJN
+S01  c*  85              move      *blanks       wsadr2
+S01  c*  85              movel     syrg          wsadr2
+     C                   MOVEL     'K:'          uuparu
+     C                   MOVE      KUNDNR        uuparu           10
+     c     ArkKey11      chain     arkivl11                           33
+     c   33              move      ' '           SFARKIV
+     c  N33              move      'A'           SFARKIV
+N01  c     SYFORE        ifeq      '000000000'
+N01  c                   move      *blanks       SYFORE
+N01  c                   end
+     C                   WRITE     SUBFIL
+      *
+      * LES NESTE (INEN I MAX VALTE LOOP)
+N10  C     START1B       TAG
+     c     X2KUNR        ifne      *zeros
+     C     UFIRMA        READE     CUNDL01                                94
+     c                   else
+N08  C   80              IF        W2LAND = *BLANKS
+N11  C                   IF        *IN02 = *OFF
+     C   80UFIRMA        READE     CUNDL02                                94
+N11  C                   ENDIF
+N11  C                   IF        *IN80
+N11  C                   IF        *IN02
+N11  C     JobName       READE     SOEKUNW                                94
+N11  C     KUND1K2       CHAIN     CUNDL01                            52
+N11  C                   ENDIF
+N11  C                   ENDIF
+N08  C                   ELSE
+N08  C     CUNDL08K2     READE     CUNDL08                                94
+N08  C                   END
+     C   81WFIPO3        READE     CUNDL03                                94
+     C   82WFIPO4        READE     CUNDL04                                94
+     C   83WFIPO5        READE     CUNDL05                                94
+     C   84WFIPO6        READE     CUNDL06                                94
+     C   85UFIRMA        READE     CUNDLFO                                94
+N10   * filter på ativ/inaktiv
+N10  c     *in94         ifeq      *off
+N10  c     X2TYPE        ifeq      'F'
+N10  c     AKTKOD        cabeq     'I'           Start1B
+N10  c                   endif
+N10  c     X2TYPE        ifeq      'A'
+N10  c     AKTKOD        cabne     'I'           Start1B
+N10  c                   endif
+N10  c                   endif
+N14  c**   X2PNRU        ifne      *blank
+N14  c**   SYPOGE        iflt      X2PNRU
+N14  c**   SYPOGE        orgt      X2PNRUmax
+N14  c**                 goto      Start1B
+N14  c**                 endif
+N14  c**                 endif
+     c                   end
+      *
+     C  N94              END                                                    enddo 5
+     C                   END                                                    enddo N94
+      *
+N12  C                   IF        *IN02 AND ZRECNO = 0
+N12  C                   EVAL      *IN02 = *OFF
+N12  C                   GOTO      START
+N12  C                   END
+      *
+      *
+      * MINST EN ADR.KUNDE ER VIST - FORKLARENDE TEKST
+     C     AKUNJN        IFEQ      'J'
+     C     *IN30         ANDEQ     '0'
+     C                   MOVE      'JOV0999'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   MOVE      'N'           AKUNJN
+     C                   END
+     C*
+     C                   Z-ADD     ZRECNO        YRECNO            4 0
+     C     *IN29         IFEQ      '0'                                          Første runde
+     C     W2ALFA        ANDEQ     *BLANKS                                      Søkenavn blank
+N10  C     W2KUNR        ANDEQ     *Zeros                                       f.o.m Kunde blank
+     C                   Z-ADD     4             LINNBR
+     C                   Z-ADD     14            POSNBR
+     C                   MOVE      '1'           *IN29
+     C                   ELSE
+S14  C*                  Z-ADD     5             LINNBR
+s14  C*                  Z-ADD     2             POSNBR
+S15  C*                  Z-ADD     4             LINNBR
+S15  C*                  Z-ADD     14            POSNBR
+N14  C                   Z-ADD     5             LINNBR
+N14  C                   Z-ADD     2             POSNBR
+N07  c     forste        ifeq      'J'
+N15  c     forste        OREQ      ' '
+N07  c                   z-add     14            posnbr
+N07  c                   z-add     4             LINNBR
+N07  c                   move      'N'           forste
+N07  c                   end
+     C                   END
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+     C     ZRECNO        IFEQ      0
+N05  c                   z-add     14            posnbr
+N05  c                   z-add     4             LINNBR
+     C                   EXFMT     NYWRK
+     C                   ELSE
+     C                   WRITE     BUNN
+     C                   EXFMT     SUBCTL
+     C                   END
+     C                   SETOFF                                       9830
+     C*
+     C*** AVSLUTT
+     C   03
+     COR 12              GOTO      SLUTT
+      *
+     C   05              DO
+     C                   MOVE      X2KUNR        W2KUNR
+     C                   MOVE      X2ALFA        W2ALFA
+N10  C                   MOVE      X2LAND        W2LAND
+N10  C                   MOVE      X2TYPE        W2TYPE
+     C                   MOVE      X2POST        W2POST
+     C                   GOTO      START
+     C                   END
+      *
+N02  C   07              DO
+N02  c     EpoJN         Ifeq      'J'
+N02  c                   Move      'N'           EpoJN
+N02  c                   movel     'F7=Email ad.'F7Txt
+N02  c                   else
+N02  c                   Move      'J'           EpoJN
+N02  c
+N02  c                   end
+N02  C                   MOVE      X2KUNR        W2KUNR
+N02  C                   MOVE      X2ALFA        W2ALFA
+N10  C                   MOVE      X2LAND        W2LAND
+N10  C                   MOVE      X2TYPE        W2TYPE
+N02  C                   MOVE      X2POST        W2POST
+N02  C                   GOTO      START
+N02  C                   END
+     C*
+     C* LAG NY / L1 VEDLIKEHOLD
+     C   06              DO
+     C                   CALL      'VKUIBMCL'
+     C                   GOTO      START3
+     C                   END
+     C* SYSPED VEDLIKEHOLD
+     C   09              DO
+     C                   CALL      'VKUNDCL'
+     C                   GOTO      START3
+     C                   END
+     C* frisøk
+     C   10              DO
+     C                   CALL      'SYGE22'
+     C                   PARM                    USØKKN           30
+     C                   PARM                    UKUNR             8 0
+     C                   GOTO      slutt
+     C                   END
+     C*** BLA VIDERE
+     C   25              DO
+     C                   Z-ADD     YRECNO        ZRECNO
+     C                   SETOFF                                       25
+N10  C                   MOVE      X2LAND        W2LAND
+     C                   GOTO      START2
+     C                   END
+      *
+     C     W2NR          IFEQ      '1'
+     C     W2KUNR        ANDNE     0
+     C     KUND1K        CHAIN     CUNDL01                            33
+     C   33              GOTO      START
+     C                   MOVE      W2KUNR        UKUNR
+S03  C**                 MOVE      KNAVN         USØKKN
+N03  C                   MOVE      *blanks       USØKKN
+     C                   GOTO      SLUTT
+     C                   END
+      * søk via kunde
+     C     W2KUNR        IFNE      *zeros
+     C                   GOTO      START
+     C                   END
+     C     W2ALFA        IFNE      *BLANKS
+     C     W2fore        orne      *blanks
+     C                   EXSR      SETMAX
+     C                   MOVEA     '000'         *IN(82)
+     C     W2POST        COMP      *BLANKS                            818180
+     C   81W2PO24        COMP      *BLANKS                            828281
+     C   82W2PO34        COMP      *BLANKS                            838382
+     C   83W2PO44        COMP      *BLANKS                            848483
+     C     W2FORE        COMP      *BLANKS                            8585
+     C   85              SETOFf                                       80
+     C                   GOTO      START
+     C                   END
+     C*
+     C     ZRECNO        IFEQ      0
+     C                   GOTO      START3
+     C                   ELSE
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   EXSR      HENT
+     C                   WRITE     WINDOWSZ
+     C                   GOTO      START3
+     C                   END
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     HENT          BEGSR
+     C***********************************************
+     C                   Z-ADD     1             LINNBR
+     C                   MOVEA     '00'          *IN(91)
+     C                   MOVE      '0'           *IN99
+     C     *IN98         DOWEQ     '0'
+     C                   READC     SUBFIL                                 98
+     C  N98WSNR          IFEQ      '1'
+     C                   Z-ADD     KUNDNR        UKUNR
+S03  C**                 MOVE      KNAVN         USØKKN
+N03  C                   MOVE      *blanks       USØKKN
+     C                   SETON                                        LR
+     C                   RETURN
+     C                   END
+      *
+     C  N98WSNR          IFEQ      '5'
+     C     ZRECNO        DIV       5             LINNBR
+     C                   MVR                     XLIN              2 0
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     5             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   MULT      2             LINNBR
+     C                   MOVE      '1'           *IN99
+     C                   EXFMT     BILDE01
+     C                   MOVE      ' '           WSNR
+     C                   UPDATE    SUBFIL
+     C                   END
+      *
+     C  N98WSNR          IFEQ      '8'
+     C     ZRECNO        DIV       5             LINNBR
+     C                   MVR                     XLIN              2 0
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     5             LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   MULT      2             LINNBR
+     C                   MOVE      '1'           *IN99
+     C                   EXSR      CUNDCA
+     C                   CALL      'VCUNDCR'
+     C                   PARM                    FIRMA
+     C                   PARM                    KUNDNR
+     C                   PARM                    RRN              10 0
+     C                   PARM                    UEMFA             1
+     C                   PARM                    UCONTA           30
+     C     RRN           IFNE      *ZEROS
+     C                   MOVEL     'KP'          UPAR12           12
+     C                   MOVE      RRN           UPAR12
+     C                   MOVEL     UPAR12        UPAR13           13
+     C                   MOVE      UEMFA         UPAR13
+     C                   MOVEL     UPAR13        USØKKN
+     C                   Z-ADD     KUNDNR        UKUNR
+     C                   SETON                                        LR
+     C                   RETURN
+     C                   END
+     C                   END
+      * S= Skilleark
+     C     WSNR          IFEQ      'S'                                          KPERS
+     C                   MOVE      '  '          SCATYP            2
+     C                   MOVEL     KUNDNR        SCASTR           20
+     C                   CALL      'ARCA000CL'
+     C                   PARM                    SCATYP
+     C                   PARM                    SCASTR
+     C                   MOVE      ' '           WSNR
+     C                   UPDATE    SUBFIL
+     C                   END
+      * P= PDF (=se arkiv)
+     C     WSNR          IFEQ      'P'                                          KPERS
+     C                   MOVEL     'K:'          uuparu
+     C                   MOVE      KUNDNR        uuparu           10
+     C                   CALL      'ARC003'
+     C                   PARM                    uuuavd            4 0
+     C                   PARM                    uuuopd            7 0
+     C                   PARM                    uuparu
+     C                   MOVE      ' '           WSNR
+     C                   UPDATE    SUBFIL
+     C                   END
+      *
+     C                   END
+     C*
+     C                   ADD       3             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C   98
+     CANN99              DO
+     C                   MOVE      'DIV0012'     MSGNR
+     C                   SETON                                            30
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     KUNDFOK       KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    WSFO14
+     C     MAXKEFO       KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    Wsfor2k          14
+     C     ArkKey11      KLIST
+     C                   KFLD                    ARSTAT
+     C                   KFLD                    uuparu
+     C                   move      'A'           ARSTAT
+     C     PRIKU         KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2ALFA
+N08  C     CUNDL08K1     KLIST
+N08  C                   KFLD                    UFIRMA
+N08  C                   KFLD                    W2LAND
+N08  C                   KFLD                    W2ALFA
+N08  C     CUNDL08K2     KLIST
+N08  C                   KFLD                    UFIRMA
+N08  C                   KFLD                    W2LAND
+     C     KUND3K        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO11
+     C                   KFLD                    W2ALFA
+     C     KUND4K        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO12
+     C                   KFLD                    W2ALFA
+     C     KUND5K        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO13
+     C                   KFLD                    W2ALFA
+     C     KUND6K        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO14
+     C                   KFLD                    W2ALFA
+     C     WFIPO3        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO11
+     C     WFIPO4        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO12
+     C     WFIPO5        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO13
+     C     WFIPO6        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2PO14
+     C     KUNKEY        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    KUNDNR
+     C     KUND1K        KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    W2KUNR
+     C     VADRK         KLIST
+     C                   KFLD                    UFIRMA
+     C                   KFLD                    KUNDNR
+     C                   KFLD                    XVADRN
+N11  C     KUND1K2       KLIST
+N11  C                   KFLD                    UFIRMA
+N11  C                   KFLD                    WORKKUNDNR
+     C                   Z-ADD     1             XVADRN            5 0
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UKUNR             8 0
+     C                   PARM                    UFIRMA            2
+     C                   PARM                    USØKKN           30
+     C*
+     C                   Z-ADD     1             ODDE
+     C                   MOVEL     USØKKN        W2ALFA
+N13   * dft F2 kun ved Alfa utfylt
+N13  c                   if        W2Alfa <> *blanks
+N11  C                   EVAL      *IN02=*ON
+N13  c                   endif
+     C                   EXSR      SETMAX
+N04  c     UKUNR         ifne      *zeros
+N04  C                   move      UKUNR         W2KUNR
+N04  c                   else
+     C     PRIKU         SETLL     CUNDL02
+     C     UFIRMA        READE     CUNDL02                                33
+      * ALTSEQ I FIL GJØR AT EN KAN LESE SEG FRAM TIL LAVERE SONAVN!!
+     C  N33SONAVN        COMP      W2ALF2                             33
+     C  N33SONAVN        COMP      W2ALFA                               33
+     C  N33              DO
+     C                   MOVE      KUNDNR        XKN               8 0
+     C                   MOVE      KNAVN         XNAVN            30
+     C     UFIRMA        READE     CUNDL02                                33
+     C  N33SONAVN        COMP      W2ALF2                             33
+     C  N33SONAVN        COMP      W2ALFA                               33
+     C   33              MOVE      XKN           UKUNR
+S03  C*  33              MOVE      XNAVN         USØKKN
+N03  C                   MOVE      *blanks       USØKKN
+     C   33              MOVE      '1'           *INLR
+     C   33              RETURN
+     C                   END
+N04  c                   endif
+      *
+N02  c                   Move      'N'           EpoJN             1
+N02  c                   movel     'F7=Email ad.'F7Txt            12
+      *
+     C                   MOVE      '1'           *IN80
+     C                   WRITE     WINDOWSZ
+     C*
+      * begge utfylt-kommer fra - plassercursor i søkefelt
+N10  c     UKUNR         ifne      *zeros
+N10  c     USØKKN        andne     *blanks
+N07  c                   Move      'J'           forste            1
+N10  c                   endif
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     SETMAX        BEGSR
+     C***********************************************
+     C                   MOVEL     W2ALFA        WALFA1            1
+     C     WALFA1        IFEQ      '*'
+     C                   MOVEL     '99999999'    W2ALF2
+     C                   ELSE
+     C                   MOVE      W2ALFA        W2ALF2
+     C                   Z-ADD     10            NR                2 0
+     C     STSMAX        TAG
+     C     AL(NR)        IFEQ      ' '
+     C                   MOVE      '9'           AL(NR)
+     C                   SUB       1             NR
+     C     NR            IFNE      0
+     C                   GOTO      STSMAX
+     C                   END
+     C                   END
+N11  C                   IF        *IN02
+N11  C                   CALL      'SOEKKUNW'
+N11  C                   PARM                    UFIRMA
+N11  C                   PARM                    W2ALFA
+N11  C                   ENDIF
+     C                   END
+     C*
+     C     W2FORE        IFEQ      *blanks
+     C                   MOVEL     '9999999999'  WSFOR2
+     C                   MOVE      '9999'        WSFOR2
+     C                   ELSE
+     C                   MOVE      *blanks       WSFOR2
+     C                   MOVEL     W2FORE        WSFOR2
+     C                   Z-ADD     14            NR                2 0
+     C     STSMAX2       TAG
+     C     AF(NR)        IFEQ      ' '
+     C                   MOVE      '9'           AF(NR)
+     C                   SUB       1             NR
+     C     NR            ifne      0
+     C                   GOTO      STSMAX2
+     C                   END
+     C                   END
+     C                   END
+     C                   MOVE      Wsfor2        Wsfor2k          14
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     CUNDCA        BEGSR
+     C***********************************************
+      * ADD POST I CUNDC HVIS MANGLER
+     C     KUNKEY        SETLL     CUNDC01                                51
+     C     *IN51         IFEQ      *OFF
+     C                   MOVEL     FIRMA         CFIRMA
+     C                   Z-ADD     KUNDNR        CCOMPN
+     C                   MOVEL     KPERS         CCONTA
+     C     TFAXNR        IFNE      *BLANKS
+     C                   MOVEL     TFAXNR        CFAX
+     C                   ELSE
+     C                   MOVEL     TLF           CFAX
+     C                   ENDIF
+N16  C                   MOVE      *ZEROS        CAVD
+     C                   WRITE     CUNDCR
+     C                   ENDIF
+     C                   ENDSR

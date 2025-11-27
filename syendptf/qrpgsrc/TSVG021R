@@ -1,0 +1,309 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+P12XXX* 01 CB  PTF12  Validera varukoden
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVG021R MODULE(*LIBL/TSVG021R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+N01  FSVTX04F   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+     D WSUSER          S             10
+     D ULK             S              2
+     D UFOKD           S              3
+     D UVTA_IE         S              1
+     D UVTX15_01       S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+N01   *
+N01  C                   IF        Error = *blanks
+N01  C     UVTX15_01     CHAIN     SVTX04F                            51
+N01  C                   IF        *IN51
+N01  C                   EVAL      Error = 'Varukod ogiltig'
+N01  C                   ENDIF
+N01  C                   ENDIF
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬ie¬ : ¬'+%trim(UVTA_IE)+'¬, '
+        +'¬vata¬ : ¬'+%trim(UVTX15_01)+'¬, '
+        +'¬lk¬ : ¬'+%trim(ULK)+'¬, '
+        +'¬fokd¬ : ¬'+%trim(UFOKD)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"bilhandykoder" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Hæmta varukod/varukoder
+      *
+     c     Error         ifeq      *blanks
+     C  N50              EXSR      YKOD
+
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     SVTX04F
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UVTA_IE = zhbgetvar('IE')
+     C                   EVAL      UVTX15_01 = zhbgetvar('VATA')
+     C                   EVAL      ULK = zhbgetvar('LK')
+     C                   EVAL      UFOKD = zhbgetvar('FOKD')
+     c                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *________________
+      * Arbetsvariablar
+      *""""""""""""""""
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      SVTX04F
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Finnes y-koder ?                                    YKOD /
+      *////////////////////////////////////////////////////////////
+     C     YKOD          BEGSR
+     C                   CALL      'SVT014R'
+     C                   PARM                    UVTA_IE
+     C                   PARM                    UVTX15_01
+     C                   PARM                    ULK
+     C                   PARM                    UFOKD
+     C                   PARM                    UYKOD1            4
+     C                   PARM                    UYTXT1          100
+     C                   PARM                    UYKOD2            4
+     C                   PARM                    UYTXT2          100
+     C                   PARM                    UYKOD3            4
+     C                   PARM                    UYTXT3          100
+     C                   PARM                    UYKOD4            4
+     C                   PARM                    UYTXT4          100
+     C                   PARM                    UYKOD5            4
+     C                   PARM                    UYTXT5          100
+     C                   PARM                    UYKOD6            4
+     C                   PARM                    UYTXT6          100
+     C                   PARM                    UYKOD7            4
+     C                   PARM                    UYTXT7          100
+     C                   PARM                    UYKOD8            4
+     C                   PARM                    UYTXT8          100
+     C                   PARM                    UYKOD9            4
+     C                   PARM                    UYTXT9          100
+
+      * Har nå funnet y-koder, konverter og returner
+     C     UYKOD1        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD1)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT1)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD2        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD2)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT2)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD3        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD3)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT3)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD4        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD4)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT4)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD5        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD5)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT5)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD6        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD6)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT6)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD7        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD7)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT7)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD8        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD8)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT8)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+
+     C     UYKOD9        IFNE      *BLANKS
+     C                   Add       1             AntLest
+      /free
+          JSONstring=', ';
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kod¬ : ¬'+%trim(UYKOD9)+'¬, '
+          +'¬txt¬ : ¬'+%trim(UYTXT9)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDIF
+     C                   ENDSR

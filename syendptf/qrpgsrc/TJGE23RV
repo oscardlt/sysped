@@ -1,0 +1,387 @@
+      * dette prog kalles for EN varelinje når denne forsøkes lagret ....
+      *       Hvis vellykket/ingen errors så går klient (lastetorg) videre og kaller TJGE23R=lagre
+      * MERK - litt rar ERR-håndtering - bygd for å kunne takle flere errors på en linje
+      *        samt returnere retur-values / infomelding
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE23RV MODULE(*LIBL/TJGE23RV *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+12XXX * 01 JOV PTF12 Sjekk ADR samlasting
+12XXX * 02 JOV PTF12 IKKE sjekk ADR dersom godset alt ER levert
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+     FADRUNNRF  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      *
+     D Len             S              4S 0
+     D Brd             S              4S 0
+     D Ant             S              7S 0
+     D Pakn            S              7
+     D LM              S              4S 2
+      *  Prototype for 'SYOXLM'
+     d syoxlm          pr                  extpgm('SYOXLM')
+     d fvlen_                              like(len)
+     d fvbrd_                              like(brd)
+     d fvant_                              like(ant)
+     d fvpakn_                             like(pakn)
+     d fvlm_                               like(lm)
+      *
+      * Varible for
+     D WSUSER          S             10
+     D JSONstring      S          32000
+     D NyErr           S            150                                         en errormelding
+     D NyInf           S            150                                         en ny value i svar
+     D NyVal           S            150                                         en ny value i svar
+     D Error           S           5000                                         flere feilmeldinger
+     D InfoMsg         S           5000                                         flere feilmeldinger
+     D Values          S           5000                                         Flere nye verdier
+     D XWORK           S             15S 4
+     D WA              S             15
+     D AVD             S              4S 0
+     D OPD             S              7S 0
+     D FVLINR          S              2S 0
+     D FMMRK1          S             35
+     D FVANT           S              7P 0
+     D FVPAKN          S              7
+     D FVVT            S             35
+     D FVVKT           S              9P 0
+     D FVVOL           S              7P 3
+     D FVLM            S              4P 2
+     D FVLM2           S              4P 2
+     D FVLEN           S              4P 0
+     D FVBRD           S              4P 0
+     D FVHOY           S              4P 0
+     D FFUNNR          S              4
+     D FFEMBG          S              3
+     D FFKLAS          S              4
+     D FFSEDD          S             10
+     D FFTRES          S             10
+     D FFFAKT          S              4S 0
+     D FFANTK          S              5S 0
+     D FFANTE          S              7S 0
+     D FFENH           S              3
+     D FFPOEN          S              5S 0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C  N50              EXSR      TEST                                         50 ON = Ukjent user
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVD:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPD:'Z'))+'¬, '
+        +'¬fvlinr¬ : ¬'+%trim(%editc(fvlinr:'Z'))+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"awblineValidate" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * RETURNER KUN DE VERDIER SOM ER ENDRET
+     c                   if        Values = *blanks
+     c                   eval      JSONstring = *blanks
+     c                   else
+     C                   eval      JSONstring = '{' + %trim(values) + '}'
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     c                   endif
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     ADRUNNRF
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WA         = zhbgetvar('AVD')
+     C                   EVAL      AVD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('OPD')
+     C                   EVAL      OPD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('fvlinr')
+     C                   EVAL      fvlinr     = c2n2(WA)
+     C                   EVAL      FMMRK1  = zhbgetvar('FMMRK1')
+     C                   EVAL      WA      = zhbgetvar('FVANT')
+     C                   EVAL      FVANT   = c2n2(WA)
+     C                   EVAL      FVPAKN     = zhbgetvar('FVPAKN')
+     C                   EVAL      FVVT       = zhbgetvar('FVVT')
+     C                   EVAL      WA      = zhbgetvar('FVVKT')
+     C                   EVAL      FVVKT   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVVOL')
+     C                   EVAL      FVVOL   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVLM')
+     C                   EVAL      FVLM    = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVLM2')
+     C                   EVAL      FVLM2   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVLEN')
+     C                   EVAL      FVLEN   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVBRD')
+     C                   EVAL      FVBRD   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FVHOY')
+     C                   EVAL      FVHOY   = c2n2(WA)
+     C                   EVAL      FFUNNR  = zhbgetvar('FFUNNR')
+     C                   EVAL      FFEMBG  = zhbgetvar('FFEMBG')
+     C                   EVAL      FFKLAS  = zhbgetvar('FFKLAS')
+     C                   EVAL      FFSEDD  = zhbgetvar('FFSEDD')
+     C                   EVAL      FFTRES  = zhbgetvar('FFTRES')
+     C                   EVAL      WA      = zhbgetvar('FFFAKT')
+     C                   EVAL      FFFAKT  = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FFANTK')
+     C                   EVAL      FFANTK  = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FFANTE')
+     C                   EVAL      FFANTE  = c2n2(WA)
+     C                   EVAL      FFENH   = zhbgetvar('FFENH')
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HeadfKey      KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C     UnNrKey       KLIST
+     C                   KFLD                    FFUNNR
+     C                   KFLD                    FFEMBG
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      ADRUNNRF
+     C  N50              OPEN      HEADF
+
+     c                   endsr
+      *
+      *______________________________________________________
+      * TEST                                             TEST
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     TEST          BEGSR
+      *
+      * Input av - ant / vareslag / vekt valideres i eSpedsg
+     C                   eval      Error = *blanks
+     C                   eval      InfoMsg = *blanks
+      *
+     c     HeadfKey      chain     HEADF                              33
+     C   33              eval      Error = 'Unknown order'
+      * benytter free for enklere strengbehandling
+      /free
+         //ant/vekt
+         if FVANT=0 or FVVKT=0;
+           NyErr = 'Ant stykk/kolli samt vekt er obligatorisk';
+         //NyErr = 'No of pieces/collies and weight is mandatory';
+           exsr AddErr;
+         endif;
+
+       //BRING - L X B X H ER OBLIGATORISK
+       //Beregning av LM ut fra Formel er ren Bring / olgeexpress-spesial
+        if HEOT='OX' or HEOT='LO' or HEOT='OB';
+          if FVLEN=0 or FVBRD=0 or FVHOY=0;
+              NyErr = 'L x B x H er obligatorisk på oppdragstype '+HEOT;
+              exsr AddErr;
+          else;
+          // LxBxH ER angitt - hvis LM IKKE er angitt bereg den (egentlig ren Bring-spesial)
+            if FVLM =0;
+              len = fvlen;
+              brd = fvbrd;
+              ant = fvant;
+              pakn= fvpakn;
+              lm  = fvlm;
+              SYOXLM ( len : brd : ant  : pakn : lm );
+            // FVLM var 0 - nå satt  - gi melding/returner verdi
+              fvlm = lm;
+              if  FVLM <> 0;
+                NyInf = 'Lastemeter(Fa) er autoberegnet basert på LxBxH';
+                exsr AddInfo;
+                NyVal='¬fvlm¬ : ¬'+%trim(%editc(FVLM:'4'))+'¬';
+                exsr AddVal;
+                //også LM2 blank før??
+                if  FVLM2 = 0;
+                  FVLM2 = FVLM;
+                  NyVal='¬fvlm2¬ : ¬'+%trim(%editc(FVLM2:'4'))+'¬';
+                  exsr AddVal;
+                endif;
+              endif;
+            endif; // end FVLM=0
+          endif;   // end lbh ulik 0
+        endif;    // end OX-oppdr-typer
+      /end-free
+      *
+     C                   IF        FFUNNR <> *blanks
+     c                   move      *blanks       NyErr
+      * Sjekk kombinasjon UnNr/Emb.grp (om det på gitt UNnr fins kun en emb-grp, autovelg )
+     C     UnNrKey       chain     ADRUNNRF                           33
+     C     *in33         ifeq      '1'
+     C     FFUNNR        chain     ADRUNNRF                           33
+     C     *in33         ifeq      '1'
+     C                   eval      NyErr = 'Ugyldig UnNo'
+     c                   exsr      AddErr
+     c                   goto      UtUnnr
+     c                   endif
+      * kommer hit kun når gitt UNNR+EMBG IKKE finnes men det finnes minst en på gitt UNNR
+     C     FFUNNR        reade     ADRUNNRF                               33
+     C     *in33         ifeq      *on
+     C                   eval      FFEMBG = ADEMBG
+     C                   else
+     C                   eval      NyErr = 'Ugyldig Emb.Grp for dette UnNo'
+     c                   exsr      AddErr
+     c                   goto      UtUnnr
+     c                   endif
+     c                   endif
+      * OK UNnr/emb  - returner div verdier
+     C                   EVAL      FFKLAS=ADKLAS
+     C                   EVAL      FFSEDD=ADSEDD
+     C                   EVAL      FFTRES=ADTRES
+     C                   EVAL      FFFAKT=ADFAKT
+      *
+     c     UtUnnr        tag
+     C                   if        FFANTK = 0
+     C                   eval      NyErr = 'Antall kolli (som inneholder ADR) '
+     c                             +'kan ikke være 0'
+     c                   exsr      AddErr
+     c                   endif
+     C                   if        FFANTE = 0
+     C                   eval      NyErr = 'Antall enheter (LTR/KG/GR) '
+     c                             +'kan ikke være 0'
+     c                   exsr      AddErr
+     c                   endif
+     C                   if        FFENH<>'KG' and FFENH<>'LTR' and FFENH<>'GR'
+     C                   eval      NyErr = 'Enhetskode må være KG, LTR eller GR'
+     c                   exsr      AddErr
+     c                   endif
+     C* Returverdi for Poeng ??
+     c*                  if        NyErr = *blanks
+     C*                  EVAL      FFPOEN=FFFAKT * FFANTE
+     c* clientside??     eval      NYval = ......
+     c*                  exsr      AddVAL
+     c*                  endif
+      *
+N01   * test farlig gods-samlasting (men unødig hvis ikke resten er ok..)
+N01  c     Error         ifeq      *blank
+N01  c     HESTN8        andne     'X'
+N02  c     HESGM         andeq     *blanks
+N01  c                   move      '0'           UfarSam           1
+N01  c                   call      'SYGE84L'
+N01  c                   parm      Avd           UfaAvd            4 0
+N01  c                   parm      Opd           UfaOpd            7 0
+N01  c                   parm      FFKLAS        UNyKlasse         4
+N01  c                   parm      FFSEDD        UNySeddel        10
+N01  c                   parm                    UfarSam           1
+N01  C     UfarSam       IFEQ      '1'
+N01  c                   eval      NyErr = 'KAN IKKE SAMLASTES '
+N01  c                             +'(ADR Kl.1(=eksplosj.fare) / '
+N01  c                             +'IKKE ADR Kl. 1 må ikke mixes)'
+N01  c                   exsr      AddErr
+N01  c                   endif
+N01  c                   endif
+     C* Returverdi for Poeng ??
+     c                   if        NyErr = *blanks
+     C                   EVAL      FFPOEN=FFFAKT * FFANTE
+     c* clientside??     eval      NYval = ......
+     c*                  exsr      AddVAL
+     c                   endif
+     C                   ENDIF                                                  FFUNNR <> *blanks
+     C                   ENDSR
+      *******************************************************
+     C     AddErr        BEGSR
+      *******************************************************
+     c                   if        Error = *blanks
+     c                   eval      Error = NyErr
+     C                   else
+     c                   eval      Error = %trim(Error) +'§'+NyErr
+     C                   endif
+     C                   ENDSR
+      *
+      *******************************************************
+     C     AddInfo       BEGSR
+      *******************************************************
+     c                   if        InfoMsg = *blanks
+     c                   eval      InfoMsg = NyInf
+     C                   else
+     c                   eval      InfoMsg = %trim(InfoMsg) +'§'+NyInf
+     C                   endif
+     C                   ENDSR
+      *
+      *******************************************************
+     C     AddVal        BEGSR
+      *******************************************************
+     c                   if        Values = *blanks
+     c                   eval      Values = NyVal
+     C                   else
+     c                   eval      Values = %trim(Values) +','+NyVal
+     C                   endif
+     C                   ENDSR

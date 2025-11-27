@@ -1,0 +1,374 @@
+      * leser nedlastede filer fra
+      * /SYSPEDFX/ALTINN/EDIRE1K/TEMP/
+      * filer flyttes til
+      * /SYSPEDFX/ALTINN/EDIRE1K/
+      * for å behandles av standard
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 SH  PTF12 fjernet dagsoppgjør test og dokumenttest
+      * 02 sh  totalt omskrevet 0604 2018  *forenklet testene
+      * 03 sh  totalt endret ved pdf-kall
+      * 04 sh  sende kreditnotaene
+********************************************************************
+     H DATEDIT(*DMY)
+     H DFTACTGRP(*NO)
+     FALTINNF   UF A E           K DISK
+      *_______________________________________________________
+      * Les lenker i en katalog  og kopier dem til DB2 i SYEDI
+      * Dette program fungerer kun for 1024 bytes recordlengde.
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *_____________________________
+      * Prototype for API prosedyrer
+      *"""""""""""""""""""""""""""""
+     Dlstat            PR            10I 0 EXTPROC('lstat')
+     D                                 *   VALUE
+     D                                 *   VALUE
+
+     Dopendir          PR              *   EXTPROC('opendir')
+     D                                 *   VALUE
+
+     Dreaddir          PR              *   EXTPROC('readdir')
+     D                                 *   VALUE
+
+     Dclosedir         PR            10I 0 EXTPROC('closedir')
+     D                                 *   VALUE
+     D SndPgmMsg       PR              N
+     D Qmsgid                         7    CONST
+     D Qmsgf                         20    CONST
+     D Qmsg                         128    CONST
+     D Qmsgtp                        10    CONST OPTIONS(*NOPASS)
+
+      *   stat data structure fra prosedyre: lstat()
+     D StatDS          DS           128
+     D  st_mode                      10U 0
+     D  st_ino                       10U 0
+     D  st_nlink                      5U 0
+     D  reserved1                     2A
+     D  st_uid                       10U 0
+     D  st_gid                       10U 0
+     D  st_size                      10U 0
+     D  st_atime                     10U 0
+     D  st_mtime                     10U 0
+     D  st_ctime                     10U 0
+     D  st_dev                       10U 0
+     D  st_blksize                   10I 0
+     D  st_allocsize                 10I 0
+     D  st_objtype                   10A
+     D  reserved2                     2A
+     D  st_codepage                   5U 0
+     D  st_reserved1                 62A
+     D  st_ino_gen_id                10U 0
+
+      *   direntry data structure fra prosedyre: readdir()
+     D DirEntry        DS
+     D d_reserved1                   16A
+     D d_fileno_genid                10U 0
+     D d_fileno                      10U 0
+     D d_reclen                      10U 0
+     D d_reserved3                   10I 0
+     D d_reservedØ4                   6A
+     D d_reserved5                    2A
+     D d_ccsid                       10I 0
+     D d_country_id                   2A
+     D d_language_id                  3A
+     D d_nls_reserved                 3A
+     D d_namelen                     10U 0
+     D d_name                       640A
+
+     D Null            S              1A   Inz(X'00')
+     D RETURNInt       S             10I 0
+     D RETURNDir       S               *
+     D PtrToEntry      S               *
+     D RtnEntry        S                   BASED(PtrToEntry) Like(DirEntry)
+     D EntryName       S            120A
+     D EntryPath       S            256A
+     D EntryPathF      S            256A
+     D EntryPathT      S            256A
+     D dirnamef        S            256A
+     D dirnamet        S            256A
+N04  D dirnamet2       S            256A
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D HHMMSS          S              6  0
+     D DirError        C                   'Feil ved åpning av katalog'
+      *
+      *   Input Parametere
+      *
+     D FullName        S            256A
+
+      *
+     D                 DS
+     D  CMNA                   1      1    INZ('A')
+     D  CMN                    2      8S 0
+     D  MBR                    1      8
+      *
+     D ObjVar          S             90
+     D ObjVarLen       S             10I 0 Inz(%size(ObjVar))
+     D ObjVarFmt       S              8
+     D ObjTyp          S             10
+
+     D APIERR          DS
+     D  ERRSIZ                 1      4B 0 INZ(256)
+     D  ERRLEN                 5      8B 0 INZ(0)
+     D  ERRMIC                 9     15
+     D  ERRNBR                16     16
+     D  ERRDTA                17    272
+     D PSDS           SDS           512
+
+     C                   EVAL      FullName = %trimr(DirNamef) + Null
+      * Åpne katalog
+     C                   EVAL      RETURNDir = opendir(%addr(FullName))
+      * Avslutt hvis feil ved åpning av katalog
+     C                   IF        RETURNDir = *Null
+     C                   CALLP     SndPgmMsg('CPF9898':'QCPFMSG'
+     C                                       :DirError)
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   ENDIF
+
+     C                   DOU       PtrToEntry = *Null
+      * Les neste katalog lenke
+     C                   EVAL      PtrToEntry = readdir(RETURNDir)
+      * Lenknavn er i feltet d_name
+     C                   IF        PtrToEntry <> *Null
+     C                   EVAL      DirEntry = RtnEntry
+      * Hent katalog lenknavn
+     C                   EVAL      EntryName = %str(%addr(d_name))
+      * Vilken typ av lenke ?
+     C                   EVAL      EntryPath = %trim(DirNamef)
+     C                             + %trimr(EntryName) + Null
+     C                   EVAL      RETURNInt = lstat(%addr(EntryPath)
+     C                                         : %addr(StatDS))
+      * flyttter enten .xml eller .pdf
+     C                   IF        st_objtype='*STMF'
+     C                   EXSR      MOVSTMF
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDDO
+      * Lukk katalog
+     C                   EVAL      RETURNInt = closedir(RETURNDir)
+
+     C                   EVAL      *INLR = *ON
+      ******************************************************************
+     C     MOVSTMF       BEGSR
+      ******************************************************************
+     c                   clear                   ALTINNFR
+     c                   movel     d_name        aldato
+     c     aldato        chain     altinnf                            55
+n01   **********************************************
+n01  c* aldri pdf først på angitt dato
+n01   **********************************************
+n01  c     *in55         ifeq      '1'
+s03  c*    ubehext       andeq     '.pdf'
+n04  c     'Kreditnota'  scan      D_name        nr                3 0    57
+n04  c     *in57         ifeq      '1'
+n04  c                   eval      KRNNBR=%trimr(%SUBST(D_name:nr:54))
+n04  c                   exsr      kredit
+n04  c                   goto      utsr
+n04  c                   end
+n03  C     '.pdf'        SCAN      D_name                                 57
+s03  c*                  goto      utsr
+n03  c   57              goto      utsr
+n01  c                   end
+n02   ***********************************************
+n02  c* aldri dobbelbehandling hvis lest fra før
+n02   ***********************************************
+n02  c     *in55         ifeq      '0'
+      *  pdf  allerede lest gå ut
+n02  c     ubehext       ifeq      '.pdf'
+n02  c     alpdf         andeq     'J'
+n02  c                   eval      lest='J'
+n02  c                   update    altinnfr
+n02  c                   goto      utsr
+n02  c                   end
+      *  xml  allerede lest gå ut
+n02  c     ubehext       ifeq      '.xml'
+n02  c     alxml         andeq     'J'
+n02  c                   eval      lest='J'
+n04  c                   update    altinnfr
+n02  c                   goto      utsr
+n02  c                   end
+n02  c                   end
+     c*
+     c* start behandling
+     c*
+     c                   move      *blanks       franyttobj      256
+     c                   move      *blanks       nyttnavn         70
+     c                   move      *blanks       tilban           70
+     c                   movel     'ALTINN'      kode49
+      * hent nytt løpenummer hvis ikke finnes i ALTINNF
+     c     *in55         ifeq      '1'
+     c                   call      'SYGE49'
+     c                   parm                    kode49            8
+     c                   parm                    verdi49           7 0
+     c                   else
+     c                   move      allop         verdi49
+     c                   end
+     c                   move      verdi49       verdi49a          7
+     c                   move      verdi49       allop
+     c                   setoff                                       54
+      *---------------------------------------------------
+      *  er behandle pdf.fil
+      *---------------------------------------------------
+     c     ubehext       ifeq      '.pdf'
+      * ikke inneholde xml i filnavnet
+n02  C     'xml'         SCAN      D_name                                 57
+n02  c     *in57         ifeq      '0'
+     C     '.pdf'        SCAN      D_name                                 54
+s01  c*    *in54         ifeq      '0'
+s01  C*    'Dagsoppgjør' SCAN      D_name                                 54
+s01  c*                  end
+     c     *in54         ifeq      '1'
+     c                   eval      nyttnavn='ALTINN'  + %trim(verdi49a)
+     c                             + '.pdf'
+     c                   move      'J'           alpdf
+     c                   movel     d_name        alfilp
+     c                   end
+N02  c                   end
+     c                   end
+      *---------------------------------------------------
+      *  Start å behandle XML filen
+      *---------------------------------------------------
+     c     ubehext       ifeq      '.xml'
+      * xml kan være .xml/dokument/(xml)
+     C     '.xml'        SCAN      D_name                                 54
+n02  c     *in54         ifeq      '0'
+n02  C     'xml'         SCAN      D_name                                 54
+n02  c                   end
+s01  c*    *in54         ifeq      '0'
+s01  C*    'dokument'    SCAN      D_name                                 54
+s01  c*                  end
+     c     *in54         ifeq      '1'
+     c                   eval      nyttnavn='ALTINN'  + %trim(verdi49a)
+     c                             + '.xml'
+     c                   move      'J'           alxml
+     c                   movel     d_name        alfilx
+     c                   end
+     c                   end
+      *
+      * fil identifisert
+      *
+     c     *in54         ifeq      '1'
+     C* opprinnelig fil
+     C                   EVAL      EntryPathF = %trim(DirNameF)
+     C                             + %trimr(EntryName)
+     C* nytt direktory
+     C                   EVAL      TILBAN = %trim(DirNameT)
+     C* fra nytt obj
+     C                   EVAL      franyttobj = %trim(DirNameF)
+     C                             + %trim(nyttnavn)
+     c*
+     C                   CALL      'SYAL02CL'
+     C                   PARM                    EntryPathF
+     C                   PARM                    nyttnavn
+     C                   PARM                    FRAnyttobj
+     C                   PARM                    TILBAN
+     c                   eval      lest='J'
+     c  N55              update    altinnfr
+     c   55              write     altinnfr
+     c                   end
+     C     utsr          ENDSR
+      *************************************************************
+     C     *INZSR        BEGSR
+      *************************************************************
+     c     *entry        plist
+     c                   parm                    ubehext           4
+     c                   parm                    udirname        150
+     c                   parm                    lest              1
+     c                   eval      lest='N'
+     c                   eval      dirnamef=%trimr(udirname)
+     C     '/TEMP'       SCAN      dirnamef      nr                3 0    33
+     c                   eval      dirnamet=%trimr(%SUBST(dirnamef:1:nr))
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+
+     C                   TIME                    HHMMSS
+
+      *
+     C                   ENDSR
+N04   ******************************************************************
+N04  C     KREDIT        BEGSR
+N04   ******************************************************************
+N04  c* hent løpenummer
+N04  c                   movel     'ALTINN'      kode49
+N04  c                   call      'SYGE49'
+N04  c                   parm                    kode49            8
+N04  c                   parm                    verdi49           7 0
+N04  c                   move      verdi49       verdi49a          7
+N04  c                   move      verdi49       allop
+N04  c                   eval      nyttnavn='ALTINN'  + %trim(verdi49a)
+N04  c                             + '.pdf'
+N04  c                   movel     d_name        alfilp
+N04  C                   EVAL      EntryPathF = %trim(DirNameF)
+N04  C                             + %trimr(EntryName)
+N04  C* nytt direktory
+N04  C                   EVAL      DirNameT2= %trim(DirNameT)
+N04  c                             + '/BACKUP/'
+N04  C                   EVAL      TILBAN = %trim(DirNameT2)
+N04  C* fra nytt obj
+N04  C                   EVAL      franyttobj = %trim(DirNameF)
+N04  C                             + %trim(nyttnavn)
+N04  c*
+N04  C                   CALL      'SYAL02CL'
+N04  C                   PARM                    EntryPathF
+N04  C                   PARM                    nyttnavn
+N04  C                   PARM                    FRAnyttobj
+N04  C                   PARM                    TILBAN
+N04  c                   eval      nyttdoc=%trim(tilban)
+N04  c                             + %trim(nyttnavn)
+N04  c                   call      'SYAL02R'
+N04  c                   parm                    nyttdoc         256
+N04  c                   parm                    krnnbr           30
+N04  c                   endsr
+      *-------------------------------------------------------------------------
+      * Send pgm message
+      *-------------------------------------------------------------------------
+     P SndPgmMsg       B
+     D                 PI              N
+     D Msgid                          7    CONST
+     D MsgF                          20    CONST
+     D Msgdta                       128    CONST
+     D Msgtp                         10    CONST OPTIONS(*NOPASS)
+      * Work variables
+     D Qmsgid          S              7
+     D Qmsgf           S             20
+     D Qmsgdta         S            128
+     D Qmsgln          S             10I 0
+     D Qmsgtp          S             10
+     D Qmsgq           S             10
+     D Qmsgqn          S             10I 0 INZ(3)
+     D Qmsgky          S              4
+     D Qmsger          S             15
+      * Hvis bibliotek er lik blank set in *LIBL
+     C                   EVAL      Qmsgid = Msgid
+     C                   EVAL      Qmsgf = Msgf
+     C                   EVAL      Qmsgdta = Msgdta
+     C                   IF        %subst(Qmsgf:11:10) = *blank
+     C                   EVAL      %subst(Qmsgf:11:10) = '*LIBL'
+     C                   ENDIF
+     C                   EVAL      Qmsgln = %len(%trim(Qmsgdta))
+     C                   EVAL      Qmsgq = '*'
+     C                   EVAL      Qmsgtp = '*DIAG'
+     C                   IF        %PARMs > 3
+     C                   EVAL      Qmsgtp = Msgtp
+     C                   ENDIF
+     C                   IF        Qmsgtp = '*STATUS'
+     C                   EVAL      Qmsgq = '*EXT'
+     C                   ENDIF
+      *
+     C                   CALL      'QMHSNDPM'                           99
+     C                   PARM                    Qmsgid
+     C                   PARM                    Qmsgf
+     C                   PARM                    Qmsgdta
+     C                   PARM                    Qmsgln
+     C                   PARM                    Qmsgtp
+     C                   PARM                    Qmsgq
+     C                   PARM                    Qmsgqn
+     C                   PARM                    Qmsgky
+     C                   PARM      *LOVAL        Qmsger
+      *
+     C                   RETURN    *ON
+     P                 E

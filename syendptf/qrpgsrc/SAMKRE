@@ -1,0 +1,311 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 Setter dagens dato i fakturadato
+10XXX * 02 SH  PTF10 rfettelse til 1
+10XXX * 03 SH  PTF10 setter S i kode for samlefaktura
+10XXX * 04 SH  PTF10 setten M i kode for samlefaktura på nye poster
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX * 05 YBC PTF12 OPPDATERE TRACKF
+12164 * 06 YBC PTF12 Send kreditnota på e2b eller EHF
+********************************************************************
+     Ftellfa    uF   E           K DISK
+     Fsamkrefm  CF   E             WORKSTN
+     FFAK3      UF   E           K DISK
+     F                                     RENAME(FAKTR:FAK3R)
+     FFAKT      O  A E           K DISK
+     FARKIVP    O  A E           K DISK
+     Ffirmarc   IF   E           K DISK
+     Farktxt    IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+N06  FCUNDC03   IF   E           K DISK
+S06  F*FAIN      o  a E             disk
+N06  FFAIN      o  a E             disk    USROPN
+     FSAML      o  a E             disk
+N05  FTRACKF    O  A E             DISK
+     FFIRM      IF   E             disk
+      *
+      *___________________________
+      * Finner username
+      *"""""""""""""""""""""""""""
+     D                SDS
+     D  ZJOB                 244    253
+     D  ZUSER                254    263
+     D  ZJOBNR               264    269  0
+     D                 DS
+     D  FOREF                  1     11
+     D  foavd                  1      4  0
+     D  foopd                  5     11  0
+      *
+     D                 DS
+     D  NYREF                  1     11
+     D  faavd                  1      4  0
+     D  faopd                  5     11  0
+      *
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+N06  C                   OPEN      FAIN
+     c                   read      firm                                   33
+     c     start         tag
+     c                   exfmt     BILDE01
+     c   03              goto      slutt
+     c                   setoff                                       30
+      *
+N01  C                   TIME                    XULTID
+n02  C                   MOVE      XULDD         ULDD
+n02  C                   MOVE      XULMM         ULMM
+n02  C                   MOVE      XULÅÅ         ULÅÅ
+      *
+     C     *LIKE         DEFINE    FAFAKT        nyfanr
+     C     *LIKE         DEFINE    FAFAKT        XXFAKT
+     C     *LIKE         DEFINE    FAKUNR        XXKUNR
+      *
+      * nøkkel til CUNDL01
+      *
+     C     KUNKEY        KLIST
+     C                   KFLD                    fifirm
+     C                   KFLD                    XXKUNR
+      *
+      *
+      * nøkkel til HEADF
+      *
+     C     HEKEY         KLIST
+     C                   KFLD                    FAAVD
+     C                   KFLD                    FAOPD
+      *
+      * key til FAI3
+      *
+     C     FAKEY         KLIST
+     C                   KFLD                    XXOPKO
+     C                   KFLD                    XXFAKT
+     C                   KFLD                    XXKUNR
+      *
+      * flytter over inngangs-parametre
+      *
+     c                   move      wsfanr        xxfakt
+     c                   move      wskunr        xxkunr
+     c                   move      'O'           xxopko            1
+      *
+      * henter kundeopplysninger
+      *
+     c     kunkey        chain     cundl01                            99
+     C   99              MOVE      'SHU1103'     MSGNR
+     c   99              seton                                        30
+     c   99              goto      start
+      *
+      * ikke kreditert fra før
+      *
+     C     fakey         chain     fak3                               99
+     C   99              MOVE      'SHU1103'     MSGNR
+     c   99              seton                                        30
+     c   99              goto      start
+      *
+     c     fakda         comp      'C'                                    99
+     C   99              MOVE      'SHU1104'     MSGNR
+     c   99              seton                                        30
+     c   99              goto      start
+     c*    fakda
+      *
+      * henter neste fakturanummer
+      *
+     c                   exsr      hentfa
+      *
+      * går i løkke
+      *
+     C     fakey         setll     fak3
+     c     *in(33)       doweq     '0'
+     c     fakey         reade     fak3                                   33
+     c     *in(33)       ifeq      '0'
+      * oppdaterer C i fakda
+     C                   MOVE      'C'           FAKDA
+     C                   UPDATE    FAK3R
+      *
+      * skriver til fain hvis nytt oppdrag
+      *
+     c     foref         ifne      nyref
+     c                   exsr      NYTTOP
+     c                   move      faavd         foavd
+     c                   move      faopd         foopd
+     c                   end
+      *
+     c                   exsr      lagny
+     c*
+     C                   END
+     C                   END
+     c                   exsr      arksr
+N06   *
+N06   * SJEKK OG SEND XML-FAKTURA
+N06  C     CUNDC03K      KLIST
+N06  C                   KFLD                    FIFIRM
+N06  C                   KFLD                    XCTYPE           30
+N06  C                   KFLD                    XXKUNR
+N06  C                   EVAL      XCTYPE = '*XML FAKTURA SAM'
+N06  C     CUNDC03K      CHAIN     CUNDC03                            33
+N06  C                   IF        *IN33 = *OFF
+N06  C                   CLOSE     FAIN
+N06   * SKRIFT UT FAKTURA FOR Å OPPDATERE FAKTURASUM PÅ XMLUFF
+N06  C                   CALL      'SYFA27CXML'
+N06  C                   PARM      NYFANR        UFN               7 0
+N06  C                   OPEN      FAIN
+N06  C                   END
+     c     slutt         tag
+N06  C                   CLOSE     FAIN
+     c                   seton                                        lr
+     c                   return
+      *
+      *********************************************************************
+     c     hentfa        begsr
+      *********************************************************************
+      * henter neste fakturanummer
+      *
+     C     fifirm        CHAIN     TELLFA                             34
+     C*
+     C* GETS INVOICENUMBER IF NOT COPIROTINE
+     C*
+     c     *in34         ifeq      '0'
+     C                   MOVE      FIFNR         nyfanr
+     C                   ADD       1             FIFNR
+     C                   UPDATE    TELLFAR
+     c                   end
+     C                   endsr
+      *
+      *********************************************************************
+     c     NYTTOP        begsr
+      *********************************************************************
+      * skriver til fain  og hente oppdrag fra HEADF skriver til SAML
+      * for ferdigmerking
+     C                   MOVE      nyfanr        fifn
+     c                   move      faavd         fiavd
+     c                   move      faopd         fiopd
+     c                   write     fainr
+N05   *
+N05  C                   EVAL      TTAVD  = FIAVD
+N05  C                   EVAL      TTOPD  = FIOPD
+N05  C                   EVAL      TTACTI = 'INV'
+N05  C                   EVAL      TTDATE = ULDT
+N05  C                   EVAL      TTTIME = XULTM
+N05  C                   EVAL      TTTEXT = 'Creditnotes No.: '
+N05  C                             + %TRIM(%EDITC(FIFN:'Z')) + ' '
+N05  C                             + %TRIM(KNAVN)
+N05  C                   EVAL      TTUSER = ZUSER
+N05  C                   EVAL      TTDATL = ULDT
+N05  C                   EVAL      TTTIML = XULTM
+N05  C                   EVAL      TTTEXL = 'Kreditnota nr.: '
+N05  C                             + %TRIM(%EDITC(FIFN:'Z')) + ' '
+N05  C                             + %TRIM(KNAVN)
+N05  C                   WRITE     TRACKFR
+N05   *
+     c     hekey         chain     headf                              35
+      *
+      * skriver oppdrag  til SAML
+      *
+     C                   MOVE      FAKUNR        SAKN
+     C     FACURI        IFEQ      FICURR
+     C                   MOVE      *BLANKS       SAVAL
+     C                   ELSE
+     C                   MOVE      FACURI        SAVAL
+     C                   END
+     C                   MOVE      FAAVD         SAAVD
+     C                   MOVE      FAOPD         SAOPD
+     C                   MOVE      HEPRO         SAPRO
+     C                   MOVE      SFAKT         SAGRP
+     C                   MOVE      HEDTOP        SADATO
+     C                   MOVE      HEUR          SAUR
+     C                   WRITE     SAMLR
+     c                   endsr
+      *
+      *********************************************************************
+     c     lagny         begsr
+      *********************************************************************
+      * skriver kreditlinje og åpen debetlinje til FAKT
+      *
+      * først krediteres gammel samlefaktura
+      *
+     c                   move      'F'           FAOPKO
+n03  c                   move      'S'           FAKDA
+     c                   move      99999         FAJOUR
+     c                   move      nyfanr        FAFAKT
+     c                   move      *zeros        FABELU
+     c* snu beløp
+     c                   z-sub     fabeln        fabeln
+     c                   z-sub     fabelv        fabelv
+     c     FAKDUK        ifeq      'B'
+     c                   move      'N'           FAKDUK
+     c                   END
+      * dagens dato til fakturadato og forfall
+N01  c                   z-add     ULDT          fadato
+N01  c                   z-add     ULDT          fadaff
+      *
+      * hent neste linjenummer
+      *
+     c                   move      faavd         uuavd             4 0
+     c                   move      faopd         uuopd             7 0
+     C                   CALL      'SYGE06'
+     C                   PARM                    UUAVD
+     C                   PARM                    UUOPD
+     C                   PARM                    FALI
+      *
+     c                   WRITE     FAKTR
+      *
+      * ny debetlinje meldes også til ny samlefaktura
+      *
+     c                   move      'C'           FAOPKO
+     c                   move      *zeros        FAFAKT
+     c                   MOVE      'C'           FAOPKO
+n04  c                   move      'M'           FAKDA
+     c* snu tilbake beløp
+     c                   z-sub     fabeln        fabeln
+     c                   z-sub     fabelv        fabelv
+      *
+      * blanker facuri hvis NOK
+      *
+     C     FACURI        IFEQ      FICURR
+     C                   MOVE      *BLANKS       FACURI
+     C                   END
+      *
+      * hent neste linjenummer
+      *
+     C                   CALL      'SYGE06'
+     C                   PARM                    UUAVD
+     C                   PARM                    UUOPD
+     C                   PARM                    FALI
+      *
+     C                   WRITE     FAKTR
+     c                   endsr
+      *
+      *********************************************************************
+     c     arksr         begsr
+      *********************************************************************
+     C     FIFIRM        CHAIN     FIRMARC                            77
+     C     *IN77         IFEQ      '0'
+     C     'fs'          chain     arktxt                             77
+     C     *IN77         IFEQ      '0'
+     C     arkjn         andeq     'J'
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      FIFIRM        ARFIRM
+     C                   MOVE      UUAVD         ARAVD
+     C                   MOVE      *zeros        AROPD
+     C                   MOVEL     nyfaNr        ARUNDE
+     C                   MOVE      'fs'          ARTYPE
+     C                   MOVE      ZUSER         ARUSER
+     C                   MOVE      ULDT          ARDATE
+     C                   MOVE      XULTM         ARTIME
+     C                   MOVE      WSKUNR        ARKUND
+     C                   WRITE     ARKIVR
+     C                   END
+     C                   END
+     C                   ENDsr

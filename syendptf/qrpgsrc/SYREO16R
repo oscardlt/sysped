@@ -1,0 +1,201 @@
+     H DFTACTGRP(*NO)
+     FISOFL8    UF   E           K DISK
+     FISOINFF   UF   E           K DISK
+     FISOLFL1   UF   E           K DISK
+     FISOLOGL1  UF   E           K DISK
+     FISOSAKF   UF   E           K DISK
+     FARKIVL19  UF   E           K DISK
+      *
+     FISOKDS    IF   E           K DISK
+     FSADH      IF   E           K DISK
+     FSAEH      IF   E           K DISK
+     FARKTXT    IF   E           K DISK
+     FARKEXT    IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+      *
+
+     d                 ds
+     d  x_arunde               1     10
+     d  x_arunde1              1      3
+     d  x_arunde2              4     10
+     d                 ds
+     d  issakn                 1      7  0
+     d  issakn_a               1      7
+
+     d xdtf            S              8  0
+     d xdtp            S              8  0
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          C                   const('''')
+     d SqlStm          s            512a
+     d myrows0         s             10i 0
+     d myrows          s             10i 0
+     D XPOS            S              3  0
+     D Error           S            150
+     d X               S             10  0
+     d X2              S             10  0
+     D XSLUTT          S              1
+     D ufil            S            256A
+      *  Prototype for 'SYREO01C3'
+     d SYREO01C3       pr                  extpgm('SYREO01C3')
+     d ufil_                               like(ufil)
+      *  Prototype for syreo16r
+     d syreo16r        pr
+     d udtf_                               like(udtf)
+     d udtp_                               like(udtp)
+      *  *ENTRY Interface for Main Procedure
+     d syreo16r        pi
+     d udtf                           8
+     d udtp                           8
+      *
+     d MyPoDS0         ds                  Qualified  dim(1)
+     d  FIFIRM                        2A
+     d MyPoDS          ds                  Qualified  dim(10000)
+     d  ISSAKN                        7S 0
+     d  ISFPFO                        5A
+     d  ISST                          1A
+     d  ISFSDA                        8S 0
+     d  ISFAVD                        4S 0
+     d  ISFOPD                        7S 0
+      *
+      /free
+
+         exsr init;
+
+         dow xslutt <> 'J';
+           exsr sriso;
+         enddo;
+
+         *inlr = *on;
+         return;
+
+       //=====================================================================
+       // Inn lager
+       //=====================================================================
+       begsr sriso;
+
+       clear MyPoDS;
+       SqlStm = 'Select ISSAKN, ISFPFO, ISST, ISFSDA, ISFAVD, ISFOPD ' +
+                'from ISOFL16 ' +
+                'Where ISFSDA <> 0 and ISFSDA <= ' +
+                %trim(udtf);
+       Exec SQL PREPARE DynSel from :SqlStm;
+       EXEC SQL DECLARE  A33  cursor for DynSel;
+       Exec SQL OPEN A33;
+       Myrows = %elem(MyPoDS);
+       exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       Exec SQL CLOSE A33;
+
+       if myrows > 0;
+         for x = 1 to myrows;
+           if mypods(x).isfpfo = *blanks;
+             xslutt = 'J';
+             leave;
+           endif;
+
+           issakn = mypods(x).issakn;
+           isfpfo = mypods(x).isfpfo;
+           isst   = mypods(x).isst;
+           isfsda = mypods(x).isfsda;
+           isfavd = mypods(x).isfavd;
+           isfopd = mypods(x).isfopd;
+
+           chain isst isokds;
+           if %found and sslutt = 'J';
+             chain (isfavd: isfopd) sadh;
+             if not %found
+               or %found and %subst(sirg:10:2) = *blanks
+               or %found and %subst(sirg:10:2) <> *blanks and xdtp > sidt;
+               chain (isfavd: isfopd) saeh;
+               if not %found
+                 or %found and %subst(serg:10:2) = *blanks
+                 or %found and %subst(serg:10:2) <> *blanks and xdtp > sedt;
+
+                 // slett ISO-sak
+                 exsr srslt;
+                 chain issakn isofl8;
+                 if %found;
+                   delete isofr;
+                 endif;
+
+               endif;
+             endif;
+           endif;
+
+         endfor;
+       endif;
+
+       endsr;
+
+       //=====================================================================
+       // Slett ISO-sak
+       //=====================================================================
+       begsr srslt;
+
+         exec sql
+         delete from isoinff
+         where ifsakn = :issakn
+         with NC;
+
+         exec sql
+         delete from isolfl1
+         where islsak = :issakn
+         with NC;
+
+         exec sql
+         delete from isologl1
+         where ilsakn = :issakn
+         with NC;
+
+         // slett arkiv
+         x_arunde2 = issakn_a;
+         setll x_arunde arkivl19;
+         reade x_arunde arkivl19;
+         dow not %eof;
+           chain (fifirm) firmarc;
+           chain (artype) arktxt;
+           if %found and arklag <> *blanks;
+             chain (fifirm:arklag) arkext;
+           endif;
+           if arbhis <> *blanks;
+           // Bane for historikk
+             arcane = arbhis;
+           endif;
+           xpos = %scan ('.' : arlink : 1);
+           if xpos = 0;
+             ufil = '/' + %TRIM(ARCANE) + '/' + %TRIM(ARLINK) + '.pdf';
+           else;
+             ufil = '/' + %TRIM(ARCANE) + '/' + %TRIM(ARLINK);
+           endif;
+           syreo01c3 (ufil);
+
+           delete arkivr;
+           reade x_arunde arkivl19;
+         enddo;
+
+       endsr;
+
+      //***********************************************
+       begsr init;
+      //***********************************************
+       xdtf = %float(udtf);
+       xdtp = %float(udtp);
+       x_arunde1 = 'ISO';
+
+       SqlStm = 'Select * ' +
+                'from FIRM ' +
+                'FOR READ ONLY ';
+       Exec SQL PREPARE DynSel0 from :SqlStm;
+       EXEC SQL DECLARE  A30  cursor for DynSel0;
+       Exec SQL OPEN A30;
+       Myrows0 = %elem(MyPoDS0);
+       exec sql FETCH A30   for :MyRows0 rows
+                  INTO :MyPoDs0;
+       Exec SQL CLOSE A30;
+       FIFIRM = mypods0(1).fifirm;
+
+       endsr;
+
+      /end-free

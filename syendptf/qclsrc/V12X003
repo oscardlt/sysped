@@ -1,0 +1,121 @@
+             PGM        PARM(&FRALIB &PTFLIB &GMLLIB &TOMME)
+             DCL        VAR(&FRALIB) TYPE(*CHAR) LEN(10) /* +
+                          Produksjonsbibliotek. For eks. SYSPEDF */
+             DCL        VAR(&PTFLIB) TYPE(*CHAR) LEN(10) /* +
+                          Bibliotek inneholder V12.X filer som +
+                          trenger konvertering. For eks. SYV12.X */
+             DCL        VAR(&GMLLIB) TYPE(*CHAR) LEN(10) /* +
+                          Bibliotek inneholder gamle filer fra +
+                          produksjonsbibliotek før konvertering. +
+                          For SYV12.G */
+             DCL        VAR(&PROFIL) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FORSTE) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&FINNES) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&TOMME)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&MESS)   TYPE(*CHAR) LEN(20)
+             DCLF       FILE(*LIBL/FILNVNP) RCDFMT(QWHFDBAS)
+
+             OVRDBF     FILE(FILNVNP) TOFILE(&PTFLIB/FILNVNP)
+
+             CHGJOB     JOB(*) LOG(4 00 *SECLVL) LOGCLPGM(*YES)
+
+             CHKOBJ     OBJ(&PTFLIB/PROGRESS) OBJTYPE(*DTAARA)
+             MONMSG     MSGID(CPF9801 CPF9810) EXEC(CHGVAR +
+                          VAR(&FORSTE) VALUE('J')) /* 'FORSTE får +
+                          verdien 'J' hvis PROGRESS ikke finnes fra +
+                          før av' */
+
+             IF         COND(&FORSTE = 'J') THEN(DO)
+             CRTLIB     LIB(&GMLLIB) TEXT('Bilbliotek som inneholder +
+                          gamle filer')
+             MONMSG     MSGID(CPF0000)
+             CLRLIB     LIB(&GMLLIB)
+             MONMSG     MSGID(CPF0000)
+             CRTDTAARA  DTAARA(&PTFLIB/PROGRESS) TYPE(*CHAR) LEN(20) +
+                          VALUE(' ') TEXT('Inneholder filnavn på +
+                          siste OK kopierte fil')
+             SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGDTA('Lager +
+                          filoversikt i FILNVNP i til-bibliotek') +
+                          TOPGMQ(*EXT) MSGTYPE(*STATUS)
+
+             DSPFD      FILE(&PTFLIB/*ALL) TYPE(*BASATR) +
+                          OUTPUT(*OUTFILE) FILEATR(*ALL) +
+                          OUTFILE(&PTFLIB/FILNVNP)
+             SNDPGMMSG  MSGID(CPF9801) MSGF(QCPFMSG) TOPGMQ(*EXT) +
+                          MSGTYPE(*STATUS) /* Blanker ut melding på +
+                          skjerm med "tom" melding */
+             ENDDO
+
+             ADDLIBLE   LIB(&PTFLIB)
+             MONMSG     MSGID(CPF0000)
+LOOP1:
+             RCVF       DEV(*FILE) RCDFMT(*FILE)
+             MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(SLUTT))
+
+             IF         COND(&FORSTE *NE 'J') THEN(DO)
+             RTVDTAARA  DTAARA(&PTFLIB/PROGRESS (1 10)) RTNVAR(&PROFIL)
+             IF         COND(&ATFILE *LE &PROFIL) THEN(GOTO +
+                          CMDLBL(LOOP1))
+             ENDDO
+
+             IF         COND(&ATNOMB *EQ 0) THEN(GOTO CMDLBL(LOOP1)) +
+                          /* Kopierer ikke filen hvis antall +
+                          komponenter er null */
+
+             IF         COND(&ATFATR *NE 'PF') THEN(GOTO +
+                          CMDLBL(FLYTT)) /* Kopierer bare datafiler */
+
+/* SETT FRCRATIO TIL *NONE FOR RASKERE KOPIERING*/
+             CHGPF      FILE(&FRALIB/&ATFILE) FRCRATIO(*NONE)
+             MONMSG     MSGID(CPF0000)
+             CHGPF      FILE(&PTFLIB/&ATFILE) FRCRATIO(*NONE)
+             MONMSG     MSGID(CPF0000)
+             IF         COND(&ATFILE *EQ 'SADV') THEN(DO)
+             CHGPF      FILE(&FRALIB/SADW) FRCRATIO(*NONE)
+             MONMSG     MSGID(CPF0000)
+             CHGPF      FILE(&PTFLIB/SADW) FRCRATIO(*NONE)
+             MONMSG     MSGID(CPF0000)
+             ENDDO
+             CPYF       FROMFILE(&FRALIB/&ATFILE) +
+                          TOFILE(&PTFLIB/&ATFILE) FROMMBR(*ALL) +
+                          TOMBR(*FROMMBR) MBROPT(*REPLACE) +
+                          FROMRCD(1) FMTOPT(*MAP *DROP)
+             MONMSG     MSGID(CPF2869 CPF2870 CPF2817) /* Kopiering +
+                          av tomt fra-member med replace + diverse +
+                          feil i CPF2817 */
+
+             IF         COND(&TOMME = 'J') THEN(DO)
+             CLRPFM     FILE(&FRALIB/&ATFILE) MBR(*FIRST)
+             MONMSG     MSGID(CPF3133) /* Filen inneholder ingen +
+                          komponenter */
+             CHGVAR     VAR(&MESS) VALUE(&ATFILE *CAT &FRALIB)
+             IF         COND(&ATNOMB *GT 1) THEN(SNDUSRMSG +
+                          MSGID(BBA0050) MSGF(SYMSGF) +
+                          MSGDTA(&MESS) MSGTYPE(*INFO) +
+                          TOUSR(*REQUESTER))
+             ENDDO
+
+FLYTT:
+             CHGPF      FILE(&PTFLIB/&ATFILE) FRCRATIO(1)
+             MONMSG     MSGID(CPF0000)
+
+             MOVOBJ     OBJ(&FRALIB/&ATFILE) OBJTYPE(*FILE) +
+                          TOLIB(&GMLLIB) /* Bevare gammel fil fra +
+                          driftsbibliote */
+             MONMSG     MSGID(CPF0000)
+             MOVOBJ     OBJ(&PTFLIB/&ATFILE) OBJTYPE(*FILE) +
+                          TOLIB(&FRALIB) /* Flytt ny fil til +
+                          driftsbibliotek */
+             MONMSG     MSGID(CPF0000)
+
+             CHGDTAARA  DTAARA(&PTFLIB/PROGRESS (1 10)) VALUE(&ATFILE)
+             CHGDTAARA  DTAARA(&PTFLIB/PROGRESS (11 10)) VALUE(&PTFLIB)
+
+             GOTO       CMDLBL(LOOP1)
+
+SLUTT:
+             RCLRSC
+             RMVLIBLE   LIB(&PTFLIB)
+             MONMSG     MSGID(CPF0000)
+
+             ENDPGM

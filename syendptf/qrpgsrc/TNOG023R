@@ -1,0 +1,272 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TNOG023R MODULE(*LIBL/TNOG023R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSOKTARI2  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+      * Varible for
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          c                   const('''')
+     d SqlStm          s            512a
+     D WSUSER          S             10
+     D WIE             S              1
+     D WSOK            S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D Kap             S              4
+     d myrows          s             10i 0
+     d  X              S              5  0
+     d wtm             s              6
+     d W10             S             10
+     d  WERR           S              1
+     D                 DS
+     D  WDT                    1      8
+     D  WDTY                   1      4
+     D  WDTM                   5      6
+     D  WDTD                   7      8
+     D                 DS
+     D  WD                     1     10
+     D  WDY                    1      4
+     D  WD1                    5      5
+     D  WDM                    6      7
+     D  WD2                    8      8
+     D  WDD                    9     10
+     d MyPoDS          ds                  Qualified  dim(30000)
+     d  w01                           8S 0
+     d  w02                          80
+     d  w03                           2S 0
+     d  w04                          15
+     d  w05                           1
+     d  w06                           4
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬ie¬ : ¬'+%trim(WIE)+'¬, '
+        +'¬sok¬ : ¬'+%trim(WSOK)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"tariclist" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     c     Error         ifeq      *blanks
+      * Hæmta varukod vi alafa del - 1
+     C                   EXSR      SOK
+      * Hæmta varukod vi alafa del - 2
+     C                   EXSR      LESARR
+
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C                   CLOSE     SOKTARI2
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WIE = zhbgetvar('IE')
+     C                   EVAL      WSOK = zhbgetvar('SOK')
+     C
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+     C                   OPEN      SOKTARI2
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C   50              eval      Error = 'Invalid userID'
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+         /free
+         syge15c ( wdt : wtm );
+         wd1='-';
+         wd2='-';
+         wdy=wdty;
+         wdm=wdtm;
+         wdd=wdtd;
+      /end-free
+
+     c                   endsr
+        /free
+        // __________________________________________________
+        // Kør SQL in i array                             SOK
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sok;
+
+       If    WSOK  <> *blanks;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' UPPER(TAALFA) LIKE UPPER(' + cQuote + '%' +
+         %trim(WSOK) + '%' + cQuote + ')';
+       EndIf;
+
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' TAALFA not like ' + cQuote + '%DELETE%' + cQuote;
+
+         Eval      WhereC =  ' Where ' + %trim(WhereC);
+
+         Eval       SqlStm = 'Select TATANR, TATXT, TAKAPN, TAALFA, ' +
+                             'TAKAP, TAKAPA ' +
+                             'from TARI ' +
+                              %trim(WhereC)  +
+                             ' Order by '       +
+                             'TAALFA desc ' +
+                             'FOR READ ONLY ';
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  A33  cursor for DynSel;
+         Exec SQL OPEN A33;
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+
+       endsr;
+        // __________________________________________________
+        // Læs array                                   LESARR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr lesarr;
+
+               werr='X';
+
+           if myrows > 999;
+             myrows=999;
+           endif;
+
+       for x = 1 to myrows;
+
+           if mypods(x).w04 = *blanks;
+             leave;
+           endif;
+
+           chain (mypods(x).W01) SOKTARI2;
+           if not %found;
+              beskr1 = *blanks;
+              beskr1 = mypods(x).w04;
+           endif;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬tatanr¬ : ¬'+%trim(%editc(mypods(x).W01:'X'))+'¬, '
+          +'¬tatxt¬ : ¬'+%trim(mypods(x).w02)+'¬, '
+          +'¬takapn¬ : ¬'+%trim(%editc(mypods(x).W03:'X'))+'¬, '
+          +'¬beskr1¬ : ¬'+%trim(beskr1)+'¬, '
+          +'¬taalfa¬ : ¬'+%trim(mypods(x).w04)+'¬, '
+          +'¬takap¬ : ¬'+%trim(mypods(x).w05)+'¬, '
+          +'¬takapa¬ : ¬'+%trim(mypods(x).w06)+'¬}';
+      /end-free
+         /free
+         jsonfix (JSONstring);
+      /end-free
+         updhtmlvar ('JSONstring':jsonstring);
+         wrtsection ('JSONlin');
+
+        endfor;
+
+       endsr;
+       //-----------------------------------------------------------------
+       // Set inn "AND" mellom where settninger
+       //-----------------------------------------------------------------
+       begsr     AddAnd;
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+      /end-free

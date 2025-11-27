@@ -1,0 +1,140 @@
+
+     ‚***********************************************************
+     ‚*** PROGRAM SKAL KONVERTER STATUSFIL (FAKTURANR)        ***
+     ‚*** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+     ‚*** LEDIGE INDIKATORER 01-24                            ***
+     ‚*** LEDIGE INDIKATORER 27-99                            ***
+     ‚***********************************************************
+
+     H DFTACTGRP(*NO)
+     fxmlrcvf   if   e           k disk
+     ffrisol03  if a e           k disk
+     ffai3      if   e           k disk
+     ftrackf    o  a e             disk
+     d                sds
+     d zuser                 254    263
+     d                 ds
+     d xorderno                1     18  0
+     d xordavd                 1      4  0
+     d xordopd                 5     11  0
+     d xordfn                 12     18  0
+     ‚*  Prototype for syxml43
+     d syxml43         pr
+     d usn_                                like(usn)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d syxml43         pi
+     d usn                            9
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d wdt             s              8
+     d wtm             s              6
+     d xn              s              3  0
+     d xok             s              1
+     d x001_xrlev1     s                   like(xrlev1)
+     d x001_xrlev2     s                   like(xrlev2)
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      /free
+       exsr init;
+
+       exsr srxml1;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************
+       begsr srxml1;
+           //**********************************************
+
+           x001_xrlev1 = 1;
+           x001_xrlev2 = 0;
+           xok = 'N';
+
+           chain (xrsn:x001_xrlev1:x001_xrlev2) xmlrcvf;
+           dow not %eof;
+
+               select;                                                          //  2<-B
+               when xrnv = 'ns1:OperatingUnit';                                 //  2<-B
+               when xrnv = 'ns1:OrderSource';                                   //  2<-B
+                   if xrverd = 'SYSPED';                                        //   3<-B
+                       xok = 'J';
+                   endif;                                                       //   3<-E
+               when xrnv = 'ns1:InvoiceNumber';                                 //  2<-B
+                   fssok = xrverd;
+               when xrnv = 'ns1:SourceTransactionReference';                    //  2<-B
+                   if %subst(xrverd:1:1) >= '0' and                             //   3<-B
+                       %subst(xrverd:1:1) <= '9';
+                       xorderno = %dec(xrverd:18:0);
+                   endif;                                                       //   3<-E
+               when xrnv = 'ns1:Status';                                        //  2<-B
+                   ttedev = xrverd;
+                   if xok = 'J';                                                //   3<-B
+                       exsr sropd;
+                       xok = 'N';
+                   endif;                                                       //   3<-E
+               endsl;                                                           //  2<-E
+
+               x001_xrlev1 = x001_xrlev1 + 1;
+               chain (xrsn:x001_xrlev1:x001_xrlev2) xmlrcvf;
+           enddo;                                                               // 1<-E
+
+       endsr;
+
+       //**********************************************
+       begsr sropd;
+           //**********************************************
+
+           chain (xordfn:xordavd:xordopd) fai3;
+           if %found;
+               // FLYTT INN SYSPED FAKTURANR PÅ HØYRE SIDE AV FRISØKEVEI
+               %subst(fssok:29:7) = %editc(fifn:'X');
+               // OPPDATER FRISØKEVEI
+               chain (fiavd:fiopd:fssok:fskode) frisol03;
+               if %found;
+                   fsavd  = fiavd;
+                   fsopd  = fiopd;
+                   fsdtop = %dec(wdt:8:0);
+                   fsdokk = *blanks;
+                   fskusp = *blanks;
+                   write frisokr;
+               endif;
+               // OPPDATER LOGG
+               ttavd  = fiavd;
+               ttopd  = fiopd;
+               ttacti = 'IN2';
+               ttdate = %dec(wdt:8:0);
+               tttime = %dec(wtm:6:0);
+               // FJERN SYSPED FAKTURANR
+               %subst(fssok:29:7) = '       ';
+               tttext = 'InvoicNo: '
+               + %trim(%editc(fifn:'3'))
+               + '  OpusCapitac invoiceNo: '
+               + %trim(fssok);
+               ttuser = zuser;
+               ttdatl = ttdate;
+               tttiml = tttime;
+               tttexl = tttext;
+               write trackfr;
+
+           endif;
+
+       endsr;
+
+       //**********************************************
+       begsr init;
+           //**********************************************
+
+           xrsn = %dec(usn:9:0);
+           fskode = 'IN2';
+           syge15c ( wdt : wtm );
+
+       endsr;
+
+      /end-free

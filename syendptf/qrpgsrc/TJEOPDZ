@@ -1,0 +1,576 @@
+      * Program som alle til sist etter alt annet ved oppdatering av et oppddrag..
+      *          Her kan kundespasialer / ting som skal skje helt til slutt plasseres
+      *********************************************************************
+CRTPG+*  CRTPGM SYSPED/TJEOPDZ MODULE(*LIBL/TJEOPDZ *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *********************************************************************
+      *  01 PTF11 JOV  Hele faktura-logikken tatt inn i dette prog (avh. av at linjer er på plass)
+      *  02 PTF11 JOV  momslogikk
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      *  03 PTF12 JOV  FAKDA-fakturalinjes oppr.kode  var feil/uteglemt
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     UF   E           K DISK    USROPN
+     FFAKT      UF A E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FVALUL01   IF   E           K DISK    USROPN
+     FPRIK      IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D P               S              5U 0
+     D WSUSER          S             10
+     D WSAVDA          S              4
+     D WSAVD           S              4  0
+     D WSOPDA          S              7
+     D WSOPD           S              7  0
+     D JSONstring      S          32000
+     D Error           S           5000                                         flere feilmeldinger
+     D InfoMsg         S           5000                                         flere infomeldinger
+     D Values          S           5000                                         Flere nye verdier
+      * koder for tillegg
+     D                 DS
+     D  WTG                    1      5
+     D   HESTN1                1      1
+     D   HESTN2                2      2
+     D   HESTN3                3      3
+     D   HESTN4                4      4
+     D   HESTN5                5      5
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C  N50              EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬heavd¬ : ¬'+%trim(%editc(WSAVD:'Z'))+'¬, '
+        +'¬heopd¬ : ¬'+%trim(%editc(WSOPD:'Z'))+'¬, '
+        +'¬infoMsg¬ : ¬'+%trim(InfoMsg)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     C                   eval      JSONstring ='"orderPostUpdate" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * kunne her returnere en liste over felt som har fått nye verdier fra serverside ....
+     c                   if        Values = *blanks
+     c                   eval      JSONstring = *blanks
+     c                   else
+     C                   eval      JSONstring = '{' + %trim(values) + '}'
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     c                   endif
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     FAKT
+     C  N50              CLOSE     VALUL01
+     C  N50              CLOSE     PRIK
+     C  N50              CLOSE     FIRM
+     C  N50              CLOSE     CUNDL01
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WSAVDA = zhbgetvar('AVD')
+     C                   EVAL      WSAVD  = c2n2(WSAVDA)
+     C                   EVAL      WSOPDA = zhbgetvar('OPD')
+     C                   EVAL      WSOPD  = c2n2(WSOPDA)
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      * Div hjelpefelt
+     C     *LIKE         DEFINE    TRFRAK        NYFRAK
+     C     *LIKE         DEFINE    TRFRAV        NYFRAV
+     C     *LIKE         DEFINE    TRFRAB        NYFRAB
+N02  C     *LIKE         DEFINE    TRMVA         NYMVA
+     C     *LIKE         DEFINE    FALI          NullLin
+      * Div Keys
+     C     HEADKEY       KLIST
+     C                   KFLD                    WSAVD
+     C                   KFLD                    WSOPD
+     C     FAKTKEY0      KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    NullLin
+     C     VALKFA        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    NYFRAV
+     C     PRIKKEY       KLIST
+     C                   KFLD                    PKKNR
+     C                   KFLD                    PKAVTN
+     C                   KFLD                    PKGEBY
+     C                   MOVE      '0'           PKAVTN
+     C                   MOVE      'FRA'         PKGEBY
+     C     CUNDL01K      KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+
+     C   50              EVAL      Error = 'Invalid userID'
+     c     *IN50         cabeq     '1'           UtInit
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      * Open files
+     C                   OPEN      HEADF
+     C                   OPEN      FAKT
+     C                   OPEN      VALUL01
+     C                   OPEN      PRIK
+     C                   OPEN      FIRM
+     C                   OPEN      CUNDL01
+      *
+     C     HEADKEY       CHAIN(N)  HEADF                              33
+     C   33              eval      Error = 'Ukjent oppdragsnummer '
+     C                                   + %trim(%editc(WSAVD:'Z'))+'/'
+     c                                   + %trim(%editc(WSOPD:'Z'))
+     c     *IN33         cabeq     '1'           UtInit
+      *
+      *
+      * hent firmaverdier
+     C     *loval        setll     FIRM
+     C                   read      FIRM
+      *
+     c     UtInit        ENDSR
+      *
+      *******************************************************
+     C     TEST          BEGSR
+      *******************************************************
+      *
+     c                   move      ' '           UpdTg             1            Tilleggsgebyr
+     c                   move      ' '           UpdFra            1            Frakt(+Olj)
+      *
+      * endre pga tillegsbebyr ?
+     c                   Exsr      UpdTillegg
+     c                   if        UpdTg = 'J'
+     C     HEADKEY       CHAIN     HEADF                              55
+     c                   move      WTGNY         WTG
+     C  N55              UPDATE    HEADFR
+     c                   endif
+      *
+      * endre pga reberegnet frakt ?
+     c                   Exsr      UpdFrakt
+     c                   if        UpdFra = 'J'
+     c                   exsr      SkrivFaLi
+     C     HEADKEY       CHAIN     HEADF                              55
+     C                   EVAL      TRFRAK  = NYFRAK
+     C                   EVAL      TRFRAV  = NYFRAV
+     C                   EVAL      TRFRAB  = NYFRAB
+N02  C                   EVAL      TRMVA   = NYMVA
+     C  N55              UPDATE    HEADFR
+     c                   endif
+      * reberegne hele faktura  ?
+     c                   Exsr      UpdFaktura
+     C                   ENDSR
+      *
+      *************************************************
+     C     UpdTillegg    BEGSR
+      *************************************************
+      * koder for tillegsgebyr
+     c                   if        HESTN6 <> 'P'
+     c                   MOVE      *blanks       WTGNY             5
+     C                   CALL      'LBHTIL'
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    UULINR            2 0
+     C                   PARM                    WTGNY
+      * Noe endret = oppdater
+N01  c                   if        WTGNY <> WTG
+N01  c                   eval      UpdTg = 'J'
+     C                   endif
+     C                   endif
+     C                   ENDSR
+      *************************************************
+     C     UpdFrakt      BEGSR
+      *************************************************
+      * hopp ut hvis fakturert/overført
+     c     FaktKey0      chain(N)  FAKT                               33
+     c                   IF        *in33 = '0'
+     c                             and FAOPKO > 'C'
+     c                   goto      UtFrakt
+     c                   endif
+      * Åpen uberegnet/maskinelt beregnet linje = reberegn
+     c     trkdff        ifeq      'S'
+     c                   move      heknsf        frabet            8 0
+     c                   move      HEVALS        fraktVal          3
+     c                   else
+     c                   move      heknkf        frabet
+     c                   move      HEVALK        fraktVal          3
+     c                   end
+      * ta hensyn til avtalekunde..(i BERFRP) + hent landkode (forr MVA )mm
+ N02  * flyttet opp i logikken (før evt endret manuelt beløp)
+     C                   MOVE      FRABET        KUNDNR
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C  N33AKNRKU        IFNE      *ZEROS
+     C                   MOVE      AKNRKU        KUAVTA            8 0
+     C                   ELSE
+     C                   MOVE      KUNDNR        KUAVTA
+     C                   END
+      * hopp ut hvis beskyttet eller N i frakt-kode
+     c                   IF        TRFRAK='A'
+     c                             or TRFRAK='B'
+     c                             or TRFRAK='N'
+      *  men hvis val/beløp er endret - oppdater linje
+     c                   IF        FAVAL<>TRFRAV or FABELV <> TRFRAB
+     C                   EVAL      NYFRAK  =  TRFRAK
+     C                   EVAL      NYFRAV  =  TRFRAV
+     C                   EVAL      NYFRAB  =  TRFRAB
+     c                   EVAL      UpdFra = 'J'
+     c                   endif
+     c                   goto      UtFrakt
+     c                   endif
+      *
+     c                   EXSR      BERFRP
+     c                   eval      UpdFra = 'J'
+      * hopp ut hvis ferdigmeldt  ?? / samlefakturakø...??
+      * Resten av faktura blir ikke regregne da.. - se syfi10x
+     C     UtFrakt       ENDSR
+      *************************************************
+     C     UpdFaktura    BEGSR
+      *************************************************
+      * hopp ut hvis fakturert/overført
+     c     FaktKey0      chain(N)  FAKT                               33
+     c                   IF        *in33 = '0'
+     c                             and FAOPKO > 'C'
+     c                   goto      UtFaktura
+     c                   endif
+      * I syfi10x sjekkes ytterligere mot ferdigmelding/samlefakt-kø..
+      *
+      * Kalkuler/reberegn faktura
+      * burde skilles ut i et GE-prog..(enkelte av param kunne vel droppes og hente i SYFI10X)
+     C                   MOVE      *ZEROS        XKUTL
+     C                   MOVE      *ZEROS        XSUTL
+     C                   MOVE      *ZEROS        XKUMIN
+     C                   MOVE      *ZEROS        XSUMIN
+     C                   MOVE      *ZEROS        UKFRA
+     C                   MOVE      'NY'          XNYGML
+     C                   MOVE      'J'           KO2UTL
+     C                   MOVE      3             UFLAGG
+     C                   CALL      'SYFI10X'
+     C                   PARM                    FIFIRM
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    XNYGML            2
+     C                   PARM                    KO2UTL            1
+     C                   PARM                    XKUTL             4 2
+     C                   PARM                    XSUTL             4 2
+     C                   PARM                    XKUMIN            2 0
+     C                   PARM                    XSUMIN            2 0
+     C                   PARM                    KO2MVK            1
+     C                   PARM                    KO2MVS            1
+     C                   PARM                    UKFRA             7 0
+     C                   PARM                    KOVAVR            1
+     C                   PARM                    WSMSG            62
+     C                   PARM                    WSMELD            1
+     C                   PARM                    UFLAGG            1 0
+     C                   PARM                    UKODE             1
+     C                   PARM                    USECUR            6
+     C     Utfaktura     ENDSR
+     C******************************************
+     C     BERFRP        BEGSR
+     C******************************************
+     C* POSTNUMMERBASERT KALKULASJON
+      *
+     C                   MOVE      *BLANKS       UUVAL             3
+     C                   MOVE      'FRA'         UGEB              3
+     C                   MOVE      'FRA'         UGEBKO            3
+     C                   MOVE      *ZEROS        UUBELØ           13 2
+     C* LEGGER INN DUMMY "S" FOR PART (ULIK A=OPPDATER FR.BER.VEKT)
+     C                   MOVE      'S'           USKA              1
+     C                   CALL      'SYGE04'
+     C                   PARM                    UGEBKO
+     C                   PARM                    UGEB
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    KUAVTA
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    UAVNR             9 0
+     C                   PARM                    UAVMSG           50
+     C                   PARM                    USKA
+     C                   MOVE      'A'           XKDA
+     C     UAVMSG        IFNE      *BLANKS
+     C     UUBELØ        ANDNE     *ZEROS
+     C**                 MOVEL     UAVMSG        info....
+     C                   END
+      *
+     C     UUBELØ        IFEQ      0
+     C                   MOVE      'B'           XKDA              1
+     C                   MOVE      *BLANKS       USONE
+     C                   MOVE      *BLANKS       UUVAL
+     C                   MOVE      *ZEROS        URABAT
+     C                   CALL      'SYGE03'
+     C                   PARM                    UGEB
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    USONE             5
+     C                   PARM                    URABAT            5 2
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    KUAVTA
+     C                   PARM                    UAVNR             9 0
+     c                   parm                    atdum             1
+     C     URABAT        IFNE      *ZEROS
+     C                   MOVE      'A'           XKDA
+     C                   END
+     C                   END
+     C                   Z-ADD     UUBELØ        NYFRAB
+     C                   IF        NYFRAB <> *zeros
+     c                   move      UUVAL         NYFRAV
+     c                   move      'M'           NYFRAK
+     C                   END
+      *
+     C                   ENDSR
+     C*
+     C******************************************
+     C     SkrivFali     BEGSR
+     C******************************************
+N02   * klargjør momskode
+N02  c                   if        TRMVA <> ' '
+N02  c                   eval      NYMVA = TRMVA
+N02  c                   else
+N02  C                   MOVE      'N'           NYMVA
+N02  C                   IF        HELKA=FILAND and HETRI=FILAND
+N02  C                   MOVE      'J'           NYMVA
+N02  C                   IF        SYLAND<>'  ' and SYLAND<>FILAND
+N02  C                   MOVE      'N'           NYMVA
+N02  C                   END
+N02  C                   END
+N02  c                   endif
+      *
+      * fjern evt åpent valuta/olje-tillegg
+     C     HEVALT        IFNE      *BLANKS
+     C                   EXSR      DELVALT
+     C                   ENDIF
+      *
+      * oppdater/evt skriv ny fraktlinje
+     c                   clear                   FAKTR
+     c     FaktKey0      chain     FAKT                               56
+     C                   Z-ADD     0             FALI
+     C                   MOVE      HEAVD         FAAVD
+     C                   MOVE      HEOPD         FAOPD
+     C                   MOVE      'FRA'         FAVK
+     C                   MOVE      FraktVal      FAVAL
+     C                   MOVE      TRKDFF        FASK
+     C     TRFRAK        IFEQ      'E'
+     C                   MOVE      'E'           FASK
+     C                   END
+S03  c*                  move      TRMVA         FAKDA
+N03  c                   move      'M'           FAKDA
+     C                   Z-ADD     NYFRAB        FABELV
+     C     FAVAL         IFEQ      FICURR
+     C     FAVAL         ANDEQ     NYFRAV
+     C                   Z-ADD     FABELV        FABELN
+     C                   ELSE
+     C                   EXSR      TESTVA
+     C                   Z-ADD     FABELV        NYFRAB
+     C                   END
+N02  C                   MOVE      NYMVA         FAKDM
+     C     TRSLAG        IFEQ      'HO'
+     C                   MOVE      *ZEROS        FAAVDR
+     C                   ELSE
+     C                   MOVE      'I'           FASK
+     C                   Z-ADD     TRAVD0        FAAVDR
+     C                   END
+     C                   Z-ADD     UAVNR         FAAGRN
+     C     FraktVal      IFEQ      FICURR
+     C                   MOVE      *BLANKS       FACURI
+     C                   ELSE
+     C                   MOVE      FraktVal      FACURI
+     C                   END
+     C     NYFRAV        IFNE      FAVAL
+     C                   MOVE      FAVAL         FACU33
+     C                   MOVE      NYFRAV        FAVAL
+     C                   END
+     C                   EXSR      DECI
+     C                   MOVE      FRABET        FAKUNR
+     C                   MOVE      FAKUNR        PKKNR
+     C     PRIKKEY       CHAIN     PRIK                               33
+     C  N33              MOVE      PKSAMM        FACD11
+      * skriv eller update FAKTrecord
+     C   56              WRITE     FAKTR
+     C  N56              UPDATE    FAKTR
+      *
+      * skriv evt nytt valuta/olje-tillegg
+     C     HEVALT        IFNE      *BLANKS
+     C     HEVALP        ANDNE     *zeros
+     C     FABELV        ANDNE     *ZEROS
+     C                   EXSR      ADDVALT
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *****************************************************
+     C     DELVALT       BEGSR
+      *****************************************************
+      * Valuta/Olje-tillegg?
+     c                   move      ' '           XVOPKO            1
+      * slett evt gammel åpen
+     C     HEADKEY       SETLL     FAKT
+     C     HEADKEY       READE     FAKT                                   56
+     C     *in56         doweq     '0'
+      *
+     C     FAVK          IFEQ      HEVALT
+     C     FAFAKT        ANDEQ     *ZEROS
+     C     FAOPKO        ANDLE     'C'
+     c                   Move      FAOPKO        XVOPKO            1
+     C                   DELETE    FAKTR
+     C                   ELSE
+     C                   UPDATE    FAKTR
+     C                   ENDIF
+      *
+     C     HEADKEY       READE     FAKT                                   56
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      *****************************************************
+     C     ADDVALT       BEGSR
+      *****************************************************
+     C                   CALL      'SYGE06'
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    FALI
+     C                   MOVE      HEVALT        FAVK
+      * hevalp = num 3,3  - dvs 7,5 % er ferdig lagret som 0,075
+     C     FABELV        MULT(H)   HEVALP        FABELV
+     C     FABELN        MULT(H)   HEVALP        FABELN
+     C                   EXSR      DECI
+     C                   MOVE      XVOPKO        FAOPKO
+N03  c                   move      'N'           FAKDA
+      * skriv ubetinget (evt gammel er slettet )
+     C                   WRITE     FAKTR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TESTVA        BEGSR
+     C***********************************************
+     C*
+     C     VALKFA        CHAIN     VALUL01                            33
+     C  N33              DO
+     C     FABELV        MULT      VALKU1        XWORK            15 4
+     C     XWORK         DIV(H)    OMRFAK        FABELN
+     C*
+     C* OMREGNER TIL FAKTURAVALUTA HVIS FORSKJELLIG FRA WSVALS
+     C     FraktVal      IFNE      FICURR
+     C     NYFRAV        IFNE      FraktVal
+     C                   MOVE      FraktVal      NYFRAV
+     C*
+     C     VALKFA        CHAIN     VALUL01                            33
+     C  N33              DO
+     C     FABELN        DIV       VALKU1        XWORK            15 4
+     C     XWORK         MULT(H)   OMRFAK        FABELV
+     C*
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     DECI          BEGSR
+     C***********************************************
+     C* TEST FIRMS NUMBER OF DECIMALS
+     C*
+     C* NO DECIMALS
+     C     FIDECI        IFEQ      0
+     C                   Z-ADD(H)  FABELN        FABEL0           11 0
+     C                   Z-ADD     FABEL0        FABELN
+     C                   Z-ADD(H)  FABELU        FABEL0           11 0
+     C                   Z-ADD     FABEL0        FABELU
+     C                   ELSE
+     C* 1 DECIMAL
+     C     FIDECI        IFEQ      1
+     C                   Z-ADD(H)  FABELN        FABEL1           12 1
+     C                   Z-ADD     FABEL1        FABELN
+     C                   Z-ADD(H)  FABELU        FABEL1           12 1
+     C                   Z-ADD     FABEL1        FABELU
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+     C*

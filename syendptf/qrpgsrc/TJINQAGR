@@ -1,0 +1,308 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQAGR MODULE(*LIBL/TJINQAGR *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D user            S             10
+     D MaxV            S              5
+     D MaxVis          S              5  0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+     D Error           S            150
+     D JSONstring      s          32000
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"inqAvdGrupp" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C     ERROR         IFEQ      *blanks
+     C                   EXSR      LINES
+     C                   ENDIF
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   EXSR      EXIT
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         BEGSR
+     C                   EVAL      user = zhbgetvar('user')
+     C                   EVAL      MaxV    = zhbgetvar('MaxV')
+     C                   EVAL      MaxVis  = c2n2(MaxV)
+     C     MaxVis        IFEQ      *zeros
+     C                   EVAL      MAXVIS=50
+     C                   ENDIF
+     C                   ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     BRPARF
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDSR
+      *=====================================================================
+      * Find lins
+      *=====================================================================
+     C     LINES         BEGSR
+      * Prio= 1. My departm. / 2. Grp defn. på User / 3 Grp defn. på User / 4 Statiske (IMP / DOM..)
+      *
+      * 1.  My Departments -
+     C                   exsr      MyDpts
+      *
+      * 2.  Avdgrp på User-nivå
+     C                   eval      PABRID    = BIBRID
+     C                   MOVEL     'LTAGR'       PAID
+      *
+     c     StrLes        tag
+     C     Brparkey      SETLL     BRPARF
+     C     Brparkey      READE     BRPARF
+     C                   DOW       not %eof
+
+     C                   ADD       1             AntVist           5 0
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬'+%trim(%subst(PAVRDA:1:4))+'¬, '
+          +'¬agrNavn¬ : ¬'+%trim(%subst(PAVRDA:6))+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+
+     C     AntVist       CABGE     MaxVis        UtLes
+
+     C     Brparkey      READE     BRPARF
+     C                   ENDDO
+
+      * 3.  Avdgrp på Firma-nivå
+     c                   if        %subst(PABRID:1:8) <> '*KUNDFT*'
+     C                   eval      PABRID    = '*KUNDFT*'+BIFIRM
+     C                   goto      StrLes
+     c                   endif
+
+      * 4.  Statiske grupper
+     C                   exsr      StaticGrps
+
+     C     UTLES         TAG
+     C                   ENDSR
+      *
+      *****************************************************
+     C     MyDpts        BEGSR
+      *****************************************************
+      * 1.  My Departments - kun hvis mer en 1 param på user  m. kode LTAVD ...
+     C                   eval      PABRID    = BIBRID
+     C                   MOVEL     'LTAVD'       PAID
+     C     Brparkey      SETLL     BRPARF
+     C     Brparkey      READE     BRPARF
+     C                   if        not %eof
+     C     Brparkey      READE     BRPARF
+     C                   if        not %eof
+     C                   ADD       1             AntVist           5 0
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬MYDP¬, '
+          +'¬agrNavn¬ : ¬Mine avdelinger¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   endif
+     C                   endif
+     C                   ENDSR
+      *
+      *****************************************************
+     C     StaticGrps    BEGSR
+      *****************************************************
+      * IMP
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬IMP¬, '
+          +'¬agrNavn¬ : ¬Import¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * EXP
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬EXP¬, '
+          +'¬agrNavn¬ : ¬Exprot¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * DOM
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬DOM¬, '
+          +'¬agrNavn¬ : ¬Domestic¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * IN
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬IN¬, '
+          +'¬agrNavn¬ : ¬Inbound Domestic¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * OUT
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬OUT¬, '
+          +'¬agrNavn¬ : ¬Outbound Domestic¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ALL
+     C                   ADD       1             AntVist
+      /free
+       if AntVist=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬agrKode¬ : ¬ALL¬, '
+          +'¬agrNavn¬ : ¬All Departments¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   ENDSR
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      BRPARF
+      * Key for BRPARF
+     C     Brparkey      KLIST
+     C                   KFLD                    PABRID
+     C                   KFLD                    PAKUNR
+     C                   KFLD                    PAID
+
+     C                   ENDSR

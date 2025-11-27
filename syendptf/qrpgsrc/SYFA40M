@@ -1,0 +1,744 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 SH  PTF12 history arkiv         .
+12XXX * 02 jov PTF12 User i lenke fra parameter  / utvidet POS
+      * 03 JOV PTF12 logg i TT: kode RAS Ank.meld/PurringRRuckatt. sendt    TTDEPO=UNIK
+      * 04 JOV PTF12 Sjekke parameter for o tollbar frakt skal sendes
+      * 05 JOV PTF12 Sjekke parameter for avvikende arkivtrype handelsfaktura
+      * 06 JOV PTF12 Transp.middel KAN også være container-nummer
+      * 07 JOV PTF12 Kan sendes på ny Loggfør også da - men benytt samme UNIK nr (TTDEPO)
+      *              Obs! se også SYRU03 - PTF 07 der må inn samtidig..
+      * 08 JOV PTF12 Frakt kun om fankatur tilsier det. V/transp-mod, hent tollbar frakt fra TRFRAB
+      * 09 JOV ptf12 sikre chain av TRACKL02/RAS
+      * 10 JOV ptf12 over til EMLHTML2 for å takle vedlegg
+      * 11 SH  PTF12 mmail kommando retter fra STMF->HTML
+      * 12 JOV PTF12 'eksp.sted/løpenr.' kan oppfattes som lenke av urldefensce - skriv fullt ut
+      * 13 JOV PTF12 skille http:// og https://
+      * 14 JOV PTF12 Forsøk å sende SMS kun når mobilnr er oppgitt på mottaker
+      * 15 SH  PTF12 landkode kjøretøy heur H
+      *              Forresten - deaktiverert det hele (om gjeninnføring også SMS->T&T(betaling)
+********************************************************************
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      ****************************************************************************************
+      * SYSPED - Ankomstmelding som mail med lenke for å følge opp Ruckattest                *
+      ****************************************************************************************
+N15  FTURER14   IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FFRISOK    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+     FARKIVL02  IF   E           K DISK
+     FARKTXT    IF   E           K DISK
+     FARKEXT    IF   E           K DISK
+S04  F*YPARL3   IF   E           K DISK
+N04  FSYPARL1   IF   E           K DISK
+N03  FTRACKl02  IF A E           K DISK
+N08  FKODTLB    IF   E           K DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+s10  D*CmdLine         S            512
+N10  D CmdLine         S           1024
+N10  D Vedlegg         S           1000
+N10  D HF_Vedl         S              1                                         V=send som vedlegg
+     D CmdLen          S             15  5
+     D SDATA           S           1000
+     D WFilNam         S            256
+     D SMS             S             15
+     D ImgRef          S            200
+     D LabTxt          S             70
+     D LabImg          S             70
+     D RuckURL         S            500
+     D HfaktURL        S            500
+     D UNIK            S             10
+N04  D*Frakt           S              7  0
+N04  D Frakt           S              9  2
+N04  D FraktVAL        S              3
+N06  D TrMidd          S             20
+     D ExtRef          S             35
+     D XXADK3          S             30
+N13  D HTTPtyp         S             10
+N13  D HTTPtypV        S             10
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                SDS
+     D  ZUSER                254    263
+      *
+     D LINK            S            150
+     D MailSMS         S             70
+N02  D POS             S             15
+     D Emne            S             70
+      *
+     D timedata1       S               z                                        z=Timestamfield
+      *
+     C                   EXSR      INIT
+      *
+     C     HEAKEY        CHAIN     HEADF                              33
+     C     *IN33         CABEQ     *ON           SLUTT
+      * Lag/send mailen
+     C                   EXSR      LagMail
+     C                   EXSR      SendMail
+      *
+      * Lag/send SMS med varsel
+N14  C                   if        moSMS <> *blanks
+S14  C**                 EXSR      SMSsr
+N14  C                   endif
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     LagMail       BEGSR
+      ******************************************************************************
+      * Lag fil og set codepage (pc)
+     C                   time                    Timedata1
+     C                   movel     timedata1     TS26             26            må være 26 lang
+     C                   movel     TS26          TS               22
+      *                                                 typisk TS er nå  2012-09-08-17.39.49.73
+     C                   EVAL      WFilNam ='/SYSPEDDEV/TEMP/'
+     C                             + TS + '_' + UAVD + '_' + UOPD + '.html'
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam )
+     C                             : 'w' )
+      *
+     C                   EXSR      HOVED
+      * close file
+     C                   EVAL      rc = close( FILE_o )
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     HOVED         BEGSR
+      ******************************************************************************
+      * klargjør InstruksjonsURL
+s03  C* Generer random number
+s03  C*                  CALL      'ARCRAN'
+s03  C*                  PARM                    UNIK
+N03  c                   MOVE      HEAVD         TTAVD
+N03  c                   MOVE      HEOPD         TTOPD
+N09  c                   MOVE      *zeros        TTFBNR
+N03  c                   MOVE      'RAS'         TTACTI
+N03  c     TT02KEY       chain     TRACKL02
+S07  c*                  if        not %found
+N03  C                   exsr      ttsr
+S07  c*                  endif
+N03  c                   eval      UNIK = TTDEPO
+N03   *
+N02  C*    'ESUSR'       CHAIN     SYPARL3
+N04  C                   eval      SYKUNR = *zeros
+N04  C                   eval      SYPAID = 'ESUSR'
+N04  C     Sypar1Key     CHAIN     SYPARL1
+N02  c                   if        not %found
+N02  c                   eval      syvrda = 'NN'
+N02  c                   endif
+      * når lenken frosøkes åpne i eget vindu med gitt size stoppes det (som farlig ??)
+     c*                  eval      RuckURL ='<a href="#" OnClick="window.open'
+     c*                            +'(''http://'+%trim(ARCPAE)
+     c*                            +'/sycgip/terank05.pgm'
+     c*                            +'?id='+%TRIM(%EDITC(TAID:'Z'))+'&unik='+UNIK
+     c*                            +'&imglnk='+%trim(OMLIMG)
+     c*                            +'&user=NN'',''InstWind'',''width=750,height'
+     c*                            +'=600'')">denne lenken</A>'
+N13  c                   eval      HTTPtyp='http://'
+N13  c                   if        ARCPSE = 'J'                                 Secure=J
+N13  c                   eval      HTTPtyp='https://'
+N13  c                   endif
+S13  c*                  eval      RuckURL ='<a href="http://'+%trim(ARCPAE)
+N13  c                   eval      RuckURL ='<a href="'+%trim(HTTPtyp)
+N13  c                             +%trim(ARCPAE)
+     c                             +'/sycgip/syfa40RU.pgm'
+     c                             +'?unik='+UNIK
+     c                             +'&avd='+%TRIM(%EDITC(HEAVD:'Z'))
+     c                             +'&opd='+%TRIM(%EDITC(HEOPD:'Z'))
+s02  c*                            +'&user=NN'+'" Target="RuckWindow">'
+N03  c                             +'&user='+%trim(syvrda)
+N03  c                             +'" Target="RuckWindow">'
+     c                             +'denne lenken</A>'
+      *
+      * LEGG UT HTML TOP / STYLE MM  (se f.esk SYSPED/HTMLSRC.EISO15 for inlin css.)
+     C                   EVAL      SDATA  = '<HTML>'
+     C                             + '<style type="text/css"> '
+     c                             + 'th {font-size: 15pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'td {font-size: 10pt; '
+     c                             +    'font-family: arial, helvetica, helv; '
+     c                             +    'font-weight: bold;}'
+     c                             + 'BODY {'
+     c                             + '  font-size:10pt;'
+     c                             + '  font-family: arial,'
+     c                             + '  helvetica, helv;'
+     c                             + '  background-color: #E6E6FA;'
+     c                             + '  margin-top: 50px;'
+     c                             + '  margin-right: 5px;'
+     c                             + '  margin-bottom: 5px;'
+     c                             + '  margin-left: 50px;'
+     c                             + '} '
+     c                             + '</style>  '
+     c                             + '<Body><table>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)       Skriv til IFS-fil
+      *
+     C     HEPOS2        IFEQ      *ZEROS
+     C                   EVAL      POS = HEPOS1
+     C                   ELSE
+     C                   EVAL      POS = %trim(HEPOS1) +'/' +
+     C                             %trim(%editc(HEPOS2:'Z'))
+     C                   END
+      *
+     C                   Eval      EMNE  = 'Ankomstmelding fra '+%trim(FIKRTN)
+     C                                    +' Godsnr:'+%trim(HEGN)+' Pos:'
+S02  C*                                   + %trim(HEPOS1)
+N02  C                                    + %trim(POS)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Ankomstmelding/ufortollet gods.'
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Godset må fortolles før det tas '
+     C                                    + 'i bruk - senest innen 10 dager. '
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Ruckattest må avgis ved å benytte '
+     C                                    + 'lenken lenger nede straks godset '
+     C                                    + 'er fortollet (eller omregistrert '
+     C                                    + 'på nytt godsnummer).'
+     C                                    + '</b>'
+     C                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Informasjon om oppdraget:  '
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      **** Avsender *****
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + 'Avsender: '
+     C                   EVAL      SDATA  = %trim(SDATA )
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HENAS  + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADS1 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADS3 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      ***** Vareeier - men kun hvis ulik mottaker ****
+      * hent HEKNK=vareeier
+     c     KunKey        chain     CUNDL01
+     c                   if        %found
+     c                   move      POSTNR        POSTNRA           4
+     c                   eval      XXADK3 = POSTNRA +' ' + ADR3
+     c                   if        KNAVN <> HENAK or
+     c                             ADR1 <> HEADK1 or XXADK3 <> HEADK3
+      ***** vareeier ****
+     C                   EVAL      SDATA  = '<tr><td>'
+n04  C                             + 'Vareeier/Speditør:</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + KNAVN  + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + ADR1 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + XXADK3 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     c                   endif
+     c                   endif
+      ***** Mottaker ****
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + 'Mottaker/Lev.adresse:</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HENAK  + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADK1 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     c                             + HEADK3 + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      ***** Godsinfo ***..
+     C                   EVAL      SDATA  = '<tr><td><b>'
+     C                                    + %trim(%editc(HENT:'Z'))
+     C                             + '</b> ' + %trim(HEVS1)
+     C                   if        HEVS2<>' '
+     C                   EVAL      SDATA  = %trim(SDATA ) +', '
+     C                             + %trim(HEVS2)
+     c                   endif
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             + 'Vekt: <b>'+ %trim(%editc(HEVKT:'Z'))
+     C                             + ' kg</b>'
+     C                   if        HEM3<>0
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             + 'Volum M3: '+ %trim(%editc(HEM3:'4'))
+     c                   endif
+     C                   if        HELM<>0
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             + 'Lastemeter: '+ %trim(%editc(HELM:'4'))
+     c                   endif
+     c                   if        HEGM1<>' '
+     C                   EVAL      SDATA  = %trim(SDATA )
+     C                             + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                             + 'Merking: '+ %trim(HEGM1)
+     c                   endif
+     C                   if        HEGM2<>' '
+     C                   EVAL      SDATA  = %trim(SDATA ) +', '
+     C                             + %trim(HEGM2)
+     c                   endif
+     C                   EVAL      SDATA  = %trim(SDATA ) + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * REFeranser
+     c                   eval      FSKODE = '*CR'
+     c     FriKey        chain     FRISOK
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Ref: ' + %trim(HERFA)
+     C                                    + ' Vår ref:'
+     C                                    + %trim(%editc(HEAVD:'Z'))+'/'
+     C                                    + %trim(%editc(HEOPD:'Z'))
+     c                   if        %found (FRISOK)
+     C                   EVAL      SDATA  = %trim(SDATA)
+     C                                    +'  Ekstern Ref: '+FSSOK
+     c                   endif
+     C                   EVAL      SDATA  = %trim(SDATA)
+     c                                    + '</td></tr>'                               put /overlay
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * Trans.Måte mm
+N06  c                   eval      TrMidd= HEHAWB
+      * TRANSPORTMODUL - HENT TRM. / LANDKODE MM FRA TUR
+n15  C     HEUR          IFEQ      'H'
+n15  C     HEPRO         ANDNE     *ZEROS
+n15  C     HEPRO         CHAIN     TURER14                            33
+n15  C     *IN33         IFEQ      '0'
+n15  C                   MOVE      TULK          HETRI
+n15  C                   MOVE      TUTRMA        HETRM
+n15  C                   MOVE      TUCON1        HETRCN
+n15  C                   MOVE      0             HETRC
+n15  C     TUCON1        IFNE      *BLANKS
+n15  C                   MOVE      1             HETRC
+n15  C     TULKC1        IFNE      *BLANKS
+n15  C                   MOVE      TULKC1        HETRI
+n15  C                   END
+n15  C                   END
+n15  C                   END
+n15  C                   END
+N06   * hvis containerkode - hent kontainer-nummer
+N06  c                   if        HETRC = 1
+N06  c                   eval      TrMidd = HETRCN
+N06  c                   endif
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Transp.måte: <b>'
+     C                                    + %trim(%editc(HETRM:'Z')) +'</b>'
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;'
+     C                                    + 'Transp.enhets-ID: <b>'
+S06  C*                                   +  HEHAWB+'</b>'
+N06  C                                    +  %trim(TrMidd) +' '
+     C                                    + '&nbsp;&nbsp;&nbsp;'
+     C                                    + 'ID-Landkode: <b>'+HETRI+'</b>'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      * Frankatur / Fraktkost
+N08   *Fraktkost kun dersom frakatur tilsier det
+N08  C     KODLBK        CHAIN     KODTLB
+N08  C* KLBFOK=FORSIKRING  KLBFRK=FRAKTKODE
+N08  C                   if        %found and KLBFRK <> 'N'
+N04   * FirmaDFT
+N04  C                   eval      SYKUNR = *zeros
+N04  C                   eval      SYPAID = 'ANKMF'
+N04  C     Sypar1Key     CHAIN     SYPARL1
+N04  c                   if        not %found
+N04  c                   eval      syvrda = 'N'
+N04  c                   endif
+N04   * overstyrt på kundenivå??
+N04  C                   eval      SYKUNR = HEKNKF
+N04  C     Sypar1Key     CHAIN     SYPARL1
+N04  c                   if        Syvrda =  'J'
+     C                   eval      Frakt  = HEFBK
+     C                   eval      FraktVal = 'NOK'
+N08  c                   if        HEUR = 'H'
+N08  C                   eval      Frakt  = TRFRAB
+N08  C                   eval      FraktVal = TRFRAV
+N08  c                   endif
+N04  C                   endif
+N08  C                   endif
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Frankatur: <b>' + HEFR +'</b>'
+     c                   If        Frakt <> *zeros
+     c                   EVAL      SDATA  = %trim(SDATA)
+     C                                    + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+S04  C*                                   + 'Tollbar frakt: <b>NOK '
+S04  C*                                   + %trim(%editc(Frakt:'Z'))
+N04  C                                    + 'Tollbar frakt: <b>'+FraktVal+' '
+     C                                    + %trim(%editc(Frakt:'M'))
+     c                   endif
+     c                   EVAL      SDATA  = %trim(SDATA)
+     c                                    + '</b></td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      **** Lenke for handelsfaktura
+     c                   exsr      ChkHFurl
+     C                   if        HfaktURL <> *blanks
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+     C                                    + 'Handelsfaktura til fortollingen '
+     C                                    + 'er tilgjengelig via '
+     C                                    + %trim(HfaktURL)+'.'
+     C                                    + '</b>'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   endif
+      *
+      **** Lenke for ruck-attest
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + '<b>'
+s12  C*                                   + 'Vennligst meld inn eksp.sted/'
+s12  C*                                   + 'løpenr eller nytt godsnummer via '
+N12  C                                    + 'Vennligst meld inn '
+N12  C                                    + 'ekspedisjonssted og løpenummer '
+     C                                    + 'eller nytt godsnummer via '
+     C                                    + %trim(RuckURL)+'.'
+     C                                    + '</b>'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      * blanklinje
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          Blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EXSR      BUNN
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     BUNN          BEGSR
+      ******************************************************************************
+      *
+     C                   EVAL      SDATA  = '<tr><td>&nbsp;</td></tr>'          blank
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Med vennlig hilsen'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + FIFT
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+S13  c*                            +'http://'+%trim(ARCPAE)
+N13  C                                    + '<img src="'+%trim(HTTPTYP)
+N13  C                                    + %trim(ARCPAE)
+     c                                    + '/syspeddev/systematop1.jpg">'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Denne eposten er skapt'
+     C                             + ' automatisk av SYSPED toll-system.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '<tr><td>'
+     C                                    + 'Vennligst ikke svar på den.'
+     c                                    + '</td></tr>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   EVAL      SDATA  = '</table></Body></HTML>'
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+      *
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SMSsr         BEGSR
+      ******************************************************************************
+      *
+      /free
+        USRID='roger@systema.no';
+        PW='straffe12';
+        SMSNR=moSMS;
+           // ....+... 1 ...+... 2 ...+... 3 ...+... 4 ...+... 5 ...+... 6
+        BODY='Mail med info om ankomstmelding inkl lenke for å melde ruckattest'
+E02         +' for Godsnr/pos '+%trim(HEGN)+'/'+%trim(POS)
+            +' er sendt til '
+            +%trim(MoAd)+ '  Vennlist følg opp. Hilsen '+ FIKRTN;
+      /end-free
+     C                   CALL      'SYGE99'
+     C                   PARM                    USRID           128
+     c                   PARM                    PW               32
+     c                   PARM                    SMSNR            16
+     c                   PARM                    BODY           1280
+      *
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    UAVD              4
+     C                   PARM                    UOPD              7
+     C                   PARM                    avNa             50
+     C                   PARM                    avAd             50
+     C                   PARM                    moNa             50
+     C                   PARM                    moAd             50
+     C                   PARM                    moSMS            15
+     C                   PARM                    dummy             1
+     C                   move      UAVD          HEAVD
+     C                   move      UOPD          HEOPD
+      *
+      *
+     C     HEAKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+      *
+     C     KunKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    HEKNK
+      *
+     C     FRIKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FSKODE
+      * frakatur/fraktkode
+N08  C     KODLBK        KLIST
+N08  C                   KFLD                    KLBUNI
+N08  C                   KFLD                    HEFR
+N08  C                   move      'LB'          KLBUNI
+      *
+     C     arkivkeyZH    KLIST
+     C                   KFLD                    ARSTAT
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    ARTYPE
+     c                   move      'A'           ARSTAT
+S05  c*                  move      'ZH'          ARTYPE
+      *
+     C     ARKEXTK       KLIST
+     C                   KFLD                    ARFIRM
+     C                   KFLD                    ARCEXT
+N03   *
+N03  C     TT02KEY       KLIST
+N03  C                   KFLD                    TTAVD
+N03  C                   KFLD                    TTOPD
+N03  C                   KFLD                    TTFBNR
+N03  C                   KFLD                    TTACTI
+      *
+N04  C     Sypar1Key     KLIST
+N04  C                   KFLD                    SYKUNR
+N04  C                   KFLD                    SYPAID
+      *
+N05   * Avvikende arkivtype handelsfaktura
+N05  C                   eval      SYPAID = 'ANKMH'
+N05  C     Sypar1Key     CHAIN     SYPARL1
+N05  c                   if        not %found
+N05  c                   eval      syvrda = 'ZH'
+N05  c                   endif
+N05  c                   eval      ARTYPE = SYVRDA
+N05  c                   eval      HF_Vedl= %subst(SYVRDA:4:1)
+     c
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+     C     FIFIRM        CHAIN     FIRMARC                            33
+      *
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     SendMail      BEGSR
+      ******************************************************************************
+      * Send via MMAIL
+     C                   EVAL      CmdLine = 'ADDLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+S10   * EMLHTML2 takler veddlegg i param STMF('/xxx.pdf' '/yyy.pdf') MEN om param STMF angis må
+S10   *          det være minst en - variable VEDLEGG er Blank (ikke STMF('') )
+S10  C*                  EVAL      CmdLine = 'EMLHTML SUBJECT('+ X'7D'
+S10  C*                            + %trimr(Emne) + X'7D' + ') '
+S10  C*                            + 'FROMNAME(' + X'7D'
+S10  C*                            + %trimr(AvNa) + X'7D' + ') '
+S10  C*                            + 'FROMADDR('  + X'7D'
+S10  C*                            + %trimr(AvAd) + X'7D' + ') '
+S10  C*                            + 'TO('+ X'7D'+%trimr(MoAd)+ X'7D'+'/'+ X'7D'
+S10  C*                            + %trimr(MoNa)+ X'7D'+'/*TO) '
+S10  C*                            + 'STMF('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+N10  C                   EVAL      CmdLine = 'EMLHTML2 SUBJECT('+ X'7D'
+N10  C                             + %trimr(Emne) + X'7D' + ') '
+N10  C                             + 'FROMNAME(' + X'7D'
+N10  C                             + %trimr(AvNa) + X'7D' + ') '
+N10  C                             + 'FROMADDR('  + X'7D'
+N10  C                             + %trimr(AvAd) + X'7D' + ') '
+N10  C                             + 'TO('+ X'7D'+%trimr(MoAd)+ X'7D'+'/'+ X'7D'
+N10  C                             + %trimr(MoNa)+ X'7D'+'/*TO) '
+E11  C                             + 'HTML('+ X'7D'+%trimr(WFilNam)+ X'7D'+ ')'
+N10  C                             + ' '+%trimr(VEDLEGG)
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   EVAL      CmdLine = 'RMVLIBLE MMAIL'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'                            98
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     ChkHFurl      BEGSR
+     C***********************************************
+      *
+E10   *  Finnes handelsfaktura (dft= ZH eller angitt i fimaparemeter SYPAID = 'ANKMH' )
+N10   *  ANKMH finnes OG V i posisjon 3 (HF_Vedl=V)  = send som vedlegg ikke som url
+     c                   eval      HfaktURL  = *blanks
+N10  c                   eval      Vedlegg   = *blanks
+     c     arkivkeyZH    chain     arkivl02                           33        (inneh. ARFIRM )
+N01  c  N33arbhis        ifne      *blanks
+N01  c                   eval      arcane=arbhis
+N01  c                   end
+     c                   if        *in33=*off
+     c     artype        chain     arktxt                             33
+     C                   MOVE      ARKLAG        ARCEXT
+     C     ARKEXTK       CHAIN     ARKEXT                             33
+N01  c  N33arbhis        ifne      *blanks
+N01  c                   eval      arcane=arbhis
+N01  c                   end
+     C   33ARFIRM        CHAIN     FIRMARC                            33
+N13   * httptyp/httptypV er 99% sikker likt, men det KAN være et "ensternt lager" som avviker...
+N13  c                   eval      HTTPtypV='http://'
+N13  c                   if        ARCPSE  = 'J'                                 Secure=J
+N13  c                   eval      HTTPtypV='https://'
+N13  c                   endif
+N10   * send som Link (dft) eller vedlegg..
+N10  c                   if        HF_Vedl <>'V'
+     c                   eval      HfaktURL = '<a href="'
+S13  C*                            +'http://'+%trim(arcpae)+'/'
+N13  C                             +%trim(HTTPtypV)
+N13  C                             +%trim(arcpae)+'/'
+     c                             +%trim(arcane)+'/'+%trim(ArLink)
+     c                             +'">denne lenken.</a>'
+N10  c                   else
+N10   * V = vedlegg..
+N10  c                   eval      HfaktURL = 'vedlegg med navn '
+N10  C                             + ARTYPE + '.....'
+N10  C                   eval      Vedlegg ='STMF('+ X'7D'
+N10  C                   if        %subst(arcane:1:1)='/'
+N10  C                   eval      Vedlegg =%trim(Vedlegg)+'/'
+N10  C                   endif
+N10  C                   eval      Vedlegg = %trim(Vedlegg)
+N10  c                             +%trim(arcane)+'/'+%trim(ArLink)
+N10  c                             + X'7D' + ')'
+N10  c                   endif
+      *
+     c                   endif
+     c                   endsr
+      *
+      *
+N03  C***********************************************
+N03  C     TTSR          BEGSR
+N03  C***********************************************
+N03   * legg ut logg med RAS / unik key i TTDEPO
+N03  c                   move      WDT           TTDATE
+N03  c                   move      WTM           TTTIME
+N03  c                   move      TTDATE        TTDATL
+N03  c                   move      TTTIME        TTTIML
+N03  c                   eval      TTTEXL='Ankomstmelding sendt '+ moAd
+N03  c                   eval      TTTEXT='Arrival notice sent '+ moAd
+N03  c                   eval      TTUSER=ZUSER
+N03   * Generer random number / legg i TTDEPO  - men kun 1. gang  - senere gjenbruk
+s09  c*                  if        not %found
+N09  c                   if        not %found(TRACKl02)
+N03  C                   CALL      'ARCRAN'
+N03  C                   PARM                    TTDEPO
+N07  C                   endif
+N03  c                   write     TRACKFR
+N03  c                   endsr

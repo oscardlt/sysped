@@ -1,0 +1,162 @@
+             PGM
+/* RUTINE FOR KJØRING SOM BATCH JOB.......   */
+/* PARAMETER INN TIL SYFAFI SETTES TIL 1=SJEKK OGSÅ: MÅ VÆRE ENBRUKER*/
+/* KJØRER MERKING AV OPPDRAG SOM DEL AV RUTINEN ..   */
+/* KJØRER VC005KSN SOM IKKE HAR INTERAKTIVE KOMMANDOER */
+/*  INNFØRT VISMA                */
+/*  NY PARM SYFA35 L1KJOR        */
+/* */
+             DCL        VAR(&FAKO) TYPE(*CHAR) LEN(1) VALUE('F')
+             DCL        VAR(&PRTF) TYPE(*CHAR) LEN(10) +
+                          VALUE('SYFA35P   ')
+             DCL        VAR(&FIRMA) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&AAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&PER) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&JANEI) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&NRBE) TYPE(*DEC) LEN(3 0) VALUE(110)
+             DCL        VAR(&PRT110) TYPE(*CHAR) LEN(10) /* Printernavn+
+                          til JOURNALEN  */
+             DCL        VAR(&PT110) TYPE(*CHAR) LEN(10) /* Papirtype +
+                          til JOURNALEN */
+             DCL        VAR(&IN01) TYPE(*LGL) LEN(1) VALUE('1')
+             DCL        VAR(&AUT) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10) +
+                          VALUE('FAKTURAOPD')
+             DCL        VAR(&MSGQ) TYPE(*CHAR) LEN(10) +
+                          VALUE('QSYSOPR')
+/*______________*/
+/* LES FIRMAFIL */
+/*""""""""""""""*/
+             DCLF       FILE(FIRML1) RCDFMT(*ALL)
+             RCVF       DEV(*FILE) RCDFMT(*FILE)
+
+             CHGJOB     LOG(*SAME *SAME *SECLVL) LOGCLPGM(*YES)
+
+/**********************************************************************/
+             CALL       PGM(*LIBL/SYFAFICL) PARM(&IN01)
+             IF         COND(&IN01 *EQ '1') THEN(DO)
+             SNDMSG     MSG('Brukeren knyttet til autom. +
+                          fakturaoverføring er ikke registrert som +
+                          regskapsbruker, eller er autorisert for +
+                          mer enn ett firma. AUTOMATISK OVERFØRING +
+                          AV FAKTURA TIL REGNSKAP ER IKKE UTFØRT') +
+                          TOMSGQ(&MSGQ)
+             MONMSG     MSGID(CPF0000)
+             GOTO SLUTT
+             ENDDO
+/* */
+/* KALLER SYFA62 FOR Å MERKE OPPDRAG/FAKT.LINJER FOR OVERFØRING */
+/* */
+             CALL       PGM(SYFA62)
+
+/* */
+/* KALLER SYFA70 FOR Å OPPDATERE PROSJEKTREGISTER */
+
+             CALL       PGM(SYFA70)
+/* */
+/* OVERSTYRER SKRIVERFIL                          */
+/* */
+             CALL       PGM(GETPRTB) PARM(&NRBE &PRT110 &PT110)
+             OVRPRTF    FILE(&PRTF) OUTQ(&PRT110) PAGESIZE(48 132) +
+                          CPI(10) OVRFLW(48) +
+                          FORMTYPE(&PT110)
+/*                                                */
+/* HAR KUNDEN ARKIVSYSTEM ???                     */
+/*                                                */
+             CALL       PGM(ARC016) PARM(&JANEI)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             OVRPRTF    FILE(&PRTF) OUTQ(SYARKIV) HOLD(*YES)
+             ENDDO
+
+/* */
+/* KALLER SYFA35 FOR Å OPPDATERE POSTERINGER      */
+
+             CALL       PGM(SYFA35) PARM(&AUT &L1KJOR)
+/* INGENTING Å OVERFØRE - HOPP UT */
+             IF         COND(&AUT *EQ '1') THEN(DO)
+             SNDMSG     MSG('Ingen poster til overføring - +
+                          Automatisk Fakturaoverføring ble derfor +
+                          avbrutt ') TOMSGQ(&MSGQ)
+             MONMSG     MSGID(CPF0000)
+             GOTO SLUTT
+             ENDDO
+
+/*                                                */
+/* OPPDATERER ARKIV                               */
+/*                                                */
+             IF         COND(&JANEI = 'J') THEN(DO)
+             RTVDTAARA  DTAARA(*LDA (1 2)) RTNVAR(&FIRMA)
+             ADDLIBLE   LIB(IBMENDA)
+             MONMSG     MSGID(CPF0000)
+             CALL PGM(ARK001CL) PARM(&FIRMA &PRTF +
+                          &AAR &PER)
+             RMVLIBLE   LIB(IBMENDA)
+             ENDDO
+
+             DLTOVR     FILE(*ALL)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) +
+                          VALUE('                              ')
+/* FLYTT INN SOM MEMBER I POSTERINGSFIL KOSAF/KOSBF .....*/
+/* SLIK AT SAMME RUTINE KAN BRUKES VIDERE.. UAVHENGIG AV INNT.KOSTN.*/
+             CPYF       FROMFILE(POSTA0) TOFILE(KOSAF) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             MONMSG     MSGID(CPF0000)
+             CPYF       FROMFILE(POSTB0) TOFILE(KOSBF) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(POSTB0)
+             CLRPFM     FILE(POSTA0)
+/* */
+/* KALLER V005KSN FOR Å OPPDATERE NATIVE ØKONOMI -I BATCH   */
+/* FOR LØSNING 1 KUNDENE                          */
+/* */
+             IF         COND(&L1KJOR = 'J') THEN(DO)
+             CALL       PGM(VC005KSN) PARM(&WS)
+             CALL       PGM(INLIBL)
+             ENDDO
+/* FJERN EVT. GAMMELT MEMBER FRA KOPI/BACKUPFILER */
+             RMVM       FILE(BACKKSA) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(BACKKSB) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+/* KOPIER INN OVERFØRT MEMBER TIL  BACKUPFILER */
+             CPYF       FROMFILE(KOSAF) TOFILE(BACKKSA) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             CPYF       FROMFILE(KOSBF) TOFILE(BACKKSB) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+/*                                             */
+/* VISMA.NET TILPASSING                        */
+/*                                             */
+             IF         COND(&L1KJOR = 'V') THEN(DO)
+             RMVM       FILE(VISTRAFAK) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             CPYF       FROMFILE(KOSBF) TOFILE(VISTRAFAK) +
+                          FROMMBR(&WS) TOMBR(&WS) MBROPT(*ADD) +
+                          FMTOPT(*MAP *DROP)
+             MONMSG     MSGID(CPF2817)
+             CALL       PGM(VISM35CL) PARM(&FAKO &WS)
+             ENDDO
+/* FJERN MEMBER FRA ARBEIDSFIL */
+             RMVM       FILE(KOSAF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) +
+                          VALUE('                              ')
+
+/*OPPDATER STATISTIKK (ALLE FAKTLINJER/OPPDRAG M. STATUS "T" */
+/*FAKT.LINJER FRA KOSTN.SYSTEM HOLDES TILBAKE TIL OPPDRAGET  */
+/*ER STATISTIKKOPPDATERT (BASERT PÅ FAKTURA EL. NULLFAKTURA) */
+
+             SBMJOB     CMD(CALL PGM(SYFA39CL)) JOB(STATOPDAT) +
+                          JOBD(*USRPRF) JOBQ(SYJOBQAV)
+
+
+             SNDMSG     MSG('Automatisk Fakturaoverføring (SYSPED400 +
+                          fakturajournal) er fullført - Kjøring av +
+                          statistikkoppdatering samt IBM Dagbok er +
+                          lagt ut i jobkø (SYJOBQAV og QBATCH)') +
+                          TOMSGQ(&MSGQ)
+             MONMSG     MSGID(CPF0000)
+
+ SLUTT:      ENDPGM

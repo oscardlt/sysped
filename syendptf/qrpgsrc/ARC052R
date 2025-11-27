@@ -1,0 +1,283 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 SH  PTF12 Trygger ikke flytt vhvis generert etter at ARC051R var kjørt
+********************************************************************
+     H DATEDIT(*DMY)
+     H DFTACTGRP(*NO)
+s01  F*RKIVP    IF   E           K DISK
+     FFIRMARC   IF   E           K DISK
+N01  FARKIVL12  IF   E           K DISK
+     FWRKIVP2   O  A E             DISK
+      *_______________________________________________________
+      * Les lenker i en katalog  og kopier dem til DB2 i SYEDI
+      * Dette program fungerer kun for80 bytes recordlengde.
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *_____________________________
+      * Prototype for API prosedyrer
+      *"""""""""""""""""""""""""""""
+     Dlstat            PR            10I 0 EXTPROC('lstat')
+     D                                 *   VALUE
+     D                                 *   VALUE
+
+     Dopendir          PR              *   EXTPROC('opendir')
+     D                                 *   VALUE
+
+     Dreaddir          PR              *   EXTPROC('readdir')
+     D                                 *   VALUE
+
+     Dclosedir         PR            10I 0 EXTPROC('closedir')
+     D                                 *   VALUE
+     D SndPgmMsg       PR              N
+     D Qmsgid                         7    CONST
+     D Qmsgf                         20    CONST
+     D Qmsg                         128    CONST
+     D Qmsgtp                        10    CONST OPTIONS(*NOPASS)
+
+      *   stat data structure fra prosedyre: lstat()
+
+     D StatDS          DS           128
+     D  st_mode                      10U 0
+     D  st_ino                       10U 0
+     D  st_nlink                      5U 0
+     D  reserved1                     2A
+     D  st_uid                       10U 0
+     D  st_gid                       10U 0
+     D  st_size                      10U 0
+     D  st_atime                     10U 0
+     D  st_mtime                     10U 0
+     D  st_ctime                     10U 0
+     D  st_dev                       10U 0
+     D  st_blksize                   10I 0
+     D  st_allocsize                 10I 0
+     D  st_objtype                   10A
+     D  reserved2                     2A
+     D  st_codepage                   5U 0
+     D  st_reserved1                 62A
+     D  st_ino_gen_id                10U 0
+
+      *   direntry data structure fra prosedyre: readdir()
+
+     D DirEntry        DS
+     D d_reserved1                   16A
+     D d_fileno_genid                10U 0
+     D d_fileno                      10U 0
+     D d_reclen                      10U 0
+     D d_reserved3                   10I 0
+     D d_reservedØ4                   6A
+     D d_reserved5                    2A
+     D d_ccsid                       10I 0
+     D d_country_id                   2A
+     D d_language_id                  3A
+     D d_nls_reserved                 3A
+     D d_namelen                     10U 0
+     D d_name                       640A
+
+     D Null            S              1A   Inz(X'00')
+
+     D RETURNInt       S             10I 0
+     D RETURNDir       S               *
+     D PtrToEntry      S               *
+     D RtnEntry        S                   BASED(PtrToEntry) Like(DirEntry)
+     D EntryName       S            120A
+     D EntryPath       S            256A
+     D filcpy          S            256A
+     D EntryPath2      S            256A
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D HHMMSS          S              6  0
+     D DirError        C                   'Feil ved åpning av katalog'
+
+      *   Input Parametere
+
+     D DirName         S            100A
+     D FullName        S            256A
+     D nydirna         S            100A
+
+      *
+
+     D ObjVar          S             90
+     D ObjVarLen       S             10I 0 Inz(%size(ObjVar))
+     D ObjVarFmt       S              8
+     D ObjTyp          S             10
+N01  D Tstampz         S               Z
+N01  D Tstampa         S             26
+
+     D APIERR          DS
+     D  ERRSIZ                 1      4B 0 INZ(256)
+     D  ERRLEN                 5      8B 0 INZ(0)
+     D  ERRMIC                 9     15
+     D  ERRNBR                16     16
+     D  ERRDTA                17    272
+
+     D PSDS           SDS           512
+
+     C                   EVAL      FullName = %trimr(DirName) + Null
+      *
+      * Åpne katalog
+      *
+     C                   EVAL      RETURNDir = opendir(%addr(FullName))
+      *
+      * Avslutt hvis feil ved åpning av katalog
+      *
+     C                   IF        RETURNDir = *Null
+     C                   CALLP     SndPgmMsg('CPF9898':'QCPFMSG'
+     C                                       :DirError)
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   ENDIF
+
+     C                   DOU       PtrToEntry = *Null
+      *
+      * Les neste katalog lenke
+      *
+     C                   EVAL      PtrToEntry = readdir(RETURNDir)
+      *
+      * Lenknavn er i feltet d_name
+      *
+     C                   IF        PtrToEntry <> *Null
+     C                   EVAL      DirEntry = RtnEntry
+      *
+      * Hent katalog lenknavn
+      *
+     C                   EVAL      EntryName = %str(%addr(d_name))
+      *
+      * Vilken typ av lenke ?
+      *
+     C                   EVAL      EntryPath = %trim(DirName) + '/'
+     C                             + %trimr(EntryName) + Null
+     C                   EVAL      RETURNInt = lstat(%addr(EntryPath)
+     C                                         : %addr(StatDS))
+      *
+      * FLYTT TIL MAPPE ....../del  eller slett direkte
+      *
+     C                   IF        st_objtype='*STMF'
+N01  C                   move      *blanks       LKEY1
+     C     '.'           SCAN      EntryName     X                 3 0    20
+     C     X             IFNE      *ZEROS
+     C                   SUB       1             X
+     C                   IF        X > 40
+     C                   EVAL      X = 40
+     C                   ENDIF
+s01  C*                  EVAL      ARLINK=*BLANKS
+s01  C*    X             SUBST     EntryName:1   ARLINK
+N01  C     X             SUBST     Entryname:1   LKEY1            40
+s01  C*                  ELSE
+s01  C*                  MOVEL     EntryName     ARLINK
+     C                   ENDIF
+N01  C                   MOVEL     EntryName     LKEY2            40
+N01  C     lkey1         ifeq      *blanks
+N01  c                   eval      lkey1=lkey2
+N01  c                   end
+      *
+      *  sjekk om filen er i arkivp   hvis ikke flytt den til /del
+      *
+N01   * trygger ikke flytt ved generert etter at ARC051 var kjørt
+N01  c     lkey1         chain     arkivl12                           20
+N01  c   20lkey2         ifne      lkey1
+N01  c     lkey2         chain     arkivl12                           20
+N01  c                   end
+S01  C*    ARLINK        CHAIN     WRKIVP                             20
+     C                   IF        *IN20
+     C                   EVAL      filcpy = %trim(DirName) + '/'
+     C                             + %trimr(EntryName)
+      * flytte
+     C     DELMOV        IFEQ      'M'
+     C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+     C                             + %trim(filcpy) + X'7D' +')'
+     C                             + ' TODIR(' + X'7D'
+     C                             + %trim(nydirna) + X'7D' +')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   ELSE
+      * slett direkte
+     C                   EVAL      CmdLine = 'DEL OBJLNK(' + X'7D'
+     C                             + %trim(filcpy) + X'7D' +')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C
+     C                   END
+     C                   CALL      'QCMDEXC'     Qcmdexc
+     C                   EVAL      EntryPath2=%trimr(EntryPath)
+     C                   WRITE     WRKIVR2
+     C                   ENDIF
+     C                   ENDIF
+
+     C                   ENDIF
+     C                   ENDDO
+      * Lukk katalog
+     C                   EVAL      RETURNInt = closedir(RETURNDir)
+
+     C                   EVAL      *INLR = *ON
+      ***************************************************************
+     C     *INZSR        BEGSR
+      ***************************************************************
+      *  Init av PGM
+     c     *entry        plist
+     c                   parm                    delmov            1
+
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+
+     C                   TIME                    HHMMSS
+     C                   READ      FIRMARC                                30
+      *
+      * Lag streng for katalognavn
+      *
+N02  C                   EVAL      DirName = ARCANE
+N02  C                   EVAL      nydirna = %trim(ARCANE) +'/del'
+
+     C                   ENDSR
+      *-------------------------------------------------------------------------
+      * Send pgm message
+      *-------------------------------------------------------------------------
+     P SndPgmMsg       B
+     D                 PI              N
+     D Msgid                          7    CONST
+     D MsgF                          20    CONST
+     D Msgdta                       128    CONST
+     D Msgtp                         10    CONST OPTIONS(*NOPASS)
+      *
+      * Work variables
+      *
+     D Qmsgid          S              7
+     D Qmsgf           S             20
+     D Qmsgdta         S            128
+     D Qmsgln          S             10I 0
+     D Qmsgtp          S             10
+     D Qmsgq           S             10
+     D Qmsgqn          S             10I 0 INZ(3)
+     D Qmsgky          S              4
+     D Qmsger          S             15
+      *
+      * Hvis bibliotek er lik blank set in *LIBL
+      *
+     C                   EVAL      Qmsgid = Msgid
+     C                   EVAL      Qmsgf = Msgf
+     C                   EVAL      Qmsgdta = Msgdta
+     C                   IF        %subst(Qmsgf:11:10) = *blank
+     C                   EVAL      %subst(Qmsgf:11:10) = '*LIBL'
+     C                   ENDIF
+     C                   EVAL      Qmsgln = %len(%trim(Qmsgdta))
+     C                   EVAL      Qmsgq = '*'
+     C                   EVAL      Qmsgtp = '*DIAG'
+     C                   IF        %PARMs > 3
+     C                   EVAL      Qmsgtp = Msgtp
+     C                   ENDIF
+     C                   IF        Qmsgtp = '*STATUS'
+     C                   EVAL      Qmsgq = '*EXT'
+     C                   ENDIF
+      *
+     C                   CALL      'QMHSNDPM'                           99
+     C                   PARM                    Qmsgid
+     C                   PARM                    Qmsgf
+     C                   PARM                    Qmsgdta
+     C                   PARM                    Qmsgln
+     C                   PARM                    Qmsgtp
+     C                   PARM                    Qmsgq
+     C                   PARM                    Qmsgqn
+     C                   PARM                    Qmsgky
+     C                   PARM      *LOVAL        Qmsger
+      *
+     C                   RETURN    *ON
+     P                 E

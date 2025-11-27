@@ -1,0 +1,253 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK542A MODULE(*LIBL/ESTK542A *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+********************************************************************
+      *********************************************************************
+      *  fraktbrev (genereres der og da) - eks:
+      *  /sycgip/syfa12es.pgm?user=JOVO&avd=80&opd=201640
+      *
+      *  «Kundedokument» - eks:
+      *  /pdf/sca/ZH20210080020164006k21h43do.pdf
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FARKIVL08  IF   E           K DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+     FARKEXT    IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+     D JSONstring      s          32000
+      * Prototype
+     D JSONescape      PR                  ExtPgm('JSONESC')
+     D   JSONstr                  32000A
+     D IfsMultIndicators...
+     D                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      *
+      * Client input variables
+     D userId          s             10
+     D UsrSpcName      s             10                                         =
+     D Avd             s              4
+     D Opd             s              7
+     D Avdn            s              4  0
+     D Opdn            s              7  0
+
+     D AntLest         s              9  0
+     D ArcDocLab       s            100
+     D updf            S            200
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+     C                   exsr      LoadHtml
+      * Open files etc
+     C                   EXSR      INIT
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *************************************************************************
+     C     LoadHtml      begsr
+      *************************************************************************
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *******************************************************************
+     C     SetAll        BEGSR
+      *******************************************************************
+      * Skriv header - fraktbrevs post gnereres on the fly - alltid EN / allytid lik
+      *                  Eks:  /sycgip/syfa12es.pgm?user=JOVO&avd=80&opd=201640
+      * Send section top
+     C                   callp     wrtsection('top')
+      /free
+        JSONstring='{'
+          +'¬userId¬ : ¬'+%trim(userId)+'¬, '
+          +'¬error¬ : ¬¬, ';
+        exsr SkrivJSON;
+        JSONstring='¬frbrevUrl¬ : ¬/sycgip/syfa12es.pgm'
+                                + '?user='+ %trim(userId)
+                                + '&avd='+%trim(%editc(AVDN:'3'))
+                                + '&opd='+%trim(%editc(OPDN:'3'))+'¬, '
+                       +'¬frbrevLabel¬ : ¬Generer Fraktbrev¬, '
+                       +'¬arcDocList¬ : [';
+        exsr SkrivJSON;
+      /end-free
+     C     keyA08        SETLL     ARKIVL08
+     C     keyA08        READE     ARKIVL08                               55
+     C     *IN55         DOWEQ     '0'
+      *
+     c                   if        artype  =  'ZH'
+     c                             or artype = 'ZO'
+     c                   move      *zeros        aravd
+     c                   move      *zeros        aropd
+     c                   exsr      genbane
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en arkivpost
+      * ............................................................................................
+      /free
+       if AntLest > 1;
+         JSONstring=', ';
+         exsr SkrivJSON;
+       endif;
+        JSONstring='{'
+        +'¬arcDocUrl¬ : ¬'     +%trim(updf)         +'¬, '
+        +'¬arcDocLabel¬ : ¬'   +%trim(arcDocLab)    +'¬} ';
+         exsr SkrivJSON;
+      /end-free
+
+     c                   endif
+      *
+     C     keyA08        READE     ARKIVL08                               55
+     C                   ENDDO
+      * ............................................................................................
+      * Skriv  Avslutning
+      * ............................................................................................
+      /free
+         JSONstring=']}';
+         exsr SkrivJSON;
+      /end-free
+
+     C                   ENDSR
+
+      **************************************************************
+     C     SkrivJSON     begsr
+      **************************************************************
+      /free
+        callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+      /end-free
+     C                   endsr
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C                   CLOSE     ARKIVL08
+     C                   CLOSE     ARKTXT
+     C                   CLOSE     FIRMARC
+     C                   CLOSE     ARKEXT
+     C                   CLOSE     FIRM
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   eval      userId = zhbgetvar('userId')
+     C                   EVAL      AVD   = zhbgetvar('AVD')
+     C                   EVAL      AVDN  = c2n2(AVD)
+     C                   EVAL      OPD   = zhbgetvar('OPD')
+     C                   EVAL      OPDN  = c2n2(OPD)
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     USERID        CHAIN     BRIDF
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+     C                   if        not %found (BRIDF)
+      /free
+        wrtsection('top');
+        JSONstring='{'
+        +'"userId" : "'+%trim(userId)+'", '
+        +'"error" : "UnKnown UserID"}';
+        exsr SkrivJSON;
+        wrtsection('*fini');
+      /end-free
+     C                   close     BRIDF
+     C                   eval      *inlr = *on
+     C                   return
+     c                   endif
+      **
+      **
+     C                   OPEN      ARKIVL08
+     C                   OPEN      ARKTXT
+     C                   OPEN      FIRMARC
+     C                   OPEN      ARKEXT
+     C                   OPEN      FIRM
+      *
+     C     keyA08        KLIST
+     C                   KFLD                    ARSTAT
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C                   MOVE      'A'           ARSTAT
+     C     arklagk       KLIST
+     C                   KFLD                    fifirm
+     C                   KFLD                    arklag
+     c                   read      firm                                   33
+      *
+     c     UtInit        endsr
+     C***********************************************
+     C     genbane       BEGSR
+     C***********************************************
+     c     keyext        klist
+     c                   kfld                    fifirm
+     c                   kfld                    arcext
+     c                   move      *blanks       wbane           140
+     c     artype        chain     ARKTXT                             33
+     C     ARKLAG        IFNE      *blanks
+     c     arklagk       chain     arkext
+     c                   else
+     c     fifirm        chain     firmarc                            33
+     c                   end
+     c     arbhis        ifne      *blanks
+     c                   eval      arcane=arbhis
+     c                   end
+     c
+     c                   eval      updf='/'+%trim(arcane)+'/'+%trim(arlink)
+      * gamler på at dersom . ikke finnes så er den intern - add .pdf
+     C     '.'           SCAN      arlink                                 33
+     c  N33              eval      updf=%trim(updf)+'.pdf'
+      * Hovedtekst / tillegstekst
+     C                   eval      ArcDocLab = %trim(Artxt)
+     c                   if        ARRFK <> *blanks
+     C                   eval      ArcDocLab = %trim(ArcDocLab)
+     C                             +', '+ ARRFK
+     c                   endif
+     c                   endsr
+     C*

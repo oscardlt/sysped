@@ -1,0 +1,1518 @@
+     H debug(*yes)
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 BIAKT=L ER ENDRET TIL Å TESTE AUTORISASJON
+10XXX * 02 YBC PTF10 RETURKODE
+10XXX * 03 YBC PTF10 TEST MAX DESIMALER
+10XXX * 04 YBC PTF10 MULIGHET TIL Å ENDRE PENDING ORDRE
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12XXX * 05 YBC PTF12 Arbeid KUN med pending ordre
+12XXX * 06 YBC PTF12 HISTORISK ARKIV
+12XXX * 07 YBC PTF12 Vis knapp for "arbeid med farlig goods" og kalkulator
+12XXX * 08 YBC PTF12 Blanke båtnavn når båtkode er feil.
+12XXX * 09 SH  PTF12 lager fakturalinjer automatisk
+12XXX * 10 SH  PTF12 ikke kalle test5user 2 ganger
+12XXX * 11 SH  PTF12 google
+12XXX * 12 YBC PTF12 Test lengde på tekst
+********************************************************************
+      *********************************************************************
+      * ARBEID MED ORDRE
+      * PROGRAM BEHANDLER INPUT FRA SS201/SS202
+      *
+CRTPG+*  CRTPGM SYSPED/SS202 MODULE(*LIBL/SS202
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Boats for sale data base file (LF on BOATSALE by boat serial number)
+N11  FFIRMGOOG  IF   E           K DISK    USROPN
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FGSSORF    UF A E           K DISK    USROPN
+     FGSSOWF    UF A E           K DISK    USROPN
+     FGSSPOF    UF A E           K DISK    USROPN
+     FGSSPOL01  IF   E           K DISK    USROPN
+     F                                     RENAME(GSSPOFR:GSSPOFR1)
+     FGSSGDF    UF A E           K DISK    USROPN
+     FGSSOLF    UF A E           K DISK    USROPN
+     FGSSOVF    UF A E           K DISK    USROPN
+     FGSSFGF    UF A E           K DISK    USROPN
+     FGSSCNF    UF A E           K DISK    USROPN
+     FGSSCGF    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FVALUL01   IF   E           K DISK    USROPN
+     FCDBOAT    IF   E           K DISK    USROPN
+     FCDBOATLF  IF   E           K DISK    USROPN
+     F                                     RENAME(CDBOATR:CDBOATRLF)
+     FFIRM      IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+     FARKEXT    IF   E           K DISK    USROPN
+     FARKIVL06  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype definitions and standard system API error structure
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Variables common to CGI programs
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * VARIABLES SPECIFIC TO THIS PROGRAM
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D SubmPressed     s              1
+     D lng             s              2
+     D BckGnd          s             10
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSNA            S             30
+     D XXNY            S              1
+     D WSPENDING       S              1
+N05  D WSPORD          S              1
+     D WSONO           S              7
+     D BWSONO          S              7  0
+     D WSKDB           S              5
+     D WSCNO           S              8
+     D BWSCNO          S              8  0
+     D WSDTL           S             10
+N02  D WSRTNG          S              1
+     D WSCNM           S             30
+     D WSSNM           S             30
+     D WSCLI           S              5
+     D BWSCLI          S              5  0
+     D WSWT            S              8
+     D BWSWT           S              7  1
+     D WSVOL           S              6
+     D BWSVOL          S              5  2
+N03  D XXTAL           S             13  5
+     D WSLC            S              5
+     D WSAMT           S             12
+     D BWSAMT          S             11  2
+     D WSCURC          S              3
+     D WSPOS1          S              5
+     D WSPOS2          S              5
+     D WSPOS3          S              5
+     D WSOVAMT         S             12
+     D BWSOVAMT        S             11  2
+     D WSOVCURC        S              3
+     D WSOVFT          S             20
+     D WSFA11          S              7
+     D WSFA12          S              4
+     D WSFLP1          S              3
+     D BWSFLP1         S              3  0
+     D WSFA21          S              7
+     D WSFA22          S              4
+     D WSFLP2          S              3
+     D BWSFLP2         S              3  0
+     D TYPE            S              1
+     D KG              S              2    DIM(100)
+     D XBANE           S             50
+      *Array for fri-tekster
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      * Variables used to load the external html source member
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D FMELDNR         S              2
+     D FEILMELDING     S             80
+
+     D                 DS
+     D WSDSC                   1    300
+     D DS1                     1    300    DIM(300)
+     D DS2                     1    300    DIM(10)
+     D                 DS
+     D WSCONO                  1    200
+     D PO1                     1    200    DIM(200)
+     D PO2                     1    200    DIM(10)
+     D XPO20                   1     20
+     D                 DS
+     D WSFT                    1    120
+     D FT1                     1    120    DIM(120)
+     D FT2                     1    120    DIM(4)
+     D                 DS
+     D TXT                     1     30
+     D TX                      1     30    DIM(30)
+     D                 DS
+     D ORFT1                   1     30
+     D ORFT2                  31     60
+     D ORFT3                  61     90
+     D ORFT4                  91    120
+     D OR                      1    120    DIM(4)
+     D                 DS
+     D BWSDTL                  1      8  0
+     D BWSDTLA                 1      4
+     D BWSDTLM                 5      6
+     D BWSDTLD                 7      8
+     D                 DS
+     D PAVRDA                  1     50
+     D PAVRDA1                 1      5
+     D PAVRDA2                 6     50
+     D PAVRDA3                 5     50
+      *
+     D FEIL01          C                   CONST('Vessel code is not valid.')
+     D FEIL02          C                   CONST('Missing supplier.')
+     D FEIL03          C                   CONST('Colli can not be 0.')
+     D FEIL04          C                   CONST('Weight can not be 0.')
+N03  D FEIL04A         C                   CONST('Weight can not be 0. Max 1 -
+N03  D                                     decimal (999999,9).')
+     D FEIL05          C                   CONST('Goods description is -
+     D                                     missing.')
+     D FEIL06          C                   CONST('Location can not be blank.')
+     D FEIL07          C                   CONST('Delivery date is not valid.')
+     D FEIL08          C                   CONST('Warehouse position missing.')
+     D FEIL09          C                   CONST('Value can not be 0.')
+     D FEIL10          C                   CONST('Currency code is not valid.')
+     D FEIL11          C                   CONST('Missing P.O. no.')
+     D FEIL12          C                   CONST('Currency code is not valid.')
+     D FEIL13          C                   CONST('Description of charge has to -
+     D                                     be given.')
+N02  D FEIL14          C                   CONST('Valid values are R=Return -
+N02  D                                     goods, S=Strat.goods')
+N03  D FEIL15          C                   CONST('Volum can be max 2 decimal -
+N03  D                                     (999,99).')
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+     D                 DS
+     D  updf1                  1    400
+     D  updf2                401    800
+     D  updf3                801   1200
+     D  updf4               1201   1600
+     D  updf5               1601   2000
+     D  updf6               2001   2400
+     D  updf7               2401   2800
+     D  updf8               2801   3200
+     D  updf9               3201   3600
+     D  updf10              3601   4000
+     D  updf11              4001   4400
+     D  updf12              4401   4800
+     D  updf13              4801   5200
+     D  updf14              5201   5600
+     D  updf15              5601   6000
+     D  updf16              6001   6400
+     D  updf17              6401   6800
+     D  updf18              6801   7200
+     D  updf19              7201   7600
+     D  updf20              7601   8000
+     D  updf21              8001   8400
+     D  updf22              8401   8800
+     D  updf23              8801   9200
+     D  updf24              9201   9600
+     D  updf25              9601  10000
+     D  updf26             10001  10400
+     D  updf27             10401  10800
+     D  updf28             10801  11200
+     D  updf29             11201  11600
+     D  updf30             11601  12000
+     D  updf31             12001  12400
+     D  updf32             12401  12800
+     D  updf33             12801  13200
+     D  updf34             13201  13600
+     D  updf35             13601  14000
+     D  updf36             14001  14400
+     D  updf37             14401  14800
+     D  updf38             14801  15200
+     D  updf39             15201  15600
+     D  updf40             15601  16000
+     D  updf                   1  16000    DIM(40)
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESSING LINE
+      *=====================================================================
+      * Parse input string
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+      *
+      * Hvis første kall OG en...
+     c     SubmPressed   IFNE      'Y'
+     c                   IF        BWSONO = 0
+      *      kommer inn uten nøkkel - Blankt bilde, klar for ny post
+     c                   exsr      GetDft
+     C                   MOVE      'Y'           XXNY
+     c                   else
+      *      kommer inn med nøkkel - hent data fra fil, klar for vedlikehold
+     c                   exsr      GetData
+     C                   MOVE      'N'           XXNY
+     c                   end
+     c                   end
+      *
+      * Avslutt = V - "passiv vis bilde på ny" etter åpning/lukking felt..
+     c     AVSLUTT       IFEQ      'V'
+     c                   move      ' '           AVSLUTT
+     C                   else
+      *Om en har tastet submit fra vedlikeholdsbilde, test evt lagre/avslutt
+      * (Test-sr setter AVSLUTT=Y hvis feilfritt -> automatisk close...)
+     c     SubmPressed   IFEQ      'Y'
+     C                   EXSR      TESTB
+     c                   end
+     C                   end
+      *
+     C     AVSLUTT       IFEQ      'Y'
+     C                   EXSR      OPDORDRE
+N05  C*                  IF        ORST = '0' AND WSPORD = 'J'
+N05  C                   IF        WSPORD = 'J'
+N05  C                   EVAL      AVSLUTT = 'A'
+N05  C                   END
+     C                   ELSE
+     c     SubmPressed   IFEQ      'Y'
+     c     FMELDNR       ANDNE     '01'
+     C                   MOVE      CBKN          BWSCNO
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C                   MOVE      KNAVN         WSCNM
+     C                   End
+     C                   End
+      *
+      * Vis skjermbidet på ny
+      * (hvis AVSLUTT=Y så autocloses vinduet umiddelbart ved load..)
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html into core
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Issue html section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+     C                   EXSR      HENTDOK
+      * BÅTKODE
+     C                   exsr      HENTBCD
+N07   *
+N07  C                   IF        ORONO <> 0
+N07  C                   callp     wrtsection('CalStr')
+N07  C                   END
+N07  C                   callp     wrtsection('CalEnd')
+      * LOKASJON
+     C                   exsr      HENTLOC
+      * OIL TILLEGG
+     C                   IF        XFEEC = *BLANKS
+     C                   callp     wrtsection('FSTAG2')
+     C                   ELSE
+     C                   callp     wrtsection('FSTAG1')
+     C                   END
+     C                   callp     wrtsection('FSTAG3')
+N07   *
+N07  C                   IF        ORONO <> 0
+N07  C                   callp     wrtsection('DGtagStr')
+N07  C                   END
+N07  C                   callp     wrtsection('DGtagSlt')
+      *
+     C                   exsr      SetEnd
+     C                   callp     wrtsection('end')
+      *
+      * Send output buffer and quit
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *
+      *
+      *
+      *=====================================================================
+      * Parse input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      SubmPressed = zhbgetvar('SubmPressed')
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSNA    = zhbgetvar('WSNA')
+     C                   eval      XXNY    = zhbgetvar('XXNY')
+     C                   eval      TYPE    = zhbgetvar('TYPE')
+     C                   eval      WSPENDING = zhbgetvar('WSPENDING')
+      *
+N05  C                   eval      WSPORD  = zhbgetvar('WSPORD')
+     C                   eval      WSONO   = zhbgetvar('WSONO')
+     C                   eval      BWSONO  = c2n2(WSONO)
+     C                   eval      ORONO   = BWSONO
+     C                   eval      WSKDB   = zhbgetvar('WSKDB')
+     C     LC:UC         XLATE     WSKDB         WSKDB
+     C                   eval      WSCNO   = zhbgetvar('WSCNO')
+     C                   eval      BWSCNO  = c2n2(WSCNO)
+N02  C                   eval      WSRTNG  = zhbgetvar('WSRTNG')
+N02  C     LC:UC         XLATE     WSRTNG        WSRTNG
+     C                   eval      WSCNM   = zhbgetvar('WSCNM')
+     C                   eval      WSSNM   = zhbgetvar('WSSNM')
+     C     LC:UC         XLATE     WSSNM         WSSNM
+     C                   eval      WSCLI   = zhbgetvar('WSCLI')
+     C                   eval      BWSCLI  = c2n2(WSCLI)
+     C                   eval      WSWT    = zhbgetvar('WSWT')
+S03  C*                  eval      BWSWT   = c2n2(WSWT)
+N03  C                   eval      XXTAL   = c2n2(WSWT)
+N03  C                   IF        XXTAL   < 1000000
+N03  C                   Z-ADD(H)  XXTAL         BWSWT
+N03  C                   ELSE
+N03  C                   Z-SUB     1             BWSWT
+N03  C                   END
+     C                   eval      WSVOL   = zhbgetvar('WSVOL')
+S03  C*                  eval      BWSVOL  = c2n2(WSVOL)
+N03  C                   eval      XXTAL   = c2n2(WSVOL)
+N03  C                   IF        XXTAL   < 1000
+N03  C                   Z-ADD(H)  XXTAL         BWSVOL
+N03  C                   ELSE
+N03  C                   Z-SUB     1             BWSVOL
+N03  C                   END
+     C                   eval      WSDSC   = zhbgetvar('WSDSC')
+     C     LC:UC         XLATE     WSDSC         WSDSC
+     C                   eval      WSLC    = zhbgetvar('WSLC')
+     C     LC:UC         XLATE     WSLC          WSLC
+     C                   eval      WSPOS1  = zhbgetvar('WSPOS1')
+     C     LC:UC         XLATE     WSPOS1        WSPOS1
+     C                   eval      WSPOS2  = zhbgetvar('WSPOS2')
+     C     LC:UC         XLATE     WSPOS2        WSPOS2
+     C                   eval      WSPOS3  = zhbgetvar('WSPOS3')
+     C     LC:UC         XLATE     WSPOS3        WSPOS3
+     C                   eval      WSDTL   = zhbgetvar('WSDTL')
+     C                   eval      BWSDTL  = c2n2(WSDTL)
+     C                   DUMP
+     C                   eval      WSAMT   = zhbgetvar('WSAMT')
+     C                   eval      BWSAMT  = c2n2(WSAMT)
+     C                   eval      WSCURC  = zhbgetvar('WSCURC')
+     C     LC:UC         XLATE     WSCURC        WSCURC
+     C                   eval      WSCONO  = zhbgetvar('WSCONO')
+     C     LC:UC         XLATE     WSCONO        WSCONO
+     C                   eval      WSFT    = zhbgetvar('WSFT')
+     C     LC:UC         XLATE     WSFT          WSFT
+     C                   eval      WSOVAMT = zhbgetvar('WSOVAMT')
+     C                   eval      BWSOVAMT= c2n2(WSOVAMT)
+     C                   eval      WSOVCURC  = zhbgetvar('WSOVCURC')
+     C     LC:UC         XLATE     WSOVCURC      WSOVCURC
+     C                   eval      WSOVFT    = zhbgetvar('WSOVFT')
+     C     LC:UC         XLATE     WSOVFT        WSOVFT
+     C                   eval      WSFA11  = zhbgetvar('WSFA11')
+     C     LC:UC         XLATE     WSFA11        WSFA11
+     C                   eval      WSFA12  = zhbgetvar('WSFA12')
+     C     LC:UC         XLATE     WSFA12        WSFA12
+     C                   eval      WSFLP1  = zhbgetvar('WSFLP1')
+     C                   eval      BWSFLP1 = c2n2(WSFLP1)
+     C                   eval      WSFA21  = zhbgetvar('WSFA21')
+     C     LC:UC         XLATE     WSFA21        WSFA21
+     C                   eval      WSFA22  = zhbgetvar('WSFA22')
+     C     LC:UC         XLATE     WSFA22        WSFA22
+     C                   eval      WSFLP2  = zhbgetvar('WSFLP2')
+     C                   eval      BWSFLP2 = c2n2(WSFLP2)
+      *
+     C                   endsr
+      *=====================================================================
+      * HENT BÅTKODE
+      *=====================================================================
+     C     HENTBCD       begsr
+      *
+     C                   SELECT
+     C                   WHEN      ORBCD <> *BLANKS
+     C     ORBCD         CHAIN     CDBOAT                             33
+N08  C                   IF        *IN33
+N08  C                   callp     updhtmlvar('CBNAB':'')
+N08  C                   callp     updhtmlvar('CBKDB':'')
+N08  C                   ELSE
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('CBKDB':CBKDB)
+N08  C                   END
+     C                   callp     wrtsection('typsltrow')
+     C                   WHEN      WSKDB <> *BLANKS
+     C     WSKDB         CHAIN     CDBOAT                             33
+N08  C                   IF        *IN33
+N08  C                   callp     updhtmlvar('CBNAB':'')
+N08  C                   callp     updhtmlvar('CBKDB':'')
+N08  C                   ELSE
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('CBKDB':CBKDB)
+N08  C                   END
+     C                   callp     wrtsection('typsltrow')
+     C                   ENDSL
+      *
+     C     *LOVAL        SETLL     CDBOATLF
+     C                   READ      CDBOATLF                               40
+     C                   DOW       *IN40 = '0'
+      *
+     C                   SELECT
+     C                   WHEN      ORBCD = CBKDB
+     C                   WHEN      WSKDB = CBKDB
+     C                   OTHER
+     C                   SELECT
+     C                   WHEN      ((XAGENT = 'J') AND (CBLK <> '  '))
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('CBKDB':CBKDB)
+     C                   callp     wrtsection('typsltrow')
+     C                   WHEN      ((CBKN = BIKUNR) AND (CBLK <> '  '))
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('CBKDB':CBKDB)
+     C                   callp     wrtsection('typsltrow')
+     C                   WHEN      XCG <> *BLANKS
+     C     CBKN          SETLL     GSSCGF
+     C     CBKN          READE     GSSCGF                                 33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ((XCG = CGCG) AND (CBLK <> '  '))
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('CBKDB':CBKDB)
+     C                   callp     wrtsection('typsltrow')
+     C                   LEAVE
+     C                   END
+     C     CBKN          READE     GSSCGF                                 33
+     C                   ENDDO
+     C                   ENDSL
+     C                   ENDSL
+      *
+     C                   READ      CDBOATLF                               40
+     C  N40              ENDDO
+      *
+     C                   callp     wrtsection('typsltend')
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * HENT LOKASJONER
+      *=====================================================================
+     C     HENTLOC       begsr
+      *
+     C                   IF        WSLC <> *BLANKS
+     C     BRPARFK1      SETLL     BRPARF
+     C     BRPARFK1      READE     BRPARF                                 33
+     C                   DOW       *IN33 = '0'
+     C                   IF        WSLC = PAVRDA1
+     C                   callp     updHtmlVar('WSLCKD':PAVRDA1)
+     C                   callp     updHtmlVar('WSLCNM':PAVRDA2)
+     C                   callp     wrtsection('LOCsltrow')
+     C                   LEAVE
+     C                   END
+     C     BRPARFK1      READE     BRPARF                                 33
+     c                   ENDDO
+     C                   IF        *IN33
+     C                   callp     updHtmlVar('WSLCKD':WSLC)
+     C                   callp     updHtmlVar('WSLCNM':WSLC)
+     C                   callp     wrtsection('LOCsltrow')
+     C                   END
+     C                   END
+      *
+     C     BRPARFK1      SETLL     BRPARF
+     C     BRPARFK1      READE     BRPARF                                 33
+     C                   DOW       *IN33 = '0'
+     C                   IF        ((WSLC = *BLANKS) OR (WSLC <> PAVRDA1))
+     C                   callp     updHtmlVar('WSLCKD':PAVRDA1)
+     C                   callp     updHtmlVar('WSLCNM':PAVRDA2)
+     C                   callp     wrtsection('LOCsltrow')
+     C                   END
+     C     BRPARFK1      READE     BRPARF                                 33
+     c                   ENDDO
+     C                   callp     wrtsection('LOCsltend')
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * Set html output skeleton VED FEIL
+      *=====================================================================
+     C     SetSkl        begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SS202'
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHtmlVar('WSNA':WSNA)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+     C                   callp     updHtmlVar('XXNY':XXNY)
+     C                   callp     updHtmlVar('TYPE':TYPE)
+      *
+N05  C                   callp     updHtmlVar('WSPORD':WSPORD)
+     C                   callp     updhtmlvar('WSONO':
+     C                             %trim(%editc(ORONO:'Z')))
+     C                   callp     updHtmlVar('WSKDB':WSKDB)
+     C                   callp     updHtmlVar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('WSCNO':
+     C                             %trim(%editc(BWSCNO:'Z')))
+N02  C                   callp     updHtmlVar('WSRTNG':WSRTNG)
+     C                   callp     updHtmlVar('WSCNM':WSCNM)
+     C                   callp     updHtmlVar('WSSNM':WSSNM)
+     C                   callp     updhtmlvar('WSCLI':
+     C                             %trim(%editc(BWSCLI:'Z')))
+N03  C                   IF        BWSWT >= 0
+     C                   callp     updhtmlvar('WSWT':
+     C                             %trim(%editc(BWSWT:'4')))
+N03  C                   ELSE
+N03  C                   callp     updHtmlVar('WSWT':WSWT)
+N03  C                   END
+N03  C                   IF        BWSVOL >= 0
+     C                   callp     updhtmlvar('WSVOL':
+     C                             %trim(%editc(BWSVOL:'4')))
+N03  C                   ELSE
+N03  C                   callp     updHtmlVar('WSVOL':WSVOL)
+N03  C                   END
+     C                   callp     updhtmlvar('WSDSC':WSDSC)
+     C                   callp     updHtmlVar('WSLC':WSLC)
+     C                   callp     updHTMLvar('WSDTL':
+     C                             %trim(%editw(BWSDTL:'    .  .  ')))
+     C                   callp     updHtmlVar('WSPOS1':WSPOS1)
+     C                   callp     updHtmlVar('WSPOS2':WSPOS2)
+     C                   callp     updHtmlVar('WSPOS3':WSPOS3)
+     C                   callp     updhtmlvar('WSAMT':
+     C                             %trim(%editc(BWSAMT:'4')))
+     C                   callp     updHtmlVar('WSCURC':WSCURC)
+     C                   callp     updHtmlVar('WSCONO':WSCONO)
+     C                   callp     updHtmlVar('WSFT':WSFT)
+      * OIL TILLEGG
+     C                   IF        XFEEC = *BLANKS
+     C                   MOVE      *ZEROS        WSOVAMT
+     C                   MOVE      *BLANKS       WSOVCURC
+     C                   MOVE      *BLANKS       WSOVFT
+     C                   END
+     C                   callp     updhtmlvar('WSOVAMT':
+     C                             %trim(%editc(BWSOVAMT:'4')))
+     C                   callp     updHtmlVar('WSOVCURC':WSOVCURC)
+     C                   callp     updHtmlVar('WSOVFT':WSOVFT)
+      * FARLIG GODS
+     C                   callp     updHtmlVar('WSFA11':WSFA11)
+     C                   callp     updHtmlVar('WSFA12':WSFA12)
+     C                   callp     updhtmlvar('WSFLP1':
+     C                             %trim(%editc(BWSFLP1:'4')))
+     C                   callp     updHtmlVar('WSFA21':WSFA21)
+     C                   callp     updHtmlVar('WSFA22':WSFA22)
+     C                   callp     updhtmlvar('WSFLP2':
+     C                             %trim(%editc(BWSFLP2:'4')))
+      *
+     C                   callp     updhtmlvar('FEILMELDING':
+     C                             FEILMELDING)
+     C                   callp     updhtmlvar('FMELDNR':FMELDNR)
+     C                   callp     updhtmlvar('AVSLUTT':AVSLUTT)
+     C                   callp     updhtmlvar('XAVBRYT':XAVBRYT)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$end
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *
+      *////////////////////////////////////////////////////////////
+     C     TESTB         BEGSR
+      *////////////////////////////////////////////////////////////
+     C                   IF        WSKDB <> *BLANKS
+     C     WSKDB         CHAIN     CDBOAT                             33
+N08  C                   IF        *IN33 = *OFF
+     C                   MOVE      CBKN          ORCNO
+     C                   MOVE      ORCNO         BWSCNO
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+N08  C                   END
+     C                   END
+N02   *
+N02   * RETURGODS
+N02  C                   IF        WSRTNG <> *BLANKS AND
+N02  C                             WSRTNG <> 'R' AND
+N02  C                             WSRTNG <> 'S'
+N02  C                   MOVEL     FEIL14        FEILMELDING
+N02  C                   MOVE      '14'          FMELDNR
+N02  C                   GOTO      SLTBDT
+N02  C                   END
+      *
+      * LEVERANDØR
+     C                   IF        WSSNM = *BLANKS
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   MOVE      '02'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * KOLLI
+     C                   IF        WSPENDING <> 'J'
+     C                   IF        BWSCLI = 0
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   MOVE      '03'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+     C                   END
+      * VEKT
+     C                   IF        WSPENDING <> 'J'
+     C                   IF        BWSWT = 0
+     C                   MOVEL     FEIL04        FEILMELDING
+     C                   MOVE      '04'          FMELDNR
+     C                   GOTO      SLTBDT
+N03  C                   ELSE
+N03  C                   IF        BWSWT < 0
+N03  C                   MOVEL     FEIL04A       FEILMELDING
+N03  C                   MOVE      '04'          FMELDNR
+N03  C                   GOTO      SLTBDT
+N03  C                   END
+     C                   END
+     C                   END
+N03   * VOLUM
+N03  C                   IF        BWSVOL < 0
+N03  C                   MOVEL     FEIL15        FEILMELDING
+N03  C                   MOVE      '15'          FMELDNR
+N03  C                   GOTO      SLTBDT
+N03  C                   END
+      * GODSBESKRIVELSE
+     C                   IF        WSDSC = *BLANKS
+     C                   MOVEL     FEIL05        FEILMELDING
+     C                   MOVE      '05'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * LOKASJON
+     C                   IF        WSLC = *BLANKS
+     C                   MOVEL     FEIL06        FEILMELDING
+     C                   MOVE      '06'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * TEST DATO
+     C                   MOVE      BWSDTLD       UDD               2 0
+     C                   MOVE      BWSDTLM       UMM               2 0
+     C                   MOVE      BWSDTLA       UAA               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UAA
+     C                   PARM                    UFLAGG            1 0
+     C                   IF        UFLAGG = 1
+     C                   MOVEL     FEIL07        FEILMELDING
+     C                   MOVE      '07'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   ENDIF
+      * LAGERPOSISJON
+     C                   IF        WSPENDING <> 'J'
+     C                   IF        WSPOS1 = *BLANKS
+     C                   MOVEL     FEIL08        FEILMELDING
+     C                   MOVE      '08'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+     C                   END
+      * BELØP
+     C                   IF        BWSAMT = 0
+     C                   MOVEL     FEIL09        FEILMELDING
+     C                   MOVE      '09'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * VALUTAKODE
+     C     VALUL01K      CHAIN     VALUL01                            33
+     C                   IF        *IN33
+     C                   MOVEL     FEIL10        FEILMELDING
+     C                   MOVE      '10'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * P.O. NR
+     C                   IF        XPO20 = *BLANKS
+     C                   MOVEL     FEIL11        FEILMELDING
+     C                   MOVE      '11'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * GEBYR
+     C                   IF        XFEEC <> *BLANKS
+     C                   IF        ((BWSOVAMT <> 0) OR (WSOVCURC <> *BLANKS))
+     C     VALUL01K2     CHAIN     VALUL01                            33
+     C                   IF        *IN33
+     C                   MOVEL     FEIL12        FEILMELDING
+     C                   MOVE      '12'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      * BESKRIVELSE AV GEBYR
+     C                   IF        WSOVFT = *BLANKS
+     C                   MOVEL     FEIL13        FEILMELDING
+     C                   MOVE      '13'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+     C                   END
+     C                   END
+      *
+      * alle tester passert - Avlsutt med lagring / close windu..
+     C                   move      'Y'           AVSLUTT
+      *
+     C     SLTBDT        ENDSR
+      *
+      *=====================================================================
+      *  Oppdater heading
+      *=====================================================================
+     C     OPDORDRE      begsr
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *
+     C     BWSONO        CHAIN     GSSORF                             33
+     C                   IF        *IN33
+     C                   MOVE      'T'           CNCC
+     C     CNCC          CHAIN     GSSCNF                             34
+     C   34              Z-ADD     1             CNNO
+     C                   MOVE      CNNO          BWSONO
+     C                   ADD       1             CNNO
+     C   34              WRITE     GSSCNFR
+     C  N34              UPDATE    GSSCNFR
+     C                   MOVE      WDT           ORDTR
+     C                   END
+      *
+     C                   IF        WSPENDING = 'J'
+     C                   MOVE      'P'           ORST
+     C                   ELSE
+     C                   MOVE      '0'           ORST
+     C                   END
+     C                   EXSR      MOVEWSH
+     C                   IF        *IN33
+     C                   WRITE     GSSORFR
+     C                   MOVE      WSUSER        ORUSER
+     C                   MOVE      WDT           ORDTE
+     C                   MOVE      WTM           ORTME
+     C                   WRITE     GSSOWFR
+N07  C                   EVAL      AVSLUTT = 'O'
+N09  c                   z-add     orono         uono
+N09  c                   z-add     0             utno
+N09  C                   CALL      'GSS049C'
+N09  C                   PARM                    UONO              7 0
+N09  C                   PARM                    UTNO             11 0
+     C                   ELSE
+     C                   UPDATE    GSSORFR
+     C     GSSOWFK       CHAIN     GSSOWF                             33
+N04  C                   IF        *IN33
+N04  C                   IF        ORST = '0'
+N04  C                   EVAL      ORST = 'P'
+N04  C                   ELSE
+N04  C                   EVAL      ORST = '0'
+N04  C                   END
+N04  C     GSSOWFK       CHAIN     GSSOWF                             33
+N04  C                   END
+N04  C                   IF        WSPENDING = 'J'
+N04  C                   MOVE      'P'           ORST
+N04  C                   ELSE
+N04  C                   MOVE      '0'           ORST
+N04  C                   END
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      WDT           ORDTE
+     C                   MOVE      WTM           ORTME
+     C                   UPDATE    GSSOWFR
+     C                   ELSE
+     C                   MOVE      WSUSER        ORUSER
+     C                   MOVE      WDT           ORDTE
+     C                   MOVE      WTM           ORTME
+     C                   WRITE     GSSOWFR
+     C                   ENDIF
+     C                   ENDIF
+      * OIL TILLEGG
+     C                   IF        XFEEC <> *BLANKS
+     C     GSSOVFK       CHAIN     GSSOVF                             33
+     C                   IF        *IN33 = *OFF
+     C                   IF        BWSOVAMT = 0
+     C                   DELETE    GSSOVFR
+     C                   ELSE
+     C                   EVAL      OVAMT  = BWSOVAMT
+     C                   EVAL      OVCURC = WSOVCURC
+     C                   EVAL      OVFT   = WSOVFT
+     C                   UPDATE    GSSOVFR
+     C                   END
+     C                   ELSE
+     C                   IF        BWSOVAMT <> 0
+     C                   EVAL      OVONO  = ORONO
+     C                   EVAL      OVLNO  = 0
+     C                   EVAL      OVFEEC = XFEEC
+     C                   EVAL      OVVAT  = 'N'
+     C                   EVAL      OVAMT  = BWSOVAMT
+     C                   EVAL      OVCURC = WSOVCURC
+     C                   EVAL      OVLC   = ORLC
+     C                   EVAL      OVFT   = WSOVFT
+     C                   WRITE     GSSOVFR
+     C                   END
+     C                   END
+     C                   END
+      * FARLIG GODS
+     C     ORONO         CHAIN     GSSFGF                             33
+     C                   EVAL      FGFA11 = WSFA11
+     C                   EVAL      FGFA12 = WSFA12
+     C                   EVAL      FGFLP1 = BWSFLP1
+     C                   EVAL      FGFA21 = WSFA21
+     C                   EVAL      FGFA22 = WSFA22
+     C                   EVAL      FGFLP2 = BWSFLP2
+     C                   IF        *IN33
+     C                   IF        ((WSFA11 <> *BLANKS) OR (WSFA21 <> *BLANKS))
+     C                   EVAL      FGEDI  = 'W'
+     C                   EVAL      FGONO  = ORONO
+     C                   WRITE     GSSFGFR
+     C                   END
+     C                   ELSE
+     C                   IF        ((WSFA11 <> *BLANKS) OR (WSFA21 <> *BLANKS))
+     C                   UPDATE    GSSFGFR
+     C                   ELSE
+     C                   IF        FGEDI = 'W'
+     C                   DELETE    GSSFGFR
+     C                   ELSE
+     C                   UPDATE    GSSFGFR
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   IF        ORST = '0'
+     C                   MOVE      *ZEROS        XN
+     C     ORONO         SETLL     GSSOLF
+     C     ORONO         READE     GSSOLF                                 33
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN
+     C                   IF        XN > ORCLI
+     C                   DELETE    GSSOLFR
+     C                   ELSE
+     C                   UPDATE    GSSOLFR
+     C                   END
+     C     ORONO         READE     GSSOLF                                 33
+     C                   ENDDO
+     C                   CLEAR                   GSSOLFR
+     C                   DOW       XN < ORCLI
+     C                   ADD       1             XN
+     C                   MOVE      ORONO         OLONO
+     C                   MOVE      XN            OLLNO
+     C                   MOVE      ORPOS1        OLSTD
+     C                   WRITE     GSSOLFR
+     C                   ENDDO
+     C                   ENDIF
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  OPPDATER FELTER I FIL
+      *=====================================================================
+     C     MOVEWSH       begsr
+     C     WSKDB         CHAIN     CDBOAT                             34
+     C                   MOVE      BWSONO        ORONO
+N08  C                   IF        *IN34 = *OFF
+     C                   MOVE      WSKDB         ORBCD
+     C                   MOVE      CBKN          ORCNO
+N08  C                   END
+N02  C                   MOVE      WSRTNG        ORRTNG
+     C                   MOVE      WSSNM         ORSNM
+     C                   MOVE      BWSCLI        ORCLI
+     C                   MOVE      BWSWT         ORWT
+     C                   MOVE      BWSVOL        ORVOL
+      *
+     C     BWSONO        SETLL     GSSGDF
+     C     BWSONO        READE     GSSGDF                                 34
+     C                   DOW       *IN34 = *OFF
+     C                   DELETE    GSSGDFR
+     C     BWSONO        READE     GSSGDF                                 34
+     C                   ENDDO
+      *
+     C                   MOVE      *BLANKS       ORDSC
+     C                   MOVE      BWSONO        GDONO
+     C                   MOVE      *ZEROS        GDLNO
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2                3 0
+     C     1             DO        300           XN                3 0
+      * TEST OM CR ER TASTET
+     C                   IF        (DS1(XN) = XCR1)
+     C                   ADD       1             XN
+     C                   IF        (DS1(XN) = XCR2)
+     C                   IF        ORDSC = *BLANKS
+     C                   MOVEL     TXT           ORDSC
+     C                   ELSE
+     C                   ADD       1             GDLNO
+     C                   MOVEL     TXT           GDDSC
+     C                   WRITE     GSSGDFR
+     C                   END
+     C                   ADD       1             XN
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   ELSE
+     C                   SUB       1             XN
+     C                   END
+     C                   END
+N12  C                   IF        XN > 300
+N12  C                   LEAVE
+N12  C                   END
+      *
+     C                   ADD       1             X2
+     C                   MOVE      DS1(XN)       TX(X2)
+     C                   IF        X2 = 30
+     C                   IF        TXT <> *BLANKS
+     C                   IF        ORDSC = *BLANKS
+     C                   MOVEL     TXT           ORDSC
+     C                   ELSE
+     C                   ADD       1             GDLNO
+     C                   MOVEL     TXT           GDDSC
+     C                   WRITE     GSSGDFR
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   END
+      *
+     C                   ENDDO
+      *
+     C                   IF        TXT <> *BLANKS
+     C                   IF        ORDSC = *BLANKS
+     C                   MOVEL     TXT           ORDSC
+     C                   ELSE
+     C                   ADD       1             GDLNO
+     C                   MOVEL     TXT           GDDSC
+     C                   WRITE     GSSGDFR
+     C                   END
+     C                   END
+      *
+     C                   MOVE      BWSAMT        ORAMT
+     C                   MOVE      WSCURC        ORCURC
+     C                   IF        WSPENDING = 'J'
+     C                   MOVE      *ZEROS        ORDTL
+     C                   MOVE      BWSDTL        ORDTWL
+     C                   ELSE
+     C                   MOVE      BWSDTL        ORDTL
+     C                   END
+     C                   MOVE      WSLC          ORLC
+     C                   MOVE      WSPOS1        ORPOS1
+     C                   MOVE      WSPOS2        ORPOS2
+     C                   MOVE      WSPOS3        ORPOS3
+      *
+     C     BWSONO        SETLL     GSSPOF
+     C     BWSONO        READE     GSSPOF                                 34
+     C                   DOW       *IN34 = *OFF
+     C                   DELETE    GSSPOFR
+     C     BWSONO        READE     GSSPOF                                 34
+     C                   ENDDO
+     C                   MOVE      BWSONO        POONO
+     C                   MOVE      *ZEROS        POLNO
+      *
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2                3 0
+     C     1             DO        200           XN
+      * TEST OM CR ER TASTET
+     C                   IF        (PO1(XN) = XCR1)
+     C                   ADD       1             XN
+     C                   IF        (PO1(XN) = XCR2)
+     C                   ADD       1             POLNO
+     C                   MOVEL     TXT           POCONO
+     c                   CALL      'GSS051R'
+     c                   parm                    pocono
+     c                   parm                    pocon2
+     C                   WRITE     GSSPOFR
+     C                   ADD       1             XN
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   ELSE
+     C                   SUB       1             XN
+     C                   END
+     C                   END
+      *
+     C                   ADD       1             X2
+     C                   MOVE      PO1(XN)       TX(X2)
+     C                   IF        X2 = 20
+     C                   IF        TXT <> *BLANKS
+     C                   ADD       1             POLNO
+     C                   MOVEL     TXT           POCONO
+     c                   CALL      'GSS051R'
+     c                   parm                    pocono
+     c                   parm                    pocon2
+     C                   WRITE     GSSPOFR
+     C                   END
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   END
+      *
+     C                   ENDDO
+      *
+     C                   IF        TXT <> *BLANKS
+     C                   ADD       1             POLNO
+     C                   MOVEL     TXT           POCONO
+     c                   CALL      'GSS051R'
+     c                   parm                    pocono
+     c                   parm                    pocon2
+     C                   WRITE     GSSPOFR
+     C                   END
+      *
+     C                   MOVE      *BLANKS       OR
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2                3 0
+     C                   MOVE      *ZEROS        X3                3 0
+     C     1             DO        120           XN
+      * TEST OM CR ER TASTET
+     C                   IF        (FT1(XN) = XCR1)
+     C                   ADD       1             XN
+     C                   IF        (FT1(XN) = XCR2)
+     C                   ADD       1             X3
+     C                   MOVEL     TXT           OR(X3)
+     C                   ADD       1             XN
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   IF        X3 = 4
+     C                   LEAVE
+     C                   END
+     C                   ELSE
+     C                   SUB       1             XN
+     C                   END
+     C                   END
+      *
+     C                   ADD       1             X2
+     C                   MOVE      FT1(XN)       TX(X2)
+     C                   IF        X2 = 30
+     C                   IF        TXT <> *BLANKS
+     C                   ADD       1             X3
+     C                   MOVEL     TXT           OR(X3)
+     C                   IF        X3 = 4
+     C                   LEAVE
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       TX
+     C                   MOVE      *ZEROS        X2
+     C                   END
+      *
+     C                   ENDDO
+      *
+     C                   IF        ((TXT <> *BLANKS) AND (X3 < 4))
+     C                   ADD       1             X3
+     C                   MOVEL     TXT           OR(X3)
+     C                   END
+      *
+     C                   endsr
+      *=====================================================================
+      *  Hent data fra fra fil ved først "syklus"  / endring av post
+      *=====================================================================
+     C     GetData       begsr
+N05  C                   IF        WSPORD = 'J'
+N05  C     BWSONO        CHAIN(N)  GSSORF                             33
+N05  C                   ELSE
+     C     GSSOWFK       CHAIN(N)  GSSOWF                             33
+N04  C   33              EVAL      ORST = 'P'
+N04  C   33GSSOWFK       CHAIN(N)  GSSOWF                             33
+S04  C* N33ORST          COMP      '0'                                3333
+N04  C  N33              IF        ORST <> '0' AND ORST <> 'P'
+N04  C                   EVAL      *IN33 = *ON
+N04  C                   END
+     C                   IF        XAGENT <> 'J'
+     C   33              MOVE      'J'           XAVBRYT           1
+     C     *IN33         CABEQ     '1'           UtGetData
+     C                   END
+     C     BWSONO        CHAIN(N)  GSSORF                             33
+     C  N33              IF        ((ORST <> 'P') AND (ORST <> '0'))
+     C                   MOVE      *ON           *IN33
+     C                   END
+     C   33              MOVE      'J'           XAVBRYT           1
+     C     *IN33         CABEQ     '1'           UtGetData
+N05  C                   END
+      *
+     C                   MOVE      ORBCD         WSKDB
+     C     ORBCD         CHAIN     CDBOAT                             33
+     C                   MOVE      ORCNO         BWSCNO
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C                   MOVE      KNAVN         WSCNM
+N02  C                   MOVE      ORRTNG        WSRTNG
+     C                   MOVE      ORSNM         WSSNM
+     C                   MOVE      ORCLI         BWSCLI
+     C                   MOVE      ORWT          BWSWT
+     C                   MOVE      ORVOL         BWSVOL
+     C                   MOVE      *BLANKS       WSDSC
+     C                   MOVE      ORDSC         DS2(1)
+     C                   Z-ADD     1             XN
+     C     BWSONO        SETLL     GSSGDF
+     C     BWSONO        READE(N)  GSSGDF                                 34
+     C                   DOW       *IN34 = *OFF
+     C                   ADD       1             XN
+     C                   MOVE      GDDSC         DS2(XN)
+     C                   IF        XN = 10
+     C                   LEAVE
+     C                   END
+     C     BWSONO        READE(N)  GSSGDF                                 34
+     C                   ENDDO
+     C                   MOVE      ORAMT         BWSAMT
+     C                   MOVE      ORCURC        WSCURC
+     C                   IF        ORST = 'P'
+     C                   MOVE      ORDTWL        BWSDTL
+     C                   ELSE
+     C                   MOVE      ORDTL         BWSDTL
+     C                   END
+     C                   MOVE      ORLC          WSLC
+     C                   MOVE      ORPOS1        WSPOS1
+     C                   MOVE      ORPOS2        WSPOS2
+     C                   MOVE      ORPOS3        WSPOS3
+     C                   MOVEA     OR            FT2
+      *
+     C     ORONO         SETLL     GSSPOF                             33
+     C     ORONO         READE(N)  GSSPOF                                 33
+     C                   MOVE      *ZEROS        XN
+     C                   MOVE      *BLANKS       WSCONO
+     C     *IN33         DOWEQ     '0'
+     C                   ADD       1             XN
+     C                   MOVE      POCONO        PO2(XN)
+     C                   IF        XN = 10
+     C                   LEAVE
+     C                   END
+     C     ORONO         READE(N)  GSSPOF                                 33
+     C  N33              END
+      * GEBYR
+     C                   EVAL      BWSOVAMT = *ZEROS
+     C                   EVAL      WSOVCURC = *BLANKS
+     C                   EVAL      WSOVFT   = *BLANKS
+     C                   IF        XFEEC <> *BLANKS
+     C     GSSOVFK       CHAIN(N)  GSSOVF                             33
+     C                   IF        *IN33 = *OFF
+     C                   EVAL      BWSOVAMT = OVAMT
+     C                   EVAL      WSOVCURC = OVCURC
+     C                   EVAL      WSOVFT   = OVFT
+     C                   END
+     C                   END
+      * FARLIG GODS
+     C     ORONO         CHAIN(N)  GSSFGF                             33
+     C                   IF        *IN33
+     C                   EVAL      WSFA11   = *BLANKS
+     C                   EVAL      WSFA12   = *BLANKS
+     C                   EVAL      BWSFLP1  = *ZEROS
+     C                   EVAL      WSFA21   = *BLANKS
+     C                   EVAL      WSFA22   = *BLANKS
+     C                   EVAL      BWSFLP2  = *ZEROS
+     C                   ELSE
+     C                   EVAL      WSFA11   = FGFA11
+     C                   EVAL      WSFA12   = FGFA12
+     C                   EVAL      BWSFLP1  = FGFLP1
+     C                   EVAL      WSFA21   = FGFA21
+     C                   EVAL      WSFA22   = FGFA22
+     C                   EVAL      BWSFLP2  = FGFLP2
+     C                   END
+      *
+     C     UtgetData     endsr
+      *
+      *=====================================================================
+      *  Hent data fra fra param.fil mm ved første "syklus"  / Ny post
+      *=====================================================================
+     C     GetDft        begsr
+      * Foreslå dagens dato
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BWSDTL
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  HENT DOKUMENTER
+      *=====================================================================
+     C     HENTDOK       BEGSR
+     C                   MOVE      BWSONO        ARUNDE
+      *
+     C     ARKIVL06K     SETLL     ARKIVL06
+     C     ARKIVL06K     READE     ARKIVL06                               33
+     C                   MOVE      *BLANKS       UPDF
+     C                   MOVE      *ZEROS        XN                3 0
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN
+     C                   EVAL      UPDF(XN) = '<a href="'
+     C                   CAT       XBANE:0       UPDF(XN)
+     C                   CAT       ARLINK:0      UPDF(XN)
+     C                   CAT       '" target="':0UPDF(XN)
+     C                   CAT       'SyPDFWind': 0UPDF(XN)
+     C                   CAT       '">':0        UPDF(XN)
+     C                   IF        ARRFK = *BLANKS
+     C                   CAT       'DOC':0       UPDF(XN)
+     C                   MOVE      XN            XAN               3
+     C                   CAT       XAN:0         UPDF(XN)
+     C                   ELSE
+     C                   CAT       ARRFK:0       UPDF(XN)
+     C                   END
+     C                   CAT       '<img src="':0UPDF(XN)
+     C                   CAT       '/syspeddev':0UPDF(XN)
+     C                   CAT       '/PDF.gif"':0 UPDF(XN)
+     C                   CAT       'ALT="':1     UPDF(XN)
+     C                   CAT       'DOC':0       UPDF(XN)
+     C                   CAT       XAN:0         UPDF(XN)
+     C                   CAT       '"></a>':0    UPDF(XN)
+      *
+n11   * benyttes arkiv i Google Cloud - i så fall vis den lenken (ev innpakke i <a href.... > )
+n11  C                   if        %found(FIRMGOOG) and GOBUID <> *blanks
+n11  c                   move      *blanks       AH_Pre          100            <A HREF- prefix
+n11  c                   move      *blanks       AH_Suf          100            <A HREF- suffix
+n11  c                   move      *blanks       ARLINK_X         50
+n11  c                   eval      ARLINK_X = ARLINK
+n11  C     '.'           SCAN      ARLINK_X                               33
+n11  C  N33              eval      ARLINK_X = %trim(ARLINK_X)+'.pdf'            sysped genererte ..
+n11   *
+n11  c                   move      *blanks       UIFSFull        256
+n11  c                   move      *blanks       UIFSNavn         50
+n11  C                   eval      UIFSFull= '/'+%trim(ARCANE)+'/'+ARLINK_X
+n11  C                   eval      UIFSNavn= ARLINK_X
+n11  c                   move      'N'           UIFSFins          1
+n11   * finnes ikke lokalt vis fra google
+n11  c                   if        UifsFins = 'N'
+n11  C                   eval      AH_Pre= '<a href="'
+n11  C                   eval      AH_Suf= '" target="SyPDFWind">'
+n11  C                   IF        ARRFK = *BLANKS
+n11  C                   eval      AH_Suf=%trim(AH_Suf)+'DOC'+%editc(XN:'X')
+n11  C                   ELSE
+n11  C                   eval      AH_Suf=%trim(AH_Suf)+ARRFK
+n11  C                   END
+n11  C                   eval      AH_Suf=%trim(AH_Suf)+'</a>&nbsp;&nbsp;'
+n11   *
+n11  C                   eval      UPDF(XN) = %trim(AH_Pre)
+n11  C                                      + %trim(GOLENE)+%trim(ARLINK_X)
+n11  C                                      + %trim(AH_Suf)
+n11  c                   endif
+n11  c                   endif
+      *
+S01  C*                  IF        ((XBIAKT = 'L') OR (XAGENT = 'J'))
+N01  C                   IF        ((XAUT = 'L') OR (XAGENT = 'J'))
+     C                   EVAL      UPDF(XN) = %trim(UPDF(XN))
+     C                             + ' <a href="#" OnClick="DltDoc('
+     C                             + 'this.form,'
+     C                             + %trim(XAPSTR)
+     C                             + %trim(XBANE) + %trim(ARLINK)
+     C                             + %trim(XAPSTR) + ',' + %trim(XAPSTR)
+     C                             + %trim(ARRFK)
+     C                             + %trim(XAPSTR)
+     C                             + ')"> <img src="/syspeddev/DeleteX.gif"'
+     C                             + ' width=13 height=13 border=0>'
+     C                   END
+      *
+     C     XN            COMP      40                                 33  33
+     C  N33ARKIVL06K     READE     ARKIVL06                               33
+     C                   ENDDO
+      *
+     C                   callp     updHTMLvar('UPDF1':UPDF1)
+     C                   callp     updHTMLvar('UPDF2':UPDF2)
+     C                   callp     updHTMLvar('UPDF3':UPDF3)
+     C                   callp     updHTMLvar('UPDF4':UPDF4)
+     C                   callp     updHTMLvar('UPDF5':UPDF5)
+     C                   callp     updHTMLvar('UPDF6':UPDF6)
+     C                   callp     updHTMLvar('UPDF7':UPDF7)
+     C                   callp     updHTMLvar('UPDF8':UPDF8)
+     C                   callp     updHTMLvar('UPDF9':UPDF9)
+     C                   callp     updHTMLvar('UPDF10':UPDF10)
+     C                   callp     updHTMLvar('UPDF11':UPDF11)
+     C                   callp     updHTMLvar('UPDF12':UPDF12)
+     C                   callp     updHTMLvar('UPDF13':UPDF13)
+     C                   callp     updHTMLvar('UPDF14':UPDF14)
+     C                   callp     updHTMLvar('UPDF15':UPDF15)
+     C                   callp     updHTMLvar('UPDF16':UPDF16)
+     C                   callp     updHTMLvar('UPDF17':UPDF17)
+     C                   callp     updHTMLvar('UPDF18':UPDF18)
+     C                   callp     updHTMLvar('UPDF19':UPDF19)
+     C                   callp     updHTMLvar('UPDF20':UPDF20)
+     C                   callp     updHTMLvar('UPDF21':UPDF21)
+     C                   callp     updHTMLvar('UPDF22':UPDF22)
+     C                   callp     updHTMLvar('UPDF23':UPDF23)
+     C                   callp     updHTMLvar('UPDF24':UPDF24)
+     C                   callp     updHTMLvar('UPDF25':UPDF25)
+     C                   callp     updHTMLvar('UPDF26':UPDF26)
+     C                   callp     updHTMLvar('UPDF27':UPDF27)
+     C                   callp     updHTMLvar('UPDF28':UPDF28)
+     C                   callp     updHTMLvar('UPDF29':UPDF29)
+     C                   callp     updHTMLvar('UPDF30':UPDF30)
+     C                   callp     updHTMLvar('UPDF31':UPDF31)
+     C                   callp     updHTMLvar('UPDF32':UPDF32)
+     C                   callp     updHTMLvar('UPDF33':UPDF33)
+     C                   callp     updHTMLvar('UPDF34':UPDF34)
+     C                   callp     updHTMLvar('UPDF35':UPDF35)
+     C                   callp     updHTMLvar('UPDF36':UPDF36)
+     C                   callp     updHTMLvar('UPDF37':UPDF37)
+     C                   callp     updHTMLvar('UPDF38':UPDF38)
+     C                   callp     updHTMLvar('UPDF39':UPDF39)
+     C                   callp     updHTMLvar('UPDF40':UPDF40)
+      *
+     C                   ENDSR
+      *
+      *=====================================================================
+      *  Initier
+      *=====================================================================
+     C     INIT          begsr
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      *
+     C                   open      BRIDF                                50
+n10  C     WSUSER        CHAIN(N)  BRIDF                              50
+S10  C*                  EXSR      TSTUSER
+S01  C*                  MOVE      BIAKT         XBIAKT            1
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   EXSR      TSTUSER
+     C                   open      BRPARF                               50
+     C                   open      GSSORF                               50
+     C                   open      GSSOWF                               50
+     C                   open      GSSOLF                               50
+     C                   open      GSSOVF                               50
+     C                   open      GSSFGF                               50
+     C                   open      GSSPOF                               50
+     C                   open      GSSPOL01                             50
+     C                   open      GSSGDF                               50
+     C                   open      GSSCNF                               50
+     C                   open      GSSCGF                               50
+     C                   open      CUNDL01                              50
+     C                   open      VALUL01                              50
+     C                   open      CDBOAT                               50
+     C                   open      CDBOATLF                             50
+     C                   open      FIRM                                 50
+     C                   open      FIRMARC                              50
+     C                   open      ARKTXT                               50
+     C                   open      ARKEXT                               50
+     C                   open      ARKIVL06                             50
+      * Innen Z-filer skapt fra WEB forventes unik kund/reff
+      *
+     C     CUNDL01K      klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    ORCNO
+     C     VALUL01K      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    WSCURC
+     C     VALUL01K2     KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    WSOVCURC
+     C     GSSOVFK       KLIST
+     C                   KFLD                    ORONO
+     C                   KFLD                    OVLNO
+     C     BRPARFK1      klist
+     C                   kfld                    WSUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    X1PAID
+     C     BRPARFK2      klist
+     C                   kfld                    WSUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    X2PAID
+     C     BRPARFK3      klist
+     C                   kfld                    WSUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    X3PAID
+     C     BRPARFK32     klist
+     C                   kfld                    XFIRMADFT        10
+     C                   kfld                    PAKUNR
+     C                   kfld                    X3PAID
+     C                   Eval      XFIRMADFT = '*KUNDFT*'+BIFIRM
+     C     GSSOWFK       klist
+     C                   kfld                    ORST
+     C                   kfld                    WSUSER
+     C                   kfld                    BWSONO
+     C     ARKIVL06K     klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    ARTYPE
+     C                   kfld                    ARUNDE
+     C     ARKLAGK       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    ARKLAG
+N01   *
+N01  C                   MOVE      'AUTOR'       X1PAID
+N01  C     BRPARFK1      chain     BRPARF                             33
+N01  C                   IF        *IN33
+N01  C                   MOVE      'N'           XAUT              1
+N01  C                   ELSE
+N01  C                   MOVEL     PAVRDA        XAUT
+N01  C                   END
+      *
+     C                   MOVE      'SSLOC'       X1PAID            5
+     C                   MOVE      'SSKGR'       X2PAID            5
+     C                   MOVE      'SSGEB'       X3PAID            5
+     C                   MOVE      'N'           AVSLUTT           1
+     C                   EVAL      ARTYPE  = 'ZO'
+     C                   EVAL      ARUNDE  = 'SS:'
+     C                   move      *blanks       feilmelding
+     C                   move      *blanks       fmeldnr
+     C                   MOVE      *BLANKS       OR
+     C                   MOVE      '0'           ORST
+     C                   BITON     '457'         XCR1              1
+     C                   BITOFF    '01236'       XCR1
+     C                   BITON     '257'         XCR2              1
+     C                   BITOFF    '01346'       XCR2
+     C                   BITON     '123457'      XAPSTR            1
+     C                   BITOFF    '06'          XAPSTR
+      *
+     C     BRPARFK2      CHAIN     BRPARF                             33
+     C                   MOVEL     PAVRDA        XCG               2
+     C     BRPARFK3      CHAIN     BRPARF                             33
+     C   33BRPARFK32     CHAIN     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        XFEEC             3
+     C                   MOVE      'SSAGT'       X3PAID            5
+     C     BRPARFK3      CHAIN     BRPARF                             33
+     C  N33              MOVE      'J'           XAGENT            1
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   50
+     C     'ZO'          CHAIN     ARKTXT                             33
+     C                   IF        ARKLAG = *BLANKS
+     C     FIFIRM        READE     FIRMARC                                50
+     C                   ELSE
+     C     ARKLAGK       CHAIN     ARKEXT                             33
+     C                   END
+N06  c     arbhis        ifne      *blanks
+N06  c                   eval      arcane=arbhis
+N06  c                   end
+     C                   EVAL      XBANE = '/' + %TRIM(ARCANE) + '/'
+      *
+N11   * SJEKK OM GOGLE CLOUD ARKIUV BENYTTES (HENT PARAMETRE)
+n11  C                   OPEN      FIRMGOOG                             50
+n11  C     FIFIRM        chain     FIRMGOOG                           50
+n11  c  N50              move      'J'           google            1
+n11  C                   CLOSE     FIRMGOOG                             50
+     C                   endsr
+      *////////////////////////////////////////////////////////////
+     C     TSTUSER       BEGSR
+      *////////////////////////////////////////////////////////////
+      /copy syspeds/qrpgsrcpy,tstuser
+      *
+     C                   endsr
+      *=====================================================================
+      * Send output buffer and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Compute and display run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     BRPARF
+     C                   close     GSSORF
+     C                   close     GSSOWF
+     C                   close     GSSOLF
+     C                   close     GSSOVF
+     C                   close     GSSFGF
+     C                   close     GSSPOF
+     C                   close     GSSPOL01
+     C                   close     GSSGDF
+     C                   close     GSSCNF
+     C                   close     GSSCGF
+     C                   close     CUNDL01
+     C                   close     VALUL01
+     C                   close     CDBOAT
+     C                   close     CDBOATLF
+     C                   close     FIRM
+     C                   close     FIRMARC
+     C                   close     ARKTXT
+     C                   close     ARKEXT
+     C                   close     ARKIVL06
+     C                   eval      *inlr = *on
+     C                   return
+     C                   endsr

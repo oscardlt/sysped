@@ -1,0 +1,253 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 Sett garantibeløp tilbake ved "no release'
+********************************************************************
+      *****************************************************************
+      *** PROGRAM SKAL KONVERTERE INNGÅENDE IE51                    ***
+      *** No Release for transit                                    ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER          ***
+      *** LEDIGE INDIKATORER 01-26                                  ***
+      *** LEDIGE INDIKATORER 28-32 34-97                            ***
+      *****************************************************************
+     H DFTACTGRP(*NO)
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCLF   IF   E           K DISK
+     FTRACKF    O  A E           K DISK
+     FNCTSEH05  UF   E           K DISK
+N01  FTRUGH     UF   E           K DISK
+     FTVINF     O  A E           K DISK
+     FTRKODL01  IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIM      O  A E             DISK
+     D                sds
+     D ZUSER                 254    263
+      *  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for ncts104r5
+     d ncts104r5       pr
+     d usn_                                like(usn)
+      *  *ENTRY Interface for Main Procedure
+     d ncts104r5       pi
+     d usn                            9
+      *----------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *----------------------------------------------------------------------
+     d x1_xrlev1       s                   like(xrlev1)
+     d x1_xrlev2       s                   like(xrlev2)
+     d x2_xrlev1       s                   like(xrlev1)
+     d x2_xrlev2       s                   like(xrlev2)
+     d x2_xrlev3       s                   like(xrlev3)
+     d x3_xrlev1       s                   like(xrlev1)
+     d x3_xrlev2       s                   like(xrlev2)
+     d x3_xrlev3       s                   like(xrlev3)
+     d x3_xrlev4       s                   like(xrlev4)
+     d xn              s              3s 0
+     d x_thtrdt        s              8
+     d x_thtrnr        s                   like(thtrnr)
+     d x_IE51          s              1a
+     d x_sn            s              3s 0
+     d x_xrvrd         s                   like(xrvrd)
+     d wdt             s              8
+     d wtm             s              6
+     d                 ds
+     d x_dsdt                  1      8  0
+     d x_dsdta                 1      8
+     d                 ds
+     d x_dstm                  1      6  0
+     d x_dstma                 1      6
+     d                 ds
+     d f0078a                  1     70a
+     d f0078b                 71    140a
+     d f0078c                141    210a
+     d f0078d                211    280a
+     d f0078e                281    350a
+     d ft                      1    350a   dim(5)
+      *
+     D UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      /free
+
+       exsr init;
+
+       exsr srxml;
+
+       *inlr = *on;
+       return;
+
+       //**********************************************
+       begsr srxml;
+       //**********************************************
+
+         x1_xrlev1 = 0;
+         x1_xrlev2 = 0;
+
+         chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'messageSender';
+             m0004  = xrverd;
+           when xrnv = 'messageRecipient';
+             m0010  = xrverd;
+           when xrnv = 'preparationDateAndTime';
+           when xrnv = 'messageIdentification';
+             m0062  = xrverd;
+             m1004  = xrverd;
+           when xrnv = 'messageType' and xrverd = 'CC051C';
+             x_ie51 = 'J';
+             chain 1 edic;
+             cmn = cmn + 1;
+             update edicr;
+             fmn = cmn;
+             mmn = cmn;
+           when xrnv = 'correlationIdentifier';
+           when xrnv = 'TransitOperation';
+             exsr srxml1;
+           when xrnv = 'CustomsOfficeOfDeparture';
+           when xrnv = 'HolderOfTheTransitProcedure';
+           when xrnv = 'Representative';
+           endsl;
+
+           x1_xrlev1 = x1_xrlev1 + 1;
+           chain (xrsn:x1_xrlev1:x1_xrlev2) xmlrcvf;
+         enddo;
+
+         if x_ie51 = 'J';
+           exsr opdopd;
+           exsr ttsr;
+         endif;
+
+         endsr;
+
+       //**********************************************
+       begsr srxml1;
+       //**********************************************
+
+         ft    = *blanks;
+         fln   = fln + 1;
+         xn    = 0;
+
+         x2_xrlev1 = xrlev1;
+         x2_xrlev2 = 1;
+         x2_xrlev3 = 0;
+
+         chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         dow %found;
+           select;
+           when xrnv = 'MRN';
+             x_thtrnr = xrverd;
+           when xrnv = 'declarationSubmissionDateAndTime';
+             x_dsdta = %subst(xrverd:1:4) + %subst(xrverd:6:2)
+                     + %subst(xrverd:9:2);
+             x_dstma = %subst(xrverd:12:2) + %subst(xrverd:15:2)
+                     + %subst(xrverd:18:2);
+             ft(1) = 'Declaration submission date and time: ' + %trim(xrverd);
+           when xrnv = 'noReleaseMotivationCode';
+             f0077  = '211';
+             tkunik = '211';
+             tkkode = xrverd;
+             chain (tkunik: tkkode) trkodl01;
+             if not %found;
+               tktxtn = *blanks;
+             endif;
+             ft(2) = 'Code: ' + %trim(xrverd) + ' ' + %trim(tktxtn);
+           when xrnv = 'noReleaseMotivationText';
+             if xrverd = '*EXT, TILLEGGSFIL';
+               chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3:xrlev4) xmlrclf;
+             else;
+               xrvrd = xrverd;
+             endif;
+             ft(3) = %subst(xrvrd:1:70);
+             ft(4) = %subst(xrvrd:71:70);
+             ft(5) = %subst(xrvrd:141:70);
+             write tvinff;
+             if %subst(xrvrd:211:70) <> *blanks;
+               fln   = fln + 1;
+               f0077 = *blanks;
+               ft(1) = %subst(xrvrd:211:70);
+               ft(2) = %subst(xrvrd:281:70);
+               ft(3) = %subst(xrvrd:351:70);
+               ft(4) = %subst(xrvrd:421:70);
+               ft(5) = %subst(xrvrd:491:22);
+               write tvinff;
+             endif;
+           endsl;
+
+           x2_xrlev2 = x2_xrlev2 + 1;
+           chain (xrsn:x2_xrlev1:x2_xrlev2:x2_xrlev3) xmlrcvf;
+         enddo;
+
+       endsr;
+
+       //**********************************************
+       begsr opdopd;
+       //**********************************************
+
+         chain x_thtrnr nctseh05;
+         if %found;
+           thst = 'S';
+           thst051 = 'J';
+N01        if thgbl > 0;
+N01          chain (THGFT1) trugh;
+N01          if %found;
+N01            tggblb = tggblb - thgbl;
+N01            update trughr;
+N01            thgbl = thgbl * -1;
+N01          endif;
+N01        endif;
+           update nctsehr;
+         endif;
+
+         m0065  = 'XMLRES';
+         m0068  = x_thtrnr;
+         m1001  = 'TET';
+         m1225  = '051';
+         msn    = xrsn;
+         msr    = 'R';
+         mst    = 'C';
+         mdt    = %float(wdt);
+         mtm    = %float(wtm);
+         m0068a = %dec(%subst(thlrn:9:8):8:0);
+         m0068b = %dec(%subst(thlrn:17:6):6:0);
+         m1n07  = '051';
+         mavd   = thavd;
+         mtdn   = thtdn;
+         write edimr;
+
+       endsr;
+
+       //**********************************************
+       begsr ttsr;
+       //**********************************************
+
+         ttavd  = thavd;
+         ttopd  = thtdn;
+         ttacti = 'T51';
+         ttdate = %float(wdt);
+         tttime = %float(wtm);
+         ttuser = zuser;
+         tttext = 'No release for transit: '
+                  + %trim(%editw(x_dsdt:'    .  .  '))
+                  + ' ' + %trim(%editw(x_dstm:'  :  :  '));
+         tttexl = 'Ingen frigivelse for transit: '
+                  + %trim(%editw(x_dsdt:'    .  .  '))
+                  + ' ' + %trim(%editw(x_dstm:'  :  :  '));
+         write trackfr;
+
+       endsr;
+
+       //**********************************************
+       begsr init;
+       //**********************************************
+
+         xrsn = %dec(usn:9:0);
+         syge15c ( wdt : wtm );
+
+       endsr;
+
+      /end-free

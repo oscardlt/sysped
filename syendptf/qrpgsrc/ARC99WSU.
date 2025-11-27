@@ -1,0 +1,102 @@
+      *
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI':'QC2LE') debug(*yes)
+
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+
+
+     D jsonstring      s          32767A   varying
+     D rc              s             10I 0
+     D filename        s             50a   varying
+     D dltFile         s            100a   varying
+     D Server          s            200a
+     D localPath       s            100a
+     D NR              s              3  0
+
+      *
+     D                 DS
+     D  arlink                 1   4000
+     D  ar                     1   4000    DIM(100)
+     d                sds
+      *
+     c     *entry        Plist
+     c                   parm                    Companyid        10
+     c                   parm                    uarlink        4000
+     c                   parm                    ulocalPath      100
+     c                   parm                    uok               1
+     c                   move      'N'           uok
+     c                   move      uarlink       arlink
+     c                   move      ulocalPath    localPath
+     c                   if        localPath = *blanks
+     c                   eval      localPath = '/tmp/'
+     c                   endif
+      *
+      *
+      /free
+
+       server = 'http://10.11.47.61:9886/api/putfiles';
+
+       // payload er jsonstring med lokalpath og array med firmaID(bucket navn)+filnavn.
+       jsonstring =
+       '{"LocalGetPath": "' + %trim(LocalPath) + '",'
+       +' "Files": [';
+
+       // hent filer  (skip v/første blanke) til array - komma før alle unnfatt første element
+       for nr = 1 to 100;
+         if ar(nr) =  *blanks;
+           leave;
+         endif;
+         if nr <> 1;
+           jsonstring=%trim(jsonstring) + ',';
+         endif;
+         // legg til array-element
+         jsonstring=%trim(jsonstring)
+         + '{"Companyid":"'+%trim(Companyid) + '",'
+         + '"Filename":'
+         + '"'
+         + %trim(ar(nr)) + '"}';
+       endfor;
+       // legg til array-slutt/json-slutt
+       jsonstring=%trim(jsonstring) +']}';
+
+       //
+       // Note:  http_debug(*ON/*OFF) can be used to turn debugging
+       //        on and off.  When debugging is turned on, diagnostic
+       //        info is written to an IFS file named
+       //        /tmp/httpapi_debug.txt
+       http_debug(*ON);
+
+       filename = http_tempfile() + '.json';
+       rc = http_url_post(%trim(server)
+                          +' '
+                         : %addr(jsonstring) + 2
+                         : %len(jsonstring)
+                         : filename
+                         : HTTP_TIMEOUT
+                         : HTTP_USERAGENT
+                         : 'application/json');
+       if (rc=201);
+         eval uok='J';    // ved flere betyr dette at minst enn var vellykket
+         //slett filer
+         for nr = 1 to 100;
+           if ar(nr) =  *blanks;
+             leave;
+           endif;
+           dltFile = %trim(localPath)+%trim(ar(nr));
+           unlink(dltFile);
+         endfor;
+       endif;
+       unlink(filename);
+       *inlr = *on;
+       return;
+
+       // Å teste resultat er egentlig meningsløst - enten går det eller så går det ikke
+       // OM en skulle teste er det ved å returnere filnavn til neste prog (YAJL -parse..)
+       //    MEN det har lite for seg.
+       // typisk innhold er (og dette er faktisk JSON) ETT simpelt objekt uten label..:
+       // "0 files downloaded and 2 was missing"
+       //
+      /end-free
+

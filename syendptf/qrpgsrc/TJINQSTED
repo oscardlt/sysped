@@ -1,0 +1,404 @@
+     H debug(*yes)
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQSTED MODULE(*LIBL/TJINQSTED *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 droppet merkelig logikk med filter åpå ETT postnr/infør søk via postnr
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+11XXX * 02 JOV PTF11 Ved GetAvd=J returner avdelinger dersom vilkår for det er tilstede
+      * 03 sh  PTF12 BYTTET UPPIFY STEDSNAVN
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+N01  FFIRM      IF   E           K DISK    USROPN
+N01  FSted2     IF   E           K DISK    USROPN
+N01  FSted2D    IF   E           K DISK    USROPN
+N01  F                                     RENAME(STED2R:STED2RD)
+     FSted2A    IF   E           K DISK    USROPN
+N01  F                                     RENAME(STED2R:STED2RA)
+     FSted2S    IF   E           K DISK    USROPN
+     F                                     RENAME(STED2R:STED2RS)
+n04   *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     D SOKLK           s              2
+     D SOKNVN          s             30    varying
+     D SOKNVN2         s             30
+N01  D MaxNvn          s             30
+N01  D SOKKOD          s              5
+N01  D MaxKod          s              5
+N01  D GetVal          S              1                                         J=Get/validate
+N01  D FullInfo        S              1                                         J=Ret. full info
+N02  D GetAvd          S              1                                         J=Ret Avd hvis..
+N02  D Avd             S              4  0                                      Avd for DUP e.l.
+N02  D oprKod          S              5
+N02  D oprNvn          S             30
+N02  D ViaPnr          S              5
+     D USER            s             10
+S01  D*VARLK           s             10
+S01  D*WST2KOD         s              5
+     D WSKUNPA         s              1
+     D MaxV            s              5
+     D MaxVis          s              5  0
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+N03  D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+N03  D                                     UVWXYZÆØÅ')
+N03  D LO              C                   CONST('abcdefghijklmnopqrst-
+N03  D                                     uvwxyzæøå')
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+     C                   exsr      Parse
+
+     C                   EXSR      INIT
+
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬soklk¬ : ¬'+%trim(SOKLK)+'¬, '
+        +'¬soknvn¬ : ¬'+%trim(SOKNVN)+'¬, '
+S02     //+'¬varlk¬ : ¬'+%trim(VARLK)+'¬, '
+S02     //+'¬wst2kod¬ : ¬'+%trim(WST2KOD)+'¬, '
+S01     +'¬sokkod¬ : ¬'+%trim(SOKKOD)+'¬, '
+        +'¬wskunpa¬ : ¬'+%trim(WSKUNPA)+'¬, '
+        +'¬getVal¬ : ¬'+%trim(getVal)+'¬, '
+        +'¬fullInfo¬ : ¬'+%trim(fullInfo)+'¬, '
+        +'¬getAvd¬ : ¬'+%trim(getAvd)+'¬, '
+        +'¬error¬ : ¬'+%trim(ERROR)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Listestart
+N02  c                   eval      JSONstring ='"postnrlist" : ['
+N02  C                   CALLP     updHTMLvar2('JSONstring'
+N02  C                                         :%addr(JSONstring)
+N02  C                                         :%len(JSONstring))
+N02  C                   callp     wrtsection('JSONlin')
+      * Find/send lines
+     c     Error         IFEQ      *blanks
+     C                   exsr      LINES
+     C                   ENDIF
+      * Listeslutt
+N02  c                   eval      JSONstring =']'
+N02  C                   CALLP     updHTMLvar2('JSONstring'
+N02  C                                         :%addr(JSONstring)
+N02  C                                         :%len(JSONstring))
+N02  C                   callp     wrtsection('JSONlin')
+
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * Quit
+     c*                  dump
+     C                   exsr      Exit
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      SOKLK   = zhbgetvar('SOKLK')
+     C                   eval      SOKLK   = uppify(SOKLK)
+     C                   eval      SOKNVN  = zhbgetvar('SOKNVN')
+S03  C*                  eval      SOKNVN  = uppify(SOKNVN)
+N03  C     LO:UPC        XLATE     SOKNVN        SOKNVN
+N01  C                   eval      SOKKOD  = zhbgetvar('SOKKOD')
+N01  C                   eval      SOKKOD  = uppify(SOKKOD)
+N01  C                   EVAL      GetVal  = zhbgetvar('GetVal')
+N01   * param for FullInfo klargjort - men ikke logikk for å legge ut ekstra  (
+N01  C                   EVAL      FullInfo= zhbgetvar('FullInfo')
+N02  C                   EVAL      GetAvd  = zhbgetvar('GetAvd')
+     C                   eval      MaxV    = zhbgetvar('MaxV')
+     C                   eval      MaxVis  = c2n2(MaxV)
+S01  C*                  eval      VARLK   = zhbgetvar('VARLK')
+S01  C*                  eval      WST2KOD = zhbgetvar('WST2KOD')
+      * Vis kun Postnr (P) eller vis kun Alfakode (A)
+     C                   eval      WSKUNPA = zhbgetvar('WSKUNPA')
+     c     MaxVis        ifeq      *zeros
+     c                   z-add     50            MaxVis
+     c                   end
+      * Userid.....
+     C                   eval      USER = zhbgetvar('USER')
+     C*                  DUMP
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+N01  C  N50              CLOSE     FIRM
+N01  C  N50              CLOSE     Sted2D                                       LK+Kode
+N01  C  N50              CLOSE     Sted2                                        Kode
+     C  N50              CLOSE     Sted2A
+     C  N50              CLOSE     Sted2S
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Fine lins - send to browser
+      *=====================================================================
+     C     Lines         begsr
+
+S02  c*                  eval      JSONstring ='"postnrlist" : ['
+S02  C*                  CALLP     updHTMLvar2('JSONstring'
+S02  C*                                        :%addr(JSONstring)
+S02  C*                                        :%len(JSONstring))
+S02  C*                  callp     wrtsection('JSONlin')
+
+     c                   Move      *zeros        AntVist           5 0
+     c                   eval      SOKNVN2   = SOKNVN
+     C     SOKNVN        IFEQ      *BLANKS
+N01  C     SOKKOD        andeq     *BLANKS
+     C     SOKLK         andeq     *BLANKS
+     C*                  GOTO      UTLES
+     C                   EVAL      SOKNVN2='A'
+     C                   END
+N01   * søk via kode
+N01  C     SOKKOD        IFNE      *BLANKS
+N01  c                   eval      MaxKod=%trim(SOKKOD)+'9999'
+N01  C     SOKLK         IFNE      *BLANKS                                      Via LK
+N01  C     LkKodKey      setll     Sted2D
+N01  C     SOKLK         reade     Sted2D                                 33
+N01  C                   ELSE                                                   Uanh av LK
+N01  C     SOKKOD        setll     Sted2
+N01  C                   read      Sted2                                  33
+N01  C                   END
+N01  C                   else
+      * søk via navn
+N01  c                   eval      MaxNvn=%trim(SOKNVN)+'9999999999999999999'
+     C     SOKLK         IFNE      *BLANKS                                      Via LK
+     C     LkNvnKey      setll     Sted2A
+     C     SOKLK         reade     Sted2A                                 33
+     C                   ELSE                                                   Uanh av LK
+     C     NvnKey        setll     Sted2S
+     C                   read      Sted2S                                 33
+     C                   END
+N01  C                   endif
+      * behandle EN LEST POST
+     C     *in33         DOWEQ     *OFF
+N01   * lest for langt ?? - hopp ut
+N01  C     SOKKOD        ifne      *blanks
+N01  C     ST2KOD        ifgt      MaxKod
+N01  C                   goto      UtLes
+N01  C                   endif
+N01  C                   else
+N01  C     ST2NVN        ifgt      MaxNvn
+N01  C                   goto      UtLes
+N01  C                   endif
+N01  C                   endif
+S01   * her skjer det ALLTID wildcard-søk selv om en ikke ber om det - råflott ???
+S01  C*    SOKNVN        Ifne      *blanks
+S01  C*    SOKNVN        SCAN      ST2NVN                                 34
+S01  c*    *IN34         CaBEQ     *OFF          UtLes
+S01  c*                  end
+     C                   exsr      exclude
+     c     EXCL          IFEQ      'N'
+
+N02  C                   if        GetAvd='J'
+N02  C                   exsr      GetAvdSR
+N02  C                   endif
+N02  C                   eval      ViaPnr = *Blanks
+N02  C                   if        ST2SOL='VIA'
+N02  C                   eval      ViaPnr = ST2KO2
+N02  C                   endif
+
+     C                   Add       1             AntLest
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬st2kod¬ : ¬'+%trim(ST2KOD)+'¬, '
+          +'¬st2nvn¬ : ¬'+%trim(ST2NVN)+'¬, '
+E02       +'¬st2lk¬ : ¬'+%trim(ST2LK)+'¬,'
+N02       +'¬viapnr¬ : ¬'+%trim(ViaPnr)+'¬, '
+N02       +'¬oprkod¬ : ¬'+%trim(OPRKOD)+'¬, '
+N02       +'¬oprnvn¬ : ¬'+%trim(OPRNVN)+'¬, '
+N02       +'¬avd¬ : ¬' +%trim(%editc(Avd:'Z'))+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+
+     c                   Add       1             AntVist           5 0
+     c     AntVist       cabge     MaxVis        UtLes
+     C                   END
+N01   * ved get/Validate  er det kun en
+N01  c     GetVal        ifeq      'J'
+N01  c                   leave
+N01  c                   endif
+N01   * søk via kode
+N01  C     SOKKOD        IFNE      *BLANKS
+N01  C     SOKLK         IFNE      *BLANKS                                      Via LK
+N01  C     SOKLK         reade     Sted2D                                 33
+N01  C                   ELSE                                                   Uanh av LK
+N01  C                   read      Sted2                                  33
+N01  C                   END
+N01  C                   else
+     C     SOKLK         IFNE      *BLANKS                                      Via LK
+     C     SOKLK         reade     Sted2A                                 33
+     C                   ELSE                                                   Uanh av LK
+     C                   read      Sted2S                                 33
+     C                   END
+N01  C                   endif
+     C                   end
+
+     C     UTLES         TAG
+S02  c*                  eval      JSONstring =']'
+S02  C*                  CALLP     updHTMLvar2('JSONstring'
+S02  C*                                        :%addr(JSONstring)
+S02  C*                                        :%len(JSONstring))
+S02  C*                  callp     wrtsection('JSONlin')
+     C                   endsr
+      *=====================================================================******
+      *  Eksluder post basert på...
+      *=====================================================================******
+     C     EXCLUDE       begsr
+     C                   Move      'J'           EXCL              1
+      * diverse tester - om ikke bestått hopp ut (med J i EXCL)
+      * vis kun postnummer (numeriske)
+     c     WSKUNPA       Ifeq      'P'
+     c     ST2KOD        cablt     '00000'       UtExcl
+     c     ST2KOD        cabgt     '99999'       UtExcl
+     c                   end
+      * vis kun Alfakoder
+     c     WSKUNPA       Ifeq      'A'
+     c     ST2KOD        andge     '00000'
+     c     ST2KOD        andle     '99999'
+     c                   Goto      UtExcl
+     c                   end
+S02   * Kun en kode
+S02  c*    WST2KOD       IFNE      *BLANKS
+S02  c*    WST2KOD       ANDNE     ST2KOD
+S02  c*                  Goto      UtExcl
+S02  c*                  ENDIF
+      * Posten skal med på liste
+     C                   Move      'N'           EXCL              1
+      *
+     C     UTEXCL        endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C  N50BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c  N50              call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+     C   50              eval      Error = 'Invalid userID'
+N01  C  N50              OPEN      FIRM
+N01  C  N50              OPEN      Sted2D                                       LK+Kode
+N01  C  N50              OPEN      Sted2                                        Kode
+     C  N50              OPEN      Sted2A                                       LK+Navn
+     C  N50              OPEN      Sted2S                                       Navn
+N01   * Key for Sted2D  landkode + kode/postnr
+N01  C     LkKodKey      KLIST
+N01  C                   KFLD                    SOKLK
+N01  C                   KFLD                    SOKKOD
+      * Key for Sted2A  landkode + stedsnavn
+     C     LkNvnKey      KLIST
+     C                   KFLD                    SOKLK
+     C                   KFLD                    SOKNVN2
+      * Key for Sted2S - Stedsnavn
+     C     NvnKey        KLIST
+     C                   KFLD                    SOKNVN2
+N01   * Søk på postnr og Landkode blank = foreslå firmaets egen
+N01  c     SOKLK         ifeq      *blanks
+N01  c     SOKKOD        andge     '00000'
+N01  c     SOKKOD        andle     '99999'
+N01  c     *IN50         andeq     *off
+N01  c     *loval        setll     FIRM
+N01  c                   read      FIRM
+N01  c                   move      FILAND        SOKLK
+N01  c                   endif
+N01   *
+N01   * GatVal er alltid på KODE
+N01  C                   IF        GetVal='J'
+N01  c     SOKLK         ifne      *blanks
+N01  C  N50LkKodKey      CHAIN     Sted2D                             30
+N01  C   30              eval      Error = 'Country + place-code not found'
+N01  c                   else
+N01  C  N50SOKKOD        CHAIN     Sted2                              30
+N01  C   30              eval      Error = 'Place-code not found'
+N01  c                   endif
+N01  c                   endif
+N01   *
+     C                   endsr
+N01   *
+N02   **************************************************************
+N02  C     GetAvdSR      begsr
+N02   **************************************************************
+N02   * Dersom "VIA" i sone utland så er det en kort-kode for HUB/viasted
+N02   * korrekt postnr finnes i ST2KOD / evt fast DUP-aceling ligger ST2UNI
+N02  c                   eval      Avd    = *zeros
+N02  c                   eval      oprKod = *blanks
+N02  c                   eval      oprNvn = *blanks
+N02  C                   if        ST2SOL = 'VIA'
+N02  C                   eval      Avd = c2n2(ST2UNI)
+N02  c                   eval      oprKod = st2Kod
+N02  c                   eval      oprNvn = st2Nvn
+N02  C                   eval      SOKLK  = ST2LK
+N02  C                   eval      SOKKOD = ST2KO2
+N02  C     LkKodKey      CHAIN     Sted2D
+N02  C                   endif
+N02   *
+N02   * her kan en tenke seg flere metoder å hent avdeling fra NOPNR  mm  samt KUNDESPESIFIKKE
+N02   *
+N02   *
+N02  C                   endsr

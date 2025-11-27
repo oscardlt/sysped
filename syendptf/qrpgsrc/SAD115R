@@ -1,0 +1,179 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SAD115R MODULE(*LIBL/SAD115R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSADKML03  UF   E           K DISK    USROPN
+     FSADKMCL1  UF   E           K DISK    USROPN
+     FEDIS2     UF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D UUID            S             36
+     D JSONstring      s          32000
+     D Error           S            150
+     D ErrorT          S          32000
+     D X0020           S                   like(s0020)
+     D                 DS
+     D  KMPRO                  1      8  0
+     D  KMPRO_A                1      8
+
+      *  Prototype for 'INCGI'
+     d INCGI           pr                  extpgm('INCGI')
+     d bistdl_                             like(bistdl)
+      *  Prototype for 'JSONFIX'
+     d JSONFIX         pr                  extpgm('JSONFIX')
+     d JSONstring_                         like(JSONstring)
+      *  Prototype for 'SAD116R'
+     d SAD116R         pr                  extpgm('SAD116R')
+     d kmpro_a_                            like(kmpro_a)
+     d errort_                             like(errort)
+      *
+      /free
+       // *get input-string
+       // /copy syspeds/qrpgsrcpy,prolog3
+         nbrVars = zhbgetinput(savedquerystring:qusec);
+
+       // Parse input
+         exsr Parse;
+       // Open files etc
+         exsr init;
+
+         chain uuid sadkml03;
+         if %found;
+           kmerr = %trim(error) + ' ' + %trim(errort);
+           if error = *blanks;
+             kmst = 'C';
+           else;
+             kmst = 'M';
+           endif;
+           update sadkmfr;
+
+           x0020 = 'KM' + %trim(kmpro_a);
+           setgt x0020 edis2;
+           readpe x0020 edis2;
+           dow not %eof;
+             if ssr = 'S' and sst = 'B';
+               if error = *blanks;
+                 sst = 'C';
+               else;
+                 sst = 'E';
+               endif;
+               update edisr;
+               leave;
+             endif;
+             update edisr;
+             readpe x0020 edis2;
+           enddo;
+
+           if errort <> *blanks;
+             sad116r (kmpro_a: errort);
+           endif;
+
+           setll kmpro sadkmcl1;
+           reade kmpro sadkmcl1;
+           dow not %eof;
+             if mcst = 'S';
+               delete sadkmcfr;
+             else;
+               mcst = 'C';
+               update sadkmcfr;
+             endif;
+             reade kmpro sadkmcl1;
+           enddo;
+
+         endif;
+
+         exsr      srutjson;
+
+         //* Quit
+         exsr Exit;
+
+       //*=====================================================================
+       //* Close output html and quit
+       //*=====================================================================
+       begsr Exit;
+
+       // Lukk fil
+       close bridf;
+       close sadkml03;
+       close sadkmcl1;
+       close edis2;
+
+       //* Do not delete the call to wrtsection with section name *fini.  It is needed
+       //* to ensure that all output html that has been buffered gets output.
+       callp wrtsection('*fini');
+       //* Quit
+       *inlr = *on;
+       return;
+
+       endsr;
+
+       //*********************************************************
+       //C     Parse         Begsr
+       //*********************************************************
+       begsr Parse;
+
+       //* Get input
+       WSUSER  = zhbgetvar('USER');
+       UUID    = zhbgetvar('UUID');
+       Error   = zhbgetvar('Error');
+       ErrorT  = zhbgetvar('ErrorTxt');
+
+       endsr;
+
+       //*********************************************************
+       //C     SRUTJSON      Begsr
+       //*********************************************************
+       begsr srutjson;
+
+       callp gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+       callp wrtsection('top');
+       error = ' ';
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(UUID)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //* JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       JSONFIX (JSONstring);
+       CALLP updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+       callp wrtsection('JSONlin');
+
+       endsr;
+
+       //*********************************************************
+       //C     INIT          Begsr
+       //*********************************************************
+       begsr init;
+
+       open bridf;
+       //* Test innlogging
+       chain wsuser bridf;
+       if bilibl = *blanks;
+         incgi (bistdl);
+       else;
+      /end-free
+     C                   call      BILIBL
+      /free
+       endif;
+
+       open sadkml03;
+       open sadkmcl1;
+       open edis2;
+
+       endsr;
+
+      /end-free

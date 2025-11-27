@@ -1,0 +1,258 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SAD136R MODULE(*LIBL/SAD136R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     FSADEFL03  UF   E           K DISK    USROPN
+     FSADEFCL1  UF   E           K DISK    USROPN
+     FEDIS2     UF   E           K DISK    USROPN
+     FTRACKF    O  A E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D UUID            S             36
+     D JSONstring      s          32000
+     D Error           S            150
+     D ErrorT          S          32000
+     D X0020           S                   like(s0020)
+     D                 DS
+     D  WDT                    1      8
+     D  WDT_N                  1      8  0
+     D                 DS
+     D  WTM                    1      6
+     D  WTM_N                  1      6  0
+     D                 DS
+     D  EFPRO                  1      8  0
+     D  U_EFPRO                1      8
+     D                 DS
+     D  u_pro_a                1      8
+     D  u_pro_n                1      8  0
+      *  Prototype for 'UUIDC'
+     d UUIDC           pr                  extpgm('UUIDC')
+     d efuuid_                             like(efuuid)
+      *  Prototype for 'SADEFJSON'
+     d SADEFJSON       pr                  extpgm('SADEFJSON')
+     d u_pro_a_                            like(u_pro_a)
+      *  Prototype for 'SYGE15C'
+     d SYGE15C         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+      *  Prototype for 'INCGI'
+     d INCGI           pr                  extpgm('INCGI')
+     d bistdl_                             like(bistdl)
+      *  Prototype for 'JSONFIX'
+     d JSONFIX         pr                  extpgm('JSONFIX')
+     d JSONstring_                         like(JSONstring)
+      *  Prototype for 'SAD137R'
+     d SAD137R         pr                  extpgm('SAD137R')
+     d u_efpro_                            like(u_efpro)
+     d errort_                             like(errort)
+      *
+      /free
+
+      // *get input-string
+      // /copy syspeds/qrpgsrcpy,prolog3
+         nbrVars = zhbgetinput(savedquerystring:qusec);
+
+       // Parse input
+         exsr Parse;
+       // Open files etc
+         exsr init;
+
+         chain uuid sadefl03;
+         if %found;
+           eferr = %trim(error) + ' ' + %trim(errort);
+           if error = *blanks;
+             select;
+             when efst2 = 'S';                  // Submitted
+               efst = 'C';
+             when efst2 = 'R' and efst <> 'U';  // Reopened og ny manifest er sendt
+               efst = 'C';
+             when efst2 = 'R' and efst = 'U';   // Reopened og ny manifest sendes
+               efuuid = *blanks;
+               uuidc (efuuid);
+             when efst2 = 'C';                  // Completed
+               efst = 'Z';
+             when efst2 = 'D';                  // Deleted
+               efst = 'S';
+               errort = 'OK. Slettet';
+             endsl;
+           else;
+             if efst = 'S';
+               if errort = *blanks;
+                 errort = 'Manifesten er allerede slettet.';
+               endif;
+             else;
+               efst = 'M';
+             endif;
+           endif;
+           update sadeffr;
+
+           x0020 = 'EF' + %trim(u_efpro);
+           setgt x0020 edis2;
+           readpe x0020 edis2;
+           dow not %eof;
+             if ssr = 'S' and sst = 'B';
+               if error = *blanks;
+                 sst = 'C';
+               else;
+                 sst = 'E';
+               endif;
+               update edisr;
+               leave;
+             endif;
+             update edisr;
+             readpe x0020 edis2;
+           enddo;
+
+           if error <> *blanks and errort = *blanks;
+             errort = error;
+           endif;
+           if errort <> *blanks;
+             sad137r (u_efpro: errort);
+           endif;
+
+           setll efpro sadefcl1;
+           reade efpro sadefcl1;
+           dow not %eof;
+             if efst = 'S';      // Deleted
+               chain clpro turer14;
+               if %found;
+                 clst = 'S';
+               else;
+                 exsr ttsr;
+                 clst = ' ';
+                 clpro = 0;
+               endif;
+             else;               // Sumbitted/Reopened
+               clst = 'O';
+             endif;
+             update sadefcfr;
+             reade efpro sadefcl1;
+           enddo;
+
+         endif;
+
+         exsr      srutjson;
+
+         if efst2 = 'R' and efst = 'U';   // Reopened og ny manifest sendes
+           u_pro_n = efpro;
+           sadefjson (u_pro_a);
+         endif;
+
+         //* Quit
+         exsr Exit;
+
+       //*=====================================================================
+       //* Close output html and quit
+       //*=====================================================================
+       begsr Exit;
+
+       // Lukk fil
+       close bridf;
+       close turer14;
+       close sadefl03;
+       close sadefcl1;
+       close edis2;
+       close trackf;
+
+       //* Do not delete the call to wrtsection with section name *fini.  It is needed
+       //* to ensure that all output html that has been buffered gets output.
+       callp wrtsection('*fini');
+       //* Quit
+       *inlr = *on;
+       return;
+
+       endsr;
+
+       //*********************************************************
+       //C     Parse         Begsr
+       //*********************************************************
+       begsr Parse;
+
+       //* Get input
+       WSUSER  = zhbgetvar('USER');
+       UUID    = zhbgetvar('UUID');
+       Error   = zhbgetvar('Error');
+       ErrorT  = zhbgetvar('ErrorTxt');
+
+       endsr;
+
+       //*********************************************************
+       //C     SRUTJSON      Begsr
+       //*********************************************************
+       begsr srutjson;
+
+       callp gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+       callp wrtsection('top');
+       error = ' ';
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬uuid¬ : ¬'+%trim(UUID)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬}';
+
+       //* JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       JSONFIX (JSONstring);
+       CALLP updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+       callp wrtsection('JSONlin');
+
+       endsr;
+
+       //*********************************************************
+       //C     INIT          Begsr
+       //*********************************************************
+       begsr init;
+
+       open bridf;
+       //* Test innlogging
+       chain wsuser bridf;
+       if bilibl = *blanks;
+         incgi (bistdl);
+       else;
+      /end-free
+     C                   call      BILIBL
+      /free
+       endif;
+
+       open turer14;
+       open sadefl03;
+       open sadefcl1;
+       open edis2;
+       open trackf;
+
+       endsr;
+
+      //*********************************************
+       begsr ttsr;
+
+       syge15c (wdt: wtm);
+       ttavd  = clavd;
+       ttopd  = cltdn;
+       tttur  = clpro;
+       ttacti = 'EFC';
+       ttdate = wdt_n;
+       ttdate = wdt_n;
+       tttime = wtm_n;
+       tttiml = wtm_n;
+       ttuser = wsuser;
+       tttext = 'Oppdrag er fristillt pga. E.F. manifest er slettet.';
+       tttexl = 'Oppdrag er fristillt pga. E.F. manifest er slettet.';
+       ttedev = 'RMV';
+
+       write trackfr;
+
+       endsr;
+      /end-free

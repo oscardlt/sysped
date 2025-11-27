@@ -1,0 +1,293 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TNOE041R MODULE(*LIBL/TNOE041R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+12XXX * 01 YBC PTF12 Bytt SADL med SADVARE
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+      * Varible for
+     D WSUSER          S             10
+     D WLEVA           S              8
+     D WLEVN           S              8S 0
+     D VARNR           S             28
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d myrows          s             10i 0
+     d  X              S              5  0
+     d  WERR           S              1
+     d MyPoDS          ds                  Qualified  dim(10000)
+S01  d* SLALFA                       28
+S01  d* SLTXT                        25
+S01  d* SLOPPL                        2
+S01  d* SLVEKT                       12S 3
+S01  d* SLTANR                        8S 0
+S01  d* SLTAR                         3
+S01  d* SLPVA                         1
+S01  d* SLSATS                        7S 2
+S01  d* SLTN                          1
+S01  d* SLKDAÆ                        2
+S01  d* SLKDSÆ                        3
+S01  d* SLTO                         45
+S01  d* SLCREF                        3
+N01  d  VARENR                       28
+N01  d  VAREBE                       30
+N01  d  W2LK                          2
+N01  d  W2PRE                         1
+N01  d  W2VKTB                       12S 3
+N01  d  W2VNTI                        8
+N01  d  W2PVA                         1
+N01  d  W2MFR                         1
+N01  d  W2AS                          7S 2
+N01  d  W2TN                          1
+N01  d  W2AKD1                        2
+N01  d  W2ASV1                        3
+N01  d  W2TOP1                       45
+N01  d  W2CRE1                        3
+N01  D                 DS
+N01  D  XVNTI                  1      8
+N01  D  W2VNT                  1      8  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+        /free
+
+        // Parse input
+         exsr Parse;
+        // Open files etc
+         exsr Init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬levenr¬ : ¬'+%trim(WLEVA)+'¬, '
+        +'¬varnr¬ : ¬'+%trim(VARNR)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"kundvarlist" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         // Hæmta til array
+         exsr sok;
+         // Les array
+         exsr lesarr;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // Quit
+       exsr exit;
+
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+         // Quit
+         *inlr = *on;
+         return;
+       endsr;
+       //********************************************************
+       begsr parse;
+       //********************************************************
+       // Get input
+         wsuser  = zhbgetvar('USER');
+         wleva = zhbgetvar('LEVENR');
+         wlevn = c2n2(wleva);
+         varnr = zhbgetvar('VARNR');
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+         *in50 = not %found;
+
+         if *in50 = *off;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       endsr;
+        // __________________________________________________
+        // Kør SQL in i array                             SOK
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sok;
+
+          exec sql declare  A33  cursor for
+
+S01     //SELECT SLALFA, SLTXT, SLOPPL, SLVEKT, SLTANR, SLTAR, SLPVA, SLSATS,
+S01     //SLTN, SLKDAÆ, SLKDSÆ, SLTO, SLCREF
+S01     //FROM SADL
+S01     //WHERE upper(slalfa) like
+S01     //upper('%' concat trim(:varnr) concat '%')
+S01     //AND SLKNR = :WLEVN
+S01     //FOR READ ONLY;
+N01       SELECT VARENR, VAREBE, W2LK, W2VKTB, W2VNTI, W2PVA, W2AS,
+N01       W2TN, W2AKD1, W2ASV1, W2TOP1, W2CRE1
+N01       FROM SADVARE
+N01       WHERE upper(VARENR) like
+N01       upper('%' concat trim(:varnr) concat '%')
+N01       AND LEVENR = :WLEVN
+N01       FOR READ ONLY;
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                   LESARR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr lesarr;
+
+               werr='X';
+
+       for x = 1 to myrows;
+
+
+             if %found;
+
+S01     //   if mypods(x).slalfa <> ' ';
+N01          if mypods(x).VARENR <> ' ';
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+S01    //JSONstring=%trim(JSONstring)+'{'
+S01    //   +'¬slalfa¬ : ¬'+%trim(mypods(x).SLALFA)+'¬, '
+S01    //   +'¬sltxt¬ : ¬'+%trim(%subst(mypods(x).Sltxt:1:20))+'¬, '
+S01    //   +'¬slr31¬ : ¬'+%trim(%subst(mypods(x).Sltxt:21:1))+'¬, '
+S01    //   +'¬slpre¬ : ¬'+%trim(%subst(mypods(x).Sltxt:22:1))+'¬, '
+S01    //   +'¬slmfr¬ : ¬'+%trim(%subst(mypods(x).Sltxt:23:1))+'¬, '
+S01    //   +'¬sloppl¬ : ¬'+%trim(mypods(x).SLOPPL)+'¬, '
+S01    //   +'¬slvekt¬ : ¬'+%trim(%editc(mypods(x).SLVEKT:'4'))+'¬, '
+S01    //   +'¬sltanr¬ : ¬'+%trim(%editc(mypods(x).SLTANR:'4'))+'¬, '
+S01    //   +'¬sltar¬ : ¬'+%trim(mypods(x).SLTAR)+'¬, '
+S01    //   +'¬slpva¬ : ¬'+%trim(mypods(x).SLPVA)+'¬, '
+S01    //   +'¬slsats¬ : ¬'+%trim(%editc(mypods(x).SLSATS:'4'))+'¬, '
+S01    //   +'¬sltn¬ : ¬'+%trim(mypods(x).SLTN)+'¬, '
+S01    //   +'¬slkdae¬ : ¬'+%trim(mypods(x).SLKDAÆ)+'¬, '
+S01    //   +'¬slkdse¬ : ¬'+%trim(mypods(x).SLKDSÆ)+'¬, '
+S01    //   +'¬slto¬ : ¬'+%trim(mypods(x).SLTO)+'¬, '
+S01    //   +'¬slcref¬ : ¬'+%trim(mypods(x).SLCREF)+'¬}';
+N01       XVNTI = mypods(x).W2VNTI;
+N01    JSONstring=%trim(JSONstring)+'{'
+N01       +'¬slalfa¬ : ¬'+%trim(mypods(x).VARENR)+'¬, '
+N01       +'¬sltxt¬ : ¬'+%trim(mypods(x).VAREBE)+'¬, '
+N01       +'¬slpre¬ : ¬'+%trim(mypods(x).W2PRE)+'¬, '
+N01       +'¬slmfr¬ : ¬'+%trim(mypods(x).W2MFR)+'¬, '
+N01       +'¬sloppl¬ : ¬'+%trim(mypods(x).W2LK)+'¬, '
+N01       +'¬slvekt¬ : ¬'+%trim(%editc(mypods(x).W2VKTB:'4'))+'¬, '
+N01       +'¬sltanr¬ : ¬'+%trim(%editc(W2VNT:'4'))+'¬, '
+N01       +'¬slpva¬ : ¬'+%trim(mypods(x).W2PVA)+'¬, '
+N01       +'¬slsats¬ : ¬'+%trim(%editc(mypods(x).W2AS:'4'))+'¬, '
+N01       +'¬sltn¬ : ¬'+%trim(mypods(x).W2TN)+'¬, '
+N01       +'¬slkdae¬ : ¬'+%trim(mypods(x).W2AKD1)+'¬, '
+N01       +'¬slkdse¬ : ¬'+%trim(mypods(x).W2ASV1)+'¬, '
+N01       +'¬slto¬ : ¬'+%trim(mypods(x).W2TOP1)+'¬, '
+N01       +'¬slcref¬ : ¬'+%trim(mypods(x).W2CRE1)+'¬}';
+        //end-free
+        //free
+         jsonfix (JSONstring);
+        //end-free
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+             endif;
+             endif;
+        endfor;
+
+       endsr;
+      /end-free

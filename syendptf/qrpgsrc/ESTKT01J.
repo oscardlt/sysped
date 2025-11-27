@@ -1,0 +1,603 @@
+      * OBS! verdiene MinVer / MaxVer (HARDKODET i INIT / sist i sourcen)
+      *      viser Laveste og høyeste klient(PDA)versjon som støttes
+      *      HVER gang ny versj  distribueres må det endres her.
+      *********************************************************************
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTKT01J MODULE(*LIBL/ESTKT01J *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 02 JOV PTF12 Location list
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FBRPARF    if   e           k disk    usropn
+     FTKIMEI    UF A E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+      * Client input variables
+     D WSuser          s             10
+     D passord         s             10
+     D IMEI            s             15
+     D HWID            s             15
+     D VERSJ           s             10
+     D MinVer          s             10
+     D MaxVer          s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+      * Definere  hex 0D / 25 (CRLF)
+     D                 DS
+     D CRLF                    1      2
+     D Hex0D                   1      1    inz(x'0D')
+     D Hex25                   2      2    inz(x'25')
+     D                 DS
+     D  TimeTmp                1     26
+     D  TimeTmpÅ               1      4
+     D  TimeTmpM               6      7
+     D  TimeTmpD               9     10
+     D  TimeTmpTMS            12     18
+     D  TimeTmpTT             12     13
+     D  TimeTmpTM             15     16
+     D  TimeTmpTS             18     19
+     D  TS                     1     19
+     D                 DS
+     D  IdagTmpÅ               1      4
+     D  IdagTmpM               5      6
+     D  IdagTmpD               7      8
+     D  IdagÅMD                1      8
+     D  IdagTT                 9     10
+     D  IdagTM                11     12
+     D  IdagTS                13     14
+     D  IdagTMS                9     14
+     D  IdagDtTMS              1     14
+     D JSONstring      s          32000
+     D ProdId          S             10
+     D ProdList        S           1000
+     D ProdCnt         S              2  0
+     D Error           S            150
+     D AntLest         S              9  0
+     D vktTF           S              5
+     D volTF           S              5
+     D vkEVoTF         S              5
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+     C                   movel     timedata1     TimeTmp
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      Wsuser = zhbgetvar('user')
+     C                   eval      WSUSER = uppify(WSUSER)
+     C                   EVAL      PASSORD = zhbgetvar('PASSORD')
+     C                   eval      PASSORD  = uppify(PASSORD)
+     C                   eval      VERSJ = zhbgetvar('V')
+     C                   eval      IMEI   = zhbgetvar('IMEI')
+N01  C                   eval      HWID   = zhbgetvar('HWID')
+N01  c     HWID          ifne      *blanks
+N01  C                   eval      IMEI   = HWID
+N01  C                   end
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FIRM
+     C  N50              CLOSE     BRPARF
+     C  N50              CLOSE     TKIMEI
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+      * Ugyldig userID
+     C     *IN50         IFEQ      '1'
+     C     PASSORD       ORNE      BIPO
+     C                   eval      Error  = '#ERROR# Ukjent userID'
+     c                             + ' eller feil passord.'
+     C                   goto      utles
+     c                   end
+      *
+     c                   move      *blanks       Logo             50
+     c                   eval      Logo='/syspeddev/SystemaTktermLogo.png'
+      * loggfør bruk..
+     C                   movel     timedata1     TimeTmp
+     C                   MOVE      TimeTmpÅ      IdagTmpÅ
+     C                   MOVE      TimeTmpM      IdagTmpM
+     C                   MOVE      TimeTmpD      IdagTmpD
+     C                   MOVE      TimeTmpTT     IdagTT
+     C                   MOVE      TimeTmpTM     IdagTM
+     C                   MOVE      TimeTmpTS     IdagTS
+     C*                  movel     'TKsmarTerm'  PROD
+     C                   movel     'TKtermS'     PROD
+     C     IMEIkey       chain     TKIMEI                             33
+     C                   movel     VERSJ         VERS
+     C                   movel     WSUSER        USR
+     C                   MOVE      IdagÅMD       DATOS
+     C                   MOVE      IdagTMS       TIDS
+     C                   add       1             ANT
+     C  N33              update    TKIMEIR
+     C   33              write     TKIMEIR
+      * HENT PRODUKT  - PRIMÆRT FRA USER / SEKUNDÆRT FRA FIRMA
+     C                   MOVE      'TKTM2'       PAID
+     C     BrParKey      CHAIN     BRPARF                             33
+     C   33              move      FIBRID        PABRID
+     C   33BrParKey      CHAIN     BRPARF                             33
+     C                   dow       *IN33='0'
+     c                   if        %subst(PAVRDA:11:5)='true ' or
+     c                             %subst(PAVRDA:11:5)='J    ' or
+     c                             %subst(PAVRDA:11:5)='Y    '
+     c                   eval      ProdCnt = ProdCnt+ 1
+     c                   if        ProdCnt > 1
+     c                   eval      Prodlist=%trim(prodlist)+','
+     c                   endif
+     c                   eval      ProdID = PAVRDA                              10 første
+     c                   eval      Prodlist=%trim(prodlist)
+     c                             +'{¬id¬ : ¬'+%trim(ProdID)+'¬} '
+     c                   endif
+     C     BrParKey      READE     BRPARF                                 33
+     c                   enddo
+      *
+      * Send section bot
+     C     UTLES         TAG
+
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬userName¬ : ¬'+%trim(BIBESK)+'¬, '
+        +'¬custName¬ : ¬'+%trim(FIKRTN)+'¬, '
+        +'¬versjon¬ : ¬'+%trim(VERSJ)+'¬, '
+        +'¬imeiHwId¬ : ¬'+%trim(IMEI)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, '
+        +'¬logo¬ : ¬'+%trim(LOGO)+'¬, '
+        +'¬products¬ : ['+%trim(ProdList)+'], ';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+        exsr TerminalListe;
+N02     exsr LocationListe;
+        exsr AvvKodeListe;
+        exsr ForvoldListe;
+        exsr GodsTypeListe;
+        exsr KllMaalListe;
+        JSONstring=
+         '¬minVersjon¬ : ¬'+%trim(MinVer)+'¬, '
+        +'¬maxVersjon¬ : ¬'+%trim(MaxVer)+'¬}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+      /end-free
+      * HENT avvikskoder kolli
+     C                   endsr
+     C
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+
+      *
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C  N50BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C  N50              OPEN      FIRM
+     C  N50              OPEN      BRPARF
+     C  N50              OPEN      TKIMEI
+      *
+     C  N50*loval        setll     FIRM
+     C  N50              read      FIRM
+      *
+     C     IMEIkey       KLIST
+     C                   KFLD                    IMEI
+     C                   KFLD                    PROD
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      BIBRID        PABRID
+     C                   movel     '*KUNDFT*'    FIBRID           10
+     C                   move      BIFIRM        FIBRID
+      * Init av div felter
+     c                   eval      MinVer = '2.0.0'
+     c                   eval      MaxVer = '2.0.0'
+      *
+     C     UtInit        endsr
+      /free
+       //********************************************************
+       begsr TerminalListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"terminalList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // avvikskoder = "lånt fra TKterm"-TKTKA  lagre i 5 først av "FMLEDIG'
+        if  %found(BRIDF);
+         pakunr = 0;
+         pabrid = BIBRID;
+         chain ( pabrid : pakunr : 'CSTER' ) brparf;
+         if not %found;
+           pabrid = '*KUNDFT*'+BIFIRM;
+         endif;
+         setll ( pabrid : pakunr : 'CSTER' ) brparf;
+         reade ( pabrid : pakunr : 'CSTER' ) brparf;
+         dow not %eof(brparf);
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+           JSONstring=%trim(JSONstring)+'{'
+           +'¬value¬ : ¬'+%trim(%subst(PAVRDA:1:20))+'¬, '
+           +'¬label¬ : ¬'+%trim(%subst(PAVRDA:21:30))+'¬ '
+           +'}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'CSTER' ) brparf;
+         enddo;
+        endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+N02
+       //********************************************************
+       begsr LocationListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"locationList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // avvikskoder = "lånt fra TKterm"-TKTKA  lagre i 5 først av "FMLEDIG'
+        if  %found(BRIDF);
+         pakunr = 0;
+         pabrid = BIBRID;
+         chain ( pabrid : pakunr : 'CSSON' ) brparf;
+         if not %found;
+           pabrid = '*KUNDFT*'+BIFIRM;
+         endif;
+         setll ( pabrid : pakunr : 'CSSON' ) brparf;
+         reade ( pabrid : pakunr : 'CSSON' ) brparf;
+         dow not %eof(brparf);
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+S02      //JSONstring=%trim(JSONstring)+'{'
+S02      //+'¬value¬ : ¬'+%trim(%subst(PAVRDA:1:5))+'¬, '
+S02      //+'¬label¬ : ¬'+%trim(%subst(PAVRDA:7:30))+'¬ '
+S02      //+'}';
+N02        JSONstring=%trim(JSONstring)
+N02        +'¬LOC:'+%subst(PAVRDA:1:5)+' '
+N02        +%trim(%subst(PAVRDA:7:30))+'¬ ';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'CSSON' ) brparf;
+         enddo;
+        endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+N02
+       //********************************************************
+       begsr AvvKodeListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"kllAvvKodeList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // avvikskoder = "lånt fra TKterm"-TKTKA  lagre i 5 først av "FMLEDIG'
+        if  %found(BRIDF);
+         pabrid = '*KUNDFT*'+BIFIRM;
+         pakunr = 0;
+         setll ( pabrid : pakunr : 'TKTKA' ) brparf;
+         reade ( pabrid : pakunr : 'TKTKA' ) brparf;
+         dow not %eof(brparf);
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+           JSONstring=%trim(JSONstring)+'{'
+           +'¬value¬ : ¬'+%trim(%subst(PAVRDA:1:5))+'¬, '
+           +'¬label¬ : ¬'+%trim(%subst(PAVRDA:7:30))+'¬ '
+           +'}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'TKTKA' ) brparf;
+         enddo;
+        endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+
+       //********************************************************
+       begsr ForvoldListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"forvoldList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // avviksForvolder = TKFOR
+        if  %found(BRIDF);
+         pabrid = '*KUNDFT*'+BIFIRM;
+         pakunr = 0;
+         setll ( pabrid : pakunr : 'TKFOR' ) brparf;
+         reade ( pabrid : pakunr : 'TKFOR' ) brparf;
+         dow not %eof(brparf);
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+           JSONstring=%trim(JSONstring)+'{'
+           +'¬value¬ : ¬'+%trim(%subst(PAVRDA:1:5))+'¬, '
+           +'¬label¬ : ¬'+%trim(%subst(PAVRDA:7:30))+'¬ '
+           +'}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'TKFOR' ) brparf;
+         enddo;
+        endif;
+
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+
+       //********************************************************
+       begsr GodsTypeListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"godsTypeList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // godstype = CSGTY
+        if  %found(BRIDF);
+         pabrid = '*KUNDFT*'+BIFIRM;
+         pakunr = 0;
+         setll ( pabrid : pakunr : 'CSGTY' ) brparf;
+         reade ( pabrid : pakunr : 'CSGTY' ) brparf;
+         dow not %eof(brparf);
+           // F=Fri / T=Tvungen til false/true
+           vktTF   ='false';
+           volTF   ='false';
+           vkEVoTF ='false';
+           if %subst(PAVRDA:1:1)='T';
+             vktTF   ='true ';
+           endif;
+           if %subst(PAVRDA:2:1)='T';
+             volTF   ='true ';
+           endif;
+           if %subst(PAVRDA:3:1)='T';
+             vkEVoTF ='true ';
+           endif;
+
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+           JSONstring=%trim(JSONstring)+'{'
+           +'¬value¬ : ¬'+%trim(%subst(PAVRDA:6:30))+'¬, '
+           +'¬vkt¬ : '+%trim(vktTF)+','
+           +'¬vol¬ : '+%trim(volTF)+','
+           +'¬vktElVol¬ : '+%trim(vkEVoTF)+' '
+           +'}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'CSGTY' ) brparf;
+         enddo;
+        endif;
+
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+       //********************************************************
+       begsr KllMaalListe;
+       //********************************************************
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+         jsonstring ='"kolliMaalList" : [';
+         updhtmlvar2('JSONstring'
+                    :%addr(jsonstring)
+                    :%len(jsonstring));
+         wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // les avvikskoder
+       // ..........................................................................................
+         AntLest = 0;            // gjenbruk samme teller
+         // kollimål = CSSTM
+        if  %found(BRIDF);
+         pabrid = '*KUNDFT*'+BIFIRM;
+         pakunr = 0;
+         setll ( pabrid : pakunr : 'CSSTM' ) brparf;
+         reade ( pabrid : pakunr : 'CSSTM' ) brparf;
+         dow not %eof(brparf);
+           AntLest = AntLest + 1;
+           if AntLest=1;
+             JSONstring=*blanks;
+           else;
+             JSONstring=', ';
+           endif;
+           JSONstring=%trim(JSONstring)+'{'
+           +'¬value¬ : ¬'+%trim(%subst(PAVRDA:1:15))+'¬, '
+           +'¬label¬ : ¬'+%trim(%subst(PAVRDA:16:30))+'¬ '
+           +'}';
+           jsonfix (JSONstring);
+           updhtmlvar2('JSONstring'
+                      :%addr(jsonstring)
+                      :%len(jsonstring));
+           wrtsection ('JSONlin');
+           reade ( pabrid : pakunr : 'CSSTM' ) brparf;
+         enddo;
+        endif;
+
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring ='],';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       endsr;
+      /end-free

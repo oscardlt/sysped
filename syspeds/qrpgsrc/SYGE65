@@ -1,0 +1,376 @@
+     H DFTACTGRP(*NO)
+********************************************************************
+      * inkluder div /copy ... for å kunne bruke funskjoner fra CGIDEV2 serviceprog
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+********************************************************************
+      * Program for å åpne dokument i ADOBE
+********************************************************************
+     FFRISOK    IF   E           K DISK
+     FARKIVL02  IF   E           K DISK
+N01  FFIRMARC   IF   E           K DISK
+N01  FARKTXT    IF   E           K DISK
+N01  FARKEXT    IF   E           K DISK
+     FADOBEF    IF   E           K DISK
+     FQ         O  A F  200        DISK    Usropn
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+      *
+     D BatDta          s            200
+     D FraFil          s            200
+     D TilFil          s            200
+     D FraMappe        s            200
+     D TilMappe        s            200
+     D PCMappe         s            200
+     D PCTemp          s            200
+     D VBZ             s            200
+     D VBC             s            200
+     D STRVBC          s            200
+     D CPY             s            200
+N01  D OPNIEBAT        s            512
+N01  D Ubane           s            512
+     D TilPage         s              1
+     D AdobePath       s            200
+     D OldFile         s            200
+     D PDFfil          s            200
+     D Tstcmd          s            200
+N01  D W2EXMax         s             15
+N02  D W2GNMax         s             15
+     D W2MoVar         s             15    VARYING
+      *
+     D                 DS
+     D HEDTOP                  1      8  0
+     D  HEÅR2                  3      4  0
+     D  HEMND                  5      6  0
+     D  HEDAG                  7      8  0
+     D                 DS
+     D SFDATO                  1      6  0
+     D  SFDAT4                 1      4  0
+     D   SFDAG                 1      2  0
+     D   SFMND                 3      4  0
+     D   SFÅR2                 5      6  0
+     D                 DS
+     D  WSFTXT                 1    650
+     D    WSIME1               1     65
+     D    WSIME2              66    130
+     D    WSIME3             131    195
+     D    WSIME4             196    260
+     D    WSIME5             261    325
+     D    WSIME6             326    390
+     D    WSIME7             391    455
+     D    WSIME8             456    520
+     D    WSIME9             521    585
+     D    WSIME10            586    650
+     D                 DS
+     D  SAITXT                 1    650
+     D    SAIME1               1     65
+     D    SAIME2              66    130
+     D    SAIME3             131    195
+     D    SAIME4             196    260
+     D    SAIME5             261    325
+     D    SAIME6             326    390
+     D    SAIME7             391    455
+     D    SAIME8             456    520
+     D    SAIME9             521    585
+     D    SAIME10            586    650
+     D                UDS
+     D  UFIRM                  1      2
+      *
+N02  D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+N02  D                                     UVWXYZÆØÅ')
+N02  D LO              C                   CONST('abcdefghijklmnopqrst-
+N02  D                                     uvwxyzæøå')
+     C                   EXSR      INIT
+     C                   EXSR      PDFSR
+      *
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+N05
+      ***********************************************
+     C     PDFSR         BEGSR
+      ***********************************************
+      ***** Ett og bare ett ZH.dokument
+     C                   move      *blanks       Oldfile
+N01  c     AdobePath     ifne      'IE'
+N01  c     AdobePath     andne     'LINK'
+     c                   exsr      VisPdf
+     c                   eval      Oldfile = ARLINK
+N01  c                   else
+N01  c                   exsr      VisPdfIE
+N01  c                   endif
+      *
+     c     Oldfile       ifne      *blanks
+     C                   exsr      ClosePDF
+     c                   endif
+      *
+     C                   ENDSR
+      ***********************************************
+     C     VISPDF        BEGSR
+      ***********************************************
+      * 1) Finn fil/kopier til temporær IFS-mappe med nettverks-stasjons-tilgang
+      * 2) Bygg VBscriptfil (USER+OPN.VBS) i samme temporære mappe
+      * 3) Kopier VBscript-fila til mappe på lokal PC som user har tilgang til(%USERPROFILE%='Home')
+      *          (i Wind.7 oppfattes kjøring av VBS fra remote mappe som risiko - kopi=workaroud)
+      * 4) Kjør VBscriptet
+      *(  5) Filnavn huskes i variabel OldFile - gjøres rett etter denne SR, for å kalle ClosePDF )
+      *
+     c     ArkZHkey      chain     ARKIVL02                           33
+     c     *in33         cabeq     '1'           EndPDF
+      *
+     c                   Eval      Frafil= %trim(FraMappe)+ARLINK
+     c                   Eval      Tilfil= %trim(TilMappe)+ARLINK
+     c                   Eval      PDFfil= %trim(PCMappe) +ARLINK
+      *
+     C                   eval      rc = docmd(' +
+     C                             cpy obj("'+%trim(Frafil)+'")'
+     C                             +' toobj("'+%trim(Tilfil)+'")'
+     c                             +' replace(*YES) +
+     c                             ')
+      * lage bat-fil med åpningskommando
+     C                   eval      rc = docmd(' +
+     C                             dltf FILE(QTEMP/Q)  +
+     C                             ')
+      *
+     C                   eval      rc = docmd(' +
+     C                             CRTPF FILE(QTEMP/Q) RCDLEN(200) +
+     C                             ')
+     C                   OPEN      Q
+      *
+     c                   eval      BatDta='adobePath = CHR(34) & "'
+     c                             + %trim(AdobePath) +'" & CHR(34)'
+     C                   EXCEPT    QData
+     c                   eval      BatDta='newFilePath = CHR(34) & "'
+     c                             + %trim(PDFfil) +'" & CHR(34)'
+     C                   EXCEPT    QData
+     c                   eval      BatDta='page = "' + %trim(TilPage)+'"'
+     C                   EXCEPT    QData
+      /free
+          eval BatDta='set WshShell = WScript.CreateObject("WScript.Shell")';
+          EXCEPT QData;
+          eval BatDta='WshShell.Run( adobePath & " /A " & CHR(34) &'
+                     +'"page=" & page & CHR(34)   & newFilePath)';
+          EXCEPT QData;
+
+        //eval BatDta='WScript.Sleep 100';
+        //EXCEPT QData;
+
+        //eval BatDta='WshShell.AppActivate("Sesjon B - [24 x 80]")';
+        //EXCEPT QData;
+      /end-free
+      *
+     C                   close     Q
+      * kopier AS-fil streamfil
+     C                   eval      rc = docmd(' +
+     C                             CPYTOSTMF  +
+     C                             FROMMBR("/QSYS.LIB/QTEMP.LIB/Q.FILE/Q.MBR") +
+     C                             TOSTMF("' +
+     C                             %trim(TilMappe)+%trim(PSDSUSRNAM)+
+     C                             'OPN.VBS") STMFOPT(*REPLACE) +
+     C                             CVTDTA(*AUTO) STMFCODPAG(*PCASCII) +
+     C                             ENDLINFMT(*CRLF) +
+     C                             ')
+N04  C                   eval      rc = docmd(' +
+N04  c                             CHGAUT OBJ("' +
+N04  C                             %trim(TilMappe)+%trim(PSDSUSRNAM)+
+N04  C                             'OPN.VBS") USER(*PUBLIC) DTAAUT(*RWX) ' +
+N04  C                             'OBJAUT(*ALL)')
+      * Hjelpevariabler for å forenkle PCO-kommandoene
+     C                   EVAL      VBZ  =%trim(PCMappe)+%trim(PSDSUSRNAM)
+     c                             +'OPN.VBS'
+     C                   EVAL      VBC  ='"'+%trim(PCTemp)+%trim(PSDSUSRNAM)
+     c                             +'.VBS"'
+      * kommando for copy av fil til lokal disk/home, samt for å kjøre VBscript
+     C                   EVAL      CPY  = '"copy '+%trim(VBZ)+' '+%trim(VBC)+'"'
+     c                   eval      STRVBC = '"cscript ' +%trim(VBC)+'"'
+      * START PCO/PCCMD
+     C                   eval      rc = docmd(' +
+     C                             STRPCO  +
+     C                             ')
+      * Denne burde gå men......
+     C*                  eval      rc = docmd('STRPCCMD PCCMD('
+     C*                            +%trim(CPY)+') PAUSE(*NO)')
+      *
+      ******* EKS: CPY   = "copy Z:\JOVOOPN.VBS "%USERPROFILE%\JOVO.VBS""
+     C                   CALL      'SAD105CP'
+     c                   parm                    CPY
+     C
+      ******* EKS: STRVBC= "cscript "%USERPROFILE%\JOVO.VBS""
+     C                   CALL      'SAD105CP'
+     c                   parm                    STRVBC
+      *
+     C     EndPDF        ENDSR
+N01   ***********************************************
+N01  C     VISPDFIE      BEGSR
+N01   ***********************************************
+N01   * hent ip/bane mm..
+N01  c     ArkZHkey      chain     ARKIVL02                           33
+N01  c  N33UFIRM         chain     firmarc                            33
+N01  c     *in33         cabeq     '1'           EndPDFIE
+N01  c     artype        chain     ARKTXT                             33
+N01  C     ARKLAG        IFNE      *blanks
+N01  c     arklagk       chain     arkext
+N01  c                   endif
+N01  c                   move      *blanks       Ubane
+N01  c                   eval      Ubane='http://'+%trim(ARCPAD)+'/'
+N01  c                             +%trim(ARCANE)+'/'+%trim(ARLINK)
+N01   * bevisst valg via LINK (f.eks har ikke tilgang til sharet nettverksstasjon pga security)
+N01  c     AdobePath     ifeq      'LINK'
+N01  c                   Movel     UBANE         HFLINK          100
+     C****               EXFMT     VISLINK
+N01  c                   goto      EndPDFIE
+N01  c                   endif
+      * direkte - (trenger ikke bat-fil - åpner via dll direkte)
+N01   * START PCO/PCCMD
+N01  C                   eval      rc = docmd(' +
+N01  C                             STRPCO  +
+N01  C                             ')
+     c                   eval      OPNIEBAT = 'RunDll32.exe url.dll ,'
+     c                             +'FileProtocolHandler "'+%trim(Ubane)+'"'
+N01  C                   CALL      'SAD105CP'
+N01  c                   parm                    OPNIEBAT
+N01  C
+N01  C     EndPDFIE      ENDSR
+      ***********************************************
+     C     ClosePDF      BEGSR
+      ***********************************************
+      * 1) Bygg VBscriptfil (USER+CL.VBS) i temporær IFS-mappe med nettv-stasj-tilgang
+      * 2) Kopier VBscript-fila til mappe på lokal PC som user har tilgang til(%USERPROFILE%='Home')
+      *          (i Wind.7 oppfattes kjøring av VBS fra remote mappe som risiko - kopi=workaroud)
+      * 3) Kjør VBscriptet
+     C                   eval      rc = docmd(' +
+     C                             dltf FILE(QTEMP/Q)  +
+     C                             ')
+      *
+     C                   eval      rc = docmd(' +
+     C                             CRTPF FILE(QTEMP/Q) RCDLEN(200) +
+     C                             ')
+     C                   OPEN      Q
+      *
+     c                   eval      BatDta='oldFileName = "' + %trim(OldFile)+'"'
+     C                   EXCEPT    QData
+      /free
+          eval BatDta='set WshShell = WScript.CreateObject("WScript.Shell")';
+          EXCEPT QData;
+
+          eval BatDta='If (WshShell.AppActivate'
+                     +'(oldFileName & " - Adobe Reader") = true) Then';
+          EXCEPT QData;
+
+          eval BatDta='WScript.Sleep 100';
+          EXCEPT QData;
+
+          eval BatDta='WshShell.SendKeys "^w"';
+          EXCEPT QData;
+
+          eval BatDta='End If';
+          EXCEPT QData;
+
+      /end-free
+      *
+     C                   close     Q
+      * kopier AS-fil streamfil
+     C                   eval      rc = docmd(' +
+     C                             CPYTOSTMF  +
+     C                             FROMMBR("/QSYS.LIB/QTEMP.LIB/Q.FILE/Q.MBR") +
+     C                             TOSTMF("' +
+     C                             %trim(TilMappe)+%trim(PSDSUSRNAM)+
+     C                             'CL.VBS") STMFOPT(*REPLACE) +
+     C                             CVTDTA(*AUTO) STMFCODPAG(*PCASCII) +
+     C                             ENDLINFMT(*CRLF) AUT(*FILE) +
+     C                             ')
+N04  C                   eval      rc = docmd(' +
+N04  c                             CHGAUT OBJ("' +
+N04  C                             %trim(TilMappe)+%trim(PSDSUSRNAM)+
+N04  C                             'CL.VBS") USER(*PUBLIC) DTAAUT(*RWX) ' +
+N04  C                             'OBJAUT(*ALL)')
+      *
+      * Hjelpevariabler for å forenkle PCO-kommandoene
+     C                   EVAL      VBZ  =%trim(PCMappe)+%trim(PSDSUSRNAM)
+     c                             +'CL.VBS'
+     C                   EVAL      VBC  ='"'+%trim(PCTemp)+%trim(PSDSUSRNAM)
+     c                             +'.VBS"'
+      * kommando for copy av fil til lokal disk/home, samt for å kjøre VBscript
+     C                   EVAL      CPY  = '"copy '+%trim(VBZ)+' '+%trim(VBC)+'"'
+     c                   eval      STRVBC = '"cscript ' +%trim(VBC)+'"'
+      * START PCO/PCCMD
+     C                   eval      rc = docmd(' +
+     C                             STRPCO  +
+     C                             ')
+      *
+      ******* EKS: CPY   = "copy Z:\JOVOCL.VBS "%USERPROFILE%\JOVO.VBS""
+     C                   CALL      'SAD105CP'
+     c                   parm                    CPY
+     C
+      ******* EKS: STRVBC= "cscript "%USERPROFILE%\JOVO.VBS""
+     C                   CALL      'SAD105CP'
+     c                   parm                    STRVBC
+      *
+     C     EndClPDF      ENDSR
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     c     *entry        plist
+     c                   parm                    uavd              4
+     c                   parm                    uopd              7
+     c                   move      uavd          heavd             4 0
+     c                   move      uopd          heopd             7 0
+      *
+     C     HeaKey        Klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+      *
+      *
+     C     ExtImpKey     Klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    FSKODE
+     c                   move      '*CR'         FSKODE
+      *
+     C     ArkZHKey      Klist
+     c                   kfld                    ARSTAT
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    ARTYPE
+     c                   move      'A'           ARSTAT
+      *
+N01  C     arklagk       KLIST
+N01  C                   KFLD                    UFIRM
+N01  C                   KFLD                    arklag
+      * Init Num. DS
+     C                   move      *zeros        HEDTOP
+     C                   move      *zeros        SFDATO
+N06  C                   z-add     1             oddeve            1 0
+      * Hent systemverdier som går på åpning av adobe i acrobat mm
+     c     '          '  chain     ADOBEF
+     c     PSDSUSRNAM    chain     ADOBEF
+      * ADUSER        10          COLHDG('BRUKER')
+      * ADARKM        70          COLHDG('IFS ARKIVMAPPE')
+      * ADIFTM        70          COLHDG('IFS TEMP-MAPPE - med AS-400 navn'
+      * ADNETV        70          COLHDG('IFS NETV.S/BANE-
+      * ADPCTM        70          COLHDG('PC TEMP-MAPPE')
+      * ADPATH       170          COLHDG('ADOBE-PATH(PGM)')
+      * ADPAGE         1          COLHDG('PAGE(ÅPNE FRA)')
+      *
+     c                   eval      ARTYPE=ADARTY                                Arkivkode Hand.Fakt
+     C                   eval      FraMappe=ADARKM                              Arkivmappe
+     C                   eval      TilMappe=ADIFTM                              TilMappe AS/400-navn
+     C                   eval      PCMappe =ADNETV                              TilM,PCnavn (Z:\...)
+     C                   eval      PCTemp  =ADPCTM                              PCTempmappe,userHome
+     C                   eval      AdobePath=ADPATH                             Path til Acr Reader
+     c                   eval      TilPage = ADPAGE                             Åpne fra side...
+      *
+     C                   ENDSR
+     C*
+     OQ         EADD         Qdata
+     O                       BatDta             200

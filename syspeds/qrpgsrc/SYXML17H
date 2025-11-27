@@ -1,0 +1,237 @@
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER XML-FIL TIL LOGISTIKKSYSTEM  ***
+      *** KOMPLETT.NO Tollager,                               ***
+      ***    H=Justering av VERDI ved endelig faktura         ***
+      ***    (for senere periodisk etterberegning mot TAD)    ***
+      ***********************************************************
+      * Dato inn i 'FAN'/LISF (som ved original FAK) - Ikke nummerer endringer
+     FXMLRCVF   IF   E           K DISK
+      *
+     FLLAGJL13  UF   E           K DISK
+     FLLAGJD01  UF   E           K DISK
+     FLLHEAD07  IF   E           K DISK
+     FLLLISF    IF A E           K DISK
+     FLLJUSF    IF A E           K DISK
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      *
+      * Utnytter 3 siste av tekst der norsk fortolling er utført til å "flagge reberegning!"
+     D                 DS
+     D  VDTEXT                 1     30
+     D   VDTX26_27            26     27
+     D   VDTX28_30            28     30
+      *
+     D NyLisNr         s              3  0
+     D NyJusNr         s              3  0
+N01  D NyInvDat        s              8
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+      * Les EN OG EN TAG ("Nøstede tager" kommer nå i "rett rekkefølge" )
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   EXSR      SRXML2
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      * Handling utfra tag-navn
+      *    ( ekstra tester dersom samme tagnavn fins på flere nivå                     )
+      *    ( les i filene XMLRCAF (attributt-verdier)+ XMLRCLF ("Extras") om nødvendig )
+     C                   SELECT
+N01  C                   WHEN      XRNV = 'POSTING_DATE'
+N01  c                   eval      NyInvDat = XRVERD
+      * fakt.nr (eller er det VENDOR_INVOICE_NO ..)
+     c                   eval      TmpLJNINV = XRVERD
+      * Start Justeringslinje
+     C                   WHEN      (XRNV = 'INVOICE_DOCUMENT') and (XRLEV4<>0)
+      * fakt.nr (eller er det VENDOR_INVOICE_NO ..)
+     c                   eval      TmpLJNINV = XRVERD
+      * ordrenr
+     C                   WHEN      XRNV = 'PURCHASING_DOCUMENT_NUMBER'
+     c                   eval      TmpLJEON  = XRVERD
+      * Po linje
+     C                   WHEN      XRNV = 'PO_ITEM'
+     c                   eval(H)   TmpLJEOL  = %float(XRVERD)
+      * Ny enhetspris
+     C                   WHEN      XRNV = 'PRICE'
+     c                   eval(H)   TmpLJNVRD = %float(XRVERD)
+      * Valuta  (har nå alt jeg trenger for denne linja)
+     C                   WHEN      XRNV = 'CURRENCY'
+     c                   eval      TmpLJNVAL = XRVERD
+     C                   exsr      SRLINE
+      *
+     C                   ENDSL
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRLine        BEGSR
+      ***********************************************
+      *  Skal linjen skrives??
+     C     LL13Key       chain     LLAGJL13                           33
+      * finnes ikke i LLAGJF - skip
+     C     *in33         cabeq     *on           UTlin
+      * Val/bel  uendret - skipp
+     C     TmpLJNVRD     ifeq      VAVERD
+     C     TmpLJNVAL     andeq     VAFAR
+     c                   Goto      Utlin
+     c                   end
+
+      * Linje SKAL skrives,
+     c                   exsr      GetJusNr
+     c                   clear                   LLJUSFR
+     c                   eval      LJMN   =  VAMN                               Nummer LLAGJF
+     c                   eval      LJLN   =  NyJusNr                            Linje/løpe-nr
+     c                   eval      LJEON  =  TmpLJEON                           Edi Ordrenr
+     c                   eval      LJEOL  =  TmpLJEOL                           Edi Linjenr
+     c                   eval      LJNVRD =  TmpLJNVRD                          Ny  Verdi
+     c                   eval      LJNVAL =  TmpLJNVAL                          Ny  Valuta
+     c                   eval      LJNINV =  TmpLJNINV                          Ny  Faktnr
+     c                   eval      LJSTA1 = 'U'                                 Hov.status
+      * MINST EN DETALJLINJE SKAL JUSTERES???  - STATUS BLANK , ELLERS U
+     C                   exsr      JusDet
+jov  c*                  eval      LJS1DT = WDT08                               Loggdato
+jov  C                   MOVE      ULDT          LJS1DT                         Loggdato
+jov  C                   MOVE      XULTM         LJS1TI                         Loggtil(KL)
+     C                   eval      LJGVRD = VAVERD                              Gml Verdi
+     C                   eval      LJGVAL = VAFAR                               Gml Valuta
+     c                   exsr      GetGmFak                                     Gml Faktnr
+      *
+     C                   WRITE     LLJUSFR
+
+      * Oppdater Ny verdi i LLAGJF
+     C                   eval      VAVERD = LJNVRD                              Ny Verdi
+     C                   eval      VAFAR  = LJNVAL                              Ny Valuta
+     c                   UPDATE    LLAGJR
+
+      * Skriv nytt fakturanr til LLLISF
+     c                   clear                   LLLISFR
+     C                   MOVE      VAMN          LIMN
+     c                   eval      LILN   =  NyLisNr
+     c                   eval      LIKD   = 'FAN'
+     c                   eval      LITXT  = LJNINV
+N01  c                   move      NyInvDat      LITXT
+     c                   write     LLLISFR
+      *
+     C     UTLin         ENDSR
+      *
+      ***********************************************
+     C     JusDet        BEGSR
+      ***********************************************
+      * kun linjer som ER knyttet opp mot Norsk fortolling skal etterberegnes
+     c     LLagJDKey     setll     LLAGJD01
+     c     LLagJDKey     reade     LLAGJD01                               33
+     c     *in33         doweq     '0'
+     C     VDopd         ifne      *ZEROS
+     c     LLH07Key      chain     LLhead07
+     c     *in33         ifeq      '0'
+     c     LHBLK         ifeq      *blanks
+     c     LHBLK         oreq      'NO'
+S01  c*    VDTX26_27     Ifne      'E:'                                         Tidligere markert..
+S01  c*    VDTX26_27     andne     'F:'                                         Tidligere fullført
+      * uttak finnes/må analyseres... (ovverskriv evt tidligere..)
+     c                   eval      LJSTA1 = ' '                                 Hov.status
+     c                   eval      VDTX26_27 = 'E:'                             Etterber skal gjøres
+     c                   move      NyJusNr       VDTX28_30                      i.h.t jus-nr
+     C                   update    LLAGJDR
+S01  c*                  endif
+     c                   endif
+     c                   endif
+     C                   endif
+     c     LLagJDKey     reade     LLAGJD01                               33
+     C                   enddo
+     C                   ENDSR
+      *
+      ***********************************************
+     C     GetJusNr      BEGSR
+      ***********************************************
+      * LJLN er IKKE linjenr i LLAGJD, men sekvensnr (for endring på samme varepost)
+     c                   eval      LJLN  = 0
+     c     VAMN          setll     LLJUSF
+     c     VAMN          reade     LLJUSF                                 33
+     c     *in33         doweq     '0'
+     c     VAMN          reade     LLJUSF                                 33
+     C                   enddo
+      * høyeset brukte på denne vare-inngangs-post + 1
+     c                   eval      NyJusNr = LJLN + 1
+      *
+     C                   ENDSR
+      ***********************************************
+     C     GetGmFak      BEGSR
+      ***********************************************
+     c                   eval      LILN  = 0
+     c     VAMN          setll     LLLISF
+     c     VAMN          reade     LLLISF                                 33
+     c     *in33         doweq     '0'
+     c     LIKD          ifeq      'FAK'
+     c     LIKD          oreq      'FAN'
+     c                   eval      LJGINV = LITXT
+     C                   endif
+     c     VAMN          reade     LLLISF                                 33
+     C                   enddo
+     c                   eval      NyLisNr= LILN +1
+      *
+     C                   ENDSR
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+      *
+     C                   MOVE      USN           XRSN
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     10            XPNR              8 0
+      *
+     C*                  CALL      'SYGE15C'
+     C*                  PARM                    WDT               8
+     C*                  PARM                    WTM               6
+     C*                  MOVE      WDT           WDT08             8 0
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+      * ULDT er nå dagens dato i form HHÅÅMMDD / XULTM  = klokka 6 lang
+      *
+     c     LL13Key       KLIST
+     c                   KFLD                    XKJED
+     c                   KFLD                    XPNR
+     c                   KFLD                    TmpLJEON
+     c                   KFLD                    TmpLJEOL
+     c     LLagJDKey     KLIST
+     c                   KFLD                    XKJED
+     c                   KFLD                    XPNR
+     c                   KFLD                    VAMN
+     c     LLH07KEY      KLIST
+     c                   KFLD                    VDAVD
+     c                   KFLD                    VDOPD
+      *
+     c     *like         define    LJNINV        TmpLJNINV
+     c     *like         define    LJEON         TmpLJEON
+     c     *like         define    LJEOL         TmpLJEOL
+     c     *like         define    LJNVRD        TmpLJNVRD
+     c     *like         define    LJNVAL        TmpLJNVAL
+     C                   ENDSR
+      *

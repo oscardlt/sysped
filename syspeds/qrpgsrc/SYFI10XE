@@ -1,0 +1,522 @@
+      ****************************************************************************************
+      * Generere mail for advisering av kunde ved tilleggsbelastning                         *
+      ****************************************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 kun 2 av syspedSIGN i HERFA / ved DUP SIGN fra hovedoppdr (HELB 1-3)
+********************************************************************
+     H decedit(*JOBRUN)
+     FFAKT      IF   E           K DISK
+     FFAKTXT    IF   E           K DISK
+     FKODTGE    IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FCUNDC03   IF A E           K DISK
+     FFIRM      IF   E           K DISK
+     Farksrc    O    E             DISK    USROPN
+     F                                     RENAME(arksrc:arcdat)
+     FSYFI10XED CF   E             WORKSTN
+      *Array over adresser en vil sende mail til
+     D MoNa            S             50    DIM(5)
+     D MAIL            S             50    DIM(5)
+     D                 DS
+     D  MotNavn                1    250
+     D  KPER01                 1     50
+     D  KPER01x                1     10
+     D  KPER02                51    100
+     D  KPER02x               51     60
+     D  KPER03               101    150
+     D  KPER03x              101    110
+     D  KPER04               151    200
+     D  KPER04x              151    160
+     D  KPER05               201    250
+     D  KPER05x              201    210
+     D                 DS
+     D  MailA                  1    250
+     D  MADR01                 1     50
+     D  MADR02                51    100
+     D  MADR03               101    150
+     D  MADR04               151    200
+     D  MADR05               201    250
+N01  D                 DS
+N01  D  HELB                   1      5
+N01  D  DUPASG                 1      3
+     D                 DS
+     D  HERFA                  1     35
+     D  HERFA15                1     15
+     D  HERFA5                 5      5
+S01  D* HERFA11               11     11
+S01  D* HERFA_SG              12     14
+N01  D  HERFA13               13     13
+N01  D  HERFA_SG2             14     15
+     D                 DS
+     D  CCONTA                 1     30
+     D  KONTA_SG               1      3
+N01  D  KONTA_SG2              1      2
+      * feltdefn..
+     D IntAdr          S            700
+      *Definisjon av variabler
+     D POS             S             15
+     D EMNE            S             70
+      * Definere  hex appostrof
+     D Appo            c                   x'7D'
+      *
+     C                   exsr      INIT
+      *
+     c     Start         tag
+     c                   exsr      MailAdr
+     C                   EXFMT     BILDE
+     c                   Move      *off          *in30
+      * Avbryt
+     c     *in12         cabeq     '1'           Slutt
+      * F5 forny / slå av filter
+     c     *in05         ifeq      '1'
+     c                   move      'N'           SgFilter
+     c                   eval      Tillegg = *blanks
+     c                   goto      Start
+     c                   end
+      * Vedlikehold mailadresser
+     c     *in08         ifeq      '1'
+     c                   exsr      VedlAdr
+     c                   goto      Start
+     c                   end
+      * Test input
+     c                   exsr      TestB
+     c     *in30         cabeq     '1'           Start
+      *
+      * Ok - send mail
+     c     *in10         ifeq      '1'
+     c                   exsr      SndMail
+     c                   else
+     c                   move      'JOV1463'     MSGNR2
+     C                   Seton                                        30
+     c                   goto      Start
+     c                   end
+      *
+     c     Slutt         tag
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     VedlAdr       BEGSR
+      ******************************************************************************
+      * Om den ikke fins - lag en (VCUNDCR forutsetter minst en.., burde skrives om)
+     C     CONKEY        CHAIN     Cundc03                            33
+     c     *in33         ifeq      *ON
+     c                   clear                   CundcR
+     c                   move      FIFIRM        CFIRMA
+     c                   move      XXKUNR        CCOMPN
+     C                   eval      CTYPE     =  XXTYPE
+     c                   write     CundcR
+     c                   end
+     C                   CALL      'VCUNDCR'
+     C                   PARM                    FIFIRM
+     C                   PARM                    XXKUNR
+     C                   PARM                    URRN             10 0
+     C                   PARM                    UEMFA             1
+     C                   PARM      XXTYPE        YYTYPE           30
+     C                   ENDSR
+      ******************************************************************************
+     C     TestB         BEGSR
+      ******************************************************************************
+     C                   Setoff                                       30
+      * avsender er ikke i DIRE..
+     c     Usndad        ifeq      *blanks
+     c                   move      'JOV1461'     MSGNR2
+     C                   Seton                                        30
+     C                   goto      Uttestb
+     c                   end
+     c
+     c     MADR01        ifeq      *blanks
+     c     Ingenadr      tag
+     C                   EXFMT     BILDE2
+     c     *in12         cabeq     '1'           Slutt
+     c     WSONTA        ifeq      *blanks
+     c     WSMAIL        oreq      *blanks
+     c                   move      'JOV1459'     MSGNR2
+     C                   Seton                                        30
+     c                   goto      ingenadr
+     c                   end
+     C     '@'           SCAN      WSMAIL                                 33
+     c     *in33         ifeq      '0'
+     c                   move      'JOV1460'     MSGNR2
+     C                   Seton                                        30
+     c                   goto      ingenadr
+     c                   end
+      *
+     c                   clear                   CundcR
+     c                   move      FIFIRM        CFIRMA
+     c                   move      XXKUNR        CCOMPN
+     C                   eval      CTYPE     =  XXTYPE
+     c                   movel     WSONTA        CCONTA
+     c                   movel     WSMAIL        CEMAIL
+     c                   write     CundcR
+     c                   movel     CCONTA        mona(1)
+     c                   movel     CEMAIL        mail(1)
+     c                   movea     mona          MotNavn
+     c                   movea     mail          MailA
+     C                   end
+      *    UtAdr         tag
+     C                   Setoff                                       30
+      *
+     c     MADR01        ifeq      *blanks
+     c                   move      'JOV1462'     MSGNR2
+     C                   Seton                                        30
+     C                   goto      Uttestb
+     c                   end
+      *
+     C     UTtestB       ENDSR
+      *
+      ******************************************************************************
+     C     SndMail       BEGSR
+      ******************************************************************************
+      *  Fyll opp sourcefil som brukes som body
+     C                   open      arksrc
+     c                   move      *zeros        srcseq
+      *
+     C                   eval      SRCDTA = 'Varsel om tilleggsbelastning fra '+
+     C                             FIFT
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Ved behandling av understående '+
+     C                             'ordre oppstod situasjon som utløser '
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'tilleggsbelastning utover normal '+
+     C                             'faktura.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vår ref....:  '+
+     C                             %trim(%editc(HEAVD:'Z'))+'/'+
+     C                             %trim(%editc(HEOPD:'Z'))+'/'+HESG
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Senders ref:  '+ HERFA
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     c     HXSNDN        ifne      *blanks
+     C                   eval      SRCDTA = 'Sendings-nr:  ' + HXSNDN
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Avs.: ' + HENAS
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS1
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS2
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS3
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Mot.: ' + HENAK
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK1
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK2
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK3
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Varebeskrivelse: ' +
+     C                             %trim(%editc(HENT:'Z')) + ' ' +
+     c                             %trim(HEVS1) +' '+ %trim(HEVS2)
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vekt: ' +
+     C                             %trim(%editc(HEVKT:'Z'))
+     C     HEM3          ifne      *zeros
+     C                   eval      SRCDTA = %trim(SRCDTA) + '     M3: ' +
+     C                             %trim(%editc(HEM3:'M'))
+     c                   end
+     C     HELM          ifne      *zeros
+     C                   eval      SRCDTA = %trim(SRCDTA) + '     LM: ' +
+     C                             %trim(%editc(HELM:'M'))
+     c                   end
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Tilleggsbelastning som vil '+
+     C                             'påkomme faktura:'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      * Gebyr-tekst + evt fritekst på linja
+     c                   movel     KGENOT        FaktLin          70
+     c     FAVT          ifne      *blanks
+     C                   eval      FaktLin= %trim(FaktLin) + ' / ' + FAVT
+     c                   end
+     C                   eval      FaktLin= %trim(FaktLin) + '      Kr   ' +
+     C                             %trim(%editc(FABELN:'J'))
+     C                   eval      SRCDTA = FaktLin
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      * tilleggsfritekt fra opt. F.
+     C     FAKKEY        SETLL     FAKTXT
+     C     FAKKEY        READE     FAKTXT                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   eval      SRCDTA = FXVT
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C     FAKKEY        READE     FAKTXT                                 33
+     C                   END
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      * Ekstra begrunnelse - ta med blanklinjer mellom men ikke til slutt
+     C     WSBEG01       ifne      *blanks
+     C                   eval      SRCDTA = 'Ytterligere kommentar:'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = WSBEG01
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C     WSBEG02       ifne      *blanks
+     C     WSBEG03       orne      *blanks
+     C     WSBEG04       orne      *blanks
+     C     WSBEG05       orne      *blanks
+     C                   eval      SRCDTA = WSBEG02
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C     WSBEG03       ifne      *blanks
+     C     WSBEG04       orne      *blanks
+     C     WSBEG05       orne      *blanks
+     C                   eval      SRCDTA = WSBEG03
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C     WSBEG04       ifne      *blanks
+     C     WSBEG05       orne      *blanks
+     C                   eval      SRCDTA = WSBEG04
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C     WSBEG05       ifne      *blanks
+     C                   eval      SRCDTA = WSBEG05
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     c                   end
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'For ' + FIFT
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = XXAvNa
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      *
+     C                   close     arksrc
+      *
+     C                   eval      EMNE = 'Varsel om tilleggsbelastning'
+      *
+     C                   MOVEL     MAIL(1)       XXINT1           50
+     C                   MOVEL     MAIL(2)       XXINT2           50
+     C                   MOVEL     MAIL(3)       XXINT3           50
+     C                   MOVEL     MAIL(4)       XXINT4           50
+     C                   MOVEL     MAIL(5)       XXINT5           50
+     C                   MOVEL     MONA(1)       XXNAV1           50
+     C                   MOVEL     MONA(2)       XXNAV2           50
+     C                   MOVEL     MONA(3)       XXNAV3           50
+     C                   MOVEL     MONA(4)       XXNAV4           50
+     C                   MOVEL     MONA(5)       XXNAV5           50
+      *
+     C                   CALL      'SYFI10XEC2'
+     C                   PARM                    UUnik
+     C                   PARM                    Emne
+     C                   PARM                    XXavNa           50
+     C                   PARM                    XXavAd           50
+     C                   PARM                    XXNAV1           50
+     C                   PARM                    XXINT1           50
+     C                   PARM                    XXNAV2           50
+     C                   PARM                    XXINT2           50
+     C                   PARM                    XXNAV3           50
+     C                   PARM                    XXINT3           50
+     C                   PARM                    XXNAV4           50
+     C                   PARM                    XXINT4           50
+     C                   PARM                    XXNAV5           50
+     C                   PARM                    XXINT5           50
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     MailAdr       BEGSR
+      ******************************************************************************
+      * sjekk om det finnes kontaktpersoner på  kundenummer
+     c                   clear                   mail
+     c                   clear                   mona
+     c                   move      *zeros        mn                2 0
+     C     CONKEY        setll     Cundc03
+     C     CONKEY        reade     Cundc03                                34
+     C     *in34         DOWEQ     '0'
+     C     Mn            andlt     5
+     C     SgFilter      Ifeq      'J'
+N01   * FRA VERSJON 10 ER DET KUN PLASS TIL 2 AV SIGN I HERFA (EDIMOTTATT FRA ANNEN SYSPED..)
+S01  c*    KONTA_SG      cabne     HERFA_SG      NextCont
+N01  C     TROPD0        IFEQ      *ZEROS
+N01  c     KONTA_SG2     cabne     HERFA_SG2     NextCont
+N01  C                   else
+N01  c     KONTA_SG      cabne     DUPASG        NextCont
+N01  C                   endif
+     C                   end
+     C     CEMAIL        Ifne      *Blanks
+     C     CCONTA        andne     *Blanks
+     c                   add       1             mn
+     c                   movel     CCONTA        mona(mn)
+     c                   movel     CEMAIL        mail(mn)
+     c                   end
+     c     NextCont      tag
+     C     CONKEY        reade     Cundc03                                34
+     C                   END
+      * GI VARSEL dersom filter og 0 poster
+     c     SgFilter      Ifeq      'J'
+     c     mn            andeq     0
+     c                   move      'JOV1464'     MSGNR2
+     C                   Seton                                        30
+     c                   end
+      * Flytt til ds for visning på skjerm
+     c                   movea     mona          MotNavn
+     c                   movea     mail          MailA
+     C                   ENDSR
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    Uavd              4
+     c                   parm                    Uopd              7
+     c                   parm                    Ulin              5
+     c                   parm                    Ukun              8
+     c                   parm                    UUnik             7
+     c                   parm                    Usndna           50
+     c                   parm                    Usndad           70
+      *
+     c                   movel     Usndna        XXavNa
+     c                   movel     Usndad        XXavAd
+     C                   move      Uavd          FAAVD
+     C                   move      Uopd          FAOPD
+     C                   move      Ulin          FALI
+     C                   move      Ukun          XXKUNR            8 0
+     c     FAKKey        Chain     FAKT                               34
+     c  N34HEAKey        Chain     HEADF                              34
+      *
+     C     *loval        setll     FIRM
+     c  N34              read      FIRM                                   34
+     c  N34KUNKey        Chain     CUNDL01                            34
+      * Noe mangler - avslutt
+     C     *IN34         ifeq      *ON
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     c                   end
+      * Keys
+     C     FAKKey        KLIST
+     C                   KFLD                    FAAVD
+     C                   KFLD                    FAOPD
+     C                   KFLD                    FALI
+      *
+     C     HEAKey        KLIST
+     C                   KFLD                    FAAVD
+     C                   KFLD                    FAOPD
+      * "*FAKTTILADV" som funksjon i kontaktpers-regiseter = Faktura-tilleggs-advisering
+     C     CONKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XXTYPE           30
+     C                   KFLD                    XXKUNR            8 0
+     C                   eval      XXTYPE     =  '*FAKTTILEGGADV'
+     C     KUNKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XXKUNR            8 0
+     C     KGEKEY        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    FAVK
+     C                   MOVE      'GE'          KGEUNI
+     c     KGEKEY        chain     KODTGE                             33
+      * ingen mailadresse - tips om  enter / F8
+     C     CONKEY        CHAIN     Cundc03                            30
+     c   30              move      'JOV1462'     MSGNR2
+      * Hvis adresser finnes OG det AREF er på typen 0031/31582/JOV  (syspedref)
+      * skal systemet filtrere ut kun de med match på signatur (3 første av KONTAKT)
+     C     *IN30         IFEQ      *OFF
+     C     HERFA5        ANDEQ     '/'
+S01  C*    HERFA11       ANDEQ     '/'
+N01  C     HERFA13       ANDEQ     '/'
+     C                   MOVE      'J'           SGFilter          1
+     c                   eval      Tillegg = 'Kunderef fra oppdraget: ' + HERFA
+     C                   END
+N01  c     TROPD0        ifne      *zeros
+N01  c     DUPASG        andne     *blanks
+N01  C                   MOVE      'J'           SGFilter          1
+N01  C                   eval      HERFA = %trim(%editc(TRAVD0:'Z'))+'/'
+N01  C                             + %trim(%editc(TROPD0:'Z'))+'/'+DUPASG
+N01  c                   eval      Tillegg = 'Kunderef fra oppdraget: ' + HERFA
+N01  c                   add       1             srcseq
+N01  C                   END
+      *
+      * Sett sammen navn adresse på kunden til en streng..
+     c     Postnr        ifeq      *zeros
+     c                   movel     ADR3          Adresse3         29
+     c                   else
+     c                   movel     POSTNR        Adresse3
+     c                   move      ADR3          Adresse3
+     c                   end
+     C                   EVAL      NavnAdr = %trim(Knavn)+ '   ' +
+     c                             %trim(adr1) + '   ' + Adresse3
+      *
+     C                   ENDSR

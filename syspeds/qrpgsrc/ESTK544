@@ -1,0 +1,509 @@
+      *  Obs ! Kompiler med tillat error 20  GENLVL(20)    (decedit angitt 2 ganger-siste ignoreres)
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK544 MODULE(*LIBL/ESTK544 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF11 Ved UKJENT USER kan en ikke kalle jsonfix (manglende libl..)
+      * 02 JOV PTF11 kan overføre også et enkelt oppdrag
+      * 03 JOV PTF11 Språk
+********************************************************************
+     H decedit('0.')
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FTurer14   UF   E           K DISK    USROPN
+N02  FTurer20   IF   E           K DISK    USROPN
+N02  F                                     RENAME(TURERR:TURERR20)
+N02  FHEADF     IF   E           K DISK    USROPN
+N02  FTKSGML1   UF   E           K DISK    USROPN
+     FUNITL04   IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+     D EnvString       s          32000
+     D JSONstring      s          32000
+      * Prototype
+     D JSONescape      PR                  ExtPgm('JSONESC')
+     D   JSONstr                  32000A
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     D                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+      * Client input variables
+     D userId          s             10
+     D UsrSpcName      s             10                                         =
+     D SJA             s              8
+     D SJN             s              8  0
+     D VERSJ           s             10
+N03  D Sprak           s              2
+     D tur             s              8
+     D TurNr           s              8  0
+     D avd             s              4
+     D avdN            s              4  0
+     D opd             s              7
+     D opdN            s              7  0
+     D Cmd             s             10
+     D Sjofor          s              8
+     D NySjN           s              8  0
+     D NYUser          s             10
+N02  D Nytur           s              8
+N02  D NyTurN          s              8  0
+     D ErrTxt          s            100
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D i2              s             10i 0
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * File open / keys
+     C                   EXSR      INIT
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+      * Userid = PD+8 siffer (8 siffer er sjåførid)
+     C                   eval      userId = zhbgetvar('userId')
+     C                   move      userId        SJA
+     C                   eval      SJN     = c2n2(SJA)
+      * versjonsnr av klientprogramvare
+     C                   eval      TUR  = zhbgetvar('TUR')
+     C                   eval      TURNR   = c2n2(TUR)
+N02  C                   eval      AVD  = zhbgetvar('AVD')
+N02  C                   eval      AVDN    = c2n2(AVD)
+N02  C                   eval      OPD  = zhbgetvar('OPD')
+N02  C                   eval      OPDN    = c2n2(OPD)
+     C                   eval      Cmd  = zhbgetvar('CMD')
+     C                   eval      Sjofor = zhbgetvar('Sjofor')
+     C                   eval      NYSJN  = c2n2(Sjofor)
+     C                   move      UserId        Nyuser
+     C                   move      NYSJN         Nyuser
+N02  C                   eval      NYTUR  = zhbgetvar('NYTUR')
+N02  C                   eval      NYTURN    = c2n2(NYTUR)
+     C                   eval      VERSJ = zhbgetvar('V')
+N03  C                   eval      Sprak = zhbgetvar('S')
+     C                   eval      UsrSpcName= zhbgetvar('sessionId')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     BRPARF
+     C                   CLOSE     TURER14
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Cmd = parker- åpne status
+      * Cmd = slett - åpne status + fjern sjårførnr (evt bytt ut med et fast dymmynr..)
+      * Cmd = overfor åpne status + sett inn medsent sjåfør
+      * Cmd = ferdig- sett status 1 --> 2
+     C                   move      *blanks       ErrTxt
+N02   * OPD <> 0 betyr at det er oppdrag som ønskes flyttet fra en tusjåfør til en annen ..
+N02  c     OPDN          ifne      *zeros
+N02  c                   exsr      flyttEttOpd
+N02  c                   goto      UtAll
+N02  c                   endif
+     C     Turnr         chain     TURER14                            33
+     C     *IN33         ifeq      *OFF
+     C                   move      ' '           TUTST4
+     c                   select
+     C     Cmd           wheneq    'slett'
+     C                   move      *zeros        TUSJA1
+     C                   MOVE      'TKIPD'       PAID
+     C     FiParKey      CHAIN     BRPARF                             33
+     C     *IN33         IFEQ      *OFF
+     C                   z-add     Pavrdn        Tusja1
+     C                   end
+     C     Cmd           wheneq    'ferdig'
+     C                   move      '2'           TUTST4
+     C     Cmd           wheneq    'overfor'
+     c                   exsr      ByttSJ
+     C                   endsl
+      *
+     C                   update    turerr
+     C                   endif
+      * Send section top
+     C                   callp     wrtsection('top')
+      *
+      *  Resultat  (foreløpig ingen erroe uansett
+      /free
+        JSONstring='{'
+        +'¬userId¬ : ¬'+%trim(userId)+'¬, '
+        +'¬error¬ : ¬'+%trim(ErrTxt)+'¬ }';
+        callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+      /end-free
+     C
+E02  C     UtAll         endsr
+      *
+N02   ************************************************************
+N02  C     flyttEttOpd   begsr
+N02   ************************************************************
+N02  C                   move      *blanks       turlist         500
+N02  C                   OPEN      TURER20
+N02  C                   OPEN      HEADF
+N02  C                   OPEN      TKSGML1
+N02   *
+N02  C     NYUSER        CHAIN     BRIDF                              33
+N02  C     *IN33         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N02  C                   eval      ErrTxt = 'Error - Invalid new driver'
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Ukjent NY sjåfør '
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02   *
+N02  C     HeadfKey      chain(N)  HEADF                              33
+N02  C     *in33         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Unknown order. '+
+N03  c                             'Cannot be transferred. Remove it from '+
+N03  c                             'the trip.'
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Ukjent oppdrag. '+
+N02  c                             'Kan ikke byttes / fjern det fra turen din.'
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02  C     HEPRO         chain(N)  TURER14                            33
+N02  C     TUST          IFEQ      'P'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Someone is working on '+
+N03  c                             'the trip. Cannot be transferred now. '+
+N03  c                             ' Contact the office / wait)'
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Noen arbeider med turen. '+
+N02  c                             'Kan ikke bytte nå (kontakt kontoret/vent)'
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02   *
+N02   *  sjåfør som Mottar MÅ være knyttet til bil som iggjen tilgører samme trans.
+N02  C                   OPEN      UNITL04
+N02  c                   Eval      UNRETU = 'PDA:'+SJA
+N02  c     UNRETU        setll     UNITL04
+N02  c     UNRETU        reade     UNITL04                                33
+N02  c  N33UNTRAN        comp      TUKNT2                             33
+N02  C                   CLOSE     UNITL04
+N02  C     *IN33         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - New driver is not connect'+
+N03  c                             'ed to same transporter as the old. '
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - NY sjåfør er ikke ' +
+N02  c                             'tilknyttet samme transportør som gammel.'
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02   * Ny sjåfør er ok
+N02  c     nyturN        ifeq      *zeros
+N02   * første syklus - har han turer på sin pda (må ha de INNE på PDA) ??
+      *  ingen=error / ved EN og bare en - kan den benyttes / ved flere må valg foretas(syklus 2)
+N02  c                   eval      turlist='¬turer¬:['
+N02  C                   move      *zeros        AntTur            5 0
+N02  C     TURKEY20Ny    setll     TURER20
+N02  C     TURKEY20Ny    Reade     TURER20                                33
+N02  C     *IN33         DOWEQ     '0'
+N02  c                   move      TUPRO         TUPROA            8
+N02  C                   ADD       1             AntTur
+N02  c                   if        Anttur > 1
+N02  c                   eval      turlist=%trim(turlist)+', '
+N02  c                   endif
+N02  c                   eval      turlist=%trim(turlist)+'¬'+TUPROA+'¬'
+N02  C     TURKEY20Ny    Reade     TURER20                                33
+N02  C                   end
+N02  c                   eval      turlist=%trim(turlist)+'], '
+N02   * vis liste kun ved mer enn 1
+N02  c                   if        Anttur <=1
+N02  c                   eval      turlist = *blanks
+N02  c                   endif
+N02  c                   if        Anttur = *zeros
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - New driver has no '+
+N03  c                             'trips on the PDA/Smartphone. '
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - NY sjåfør har ingen '
+N02  C                                    + 'turer på sin PDA/Smartphone'
+N03  C                   endsl
+N03  C                   goto      ErrByttOpd
+N02  c                   endif
+N02  c                   else
+N02   *  andre syklus - turnr er oppgitt sjekk/bruk den
+N02  C     NYTURN        chain(N)  TURER14                            33
+N02  c                   eval      Anttur = 1
+N02  C     *IN33         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Invalid To-TripNo '
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Ugyldig til-turnr '
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02  C     TUSJA1        IFne      NYSJN
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Invalid To-TripNo. '
+N03  C                             +'Given new diver is not correct.'
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Ugyldig til-turnr. '
+N02  C                             +'Oppgitt sjåførnummer stemmer ikke'
+N03  C                   endsl
+N02  C                   goto      ErrByttOpd
+N02  C                   end
+N02  c                   endif
+N02   *
+N02  c     ErrByttOpd    tag
+N02   *
+     c                   if        ErrTxt = *blanks
+N02  c                             and Anttur = 1
+N02   * fjern fra nåværende tur
+N02  C                   Call      'SYGE21B'
+N02  C                   PARM                    HEPRO
+N02  C                   PARM                    HEAVD
+N02  C                   PARM                    HEOPD
+N02  C                   PARM                    UFLAGG            1
+N02  C                   if        UFLAGG = '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Removal of order from '
+N03  C                             +'the trip was not succsessfull. '
+N02  C                             +'Contact the office.'
+N03  C                   other
+N02  C                   eval      ErrTxt = 'Feil - Det lykkes ikke å '
+N02  C                             +'fjerne oppdraget fra din tur. '
+N02  C                             +'Kontakt kontoret. '
+N03  C                   endsl
+N02  C                   else
+N02  c     HeadfKey      chain     TKSGML1                            33
+N02  c     *in33         ifeq      '0'
+N02  c                   delete    TKSGMR
+N02  c                   endif
+N02   * legg på turen for ny sjåfør - enten mottat som parameter eller  en og bare en ...
+N02  c                   call      'SYGE21'
+N02  c                   parm                    HEAVD
+N02  c                   parm                    HEOPD
+N02  c                   parm                    TUPRO
+N02  c                   parm                    UFLAGG            1
+N02  c                   endif
+N02   *
+N02  c                   endif
+N02   *  Resultat
+N02  C                   callp     wrtsection('top')
+N02   /free
+N02     JSONstring='{'
+N02     +'¬userId¬ : ¬'+%trim(userId)+'¬, '
+N02     +%trim(turlist)
+N02     +'¬error¬ : ¬'+%trim(ErrTxt)+'¬ }';
+N02     callp JSONescape(JSONstring);
+N02     updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+N02     wrtsection('JSONlin');
+N02   /end-free
+N02  C
+N02  C                   CLOSE     TURER20
+N02  C                   CLOSE     HEADF
+N02  C                   CLOSE     TKSGML1
+N02  C                   endsr
+      ************************************************************
+     C     ByttSj        begsr
+      ************************************************************
+      * forutsett at det går feil - status til blank kun hvis OK
+     c                   move      '1'           TUTST4
+     C     NYUSER        CHAIN     BRIDF                              50
+     C     *IN50         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Invalid new driver'
+N03  C                   other
+     C                   eval      ErrTxt = 'Feil - Ukjent NY sjåfør '
+N03  C                   endsl
+     C                   goto      ErrSj
+     C                   end
+     C     TUST          IFEQ      'P'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - Someone is working on '+
+N03  c                             'the trip. Cannot be transferred now. '+
+N03  c                             ' Contact the office / wait)'
+N03  C                   other
+     C                   eval      ErrTxt = 'Feil - Noen arbeider med turen. '+
+     c                             'Kan ikke bytte nå (kontakt kontoret/vent)'
+N03  C                   endsl
+     C                   goto      ErrSj
+     C                   end
+      * Sjårfør på turen ER alt endret på kontoret
+     C     SJN           IFne      TUSJA1
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - You are NOT registered '+
+N03  c                             'as the driver of this the trip. REMOVE '+
+N03  c                             'the trip from your device.'
+N03  C                   other
+     C                   eval      ErrTxt = 'Feil - Du er IKKE registrert ' +
+     c                             'som sjåfør på tuen - SLETT den fra PDA.'
+N03  C                   endsl
+     C                   goto      ErrSj
+     C                   end
+      *  sjåfør som Mottar MÅ være knyttet til bil som iggjen tilgører samme trans.
+     C                   OPEN      UNITL04
+     c                   Eval      UNRETU = 'PDA:'+SJA
+     c     UNRETU        setll     UNITL04
+     c     UNRETU        reade     UNITL04                                33
+     c  N33UNTRAN        comp      TUKNT2                             33
+     C                   CLOSE     UNITL04
+     C     *IN33         IFEQ      '1'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - New driver is not connect'+
+N03  c                             'ed to same transporter as the old. '
+N03  C                   other
+     C                   eval      ErrTxt = 'Feil - NY sjåfør er ikke ' +
+N02  c*                            'tilknyttet samme sjåfør som gammel.'
+N02  c                             'tilknyttet samme transportør som gammel.'
+N03  C                   endsl
+     C                   goto      ErrSj
+     C                   end
+      * ingen feil ved bytt - Utfør byttest
+     c                   move      UNBILN        TUBILN
+     c                   move      NYSjN         TUSJA1
+     c                   move      ' '           TUTST4
+      *
+     C     ErrSj         endsr
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+      * HTTP_.... = headers , men grier ikke å hente privte headers
+     C                   eval      EnvString  =getenv('HTTP_X-Test':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('HTTP_Content-Type':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('HTTP_CONTENT-TYPE':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('HTTP_CONNECTION':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('HTTP_DATE':
+     C                             qusec)
+      *
+     C                   eval      EnvString  =getenv('REQUEST_METHOD':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('CONTENT_TYPE':
+     C                             qusec)
+     C                   eval      EnvString  =getenv('QUERY_STRING':
+     C                             qusec)
+     C                   OPEN      BRIDF
+     C     userId        CHAIN     BRIDF                              50
+      * Ukjent UserID
+     c     *in50         ifeq      '1'
+     C                   close     BRIDF
+      /free
+        wrtsection('top');
+
+        JSONstring='{'
+        +'"userId" : "'+%trim(userId)+'", '
+        +'"error" : "UnKnown UserID" ';
+        JSONstring='}';
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+
+        wrtsection('*fini');
+      /end-free
+     C                   eval      *inlr = *on
+     C                   return
+     c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      * Kontoll av UsrSpcName (= sessionId)
+      * pr juli 2014 - ingen test av korrekt UsrSpcName (lage variant av CHECK-USER ??)
+     C*                  CALLB     PGMXXX
+     C*                  PARM                    BIBRID
+     C*                  PARM                    UsrSpcName
+     C*                  PARM                    UINN              1
+     C*                  IF        UINN = 'N'
+     C* .....
+     C*                  eval      *inlr = *on
+     C*                  return
+     C*                  END
+      *
+     C                   OPEN      BRPARF
+     C                   OPEN      TURER14
+     C     FiParKey      klist
+     C                   kfld                    FIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   movel     '*KUNDFT*'    FIBRID           10
+     C                   move      BIFIRM        FIBRID
+N02  C     TurKey20NY    KLIST
+N02  C                   KFLD                    NYSJN
+N02  C                   KFLD                    xxTST4
+N02  C                   MOVE      '1'           xxTST4            1
+N02  C     HeadfKey      KLIST
+N02  C                   KFLD                    AvdN
+N02  C                   KFLD                    OpdN
+     C     UtInit        endsr
+      *
+      *

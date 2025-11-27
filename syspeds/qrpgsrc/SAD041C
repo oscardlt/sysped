@@ -1,0 +1,480 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 SLUTT DATO PÅ TOLLTARIFF
+10244 * 02 YBC PTF10 VARENR ER UTVIDERT FRA 15A TIL 28A
+10286 * 03 YBC PTF10 VEKT ER ENDRET FRA 9.0 TIL 12.3
+********************************************************************
+      **************************************************************
+      *** PROGRAM SKAL REGISTRERE TOLLDEKLARASJON (EKSPORT)      ***
+      ***            (SØK KUNDERS VAREREGISTER)                  ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER       ***
+      *** LEDIGE INDIKATORER 01 02 05 06 13-16 18-20 23 24       ***
+      *** LEDIGE INDIKATORER 31 32 40-59 61 64-83 95-99          ***
+      ***        INDIKATORER 62 BRUKES FOR DUPKEY                ***
+      ***        INDIKATOR   35 PÅ = SJØ-OPPDRAG      22         ***
+      **************************************************************
+      *
+     FSADTRV    UF A E           K DISK
+     FKODTDUP   IF   E           K DISK
+     FSADL      IF   E           K DISK
+     FKODTSA    IF   E           K DISK
+     FTARI      IF   E           K DISK
+     FSAD041FC  CF   E             WORKSTN USROPN
+     F                                     SFILE(SUBFIL:ZRECNO)
+     F                                     INFDS(FBAREA)
+      *
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+      *
+     D                 DS
+     D  W2EH                   1      4
+     D  Y2EH                   1      2
+     D                 DS
+     D  TATANR                 1      8  0
+     D  TAVNT4                 1      4  0
+     D                 DS
+     D  SVTOPL                 1     45
+     D  SVTOA                  1     22
+     D  SVTOB                 23     45
+     D                 DS
+     D  SLTXT                  1     25
+     D  SLTXT2                 1     20
+     D  SLR31                 21     21
+     D  SLPRE                 22     22
+     D  SLMFR                 23     23
+     D  SLLEDI                24     25
+     D                UDS
+     D  UVNT                 101    108
+     D  UFT2                 115    131
+     D  UEH                  132    135
+     D  UVT                  136    150
+     D  UTOPL                151    195
+     D  UIN37                199    199
+      *
+     C                   OPEN      SAD041FC
+     C                   EXSR      INIT
+     C                   WRITE     NYWRK
+     C                   GOTO      START7
+      *
+     C     START         TAG
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     SUBCTL
+     C                   MOVEA     '00'          *IN(93)
+     C                   Z-ADD     *ZEROS        ZRECNO
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C     SADLK         SETLL     SADL
+     C     START1        TAG
+     C     W2KNR         READE     SADL                                   94
+      *
+     C     START2        TAG
+      *
+     C  N94              DO
+S02  C*                  DO        12
+N02  C                   DO        15
+     C                   ADD       1             ZRECNO
+     C                   Z-ADD     ZRECNO        WSNR
+     C                   WRITE     SUBFIL
+     C     W2KNR         READE     SADL                                   94
+     C  N94              END
+     C                   END
+      *
+     C                   Z-ADD     ZRECNO        YRECNO            4 0
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+     C     ZRECNO        IFEQ      0
+     C                   WRITE     NYWRK
+     C                   ELSE
+     C                   WRITE     SUBCTL
+     C                   END
+      *
+      *** LAGE NYE DETALJE LINJER
+     C     START5        TAG
+S02  C*                  Z-ADD     20            LINNBR
+N02  C                   Z-ADD     23            LINNBR
+     C                   Z-ADD     5             POSNBR
+     C                   EXSR      MOVB2
+      *
+     C     START6        TAG
+     C                   EXFMT     VARELI
+     C                   MOVEA     '0000000'     *IN(84)
+     C                   SETOFF                                       30
+      *
+      *** F4  ---> SØKE DATA FOR ET ELLER ANNET FELT.
+     C   04              DO
+     C                   EXSR      SØKDTA
+     C                   GOTO      START6
+     C                   END
+      *
+      *  07 = SØKE OPPDRAG
+     C   07              DO
+     C                   MOVE      'S'           UTYPE             1
+     C                   CALL      'SYFM21'
+     C                   PARM                    UTYPE
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    USG               3
+     C                   GOTO      START6
+     C                   END
+      *
+      *** F8  ---> VELGE SØKINGSMÅTE OG NY START POST FOR SUBFIL
+     C   08              GOTO      START7
+      *** F15 ---> SETTE IND. 37 PÅ/AV FOR Å AUTOKOPIERE TILLEGGSOPPL.
+     C   15
+     CAN 37              DO
+     C                   SETOFF                                       37
+     C                   GOTO      START3
+     C                   END
+     C   15
+     CANN37              DO
+     C                   SETON                                        37
+     C                   GOTO      START3
+     C                   END
+      *
+      *** ROLL UP ---> BLA TIL NESTE SIDE
+     C   25              DO
+S02  C*                  ADD       12            ZRECNO
+N02  C                   ADD       15            ZRECNO
+     C     ZRECNO        IFGT      YRECNO
+     C                   Z-ADD     YRECNO        ZRECNO
+     C                   GOTO      START2
+     C                   ELSE
+     C                   GOTO      START3
+     C                   END
+     C                   END
+      *** AVBRYTTE SØKING AV KUNDERS VAREREGISTER
+     C   12              Z-ADD     1             UFLAGG
+     C   12              GOTO      SLUTT
+      *
+      *** F3  ---> BE OM UTSKRIFT ELLER SENDE MED TVINN
+      *** F17 ---> SOM F3 + BEHOLDE EN DEL OPPLYSN. FOR NESTE TOLLDEK.
+     C   03
+     COR 17              DO
+     C                   EXSR      PRINT
+      *** F12 ---> AVBRYTTE F3/F17
+     C   12              GOTO      START3
+     C                   GOTO      SLUTT
+     C                   END
+      *
+      *** SJEKK OM MAN HAR TASTET <DUP>-TAST
+     C                   EXSR      SRDUP
+      *
+      *** TESTE INNTASTEDE DATA. HVIS FEIL, SETTE IND. PÅ OG VISE
+      *** FEILMELDING.
+     C                   EXSR      TESTB1
+     C   30              GOTO      START6
+     C                   ADD       1             ULI
+     C                   MOVE      ULI           W2LI
+      *** HVIS IKKE FEIL, OPPDATERE FIL, SUBFIL OG VISE DEN PÅ SKJERMEN
+     C                   EXSR      OPDSAE
+     C                   GOTO      START3
+      *
+      *** VELGE SØKINGSMÅTE OG START POST FOR SUBFIL
+      *** 31 AV ---> ALFA SØKING;     31 PÅ ---> NUMERISK SØKING
+     C     START7        TAG
+     C                   EXFMT     VAREL2
+     C   12              GOTO      START3
+     C                   GOTO      START
+      *
+     C     SLUTT         TAG
+     C                   EXSR      FLYDU2
+     C                   CLOSE     SAD041FC
+      *                    SETON                     LR
+     C                   RETURN
+      *
+     C***********************************************
+     C     TESTB1        BEGSR
+     C***********************************************
+      *
+      *** 37 PÅ(AUTODUP)
+     C   37W2TOPL        IFEQ      *BLANKS
+     C                   MOVE      YTOPL         W2TOPL
+     C                   END
+      *
+     C                   MOVE      ' '           XSTK              1
+      *
+      *** TEST VARENR.
+     C     W2NR          COMP      0                                    8787
+     C  N87W2NR          COMP      YRECNO                             87
+     C  N87W2NR          CHAIN     SUBFIL                             33
+     C  N87
+     CANN33              UPDATE    SUBFIL
+     C     *IN87         IFEQ      '0'
+     C     TARIKM        SETLL     TARI
+     C     TARIK         READPE    TARI                                   89
+     C     *IN89         DOWEQ     '0'
+     C     TADATO        IFLE      USEDT
+N01  C     TADTS         ANDEQ     0
+N01  C     TADATO        ORLE      USEDT
+N01  C     TADTS         ANDGE     USEDT
+     C                   LEAVE
+     C                   END
+     C     TARIK         READPE    TARI                                   87
+     C  N87              ENDDO
+     C                   END
+     C   87              DO
+     C                   SETON                                        30
+S02  C*                  Z-ADD     20            LINNBR
+N02  C                   Z-ADD     23            LINNBR
+     C                   Z-ADD     5             POSNBR
+     C                   MOVE      'SPL0017'     MSGNR
+     C                   GOTO      SLTB1
+     C                   END
+      *
+     C     W2VKTB        IFEQ      0
+S03  C*                  MOVE      SLVEKT        W2VKTB
+N03  C                   Z-ADD(H)  SLVEKT        W2VKTB
+     C                   END
+     C     W2VT          IFEQ      *BLANKS
+     C     SLR31         ANDEQ     'J'
+     C                   MOVEL     SLTXT2        W2VT
+     C                   END
+      *                    MOVE TAKAP     XKAP
+     C                   MOVE      TASTK         XSTK
+      *
+      *
+      *** TEST VEKT
+     C     W2VKTB        IFEQ      0
+     C     W2VKTN        IFEQ      0
+     C                   SETON                                        88
+     C                   ELSE
+     C     W2VKTN        MULT(H)   1.1           W2VKTB
+     C                   END
+     C                   ELSE
+     C     W2VKTN        IFEQ      0
+     C     W2VKTB        MULT(H)   0.9           W2VKTN
+     C                   END
+     C                   END
+      *
+     C  N88
+     CANN30W2VKTB        IFEQ      0
+     C                   SETON                                        8830
+S02  C*                  Z-ADD     20            LINNBR
+N02  C                   Z-ADD     23            LINNBR
+     C                   Z-ADD     14            POSNBR
+     C                   MOVE      'SPV0016'     MSGNR
+     C                   END
+      *
+     C     XSTK          IFEQ      'J'
+     C     W2NTM         ANDEQ     0
+     C                   SETON                                        87
+     C  N30              DO
+     C                   SETON                                        30
+S02  C*                  Z-ADD     20            LINNBR
+N02  C                   Z-ADD     23            LINNBR
+     C                   Z-ADD     36            POSNBR
+     C                   MOVE      'SPN0016'     MSGNR
+     C                   END
+     C                   END
+      *
+      *** TEST ENHETSKODE
+     C     W2EH          IFNE      *BLANKS
+     C     Y2EH          CHAIN     KODTSA                             84
+     C  N30
+     CAN 84              DO
+     C                   SETON                                        30
+     C                   MOVE      'SPE0002'     MSGNR
+S02  C*                  Z-ADD     21            LINNBR
+N02  C                   Z-ADD     24            LINNBR
+     C                   Z-ADD     31            POSNBR
+     C                   END
+     C                   END
+      *
+     C     SLTB1         ENDSR
+      *
+     C***********************************************
+     C     OPDSAE        BEGSR
+     C***********************************************
+      *** LESE LINJE FRA FIL OG OPPDATERE SUMMEN AV TOLLVERDIER.
+      *** 33 PÅ ---> NY LINJE.        33 AV ---> ENDRE EN LINJE
+     C     SATVK         CHAIN(N)  SADTRV                             33
+      *** FLYTTE INNTASTET DATA TIL FIL-VARIABLER OG OPPDATERE DEM.
+     C                   EXSR      MOVWSV
+      *
+     C   33              DO
+     C     SVVT          IFEQ      *BLANKS
+     C                   MOVE      TAALFA        SVVT
+     C                   END
+      *** OPPDATERE PÅ FIL
+     C                   WRITE     SADTRVR
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVWSV        BEGSR
+     C***********************************************
+     C   33              MOVE      W2LI          XLI2              5 0
+     C                   MOVE      UAVD          SVAVD
+     C                   MOVE      UTDN          SVTDN
+     C   22              MOVE      'B'           SV01
+     C  N22              MOVE      ' '           SV01
+     C                   MOVE      W2LI          SVLI
+     C                   MOVE      TATANR        SVVNT
+     C                   MOVE      W2VKTB        SVVKTB
+     C                   MOVE      W2VKTN        SVVKTN
+     C                   MOVE      W2NTM         SVNTM
+     C                   MOVE      W2FT          SVFT
+     C                   MOVE      W2NT          SVNT
+     C                   MOVE      W2EH          SVEH
+     C                   MOVE      W2VT          SVVT
+     C                   MOVE      W2TOPL        SVTOPL
+      *
+     C                   MOVE      W2NR          YNR               4 0
+     C                   MOVE      W2FT          YFT              17
+     C                   MOVE      W2EH          YEH               4
+     C                   MOVE      W2VT          YVT              15
+     C                   MOVE      W2TOPL        YTOPL            45
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVB2         BEGSR
+     C***********************************************
+     C                   MOVE      *ZEROS        W2NR
+     C                   MOVE      *ZEROS        W2VKTB
+     C                   MOVE      *ZEROS        W2VKTN
+     C                   MOVE      *ZEROS        W2NTM
+     C                   MOVE      *ZEROS        W2LI              5 0
+     C                   MOVE      *BLANKS       W2FT
+     C                   MOVE      *ZEROS        W2NT
+     C                   MOVE      *BLANKS       W2EH
+     C                   MOVE      *BLANKS       W2VT
+     C                   MOVE      *BLANKS       W2TOPL
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     SRDUP         BEGSR
+     C***********************************************
+     C                   MOVEL     W2FT          XDUPKO            1
+     C     XDUPKO        IFEQ      KDUKOD
+     C                   MOVE      YFT           W2FT
+     C                   END
+     C                   MOVEL     W2EH          XDUPKO
+     C     XDUPKO        IFEQ      KDUKOD
+     C                   MOVE      YEH           W2EH
+     C                   END
+     C                   MOVEL     W2VT          XDUPKO
+     C     XDUPKO        IFEQ      KDUKOD
+     C                   MOVE      YVT           W2VT
+     C                   END
+     C                   MOVEL     W2TOPL        XDUPKO
+     C     XDUPKO        IFEQ      KDUKOD
+     C                   MOVE      YTOPL         W2TOPL
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     PRINT         BEGSR
+     C***********************************************
+     C   17              Z-ADD     2             UFLAGG            1 0
+     C   03              Z-ADD     3             UFLAGG            1 0
+     C                   CALL      'SAD041T'
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    UFLAGG
+     C                   PARM                    UWS
+      *
+     C     UFLAGG        COMP      1                                      12
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FLYDUP        BEGSR
+     C***********************************************
+     C                   MOVE      UFT2          YFT
+     C                   MOVE      UEH           YEH
+     C                   MOVE      UVT           YVT
+     C                   MOVE      UTOPL         YTOPL
+     C     UIN37         COMP      '1'                                    37
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     FLYDU2        BEGSR
+     C***********************************************
+     C                   MOVE      YFT           UFT2
+     C                   MOVE      YEH           UEH
+     C                   MOVE      YVT           UVT
+     C                   MOVE      YTOPL         UTOPL
+     C                   MOVE      *IN37         UIN37
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     SØKDTA        BEGSR
+     C***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+      *
+S02  C*    LINNBR        IFEQ      21
+N02  C     LINNBR        IFEQ      24
+     C     POSNBR        ANDGE     31
+     C     POSNBR        ANDLE     34
+     C                   MOVE      *BLANKS       W2EH
+     C                   CALL      'SAD052F'
+     C                   PARM                    Y2EH
+     C                   Z-ADD     36            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      *
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+      *
+     C     SLSØK         ENDSR
+      *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     SATVK         KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    W2LI
+     C     SADLK         KLIST
+     C                   KFLD                    W2KNR
+     C                   KFLD                    W2ALFA
+     C     TARIK         KLIST
+     C                   KFLD                    SLTANR
+     C                   KFLD                    X2TAR
+     C     TARIKM        KLIST
+     C                   KFLD                    SLTANR
+     C                   KFLD                    X2TAR
+     C                   KFLD                    XADATO
+     C                   MOVE      99999999      XADATO            8 0
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UAVD              4 0
+     C                   PARM                    UTDN              7 0
+     C                   PARM                    UWS              10
+      *** UIN35 = '1' -> SJØ-OPPDRAG
+     C     *IN35         PARM                    UIN35             1
+      *** UIN36 = '1' -> I SAD400
+     C     *IN36         PARM                    UIN36             1
+     C                   PARM                    UFLAGG            1 0
+     C                   PARM                    ULI               5 0
+     C                   Z-ADD     0             UFLAGG
+      *
+     C                   MOVE      *BLANKS       X2TAR             3
+     C                   MOVE      *BLANKS       SVVT
+     C                   MOVE      *ZEROS        TATANR
+     C                   EXSR      FLYDUP
+      *
+     C                   MOVE      'DUPKE'       XDUUNI            5
+     C     XDUUNI        CHAIN     KODTDUP                            33
+     C                   MOVE      *BLANKS       W2ALFA
+     C                   MOVEA     '0000'        *IN(91)
+     C                   MOVE      *ZEROS        ZRECNO
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           USEDT             8 0
+      *
+     C                   ENDSR
+      *

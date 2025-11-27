@@ -1,0 +1,191 @@
+     ‚****************************************************************************************
+     ‚* Hente-oppdrag,  Send SMS med URL                                                     *
+     ‚****************************************************************************************
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX‚* 01 JOV PTF11 Probl (fra f.eks Toten) når mot.navn er tlfnr@esms.nu (nå TellusTalk)
+11XXX‚* 02 sh  PTF11 variabel internbruker
+11XXX‚* 03 JOV PTF11 SMS via SYGE99/webservice - trenger ikke ifsfil - STORE endringer/ikke merket
+11XXX‚* 04 JOV PTF11 språk innført - parameter &S=
+11XXX‚* 05 JOV PTF11 fix +/blank i SMSnr
+****‚***************************************************************
+     H DftActGrp( *No )
+     fheadf     if   e           k disk
+     ffirm      if   e           k disk
+     ffirmarc   if   e           k disk
+     fsyparl3   if   e           k disk
+     ftrackf    o  a e           k disk
+     ‚*__________
+     ‚* Variabler
+     ‚*""""""""""
+     d usrid           s            128
+     d pw              s             32
+     d smsnr           s             16
+N05  d smsnr2          s             20a   varying
+     d body            s           1280
+     d smslen          s              5  0
+     d smsant          s              1  0
+     d lf              c                   x'25'
+     d up              c                   const('ABCDEFGHIJKLMNOPQRST-
+     d                                     UVWXYZÆØÅ')
+     d lo              c                   const('abcdefghijklmnopqrst-
+     d                                     uvwxyzæøå')
+     d                sds
+     d zuser                 254    263
+     ‚*  Prototype for 'SYGE99'
+     d syge99          pr                  extpgm('SYGE99')
+     d usrid_                              like(usrid)
+     d pw_                                 like(pw)
+     d smsnr_                              like(smsnr)
+     d body_                               like(body)
+     ‚*  Prototype for esop11hs
+     d esop11hs        pr
+     d heavda_                             like(heavda)
+     d heopda_                             like(heopda)
+     d uuh_l_                              like(uuh_l)
+     d uusms_                              like(uusms)
+     d uuuser_                             like(uuuser)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d esop11hs        pi
+     d heavda                         4
+     d heopda                         7
+     d uuh_l                          3
+     d uusms                         15
+     d uuuser                        10
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+N04  d sprak           s              7
+     d avdopd          s             11
+     d sndevt          s             50
+     d sykd            s              5
+     d wdt             s              8
+     d wtm             s              6
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+
+      /free
+       exsr init;
+
+       chain ( heavd : heopd ) headf;
+       if %found;
+         exsr lagsms;
+         exsr ttsr;
+       endif;
+
+       *inlr = *on;
+       return;
+
+
+
+       //*****************************************************************************
+       begsr lagsms;
+       //*****************************************************************************
+N01     // OBS - HS SYSTEMA - MÅ KOMILER MOT *PRV eller høyere
+N05      smsnr2 = %ScanRpl( ' ': '': uusms );
+N05      smsnr2 = %ScanRpl( '+': '%2B': smsnr2 );
+N05      uusms  = smsnr2;
+N04      // mer enn 8 tegn- engelsk språk
+N04      if %subst(uusms:9)<>*blanks;
+N04        sprak = '%26s=EN';
+N04      endif;
+N05     // språktest / også norske tekster endret ingen merking ...
+N05      if sprak = *blanks;
+           if uuh_l = *blanks;
+             body='Lenke til sporings-App for '+ %trim(fift);
+           else;
+             body='Henting / hendelsesregistrering hos '+ %trim(henas)
+             + ' for ' + %trim(fift);
+           endif;
+           body=%trim(body)+' http://'+ %trim(arcpae) + '/sycgip/estk550.pgm'
+           +'?user='+%trim(syvrda) +'%26t='+%trim(uusms)
+           +'%26snd='+%trim(sndevt)+sprak;
+         else;
+         // engelsk
+           if uuh_l = *blanks;
+             body='Link to TrackTrace-App for '+ %trim(fift);
+           else;
+             body='Collection / Event registration at '+ %trim(henas)
+             + ' for ' + %trim(fift);
+           endif;
+           body=%trim(body)+' http://'+ %trim(arcpae) + '/sycgip/estk550.pgm'
+           +'?user='+%trim(syvrda) +'%26t='+%trim(uusms)
+           +'%26snd='+%trim(sndevt)+sprak;
+         endif;
+
+         smslen=%len(%trim(body));
+         smsant=(smslen/160)+0.9999;
+         usrid='roger@systema.no';
+         pw='straffe12';
+         smsnr= uusms;
+         syge99 ( usrid : pw : smsnr : body );
+
+       endsr;
+
+       //*****************************************************************************
+       begsr ttsr;
+       //*****************************************************************************
+         ttavd = heavd;
+         ttopd = heopd;
+         ttdate = %int(wdt);
+         tttime = %int(wtm);
+         ttdatl = ttdate;
+         tttiml = tttime;
+         ttacti = 'CMS';
+         ttuser = zuser;
+         if uuuser <> *blanks;
+           ttuser = uuuser;
+         endif;
+         if uuh_l = *blanks;
+           tttext ='Link to trackingApp SMS sent to '
+                  + uusms;
+           tttexl ='Lenke til sporingsApp SMS sent til '
+                  + uusms;
+         else;
+           tttext ='Coll. SMS sent to '
+                  + uusms;
+           tttexl ='HenteSMS sendt til '
+                  + uusms;
+         endif;
+         ttedre = %trim(%editc(smsant:'Z'));
+         ttdepo = 'Len:'+%trimr(%editc(smslen:'Z'));
+         ttmanu = 'S';
+         write trackfr;
+
+       endsr;
+
+       //*****************************************************************************
+       begsr init;
+       //*****************************************************************************
+         heavd  = %int(heavda);
+         heopd  = %int(heopda);
+         %subst(avdopd:1:4) = %editc(heavd:'X');
+         %subst(avdopd:5:7) = %editc(heopd:'X');
+         sykd = 'ESUSR';
+         chain ( sykd ) syparl3;
+         if not %found;
+           syvrda = 'NN';
+         endif;
+         sndevt = *blanks;
+         if uuh_l<>*blanks;
+           sndevt = %trim(%editc(heavd:'Z'))+'*'+%trim(%editc(heopd:'Z'))
+           +'%26event='+uuh_l;
+         endif;
+
+         setll *loval firm;
+         read firm;
+         chain fifirm firmarc;
+         arcpae = %xlate(up:lo:arcpae);
+         // hent dato tid
+         syge15c ( wdt : wtm );
+       endsr;
+
+      /end-free

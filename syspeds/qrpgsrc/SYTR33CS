@@ -1,0 +1,359 @@
+***** *****************************************************************************
+      * Sjekker om alle oppdrag har godkjent prising (kan være blanket av CS) **
+      * Om det finnes CargoScan-poster(CARGOF) men ingen SUM (CARGOO)-kall CARGOSCR4 for summering.
+***** *****************************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnrF*Sek Sig Vers Beskrivelse...........................
+"""""F*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+Pxxxxx* 01 JOV PTF10 Tatt inn fra ramberg / forbedret (før kun LGturer...)
+Pxxxxx* 02 sh  PTF10 ny parameter syge03
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Pxxxxx* 03 JOV PTF10 store endringer umerket 20120425,  Test ALLE =alle med feil blir highlightet
+Pxxxxx* 04 JOV PTF11 Reberegnong av ev ADV-tilllegg er vel bare tull - påvirkes jo ikke av vekt mm
+10XXX * 05 JOV PTF11 Varme/farlig-%-sats kan være overstyrt på kunde
+*****F**************************************************************
+      *
+     FHEAD11    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEADFR11)
+     FHeadf     UF   E           K DISK
+     Ffakt      UF a E           K DISK
+     FCutran    IF   E           K DISK
+     FFIRINL    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FTURER14   IF   E           K DISK
+     FTRAN      IF   E           K DISK
+     FCARGOF3   IF   E           K DISK
+     FCARGOO    IF   E           K DISK
+     D                 DS
+     D  HXSNDN                 1     20
+     D  WXSND1                 1     10
+     D  WXSNDN                11     20
+     D                 DS
+     D  TRFA11                 1      7
+     D  WSVARM                 1      1
+     D                 DS
+     D  TRFA21                 1      7
+     D  WSFARL                 1      1
+N02  D                 DS
+N02  D  TRFA12                 1      4
+N02  D  WSLENG                 1      1
+N02  D                 DS
+N02  D  TRFA22                 1      4
+N02  D  WSADVI                 1      1
+      *
+     c     *entry        plist
+     c                   parm                    XPRO              8 0
+     c                   parm                    XOK               1
+      *
+     c                   move      'Y'           XOK
+     C     FakKey        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FALI
+     C     HeadFK        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     TraKey        KLIST
+     C                   KFLD                    Fifirm
+     C                   KFLD                    TUKNT2
+      *
+     C     *LOVAL        SETLL     FIRINL
+     C                   READ      FIRINL                                 33
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+      * sjekk om trasprtør type 4/5 (ikke tillat auto reberegning ..)
+     c                   move      'N'           Tran45            1
+     c     Xpro          chain     Turer14
+     c     TraKey        chain     tran
+     c                   if        VMINCR=4 or VMINCR=5
+     c                   move      'Y'           Tran45
+     c                   endif
+      *
+      * sjekk alle oppdragene på turen for om vekt/m3 mm skal oppdateres basert på CS
+     c     XPRO          setll     Head11
+     c     XPRO          reade     Head11                                 35
+     c     *in35         doweq     *off
+      * om minst ett kolli via CS - og ennå ikke summert - sjekk/summer NÅ..
+     c     HeadFK        chain     CARGOF3                            33
+     c     *in33         ifeq      *off
+     c     HeadFK        chain     CARGOO                             33
+     c     *in33         ifeq      *on
+     C                   call      'CARGOSCR4'
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    KOTERM
+     C     HEADFK        chain(N)  HEADF                              33
+     c                   endif
+     c                   endif
+      *
+      * Beløp godkjent blanket (nå eller tidligere.. ) reberegn - fremdeles blank = varsel..
+     C     HXBLGK        ifeq      *blanks
+     C     HEKNA         andeq     *zeros                                       Ikke reber. v/agent
+     C     Tran45        andeq     'N'                                          Ikke v. tran ty 4/5
+     C     TRFRAK        IFEQ      ' '
+     C     TRFRAK        OREQ      'M'
+     C     TRFRAK        OREQ      'B'
+     c                   exsr      ReBeregn
+     c                   end
+     c                   end
+      * Ikke godkjen - ut med feilmelding..
+     c     HXBLGK        ifeq      *blanks
+     c                   move      'N'           XOK
+     C                   end
+      *
+     c     XPRO          reade     Head11                                 35
+     C                   end
+      *
+N03  C*    UT            TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C******************************************
+     C     ReBeregn      BEGSR
+     C******************************************
+      *
+     c                   clear                   FAKTR
+     c     FakKey        chain(n)  Fakt                               33
+     c     *in33         ifeq      *off
+     c     FAOPKO        andgt     'C'
+     c                   goto      UtReBer
+     c                   end
+     c     Fakunr        ifeq      *zeros
+     c     Heknsf        ifne      *zeros
+     c                   move      Heknsf        Fakunr
+     c                   else
+     c                   move      Heknkf        Fakunr
+     c                   end
+     c                   end
+      *
+     c                   exsr      BERFRP
+      *
+     c     WSFRAB        cabeq     *ZEROS        UtReBer
+      *
+      *
+      * fjern UTleggsprov.
+     C     HEVALT        IFNE      *BLANKS
+     C     HEADFK        SETLL     FAKT
+     C     HEADFK        READE     FAKT                                   33
+     C     *IN33         DOWEQ     '0'
+     C     FAVK          IFEQ      HEVALT
+     C     FAFAKT        andeq     *ZEROS
+     C                   DELETE    FAKTR
+     C                   else
+     C                   update    FAKTR
+     C                   END
+     C     HEADFK        READE     FAKT                                   33
+     C                   END
+     C                   END
+      * legg til ny linje
+     c                   clear                   faktr
+     c     FakKey        chain     Fakt                               31
+     c     *in31         ifeq      *off
+     c     FAOPKO        andgt     'C'
+     c                   update    faktr
+     c                   goto      UtReBer
+     c                   end
+     C                   move      HEAVD         FAAVD
+     C                   move      HEOPD         FAOPD
+     C                   move      TRKDFF        FASK
+     C                   MOVE      'FRA'         FAVK
+     C                   MOVE      'NOK'         FAVAL
+     C                   Z-add     WSFRAB        FABELV
+     c                   z-add(H)  FABELV        XXBEL0           11 0
+     c                   z-add     XXBEL0        FABELN
+     C                   MOVE      'J'           FAKDM
+     C                   MOVE      'M'           FAKDA
+     c  n31              update    FAKTR
+     c   31              Write     FAKTR
+      *
+     C     HEADFK        chain     HEADF                              33
+     c     *in33         ifeq      *off
+tmp  c                   move      '*CS'         HXBLGK
+     C                   MOVE      'NOK'         TRFRAV
+     C                   MOVE      'B'           TRFRAK
+     C                   Z-add     Fabeln        TRFRAB
+     C                   MOVE      FAKDM         TRMVA
+     c                   update    Headfr
+     c                   end
+      * UTleggsprov.
+     C     HEVALT        IFNE      *BLANKS
+     C                   move      HEVALT        FAVK
+     C     FABELV        MULT(H)   HEVALP        FABELV
+     c                   z-add(H)  FABELV        XXBEL0           11 0
+     c                   z-add     XXBEL0        FABELN
+     C                   CALL      'SYGE06'
+     C                   PARM                    FAAVD
+     C                   PARM                    FAOPD
+     C                   PARM                    FALI
+     c                   Write     FAKTR
+     C                   END
+S04  C* adviseringsgebyr
+S04  C*    IFADVG        Ifne      *blanks
+S04  C* fjerne evt åpen
+S04  C*                  move      'N'           AdvFinns          1
+S04  C*    HEADFK        SETLL     FAKT
+S04  C*    HEADFK        READE     FAKT                                   33
+S04  C*    *IN33         DOWEQ     '0'
+S04  C*    FAVK          ifeq      IFADVG
+S04  C*    FAOPKO        ifle      'C'
+S04  C*                  DELETE    FAKTR
+S04  C*                  else
+S04  C*                  move      'J'           AdvFinns
+S04  C*                  UPDATE    FAKTR
+S04  C*                  endif
+S04  C*                  leave
+S04  C*                  endif
+S04  C*                  UPDATE    FAKTR
+S04  C*    HEADFK        READE     FAKT                                   33
+S04  C*                  enddo
+S04  C*
+S04  C*    WSADVI        ifeq      'X'
+S04  C*    AdvFinns      andeq     'N'
+S04  C*                  Move      IFADVB        XXADVB            3 0
+S04  C*    KUAVTA        Chain     CUTRAN                             33
+S04  C*    *in33         Ifeq      *OFF
+S04  C*    CTAVAD        Ifne      *zeros
+S04  C*                  Move      CTAVAD        XXADVB
+S04  C*                  end
+S04  C*    CTIKAD        Ifeq      'X'
+S04  C*                  Move      *ZEROS        XXADVB
+S04  C*                  end
+S04  C*                  end
+S04  C*    XXADVB        Ifne      *zeros
+S04  C*                  MOVE      FAKUNR        FAKUNRG           8 0
+S04  C*                  CLEAR                   FAKTR
+S04  C*                  MOVE      TRKDFF        FASK
+S04  C*                  MOVE      HEAVD         FAAVD
+S04  C*                  MOVE      HEOPD         FAOPD
+S04  C*                  MOVE      IFADVG        FAVK
+S04  C*                  MOVE      'NOK'         FAVAL
+S04  C*                  MOVE      'NOK'         FACU33
+S04  C*                  MOVE      'J'           FAKDM
+S04  C*                  MOVE      'M'           FAKDA
+S04  C*                  Z-ADD     XXADVB        FABELN
+S04  C*                  Z-ADD     XXADVB        FABELV
+S04  C*                  MOVE      FAKUNRG       FAKUNR
+S04  C*                  CALL      'SYGE06'
+S04  C*                  PARM                    FAAVD
+S04  C*                  PARM                    FAOPD
+S04  C*                  PARM                    FALI
+S04  C*                  WRITE     FAKTR
+S04  C*                  endif
+S04  C*                  endif
+S04  C*                  endif
+     c     UtReber       ENDSR
+      *
+     C******************************************
+     C     BERFRP        BEGSR
+     C******************************************
+ramb  ***
+ramb  ***  må bruke VISPRIS/AUTO slik at laveste pris i ulike varianter benyttes...
+rabm  ***
+     C* POSTNUMMERBASERT KALKULASJON
+      * Finn frakt i kundersfraktavtale
+     C                   MOVE      *BLANKS       UUVAL             3
+     C                   MOVE      'FRA'         UGEB              3
+     C                   MOVE      'FRA'         UGEBKO            3
+     C                   MOVE      *ZEROS        UUBELØ           13 2
+     C                   MOVE      HEAVD         WSAVD             4 0
+     C                   MOVE      HEOPD         WSOPD             7 0
+     C                   MOVE      FAKUNR        KUAVTA            8 0
+     C                   MOVE      'S'           USKA              1
+     C                   CALL      'SYGE04'
+     C                   PARM                    UGEBKO
+     C                   PARM                    UGEB
+     C                   PARM                    WSAVD
+     C                   PARM                    WSOPD
+     C                   PARM                    KUAVTA
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    UAVNR             9 0
+     C                   PARM                    UAVMSG           50
+     C                   PARM                    USKA
+     C                   MOVE      'A'           XKDA
+      *
+     C     UUBELØ        IFEQ      0
+     C                   MOVE      'B'           XKDA              1
+     C                   MOVE      *BLANKS       UUVAL
+     C                   MOVE      *ZEROS        URABAT
+     C                   CALL      'SYGE03'
+     C                   PARM                    UGEB
+     C                   PARM                    WSAVD
+     C                   PARM                    WSOPD
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    USONE             5
+     C                   PARM                    URABAT            5 2
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    N5                5 0
+     C                   PARM                    KUAVTA
+     C                   PARM                    uavnr             9 0
+Nsh  c                   parm                    atdum             1
+     C     URABAT        IFNE      *ZEROS
+     C                   MOVE      'A'           XKDA
+     C                   END
+     C                   END
+     C                   Z-ADD     UUBELØ        WSFRAB           13 2
+      * % PÅSLAG FRA FIRMAFIL - kan være overstyr (saka ikke ha..) på kunde.
+N01  C                   Move      IFFARP        XXFARP            4 3
+N01  C                   Move      IFVARP        XXVARP            4 3
+N02  C                   Move      IFLENP        XXLENP            4 3
+N01  C                   clear                   cutranr
+N01  C     KUAVTA        Chain     CUTRAN                             33
+N01  C     *in33         Ifeq      *OFF
+N01  C     CTIKFA        Ifeq      'X'
+N01  C                   Move      *ZEROS        XXFARP
+N05  C                   else
+N05  C     CTAVFA        Ifne      *zeros
+N05  C                   Move      CTAVFA        XXFARP
+N05  C                   end
+N01  C                   end
+N01  C     CTIKVA        Ifeq      'X'
+N01  C                   Move      *ZEROS        XXVARP
+N05  C                   else
+N05  C     CTAVVA        Ifne      *zeros
+N05  C                   Move      CTAVVA        XXVARP
+N05  C                   end
+N01  C                   end
+N02  C     CTIKLG        Ifeq      'X'
+N02  C                   Move      *ZEROS        XXLENP
+N02  C                   else
+N02  C     CTAVLP        Ifne      *zeros
+N02  C                   Move      CTAVLP        XXLENP
+N02  C                   end
+N02  C                   end
+N01  C                   end
+N01  C     UUBELØ        IFNE      *ZEROS
+N01  C     WSVARM        IFNE      *BLANKS
+N01  C     XXVARP        ANDNE     *ZEROS
+N01  C     UUBELØ        MULT(H)   XXVARP        XXTILL            7 0
+N01  C                   ADD       XXTILL        WSFRAB
+N01  C                   END
+N01  C     WSFARL        IFNE      *BLANKS
+N01  C     XXFARP        ANDNE     *ZEROS
+N01  C     UUBELØ        MULT(H)   XXFARP        XXTILL            7 0
+N01  C                   ADD       XXTILL        WSFRAB
+N01  C                   END
+N02  C     WSLENG        IFNE      *BLANKS
+N02  C     XXLENP        ANDNE     *ZEROS
+N02  C     UUBELØ        MULT(H)   XXLENP        XXTILL            7 0
+N02  C                   ADD       XXTILL        WSFRAB
+N02  C                   END
+N01  C                   END
+      * Minstefrakt på hoved-oppdrag / normalfrak
+N01  C     CTAVFM        IFEQ      *ZEROS
+N01  C                   z-add     IFMIFR        CTAVFM
+N01  C                   END
+N01  C     TRSLAG        IFEQ      'HO'
+N01  C     HEKDPL        andeq     ' '
+N01  C     CTAVFM        andne     *zeros
+N01  C     CTIKFM        andne     'X'
+N01  C     wsfrab        andgt     *zeros
+N01  C     wsfrab        andlt     CTAVFM
+N01  C                   z-add     CTAVFM        WSFRAB
+N01  C                   END
+     C                   ENDSR
+     C*

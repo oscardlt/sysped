@@ -1,0 +1,81 @@
+             PGM
+             DCL        VAR(&DTAQ) TYPE(*CHAR) LEN(10) +
+                          VALUE('INDUSRQ   ')
+             DCL        VAR(&DTAQLIB) TYPE(*CHAR) LEN(10) +
+                          VALUE('*LIBL     ')
+             DCL        VAR(&LEN) TYPE(*DEC) LEN(5 0) VALUE(163)
+             DCL        VAR(&DATA) TYPE(*CHAR) LEN(163)
+             DCL        VAR(&WAIT) TYPE(*DEC) LEN(5 0) VALUE(-1)
+             DCL        VAR(&FAX) TYPE(*LGL)
+             DCL        VAR(&DISTID) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&USRRUN) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&BRUKER) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&NAVN) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&USRPRF) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&USERID) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&ADDRESS) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FAXCMD) TYPE(*CHAR) LEN(250)
+             DCL        VAR(&EXT) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&LDISTID) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&LEXT) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&PRINTER) TYPE(*CHAR) LEN(10)
+             DCLF       FILE(FAXUSRS)
+             MONMSG     MSGID(CPF9999) EXEC(GOTO CMDLBL(LOSTDIST))
+             RTVJOBA    USER(&USRRUN)
+ WAIT:       CALL       PGM(QRCVDTAQ) PARM(&DTAQ &DTAQLIB &LEN &DATA +
+                          &WAIT)
+             IF         COND(&LEN = 0) THEN(DO)
+             CHGVAR     VAR(&WAIT) VALUE(-1)
+             GOTO       CMDLBL(WAIT)
+             ENDDO
+             CHGVAR     VAR(&DISTID) VALUE(%SST(&DATA 1 20))
+             CHGVAR     VAR(&USERID) VALUE(%SST(&DATA 21 8))
+             CHGVAR     VAR(&ADDRESS) VALUE(%SST(&DATA 29 8))
+             CHGVAR     VAR(&EXT) VALUE(%SST(&DATA 138 2))
+             IF         COND(&EXT = ' ') THEN(CHGVAR VAR(&EXT) +
+                          VALUE(*NONE))
+             CALL       PGM(GETUSRPRT) PARM(&USERID &ADDRESS &USRPRF)
+             IF         COND(&DISTID *NE &LDISTID *OR &EXT *NE +
+                          &LEXT) THEN(DO)
+             DLTDLO     DLO(INDDOC) FLR(INDFLR)
+             MONMSG     MSGID(CPF8A16) EXEC(RCVMSG MSGTYPE(*LAST))
+             GRTUSRPMN  TOUSER(&USRRUN) FORUSER(&USRPRF)
+             RCVDST     DSTID(&DISTID) USRID(&USERID &ADDRESS) +
+                          DOC(INDDOC) FLR(INDFLR) +
+                          OUTFILE(QTEMP/FAXTEMP) OUTDTATYP(*MSG) +
+                          DSTIDEXN(&EXT)
+ GOODEXT:    RVKUSRPMN  FROMUSER(&USRRUN) FORUSER(&USRPRF)
+             CHGVAR     VAR(&LDISTID) VALUE(&DISTID)
+             CHGVAR     VAR(&LEXT) VALUE(&EXT)
+             CHGVAR     VAR(&LEXT) VALUE(&EXT)
+             ENDDO
+             CHGVAR     VAR(&FUSERI) VALUE(&USRPRF)
+             CALL       PGM(GETREC) PARM(&FUSERI &FFAXNB &FTO +
+                          &FTITLE &FCOMME)
+             IF         COND(%SST(&FUSERI 1 3) = '*NF') THEN(GOTO +
+                          CMDLBL(NOTFAX))
+ FAX:        CHGVAR     VAR(&FAX) VALUE('1')
+             CHGVAR     VAR(&PRINTER) VALUE('FAX3812   ')
+             GOTO       CMDLBL(PRTDOC)
+ NOTFAX:     CHGVAR     VAR(&FAX) VALUE('0')
+             RTVUSRPRF  USRPRF(&USRPRF) PRTDEV(&PRINTER)
+ PRTDOC:     CHKDLO     DLO(INDDOC) FLR(INDFLR)
+             MONMSG     MSGID(CPF8A82) EXEC(GOTO CMDLBL(MRG))
+             GOTO       CMDLBL(PRT)
+ MRG:        MRGDOC     FROMDOC(MSGSHL) FROMFLR(INDFLR) +
+                          TODOC(INDDOC) TOFLR(INDFLR)
+ PRT:        PRTDOC     DOC(INDDOC) FLR(INDFLR) OPTIONS(*NO) +
+                          OUTPUT(*PRINT) DEV(&PRINTER) OUTQ(*DEV)
+ DOC:        IF         COND(&FAX) THEN(DO)
+             CHGVAR     VAR(&FAXCMD) VALUE('SNDFAX to ' *CAT &FUSERI +
+                          *CAT ' at number ' *CAT &FFAXNB)
+             SNDPGMMSG  MSG(&FAXCMD)
+             CHGVAR     VAR(&BRUKER) VALUE(%SST(&DISTID 9 8))
+             RTVUSRPRF  USRPRF(&BRUKER) RTNUSRPRF(&NAVN)
+             SNDFAX     TO((&FFAXNB &FTO)) FILE(INDDOC) +
+                          SPLNBR(*LAST) CRTCVRP(*YES) +
+                          TITLE(&FTITLE) FROM(&NAVN) COMMENT(&FCOMME)
+             ENDDO
+ LOSTDIST:   CHGVAR     VAR(&WAIT) VALUE(0)
+             GOTO       CMDLBL(WAIT)
+             ENDPGM

@@ -1,0 +1,512 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STSCDIR3 MODULE(*LIBL/STSCDIR3
+CRTPGM*         *LIBL/INCGI) ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+P090xx* 01 JOV PTF9 parameter SEMI (kall fra TKTerm)
+P090xx* 02 JOV PTF9 parameter FRASYMNU=Y (= avslutt til ved å close vindu)
+      * 03 jov      Def. MÅ gis på USER-NIVÅ (foreløpig kun stjernet i fall gjeninføring av FI-nivå)
+      * 04 jov PTF10 Hvis ETT fr.br. hent antall derfra - hvis over 999 sett 999
+      * 05 jov PTF10 Kolli kan være overført til DUP/Distr.oppdrag - IKKE kollimerket vises 0 / xx
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 06 JOV PTF11 hardkodet 'IN   '/'OUT  ' byttet: IN.../OU...
+********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    usropn
+     FHead14    IF   E           K DISK    usropn
+N04  FDOKUF     IF   E           K DISK    usropn
+     FDOKUFM    IF   E           K DISK    usropn
+     FDOKUFN1   IF   E           K DISK    usropn
+     FBRPARF    IF   E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D OddEven         s             10
+     D RowHead         s             10a   inz('#B0E0E6')
+     D Odd             s             10a   inz('#F8F8FF')
+     D Even            s             10a   inz('#E6E6FA')
+      * Variables received from the input string
+     D TurNr           s              8
+     D TurNrN          s              8  0
+     D TIMER           s              2
+     D TIMERN          s              2  0
+     D WSUSER          s             10
+     D FUNK            s              1
+     D TERM            s              5
+     D FullScr         s              1
+     D FEILMELDING     s             70
+     D FEILKODE        s              1
+     D LINETXT         s            200
+     D SEMI            s              1
+N02  D FRASYMNU        s              1
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+      *
+     D                 DS
+     D FN_DTT12                1     12  0
+     D  FNDATE                 1      8  0
+     D  FNTIME                 9     14  0
+     D                 DS
+     D WDsDT                   1      8
+     D  WDsDTÅÅ                1      4
+     D  WDsDTMM                5      6
+     D  WDsDTDD                7      8
+     D WDsDTT12                1     12  0
+     D  WDsDTTID               9     14  0
+     D WDsDTT14                1     14
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      6  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+     D                 DS
+     D PAVRDA                  1     50
+     D  PAVRDA1_5              1      5
+     D  PAVRDA7_46             7     46
+     D                 DS
+     D  FMMRK1                 1     35
+     D  FMCLID                 1     18
+N05  D                 DS
+N05  D WSBREF                  1     17
+N05  D  WSBRTX                 1      5
+N05  D  WSBRAV                 6      9
+N05  D  WSBRST                10     10
+N025 D  WSBROP                11     17
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+     C                   EXSR      INIT
+      *
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      SetTop
+      * Html body (valg eller rows)
+     C                   exsr      SetRows
+     c     Funk          ifeq      'M'
+     c     SEMI          ifeq      'Y'                                          TKterm - dummy
+     C                   callp     wrtsection('RowTop')                         <html> </html>
+     C                   callp     wrtsection('RowBot')
+     C                   else
+     C                   callp     wrtsection('all')
+     C                   end
+     C                   end
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+N04  C                   close     DOKUF
+     C                   close     DOKUFN1
+     C                   close     DOKUFM
+     C                   close     HEAD14
+     C                   close     BRPARF
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      TURNR    = zhbgetvar('TURNR')
+     C                   eval      TURNRN   = c2n2(TURNR)
+     C                   eval      TIMER    = zhbgetvar('TIMER')
+     C                   eval      TIMERN   = c2n2(TIMER)
+     C                   eval      wsuser = zhbgetvar('USER')
+     C                   eval      Funk   = zhbgetvar('FUNK')
+     C                   eval      TERM   = zhbgetvar('TERM')
+     C                   eval      FullScr= zhbgetvar('FullScr')
+     c     TimerN        ifeq      *zeros
+     c                   eval      Timer  ='1'
+     c                   eval      TimerN = 1
+     c                   end
+     c     Term          ifeq      *blanks
+     C                   eval      TERM   = 'IN'
+     c                   end
+     C                   eval      SEMI     = zhbgetvar('SEMI')
+N02  C                   eval      FRASYMNU = zhbgetvar('FRASYMNU')
+     C                   eval      HTTP_UserA =getenv('HTTP_USER_AGENT':
+     C                             qusec)
+     c* 33 *ON='Windows CE' finnes i streng=fra PDA / 33 OFF-Finnes ikke=Fra fullskjerm browser
+     c     'Windows CE'  SCAN      HTTP_UserA    xxxPOS            3 0    33
+     c   33              move      'N'           FraFullskj        1
+     c  N33              move      'J'           FraFullskj
+     c     SEMI          ifeq      'Y'
+     c                   move      'N'           FraFullskj
+     c                   end
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'STSCDIR3'
+      * Funksjon M= /MERK MANKO  / gå til meny
+      * OBS!!! dersom menyen skal parameterstyres må dette etter open av brparf..
+     c     Funk          ifeq      'M'
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'STS02'
+     c                   end
+     c     SEMI          ifeq      'Y'
+     C                   eval      Mbr = 'STSCDIR3T'
+     c                   end
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *=====================================================================******
+     C     SetTop        begsr
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updhtmlvar('TERM':TERM)
+     C                   callp     updhtmlvar('TURNR':TURNR)
+     C                   callp     updhtmlvar('TIMER':TIMER)
+     C                   callp     updhtmlvar('HTTP_UserA':HTTP_UserA)
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+N02  C                   callp     updHTMLvar('FRASYMNU':FRASYMNU)
+      *
+     C                   endsr
+     C***********************************************
+     C     SetRows       BEGSR
+     C***********************************************
+      * 1. GANG  KOMMER INN MED BLANK - be  om turnr / evt ikke eldre enn xx timer..
+     C     TURNRN        ifeq      *ZEROS
+     C                   callp     updHTMLvar('FEILTXT':FEILMELDING)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     c     SEMI          ifeq      'Y'
+     c                   eval      FeilMelding= %trim(%editc(TURNRN:'3'))
+     C                             + ' er ikke gyldig turnr.'
+     c                   eval      FeilKode= 'X'
+     c                   eval      LineTxt = FEILKODE
+     c                             +';'+%trim(FEILMELDING)
+     C                   callp     updHTMLvar('LINETXT':LineTxt)
+     C                   callp     wrtsection('RowTop')
+     C                   callp     wrtsection('Row')
+     C                   callp     wrtsection('RowBot')
+     c                   else
+     C                   callp     wrtsection('valg')
+     c                   end
+     c                   goto      UtLes
+     c                   end
+      *
+      * fyll liste med de ÅPNE sendingene (de som ikke har TE2 på aktuelt sted) fra turen
+      * MEN derso 0 oppdrag på turen er det ugyldig turnr - gå til valgbilde
+     C     TURNRN        setll     HEAD14
+     C     TURNRN        reade     HEAD14                                 94
+     c     *in94         ifeq      *on
+     c                   eval      FeilMelding= %trim(%editc(TURNRN:'3'))
+     C                             + ' er ikke gyldig turnr.'
+     c                   eval      FeilKode= 'X'
+     C                   callp     updHTMLvar('FEILTXT':FEILMELDING)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     c                   move      *zeros        TURNRN
+     c     SEMI          ifeq      'Y'
+     c                   eval      LineTxt = FEILKODE
+     c                             +';'+%trim(FEILMELDING)
+     C                   callp     updHTMLvar('LINETXT':LineTxt)
+     C                   callp     wrtsection('RowTop')
+     C                   callp     wrtsection('Row')
+     C                   callp     wrtsection('RowBot')
+     c                   else
+     C                   callp     wrtsection('valg')
+     c                   end
+     c                   goto      UtLes
+     c                   end
+      *
+      * Vis liste (hvis ikke funksjon M - Avslutt med Manko-oppdatering)
+     c     Funk          ifne      'M'
+     c     FraFullSkj    ifne      'J'
+     C                   callp     wrtsection('RowTop')
+     c                   else
+     C                   callp     wrtsection('RowTopF')
+     c                   end
+     c                   end
+     C     *in94         doweq     '0'
+     c                   movel     Henak         Nav10            10
+     c                   movel     Headk3        Adr10            10
+S04  c*                  z-add     Hent          Ant3              3 0
+N04  c                   exsr      GetAnt
+     c                   move      *zeros        Man3              3 0
+     C                   callp     updHTMLvar('NAVN':NAV10)
+     C                   callp     updHTMLvar('ADR':ADR10)
+     c                   exsr      TstMan
+     c     Man3          cabeq     *zeros        Next
+     c     Funk          ifne      'M'
+     c     OddEven       IFEQ      ODD
+     c                   eval      OddEven = EVEN
+     c                   else
+     c                   eval      OddEven = ODD
+     c                   end
+     C                   callp     updHTMLvar('ODDEVEN':OddEven)
+N05  c     Antclid       ifeq      *zeros
+N05  c                   move      *zeros        Man3
+N05  c                   endif
+     C                   callp     updhtmlvar('MAN':
+     C                             %trim(%editc(MAN3:'3')))
+     C                   callp     updhtmlvar('ANT':
+     C                             %trim(%editc(ANT3:'3')))
+     c     FraFullSkj    ifne      'J'
+     c     SEMI          ifeq      'Y'
+     c                   eval      LineTxt = %trim(Nav10)
+     c                             +';'+%trim(Adr10)
+     C                             +';'+%trim(%editc(MAN3:'3'))
+     C                             +'/'+%trim(%editc(ANT3:'3'))
+     C                   callp     updHTMLvar('LINETXT':LineTxt)
+     c                   end
+     C                   callp     wrtsection('Row')
+     c                   else                                                   FraFullSkjerm
+     c     HXsndn        ifeq      *blanks
+     c                   eval      Hxsndn=%trim(%editc(HEAVD:'Z'))
+     c                             +'/'+  %trim(%editc(HEOPD:'Z'))
+     c                   end
+     C                   callp     updHTMLvar('HXSNDN':HXSNDN)
+     C                   callp     updHTMLvar('HENAS':HENAS)
+     C                   callp     updHTMLvar('HENAK':HENAK)
+     C                   callp     updHTMLvar('Headk3':Headk3)
+     C                   callp     wrtsection('RowF')
+     c                   end
+     c                   else                                                   FUNK = M
+     c                   exsr      OppDatMan
+     c                   end
+     c     Next          tag
+     C     TURNRN        reade     HEAD14                                 94
+     c                   end
+     c     Funk          ifne      'M'
+     c     FraFullSkj    ifne      'J'
+     C                   callp     wrtsection('RowBot')
+     c                   else
+     C                   callp     wrtsection('RowBotF')
+     c                   end
+     c                   end
+      *
+     C     UTLES         TAG
+      *
+     C     UtUpd         ENDSR
+N04   *******************************************************
+N04  C     GETANT        BEGSR
+N04   *******************************************************
+N04   * Ett og bare ETT fraktbrev,,
+N04  c                   move      *zeros        DFNT
+N05  c                   move      *blanks       WSBREF
+N04  C     FBRKEY        chain     DOKUF                              33
+N04  c     *in33         ifeq      '0'
+N04  C     FBRKEY        reade     DOKUF                                  33
+N04  c   33              z-add     DFNT          HENT
+N05  c   33              move      DFBREF        WSBREF
+N04  c                   endif
+N04  c     HENT          ifle      999
+N04  c                   z-add     Hent          Ant3              3 0
+N04  c                   else
+N04  c                   z-add     999           Ant3              3 0
+N04  c                   endif
+N04  C                   ENDSR
+      *******************************************************
+     C     TSTMAN        BEGSR
+      *******************************************************
+      *
+     c                   move      *zeros        AntClid           5 0
+     c                   move      *zeros        AntSkut           5 0
+      *
+N05  c                   move      HEAVD         TMPAVD            4 0
+N05  c                   move      HEOPD         TMPOPD            7 0
+N05   * dersom fraktbrevet overført til utk.oppdrag finnes kolli-IDene de
+N05  c     WSBRTX        ifeq      'U.op:'
+N05  c                   move      WSBRAV        HEAVD
+N05  c                   move      WSBROP        HEOPD
+N05  c                   endif
+      *
+      * Sjekk om ALLE på aktuell sending dermed er ankommet
+     C     DokKey        SETLL     DOKUFM
+     C     DokKey        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     c     FMST          ifne      'I'
+     c     FMST          andne     'E'
+     c                   goto      NextClID
+     c                   end
+     c                   add       1             AntClid
+     c                   select
+s08  c*    TERM          wheneq    'IN   '
+N08  C                   when      %subst(TERM:1:2)= 'IN'
+     C     FMITER        ifne      ' '
+     c                   add       1             AntSkut
+     c                   end
+S08  c*    TERM          wheneq    'OUT  '
+N08  C                   when      %subst(TERM:1:2)= 'OU'
+     C     FMUTER        ifne      ' '
+     c                   add       1             AntSkut
+     c                   end
+     c                   other
+      *skyting på fremmed Terminal kan forekomme flere ganger
+      * MÅ finnes / SISTE må ikke være eldre enn XX timer
+     c     FremKey       setgt     DOKUFN1
+     C     FremKey       readpe    DOKUFN1                                33
+      * eldre enn xx time, regnes som tilhørende tidlige skyting
+      *    200908271635 - 200908271534 = 101 (1 time 1 minutt)
+     c     *in33         ifeq      '0'
+     c     TimerN        andne     0
+     c     TimerN        mult      100           TSTTIM            4 0
+     c     WDsDTT12      sub       FN_DTT12      Diff             12 0
+     c     Diff          comp      TSTTIM                             33  33
+     c                   end
+     c  N33              add       1             AntSkut
+     c                   endsl
+     c     NextClID      tag
+     C     DokKey        READE     DOKUFM                                 33
+     C                   end
+      *
+N05  c                   move      TMPAVD        HEAVD
+N05  c                   move      TMPOPD        HEOPD
+      *
+     c     Antclid       ifeq      *zeros
+     c                   eval      Man3 = Ant3
+     c                   else
+     c                   eval      Ant3 = AntClid
+     c                   eval      Man3 = AntClid - Antskut
+     c                   end
+      *
+     C     UtOppd2       ENDSR
+      *
+      *
+      *******************************************************
+     C     OppDatMan     BEGSR
+      *******************************************************
+      * kall prog som sjekker om komplett (i batch)
+     c                   move      FMAVD         AAAVD
+     c                   move      FMOPD         AAOPD
+     c                   move      FMFBNR        AAFBNR
+     c                   move      TIMERN        TIMER
+     c                   call      'STSCDIR2C'
+     c                   parm                    AAAVD             4
+     c                   parm                    AAOPD             7
+     c                   parm                    AAFBNR            3
+     c                   parm      TERM          AATERM            5
+     c                   parm      'M'           UUFunk            1
+     c                   parm                    TIMER             2
+     c                   parm      WSUSER        AAUSER           10
+     c                   parm      WDsDTT14      AADtTid          14
+      *
+     C                   ENDSR
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C                   open      BRIDF
+      * MEN chain BRIDF for å validere user..
+     C     WSUSER        CHAIN     BRIDF                              33
+     C     *in33         ifeq      *on
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':'STS01B':'/CGITAG/')
+     c                   move      *blanks       FeilUsr          50
+     C                   eval      FeilUsr ='"'+%trim(WSUSER)+'" var ikke '+
+     c                             ' rett pålogget!!!'
+     C                   callp     updHTMLvar('FEILTXT':FeilUsr)
+     C                   callp     updHTMLvar('FEILKODE':'1')
+     C                   callp     wrtsection('all')
+     C                   callp     wrtsection('*fini')
+     C                   CLOSE     BRIDF
+     C                   MOVE      *ON           *INLR
+     C                   return
+     c                   end
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+N04  C                   open      DOKUF
+     C                   open      DOKUFM
+     C                   open      DOKUFN1
+     C                   open      HEAD14
+     C                   open      BRPARF
+      *
+     C                   MOVE      *BLANKS       FEILMELDING
+     C                   MOVE      *BLANKS       FEILKODE
+      *
+     c     FremKey       Klist
+     c                   Kfld                    TERM
+     c                   kfld                    FMCLID
+     C     DOKKEY        KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+     C                   MOVE      'F'           FMRI
+     C                   z-add     1             FMFBNR
+     C                   MOVE      *ZEROS        FMLINR
+N04  C     FBRKEY        KLIST
+N04  C                   KFLD                    FMRI
+N04  C                   KFLD                    HEAVD
+N04  C                   KFLD                    HEOPD
+     C     BrParKey      KLIST
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      WSUSER        PABRID
+     C                   MOVE      *zeros        PAKUNR
+     C                   MOVEL     'TERMK'       PAID
+s01   * Ved fremmed terminal - finn terminaldefinisjon, enten på usernivå eller på firmanivå
+     c                   move      *blanks       Termnavn         40
+s01  c**   TERM          ifne      'IN   '
+s01  c**   TERM          andne     'OUT  '
+s01  C**   BrParKey      Chain     BRPARF                             33
+s01  C** 33              MOVE      '*KUNDFT*  '  PABRID
+s01  C** 33              MOVE      BIFIRM        PABRID
+      *
+     c     BrParKey      setll     BRPARF
+     c     BrParKey      reade     BRPARF                                 33
+     c     *in33         doweq     '0'
+     c     Pavrda1_5     ifeq      TERM
+     c                   eval      TermNavn= Pavrda7_46
+     c                   leave
+     c                   end
+     c     BrParKey      reade     BRPARF                                 33
+     c                   end
+      *
+     c     TermNavn      ifeq      *blanks
+     c                   eval      TermNavn= TERM
+     c                   end
+s01  c*                  end
+      *
+     C                   TIME                    XTIME
+     C                   MOVE      XDD           WDsDTDD
+     C                   MOVE      XMM           WDsDTMM
+     C                   MOVE      XÅÅ           WDsDTÅÅ
+     C                   MOVE      XTID          WDsDTTID
+     C                   MOVE      *zeros        FN_DTT12
+      *
+     C                   ENDSR

@@ -1,0 +1,1067 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 Skriv til Track &Trace-logg når oppdrag opprettes..
+      * 02 jov PTF10 Navn transportør dersom nr oppgitt
+10028 * 03 YBC PTF10 RESTORDRE
+10172 * 04 SH  PTF10 norsk text til Track and trace
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 05 YBC PTF11 GÅ DIREKTE TIL SVENSK FORTOLLING
+********************************************************************
+     FVADR      IF   E           K DISK    PREFIX(VA_)
+     FLLKUNF    IF   E           K DISK
+     FLLHEAD02  UF   E           K DISK
+     FLLLINE    IF   E           K DISK
+     FLLAGJL01  IF   E           K DISK
+     FLLAGJD02  UF   E           K DISK
+     FLLMRF     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FKODTV     IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FKODTOT2   IF   E           K DISK
+N05  FKODTS2    IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+     FKUNKO2    IF   E           K DISK
+     FKODTTR    IF   E           K DISK
+     FTELL      UF   E           K DISK
+     FHEDUMMY   IF   E           K DISK
+     F                                     RENAME(HEADFR:HEADFRDUM)
+     FHEADF     UF A E           K DISK    USROPN
+     FDISP      O  A E           K DISK    USROPN
+     FDOKUF     UF A E           K DISK    USROPN
+     FFRISOK    O  A E             DISK    USROPN
+     FFAK4      IF   E           K DISK    USROPN
+     FCUSAAV    IF   E           K DISK    USROPN
+     FFERDF     O  A E             DISK    USROPN
+     FKODFRI    IF   E           K DISK
+     FTRAN      IF   E           K DISK
+N01  FTRACKF    O  A E             DISK
+     D FSK             S              3    DIM(4)
+     D FBR             S              1    DIM(4)
+     D                 DS
+     D  UALN                   1    630    DIM(90)
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  WDATO                  1      8  0
+     D  WÅ                     1      4  0
+     D  WM                     5      6  0
+     D  WD                     7      8  0
+     D                 DS
+     D  HEGN                   1     15
+     D  HEGN151               15     15
+     D                 DS
+     D  PAVRDA                 1     50
+     D  PAVRDA1                1      3
+     D  PAVRDA2                5      5
+     D                SDS
+     D  ZUSER                254    263
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * Overfør
+      *""""""""
+     C                   EXSR      OVER
+      *________
+      * Til opd
+      *""""""""
+     C                   IF        UPAFF = 'N'
+     C                   EXSR      TILOPD
+     C                   END
+      *________________
+      * Autofakturering
+      *""""""""""""""""
+     C                   IF        UPFAK = 'J'
+     C                   EXSR      AUTOFAKT
+     C                   END
+      *________________
+      * Inn i samlefakt
+      *""""""""""""""""
+     C                   IF        UPFKØ = 'J'
+     C                   EXSR      AUTOSAML
+     C                   END
+N05   *________
+N05   * Til SV-SAD
+N05   *""""""""
+N05  C                   IF        *IN33 AND *IN33 = *OFF
+N05  C                   EXSR      TILSVSAD
+N05  C                   END
+
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+
+     C     *ENTRY        PLIST
+     C                   PARM                    UFIRM             2
+     C                   PARM                    UMOD              1
+     C                   PARM                    UAVD              4
+     C                   PARM                    USG               3
+     C                   PARM                    UALNINN         630
+     C                   PARM                    UFBR              1
+     C                   PARM                    UPAFF             1
+     C                   PARM                    UPFAK             1
+     C                   PARM                    UPFKØ             1
+     C                   MOVEL     UAVD          UAVD2             4 0
+     C                   MOVEA     UALNINN       UALN
+      * STD M3 OMREGN.FAKTOR HENTES FRA FØRST AVDELING
+     C     KODTVK        KLIST
+     C                   KFLD                    KOVUNI
+     C                   KFLD                    UAVD2
+     C                   MOVE      'V'           KOVUNI
+     C     KODTVK        CHAIN     KODTV                              33
+      *
+     C     KODTAK        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    UAVD2
+     C                   MOVE      'A'           KOAUNI
+     C     KODTAK        CHAIN     KODTA                              33
+N05   *
+N05  C     KODTS2K       KLIST
+N05  C                   KFLD                    KS2UNI
+N05  C                   KFLD                    LHBLK
+N05  C                   EVAL      KS2UNI = 'S2'
+     c* Hent (sansynlig) postnr/frasted via avdelingens kundenr
+     C     KOAPOS        IFEQ      'J'
+     C                   MOVE      KOAKNR        LHPNR
+     C     CUND1K        CHAIN     CUNDL01                            33
+     C     POSTNR        IFNE      *ZEROS
+     C                   MOVEL     POSTNR        FRAPNR            5
+     C                   END
+     C                   END
+      *
+     C     UFIRM         CHAIN     FIRM                               33
+      *
+     C     CUND1K        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    LHPNR
+     C     CUND1K2       KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    HEKNK
+     C     TRANKEY       KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    LHTN
+     C     CUSAAK        KLIST
+     C                   KFLD                    LHPNR
+     C                   KFLD                    UAVD2
+     C     VADRKEY       KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    LHPNR
+     C                   KFLD                    KFFAVA
+     C     KUNKO2K       KLIST
+     C                   KFLD                    LHPNR
+     C                   KFLD                    KUINTN
+     C     LLLINEK       KLIST
+     C                   KFLD                    LHMN
+     C     LLAGJD02K     KLIST
+     C                   KFLD                    LHGRP
+     C                   KFLD                    LHPNR
+     C                   KFLD                    LHMN
+     C                   KFLD                    LLVN
+     C     LLMRFK        KLIST
+     C                   KFLD                    VAGRUP
+     C                   KFLD                    VAKJED
+     C                   KFLD                    VAMRNR
+     C     HEADFDUMK     KLIST
+     C                   KFLD                    UAVD2
+     C                   KFLD                    HEOPD
+     C     HEADFK        KLIST
+     C                   KFLD                    UAVD2
+     C                   KFLD                    HEOPD
+     C     DOKUFK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    UAVD2
+     C                   KFLD                    HEOPD
+     C                   KFLD                    DFFBNR
+     C     KODTTRK       KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    KTRAK1
+     C                   KFLD                    DFTRAN
+     C     KODO2K        KLIST
+     C                   KFLD                    KO2UNI
+     C                   KFLD                    HEOT
+     C                   MOVE      'O2Y'         KO2UNI
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+      * HENTE DAGENS DATO OG TID
+     C                   TIME                    WTIME
+     C                   Z-ADD     WÅÅ           WÅ
+     C                   Z-ADD     WDD           WD
+     C                   Z-ADD     WMM           WM
+     C     *LIKE         DEFINE    HEFBV         XVKTF
+     C     HEADFDUMK     CHAIN     HEDUMMY                            51
+      *
+     C                   EXSR      HENTOFKD
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * HENTER TIL FRISØKEVEI OG FRAKTBREVS REF.                  /
+      *////////////////////////////////////////////////////////////
+     C     HENTOFKD      BEGSR
+
+     C                   MOVEL     UALN(1)       UALN2             7 0
+     C     UALN2         CHAIN     LLHEAD02                           51
+     C                   MOVEL     '*KUNDFT*'    PABRID
+     C                   MOVE      UFIRM         PABRID
+     C                   MOVE      LHPNR         PAKUNR
+     C                   MOVEL     'LLROP'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             51
+     C   51              MOVE      *ZEROS        PAKUNR
+     C   51BRPARFK       CHAIN     BRPARF                             51
+     C                   IF        ((*IN51) OR (PAVRDA1 = *BLANKS))
+     C                   MOVE      'LPL'         FSK(4)
+     C                   ELSE
+     C                   MOVE      PAVRDA1       FSK(4)
+     C                   END
+     C                   IF        ((*IN51) OR (PAVRDA2 = *BLANKS))
+     C                   MOVE      ' '           FBR(4)
+     C                   ELSE
+     C                   MOVE      PAVRDA2       FBR(4)
+     C                   END
+      *
+     C                   MOVE      LHPNR         PAKUNR
+     C                   MOVEL     'LLRO1'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             51
+     C   51              MOVE      *ZEROS        PAKUNR
+     C   51BRPARFK       CHAIN     BRPARF                             51
+     C                   IF        ((*IN51) OR (PAVRDA1 = *BLANKS))
+     C                   MOVE      'LK1'         FSK(1)
+     C                   ELSE
+     C                   MOVE      PAVRDA1       FSK(1)
+     C                   END
+     C                   IF        ((*IN51) OR (PAVRDA2 = *BLANKS))
+     C                   MOVE      ' '           FBR(1)
+     C                   ELSE
+     C                   MOVE      PAVRDA2       FBR(1)
+     C                   END
+      *
+     C                   MOVE      LHPNR         PAKUNR
+     C                   MOVEL     'LLRO2'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             51
+     C   51              MOVE      *ZEROS        PAKUNR
+     C   51BRPARFK       CHAIN     BRPARF                             51
+     C                   IF        ((*IN51) OR (PAVRDA1 = *BLANKS))
+     C                   MOVE      'LK2'         FSK(2)
+     C                   ELSE
+     C                   MOVE      PAVRDA1       FSK(2)
+     C                   END
+     C                   IF        ((*IN51) OR (PAVRDA2 = *BLANKS))
+     C                   MOVE      ' '           FBR(2)
+     C                   ELSE
+     C                   MOVE      PAVRDA2       FBR(2)
+     C                   END
+      *
+     C                   MOVE      LHPNR         PAKUNR
+     C                   MOVEL     'LLRO3'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             51
+     C   51              MOVE      *ZEROS        PAKUNR
+     C   51BRPARFK       CHAIN     BRPARF                             51
+     C                   IF        ((*IN51) OR (PAVRDA1 = *BLANKS))
+     C                   MOVE      'LK3'         FSK(3)
+     C                   ELSE
+     C                   MOVE      PAVRDA1       FSK(3)
+     C                   END
+     C                   IF        ((*IN51) OR (PAVRDA2 = *BLANKS))
+     C                   MOVE      ' '           FBR(3)
+     C                   ELSE
+     C                   MOVE      PAVRDA2       FBR(3)
+     C                   END
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Les Varner fordelingsfiler                           OVER /
+      *////////////////////////////////////////////////////////////
+     C     OVER          BEGSR
+
+     C                   OPEN      HEADF
+     C                   IF        UMOD = 'H'
+     C                   OPEN      DISP
+     C                   ENDIF
+     C                   IF        UFBR = 'J'
+     C                   OPEN      DOKUF
+     C                   ENDIF
+     C                   OPEN      FRISOK
+
+     C     1             DO        90            XN                3 0
+     C                   IF        UALN(XN) = *BLANKS
+     C                   LEAVE
+     C                   ENDIF
+     C                   MOVEL     UALN(XN)      UALN2             7 0
+     C     UALN2         CHAIN     LLHEAD02                           51
+     C                   IF        *IN51 = *OFF
+     C                   EXSR      HENTGODSNR
+     C                   IF        XN = 1
+     C                   EXSR      OVER2
+     C                   IF        UFBR = 'J'
+     C                   EXSR      OVER3
+     C                   ENDIF
+     C                   ELSE
+     C                   EXSR      OVER4
+     C                   ENDIF
+     C                   EVAL      LHSTA  = 'Z'
+     C                   EVAL      LHAVD  = HEAVD
+     C                   EVAL      LHOPD  = HEOPD
+     C                   EVAL      LHFBN  = DFFBNR
+     C                   UPDATE    LLHEADR
+     C     LLLINEK       SETLL     LLLINE
+     C     LLLINEK       READE     LLLINE                                 52
+     C                   DOW       *IN52 = *OFF
+     C     LLAGJD02K     SETLL     LLAGJD02
+     C     LLAGJD02K     READE     LLAGJD02                               53
+     C                   DOW       *IN53 = *OFF
+     C                   EVAL      VDAVD  = HEAVD
+     C                   EVAL      VDOPD  = HEOPD
+     C                   EVAL      VDLDAT = HEDTOP
+     C                   EVAL      VDFBNR = DFFBNR
+     C                   EVAL      VDTEXT = LHBNA
+     C                   EVAL      VDST   = 'R'
+     C                   UPDATE    LLAGJDR
+     C     LLAGJD02K     READE     LLAGJD02                               53
+     C  N53              ENDDO
+     C     LLLINEK       READE     LLLINE                                 52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDDO
+
+     C                   CLOSE     HEADF
+     C                   IF        UMOD = 'H'
+     C                   CLOSE     DISP
+     C                   ENDIF
+     C                   IF        UFBR = 'J'
+     C                   CLOSE     DOKUF
+     C                   ENDIF
+     C                   CLOSE     FRISOK
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Initier HEADF                                       OVER2 /
+      *////////////////////////////////////////////////////////////
+     C     OVER2         BEGSR
+
+     C     UAVD2         CHAIN     TELL                               33
+     C                   EVAL      HEOPD  = TEOPDN
+     C                   EVAL      TEOPDN = TEOPDN + 1
+     C                   UPDATE    TELLR
+
+     C     LHPNR         CHAIN     LLKUNF                             51
+     C                   IF        *IN51 = *OFF
+     C                   IF        KFPOT <> *BLANKS
+     C                   MOVE      KFPOT         HEOT
+     C                   END
+     C                   IF        KFPFR <> *BLANKS
+     C                   MOVE      KFPFR         HEFR
+     C                   END
+     C                   IF        ((KFPVB = 'J') AND (HEVS1 = *BLANKS))
+     C                   IF        UALN(2) = *BLANKS
+     C                   EVAL      HEVS1 = 'KLL I.H.T. PAK.NR'
+     C                   CAT       UALN(1):1     HEVS1
+     C                   ELSE
+     C                   EVAL      HEVS1 = 'KLL I.H.T. PAKKSEDLER'
+     C                   END
+     C                   END
+N03  C                   IF        KFPRES = 'J'
+N03  C                   CALL      'LL069R'
+N03  C                   PARM                    LHMN
+N03  C                   END
+     C                   END
+
+     C                   EVAL      HEAVD  = UAVD2
+     C                   EVAL      HESG   = USG
+     C                   EVAL      HEUR   = UMOD
+     C                   EVAL      HEDTR  = WDATO
+     C                   EVAL      HEDTOP = LHTDT
+     C                   EVAL      HELKA  = 'NO'
+     C                   IF        UPFAK = 'J'
+     C                   EVAL      HEKDFS = ' '
+     C                   END
+      * Div referanser i frie søkeveier..
+     C                   IF        UALN(2) = *BLANKS
+     C                   EVAL      HERFA  = LHPAK
+     C* Internt Pl.seddelnr når det IKKE er sammenslått..
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = FSK(4)
+     C                   Move      *blanks       FSSOK
+     C                   Movel     LHALN         FSSOK
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ELSE
+     C                   EVAL      HERFA  = 'SAMMENSLÅTT'
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = FSK(4)
+     C                   MOVE      *BLANKS       FSSOK
+     C                   MOVEL     LHALN         FSSOK
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+      *
+     C                   IF        LHPAK <> *BLANKS
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = FSK(1)
+     C                   EVAL      FSSOK = LHPAK
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C                   IF        LHORDR <> *BLANKS
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = FSK(2)
+     C                   EVAL      FSSOK = LHORDR
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C                   IF        LHFLN <> *BLANKS
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = FSK(3)
+     C                   EVAL      FSSOK = LHFLN
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C     CUND1K        CHAIN     CUNDL01                            33
+     C                   EVAL      HEKNS  = LHPNR
+     C     FMOT          IFEQ      0
+     C                   MOVE      HEKNS         HEKNSF
+     C                   ELSE
+     C                   MOVE      FMOT          HEKNSF
+     C                   END
+     C     VALKOD        IFEQ      *BLANKS
+     C                   MOVE      FICURR        HEVALS
+     C                   ELSE
+     C                   MOVE      VALKOD        HEVALS
+     C                   END
+     C     SYUTLP        IFEQ      0
+     C                   MOVE      FIUPS         XSUTL             4 2
+     C                   MOVE      FIUPM         XSUMIN            2 0
+     C                   ELSE
+     C                   Z-ADD     SYUTLP        XSUTL
+     C                   Z-ADD     SYMINU        XSUMIN
+     C                   END
+     C     VADRKEY       CHAIN     VADR                               33
+     C     *IN33         IFEQ      *OFF
+     C                   EVAL      HENAS  = VA_VADRNA
+     C                   EVAL      HEADS1 = VA_VADRN1
+     C                   EVAL      HEADS2 = VA_VADRN2
+     C                   EVAL      HEADS3 = VA_VADRN3
+     C                   ELSE
+     C                   EVAL      VA_VADRN3 = *BLANKS
+     C                   EVAL      HENAS  = KNAVN
+     C                   EVAL      HEADS1 = ADR1
+     C                   EVAL      HEADS2 = ADR2
+     C                   IF        POSTNR = 0
+     C                   EVAL      HEADS3 = ADR3
+     C                   ELSE
+     C                   MOVEL     POSTNR        HEADS3
+     C                   MOVE      ADR3          HEADS3
+     C                   END
+     C                   END
+     C                   MOVEL     LHBNR         KUINTN
+     C     KUNKO2K       CHAIN     KUNKO2                             33
+     C                   IF        *IN33 = *OFF
+     C                   EVAL      HEKNK  = KUKUN2
+     C                   ELSE
+     C                   EVAL      HEKNK  = LHPNR
+     C                   END
+     C     CUND1K2       CHAIN     CUNDL01                            33
+     C     FMOT          IFEQ      0
+     C                   MOVE      HEKNK         HEKNKF
+     C                   ELSE
+     C                   MOVE      FMOT          HEKNKF
+     C                   END
+     C     VALKOD        IFEQ      *BLANKS
+     C                   MOVE      FICURR        HEVALK
+     C                   ELSE
+     C                   MOVE      VALKOD        HEVALK
+     C                   END
+     C     SYUTLP        IFEQ      0
+     C                   MOVE      FIUPS         XKUTL             4 2
+     C                   MOVE      FIUPM         XKUMIN            2 0
+     C                   ELSE
+     C                   Z-ADD     SYUTLP        XKUTL
+     C                   Z-ADD     SYMINU        XKUMIN
+     C                   END
+     C                   EVAL      HEKDFK = 'X'
+     C                   EVAL      HENAK  = LHBNA
+     C                   EVAL      HEADK1 = LHBA1
+     C                   EVAL      HEADK2 = LHBA2
+     c                   select
+     C     LHBPN         WHENNE    *ZEROS
+     C                   MOVEL     LHBPN         HEADK3
+     C                   MOVE      LHBA3         HEADK3
+     C     LHBPU         WHENNE    *BLANKS
+     C                   MOVEL     LHBPU         ADR3Tmp          34
+     C                   MOVE      LHBA3         adr3Tmp
+     C                   MOVE      ADR3Tmp       HEADK3
+     C                   OTHER
+     C                   MOVEL     LHBA3         HEADK3
+     c                   endsl
+      *                  end
+     C                   IF        UFBR = 'J'
+     C                   EVAL      HEPK1='J'
+     C                   ENDIF
+      * STED FRA/TIL VED POSTAL...
+     C     KOAPOS        IFEQ      'J'
+     C     HEUR          IFEQ      'H'
+     C                   movel     FRAPNR        HESDF
+     C                   movel     HEADK3        HESDT
+     C                   ENDIF
+     C     HEUR          IFEQ      'A'
+     C     HEUR          OREQ      'B'
+     C                   MOVE      'NO'          HELKS
+     C                   MOVE      'NO'          HELKK
+     C     LHBLK         IFNE      *Blanks
+     C                   MOVE      LHBLK         HELKK
+     C                   end
+     C                   movel     FRAPNR        HESDFF
+     C                   movel     HEADK3        HESDVT
+     C                   move      *BLANKS       HESDF
+     C                   move      *BLANKS       HESDT
+     C                   ENDIF
+     C                   ENDIF
+     C                   EVAL      TRKNFA = HEKNS
+      * Transportmodul...
+     C                   MOVE      *Blanks       WSSNDN
+     C                   IF        HEUR = 'H'
+     C                   EVAL      TRSDFD = LHTDT
+     C                   EVAL      TRSDTD = LHTDT
+     C                   EVAL      HETRI  = 'NO'
+     C     LHBLK         IFNE      *Blanks
+     C                   MOVE      LHBLK         HETRI
+     C                   end
+     C                   EVAL      TRKDAK = 'S'
+     c
+     C     KOAIE         IFGE      '1'
+     C     KOAIE         ANDLE     '3'
+     C                   CALL      'SYGE15'
+     C                   PARM                    WSSNDN           20
+     C                   MOVEL     WSSNDN        HXSNDN
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C                   EVAL(H)   HEVKT  = LHWVEK
+     C                   IF        ((UALN(2) = *BLANKS) AND
+     C                              (HEVKT = 0))
+     C                   EVAL      HEVKT  = 1
+     C                   ENDIF
+     C                   EVAL      HEM3   = LHWKUB
+     C                   EVAL      HEFBV  = HEM3*KOVKKG
+     C     HEFBV         IFLT      HEVKT
+     C                   EVAL      HEFBV  = HEVKT
+     C                   END
+     C                   EVAL      HENT   = LHKLL
+     C     KODO2K        CHAIN     KOOT2R                             33
+     C                   IF        *IN33 = *OFF
+     C                   SELECT
+     C                   WHEN      HEUR = 'A'
+     C                   MOVE      KO2FPS        HEPK2
+     C                   MOVE      KO2KK         HEPK3
+     C                   MOVE      KO2TI         HEPK4
+     C                   WHEN      HEUR = 'B'
+     C                   MOVE      KO2KK         HEPK3
+     C                   MOVE      KO2TE         HEPK6
+     C                   SELECT
+     C                   WHEN      KO2BI <> 'N'
+     C                   MOVE      'B'           HEPK7
+     C                   WHEN      KO2CM <> 'N'
+     C                   MOVE      'C'           HEPK7
+     C                   OTHER
+     C                   MOVE      'N'           HEPK7
+     C                   ENDSL
+     C                   WHEN      HEUR = 'C'
+     C                   MOVE      KO2FPS        HEPK2
+     C                   MOVE      KO2KK         HEPK3
+     C                   MOVE      KO2TI         HEPK4
+     C                   MOVE      KO2FI         HEPK5
+     C                   WHEN      HEUR = 'D'
+     C                   MOVE      KO2KK         HEPK3
+     C                   MOVE      KO2TE         HEPK6
+     C                   SELECT
+     C                   WHEN      KO2BI <> 'N'
+     C                   MOVE      'B'           HEPK7
+     C                   WHEN      KO2CM <> 'N'
+     C                   MOVE      'C'           HEPK7
+     C                   OTHER
+     C                   MOVE      'N'           HEPK7
+     C                   ENDSL
+     C                   MOVE      KO2FF         HEPK8
+     C                   WHEN      HEUR = 'H'
+     C                   MOVE      KO2FPS        HEPK2
+     C                   MOVE      KO2KK         HEPK3
+     C                   MOVE      KO2TI         HEPK4
+     C                   MOVE      KO2TI         HEPK5
+     C                   MOVE      KO2TE         HEPK6
+     C                   SELECT
+     C                   WHEN      KO2BI <> 'N'
+     C                   MOVE      'B'           HEPK7
+     C                   WHEN      KO2CM <> 'N'
+     C                   MOVE      'C'           HEPK7
+     C                   OTHER
+     C                   MOVE      'N'           HEPK7
+     C                   ENDSL
+     C                   ENDSL
+     C                   END
+     C                   WRITE     HEADFR
+
+     C                   IF        HEUR = 'H'
+     C                   EVAL      DIAVD = HEAVD
+     C                   EVAL      DIOPD = HEOPD
+     C                   WRITE     DISPR
+     C                   ENDIF
+
+N01  C     FIURBL        IFEQ      'J'
+N01  C                   EXSR      TTSR
+N01  C                   END
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Legg over varelinjer til ZOKUF                      OVER3 /
+      *////////////////////////////////////////////////////////////
+     C     OVER3         BEGSR
+
+     C                   EVAL      DFRI   = 'F'
+     C                   EVAL      DFAVD  = HEAVD
+     C                   EVAL      DFOPD  = HEOPD
+     C                   EVAL      DFFBNR = 1
+     C                   EVAL      DFSG   = USG
+     C                   EVAL      DFKNSS = HEKNS
+     C                   EVAL      DFNAVS = HENAS
+     C                   EVAL      DFFASE = HENAS
+     C                   EVAL      DFAD1S = HEADS1
+     C                   EVAL      DFAD2S = HEADS2
+     C                   IF        VA_VADRN3 = *BLANKS
+     C                   EVAL      DFAD3S = ADR3
+     C                   MOVEL     POSTNR        DFPNLS
+     C                   ELSE
+     C                   MOVEL     VA_VADRN3     XAN04             4
+     C                   MOVE      XAN04         DFPNLS
+     C                   MOVE      VA_VADRN3     XAN25            25
+     C                   EVAL      DFAD3S = XAN25
+     C                   END
+     C                   SELECT
+     C                   WHEN      LHBA1 <> *BLANKS
+     C                   EVAL      DFAD1L = LHBA1
+     C                   WHEN      LHBA2 <> *BLANKS
+     C                   EVAL      DFAD1L = LHBA2
+     C                   OTHER
+     C                   EVAL      DFAD1L = LHBA3
+     C                   ENDSL
+     C                   MOVE      LHBPN         DFPOUL
+     C                   EVAL      DFADUL = LHBA3
+     C                   EVAL      DFNAVL = HENAK
+     C                   EVAL      DFNAVM = HENAK
+     C                   EVAL      DFAD1M = HEADK1
+     C                   EVAL      DFAD3M = HEADK3
+     C                   EVAL      DFTRAN = LHTN
+     C     TRANKEY       CHAIN     TRAN                               33
+N02  C  N33              EVAL      DFNAT  = VMNAVN
+     C  N33VM0004        COMP      *BLANKS                                33
+     C  N33VM0010        COMP      *BLANKS                                33
+     C  N33              MOVE      'Y'           DFCMN
+     C   33              MOVE      ' '           DFCMN
+     C                   EVAL      DFPROK = LHPRKD
+     C                   EVAL      DFBELA = KOVXXX
+     C     DFBELA        IFEQ      ' '
+     C     FILFB         IFEQ      'S'
+     C     FILFB         OREQ      'M'
+     C                   EVAL      DFBELA = FILFB
+     C                   END
+     C                   END
+     C                   EVAL      DFVS = HEVS1
+     C                   MOVE      LHBPAL        DFNTEU
+     C                   MOVE      LHAPAL        DFNTAU
+     C                   EVAL(H)   DFVKT  = LHWVEK
+     C                   EVAL      DFM3   = LHWKUB
+     C                   EVAL      DFVKTF = DFM3*KOVKKG
+     C     DFVKTF        IFLT      DFVKT
+     C                   EVAL      DFVKTF = DFVKT
+     C                   END
+     C                   IF        LHST2 = ' '
+     C                   EVAL      DFKDME = 'S'
+     C                   EVAL      DFNTLA = LHMLP
+     C                   ENDIF
+     C                   EVAL      DFNT   = LHKLL
+     C                   EVAL      KTRAK1 = DFKNSS
+     C     KODTTRK       CHAIN     KODTTR                             33
+     C                   IF        *IN33
+     C                   EVAL      DFKNS = *BLANKS
+     C                   ELSE
+     C                   EVAL      DFKNS = KTRAK3
+     C                   END
+     c     WSSNDN        IFNE      *Blanks
+     c                   Move      wssndn        wssndn17         17
+     c                   Movel     wssndn17      DF1004
+     c                   end
+     c                   EXSR      HENTREF
+     C                   WRITE     DOKUFR
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * HENT SENDERS/MOTTAKERSREF.                                /
+      *////////////////////////////////////////////////////////////
+     C     HENTREF       BEGSR
+
+      * SENDERS REF.
+     C                   SELECT
+     C                   WHEN      ((FBR(1) = 'S') AND (LHPAK <> *BLANKS))
+     C                   EVAL      DFSREF = LHPAK
+     C                   WHEN      ((FBR(2) = 'S') AND (LHORDR <> *BLANKS))
+     C                   EVAL      DFSREF = LHORDR
+     C                   WHEN      ((FBR(3) = 'S') AND (LHFLN <> *BLANKS))
+     C                   EVAL      DFSREF = LHFLN
+     C                   OTHER
+     C                   EVAL      DFSREF = *BLANKS
+     C                   ENDSL
+
+      * MOTTAKERS REF.
+     C                   SELECT
+     C                   WHEN      ((FBR(1) = 'M') AND (LHPAK <> *BLANKS))
+     C                   EVAL      DFMREF = LHPAK
+     C                   WHEN      ((FBR(2) = 'M') AND (LHORDR <> *BLANKS))
+     C                   EVAL      DFMREF = LHORDR
+     C                   WHEN      ((FBR(3) = 'M') AND (LHFLN <> *BLANKS))
+     C                   EVAL      DFMREF = LHFLN
+     C                   OTHER
+     C                   EVAL      DFMREF = *BLANKS
+     C                   ENDSL
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Summer vekt og antall kolli                         OVER4 /
+      *////////////////////////////////////////////////////////////
+     C     OVER4         BEGSR
+
+     C                   EVAL      FSAVD = HEAVD
+     C                   EVAL      FSOPD = HEOPD
+     C                   EVAL      FSKODE = 'LPL'
+     C                   MOVEL     LHALN         FSSOK
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   EVAL      FSDTOP = HEDTOP
+     C                   WRITE     FRISOKR
+     C                   IF        LHPAK <> *BLANKS
+     C                   EVAL      FSKODE = FSK(1)
+     C                   EVAL      FSSOK = LHPAK
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C                   IF        LHORDR <> *BLANKS
+     C                   EVAL      FSKODE = FSK(2)
+     C                   EVAL      FSSOK = LHORDR
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C                   IF        LHFLN <> *BLANKS
+     C                   EVAL      FSKODE = FSK(3)
+     C                   EVAL      FSSOK = LHFLN
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C   33              Eval      FSDOKK = *blanks
+     C  N33              Eval      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+
+     C                   EVAL      XVKTF  = LHWKUB * KOVKKG
+     C     XVKTF         IFLT      LHWVEK
+     C                   EVAL(H)   XVKTF  = LHWVEK
+     C                   END
+
+     C     HEADFK        CHAIN     HEADF                              33
+     C                   EVAL(H)   HEVKT  = HEVKT + LHWVEK
+     C                   EVAL      HEM3   = HEM3 + LHWKUB
+     C                   EVAL      HEFBV  = HEFBV + XVKTF
+     C                   EVAL      HENT   = HENT + LHKLL
+     C                   UPDATE    HEADFR
+
+     C                   IF        UFBR = 'J'
+     C     DOKUFK        CHAIN     DOKUF                              33
+     C                   EVAL      DFNTEU = DFNTEU + LHBPAL
+     C                   EVAL      DFNTAU = DFNTAU + LHAPAL
+     C                   EVAL      DFM3 = DFM3 + LHWKUB
+     C                   EVAL(H)   DFVKT = DFVKT + LHWVEK
+     C                   EVAL      DFVKTF = XVKTF
+     C                   IF        LHST2 = ' '
+     C                   EVAL      DFKDME = 'S'
+     C                   EVAL      DFNTLA = DFNTLA + LHMLP
+     C                   ENDIF
+     C                   EVAL      DFNT = DFNT + LHKLL
+     C                   EXSR      HENTREF
+     C                   UPDATE    DOKUFR
+     C                   ENDIF
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * AUTO FAKTURERING                                 AUTOFAKT /
+      *////////////////////////////////////////////////////////////
+     C     AUTOFAKT      BEGSR
+      *
+     C                   MOVE      'NY'          UNYGML            2
+     C     XKUTL         IFEQ      99.99
+     C                   MOVE      *ZEROS        XKUTL
+     C                   END
+     C     XSUTL         IFEQ      99.99
+     C                   MOVE      *ZEROS        XSUTL
+     C                   END
+     C                   Z-ADD     3             UFLAGG            1 0
+      *
+     C                   MOVE      HEOPD         UOPD2             7 0
+     C                   CALL      'SYFI10X'
+     C                   PARM                    UFIRM
+     C                   PARM                    UAVD2
+     C                   PARM                    UOPD2
+     C                   PARM                    UNYGML
+     C                   PARM                    KO2UTL
+     C                   PARM                    XKUTL
+     C                   PARM                    XSUTL
+     C                   PARM                    XKUMIN
+     C                   PARM                    XSUMIN
+     C                   PARM                    KO2MVK
+     C                   PARM                    KO2MVS
+     C                   PARM                    UKFRA             7 0
+     C                   PARM                    KOVAVR
+     C                   PARM                    UMSG             62
+     C                   PARM                    UMELD             1
+     C                   PARM                    UFLAGG
+     C                   PARM                    USK               1
+     C                   PARM                    USECUR            6
+      *
+     C                   MOVE      HEOPD         UOPD3             7
+     C                   Z-ADD     9             UFLAGG            1 0
+     C                   CALL      'LL052C'
+     C                   PARM                    UAVD
+     C                   PARM                    UOPD3
+     C                   PARM                    UFLAGG
+      *
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * AUTO INN SAMLEFAKTURAKØ                          AUTOSAML /
+      *////////////////////////////////////////////////////////////
+     C     AUTOSAML      BEGSR
+     C                   OPEN      FAK4
+     C                   OPEN      FERDF
+     C                   OPEN      CUSAAV
+     C     HEADFK        SETLL     FAK4
+     C     HEADFK        READE     FAK4                                   33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      HEAVD         FEAVD
+     C                   MOVE      HEOPD         FEOPD
+     C                   MOVE      ZUSER         FEWS
+     C                   MOVE      FAKUNR        FEKN
+     C                   MOVE      FASK          FESKX
+     C     CUSAAK        CHAIN     CUSAAV                             33        *AVVIK SF.KO
+     C  N33              MOVE      CASFAK        FESFAK                         PÅ AVDNIVÅ?
+     C   33              MOVE      'J'           FESFAK
+     C                   WRITE     FERDR
+     C                   END
+     C                   CLOSE     FAK4
+     C                   CLOSE     FERDF
+     C                   CLOSE     CUSAAV
+
+      * SEND TIL SAMLEFAKTURAKØ
+     C                   CALL      'LL017C'
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Hent godsnr                                    HENTGODSNR /
+      *////////////////////////////////////////////////////////////
+     C     HENTGODSNR    BEGSR
+
+     C     LLAGJL01K     KLIST
+     C                   KFLD                    LHGRP
+     C                   KFLD                    LHPNR
+     C                   KFLD                    VDMN
+
+     C     LLLINEK       SETLL     LLLINE
+     C     LLLINEK       READE     LLLINE                                 52
+     C                   DOW       *IN52 = *OFF
+     C     LLAGJD02K     SETLL     LLAGJD02
+     C     LLAGJD02K     READE(N)  LLAGJD02                               53
+     C                   DOW       *IN53 = *OFF
+     C     LLAGJL01K     CHAIN     LLAGJL01                           54
+     C                   IF        HEGN151 = *BLANKS
+     C     LLMRFK        CHAIN     LLMRF                              33
+     C                   MOVEL     MRGN          HEGN
+     C                   ENDIF
+     C     LLAGJD02K     READE(N)  LLAGJD02                               53
+     C  N53              ENDDO
+     C     LLLINEK       READE     LLLINE                                 52
+     C  N52              ENDDO
+
+     C                   ENDSR
+
+      *////////////////////////////////////////////////////////////
+      * Gå til vedlikehold av oppdrag                      TILOPD /
+      *////////////////////////////////////////////////////////////
+     C     TILOPD        BEGSR
+
+     C                   MOVE      HEAVD         UAVD2             4 0
+     C                   MOVE      HEOPD         UOPD2             7 0
+     C                   MOVE      'CHG'         UTYPE             3
+     C                   MOVE      'Z'           UKODE             1
+     C                   MOVE      ' '           UDUMMY            1
+     C                   MOVE      *ZEROS        UAVDNY            4 0
+
+     C                   SELECT
+     C                   WHEN      HEUR = 'A'
+     C                   CALL      'SYFA10'
+     C                   PARM                    UAVD2
+     C                   PARM                    UOPD2
+     C                   PARM                    HESG
+     C                   PARM                    UTYPE
+     C                   PARM                    UKODE
+     C                   PARM                    UDUMMY
+     C                   PARM                    UAVDNY
+     C                   WHEN      HEUR = 'B'
+     C                   CALL      'SYEX10'
+     C                   PARM                    UAVD2
+     C                   PARM                    UOPD2
+     C                   PARM                    HESG
+     C                   PARM                    UTYPE
+     C                   PARM                    UKODE
+     C                   PARM                    UDUMMY
+     C                   PARM                    UAVDNY
+     C                   WHEN      HEUR = 'C'
+     C                   CALL      'SYFI10'
+     C                   PARM                    UAVD2
+     C                   PARM                    UOPD2
+     C                   PARM                    HESG
+     C                   PARM                    UTYPE
+     C                   PARM                    UKODE
+     C                   PARM                    UDUMMY
+     C                   PARM                    UAVDNY
+     C                   WHEN      HEUR = 'D'
+     C                   CALL      'SYEF10'
+     C                   PARM                    UAVD2
+     C                   PARM                    UOPD2
+     C                   PARM                    HESG
+     C                   PARM                    UTYPE
+     C                   PARM                    UKODE
+     C                   PARM                    UDUMMY
+     C                   PARM                    UAVDNY
+     C                   WHEN      HEUR = 'H'
+     C                   MOVE      HEAVD         UAVD2C            4 0
+     C                   MOVE      'U'           UUSPØR            1
+     C                   MOVE      '2'           UURETU            1
+     C                   MOVE      '0'           UUFUNK            1
+     C                   CALL      'SYTR10'
+     C                   PARM                    UAVD2
+     C                   PARM                    UAVD2C
+     C                   PARM                    UOPD2
+     C                   PARM                    UUSPØR
+     C                   PARM                    UURETU
+     C                   PARM                    UUFUNK
+     C                   ENDSL
+      *
+     C                   ENDSR
+      *
+N05   *////////////////////////////////////////////////////////////
+N05   * Gå til vedlikehold av svensk SAD                 TILSVSAD /
+N05   *////////////////////////////////////////////////////////////
+N05  C     TILSVSAD      BEGSR
+N05
+N05  C                   IF        HEAVD = 0 OR HEOPD = 0
+N05  C                   GOTO      SLSVSAD
+N05  C                   END
+N05  C     KODTS2K       CHAIN     KODTS2                             33
+N05  C   33              IF        FILAND = 'NO'
+N05  C                   EVAL      KS2PRE = 'C'
+N05  C                   ELSE
+N05  C                   EVAL      KS2PRE = 'B'
+N05  C                   END
+N05  C                   MOVE      HEAVD         UAVDSAD           4
+N05  C                   MOVE      HEOPD         UOPDSAD           7
+N05
+N05  C                   SELECT
+N05  C                   WHEN      KS2PRE = 'A' OR KS2PRE = 'B'
+N05   * EU-IMPORT
+N05  C                   CALL      'SVI503R'
+N05  C                   PARM                    UAVDSAD
+N05  C                   PARM                    UOPDSAD
+N05  C                   OTHER
+N05   * EXPORT
+N05  C                   CALL      'SVE503R'
+N05  C                   PARM                    UAVDSAD
+N05  C                   PARM                    UOPDSAD
+N05  C                   ENDSL
+N05   *
+N05  C     SLSVSAD       ENDSR
+N05   *
+N01
+N01  C***********************************************
+N01  C     TTSR          BEGSR
+N01  C***********************************************
+N01  C                   MOVE      HEAVD         TTAVD
+N01  C                   MOVE      HEOPD         TTOPD
+N01  C                   eval      TTDATL = WDATO
+N01  C                   eval      TTTIML = WTID
+N01  C                   MOVEL     ZUSER         TTUSER
+N01   * Plukkliste registrert (kun hvis dato for det er satt i LLHEAD)
+N01  c     LHRDT         ifne      *zeros
+N01  C                   MOVE      'PLR'         TTACTI
+N01  C                   EVAL      TTDATE = LHRDT
+N01  C                   EVAL      TTTIME = LHRTD
+N01  c     LHUSR         ifne      *blanks
+N01  C                   MOVEL     LHUSR         TTUSER
+N01  c                   end
+N01  C                   eval      TTTEXT='Picking list entered '
+N04  C                   eval      TTTEXl='Plukk liste laget '
+N01  C                   WRITE     TRACKFR
+N01  c                   end
+N01   * alltid logført at oppdrag ble skapt
+N01  C                   EVAL      TTDATE = TTDATL
+N01  C                   EVAL      TTTIME = TTTIML
+N01  C                   MOVE      'STR'         TTACTI
+N01  C                   eval      TTTEXT='Transport order entered (based on '
+N01  c                             +'finished pick list)'
+N04  C                   eval      TTTEXl='Transport ordre laget (basert på '
+N04  c                             +'ferdig plukkliste'
+N01  C                   WRITE     TRACKFR
+N01  C                   ENDSR

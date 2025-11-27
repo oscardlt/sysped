@@ -1,0 +1,1076 @@
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/FRCNT04
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+XRTPG+*  CRTPGM SYSPED/FRCNT04 MODULE(*LIBL/FRCNT04)
+XRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Order details
+     FORD01     if   e           K DISK    USROPN
+      * Books
+     FBOO01     if   e           K DISK    USROPN
+      * Customers
+     FCUS01     uf a e           K DISK    USROPN
+      * Countries
+     FCOUNTRIES if   e           K DISK    USROPN
+      * Order headers
+     FORH01     uf a e           K DISK    USROPN
+      * Credit card companies by ID
+     FCCARD     if   e           K DISK    USROPN
+      * Credit card companies by name
+     FCCARDA    if   e           K DISK    USROPN
+     F                                     rename(ccdrcd:ccdrcda)
+      *=====================================================================
+      * Includes to be used in all CGIs
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      *  Fields used for parsing the input string
+     D action          s             10a
+     D subaction       s             10a
+     D lng             s              2a
+     D xbct01nbr       s              3a
+     D xbct01des       s             70a
+     D xboo01bct       s              3a
+     D xboo01nbr       s              5a
+     D xboo01tit       s             70a
+     D xboo01eur       s              7a
+     D xord01nbr       s             15a
+     D xord01bct       s              3a
+     D xord01boo       s              5a
+     D xorh01nbr       s             15a
+     D xorh01cus       s              7a
+     D xorh01dat       s              8a
+     D xorh01tme       s              6a
+     D xorh01sex       s              1a
+     D xorh01fnm       s             30a
+     D xorh01lnm       s             30a
+     D xorh01zip       s             15a
+     D xorh01adr       s             50a
+     D xorh01cit       s             30a
+     D xorh01sta       s             30a
+     D xorh01ctr       s             30a
+     D xcus01nbr       s              7a
+     D xcus01sex       s              1a
+     D xcus01lnm       s             30a
+     D xcus01fnm       s             30a
+     D xcus01bth       s              8a
+     D xcus01pwd       s             30a
+     D xcus01zip       s             15a
+     D xcus01adr       s             50a
+     D xcus01cit       s             30a
+     D xcus01sta       s             30a
+     D xcus01ctr       s             30a
+     D xcus01eml       s             60a
+     D xcus01cci       s              1a
+     D xcus01ccw       s             30a
+     D xcus01ccn       s             20a
+     D xcus01ccy       s              4a
+     D xcus01ccm       s              2a
+     D xccdnbr         s              3a
+      *
+     D htmlsrclib      s             10a
+     D htmlsrcfil      s             10a
+     D htmlsrcmbr      s             10a
+      * "InitSW"- is blank only the first time pgm is called
+     DInitSW           S              1a
+      *
+     DArr7             S              1    dim(7)                               variable names
+      *
+     D Pieces          s              5s 0
+     D Value           s              9s 2
+     D Total           s              9s 2
+     D RtvSW           s              1a
+      *
+     D NewDataSW       s              1a
+     D BadCustSW       s              1a
+     D Color01         s              5a
+     D Color02         s              5a
+     D Color03         s              5a
+     D Color04         s              5a
+     D Color05         s              5a
+     D Color06         s              5a
+     D Color07         s              5a
+     D Color08         s              5a
+     D Color09         s              5a
+     D Color10         s              5a
+     D Color11         s              5a
+     D Color12         s              5a
+     D Color13         s              5a
+     D Color14         s              5a
+      *
+     Dr1               S              5i 0                                      index for prv arrays
+     Dr2               S              5i 0                                      index for prv arrays
+     Dr3               S              5i 0                                      index for prv arrays
+      *
+     DSection          S             10a                                        index for prv arrays
+     DVarnm            S             10a                                        index for prv arrays
+      *
+      * Current date
+     D Datenow         s              8a                                        index for prv arrays
+     D CurrDate        s               d   datfmt(*iso)
+     D                 ds
+     D CurrDateC               1     10
+     D CurrYYYY                1      4
+     D CurrMM                  6      7
+     D CurrDD                  9     10
+     D Months          s             36    inz('JanFebMarAprMayJunJulAugSepOct+
+     D                                     NovDec')
+     D MonthNbr        s              2s 0
+     D Month           s              3a                                        index for prv arrays
+     D OrderNo         s             30a                                        index for prv arrays
+      *=====================================================================
+     C                   exsr      SetTimeStr
+      *=====================================================================
+      * Read remote browser input string and parse it
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prolog3
+     C                   exsr      Parse
+      *=====================================================================
+      * Main line
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+     C                   exsr      LoadHtml
+      * Open database files
+     C                   exsr      OpenDbf
+      *------------------
+      * Uppercase the action requested
+     C                   eval      action = uppify(action)
+      *------------------
+      * Provide response common header
+     C                   if        Action <> 'ORDCLOSE'
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+     C                   eval      wrotetop = *on                               For pssr
+     C                   endif
+      *==================
+      * Check the action requested
+     C                   if        Action = ' '
+     C                   exsr      Start
+     C                   exsr      Exit
+     C                   endif
+      * User wants to register as a new customer
+     C                   if        Action = 'NEWCUST'
+     C                   exsr      NewCust
+     C                   exsr      Exit
+     C                   endif
+      * User entered registration data as new customer
+     C                   if        Action = 'NEWDATA'
+     C                   exsr      NewData
+     C                   exsr      Exit
+     C                   endif
+      * User wants to review his registration data
+     C                   if        Action = 'REVIEW'
+     C                   exsr      Review
+     C                   exsr      Exit
+     C                   endif
+      * User changed his registration data
+     C                   if        Action = 'REVDATA'
+     C                   exsr      RevData
+     C                   exsr      Exit
+     C                   endif
+      * User entered data for an existing customer
+     C                   if        Action = 'EXICUST'
+     C                   exsr      ExiCust
+     C                   exsr      Exit
+     C                   endif
+      * User wants to enter the shipping data
+     C                   if        Action = 'SHIPDTA'
+     C                   exsr      ShipDta
+     C                   exsr      Exit
+     C                   endif
+      * User wants to close the order
+     C                   if        Action = 'ORDCLOSE'
+     C                   exsr      OrdClose
+     C                   exsr      Exit
+     C                   endif
+      *
+      * Flush the html buffer and exit
+     C                   exsr      Exit
+      *=====================================================================
+      * Start by asking the customer code
+      *=====================================================================
+     C     Start         begsr
+     C                   exsr      SetStart
+     C                   callp     wrtsection('start')
+     C                   callp     wrtsection('starta')
+     C                   endsr
+      *=====================================================================
+      * User wants to register as a new customer
+      *=====================================================================
+     C     NewCust       begsr
+     C                   if        NewDataSW = ' '
+     C                   callp     wrtsection('newcust')
+     C                   endif
+      * Customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('newdta')
+      * Countries to select from
+     C                   eval      Cus01Ctr = xorh01ctr
+     C                   exsr      SelCtr
+      * More customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('newdta1')
+      * Credit cards companies to select from
+     C                   exsr      SelCard
+      * More customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('newdta2')
+      *
+     C                   endsr
+      *=====================================================================
+      * User entered registration as a new customer
+      *=====================================================================
+     C     NewData       begsr
+      * Check the data entered to register as a customer
+     C                   exsr      ChkNewData
+      *==================
+      * If any data missing, ...
+     C                   if        NewDataSW <> ' '
+     C                   callp     wrtsection('newcust')
+     C                   callp     wrtsection('newdtaerr')
+     C                   exsr      NewCust
+     C                   exsr      Exit
+     C                   ENDIF
+      *==================
+      * Assign customer number, write new customer record
+     C                   eval      Cus01Nbr = *hival
+     C     Cus01Nbr      setgt     Cus01Rcd
+     C                   readp     Cus01Rcd
+     C                   if        %eof
+     C                   eval      Cus01Nbr = 0
+     C                   else
+     C                   update    Cus01Rcd
+     C                   endif
+     C                   eval      Cus01Nbr = Cus01Nbr + 1
+     C                   eval      Cus01Bth = xCus01Bth
+     C                   eval      Cus01Pwd = xCus01Pwd
+     C                   eval      Cus01Sex = xCus01Sex
+     C                   eval      Cus01Fnm = xCus01Fnm
+     C                   eval      Cus01Lnm = xCus01Lnm
+     C                   eval      Cus01Zip = xCus01Zip
+     C                   eval      Cus01Adr = xCus01Adr
+     C                   eval      Cus01Cit = xCus01Cit
+     C                   eval      Cus01Sta = xCus01Sta
+     C                   eval      Cus01Ctr = xOrh01Ctr
+     C                   move      xccdnbr       Cus01CCI
+     C                   eval      Cus01CCW = xCus01CCW
+     C                   eval      Cus01CCN = xCus01CCN
+     C                   move      xCus01CCY     Cus01CCY
+     C                   move      xCus01CCM     Cus01CCM
+     C                   write     Cus01Rcd                             69
+      *==================
+      * Communicate the customer number assigned
+     C                   exsr      SetYrCNo
+     C                   callp     wrtsection('yrcustno')
+      * Same as for an existing customer
+     C                   move      Cus01Nbr      xCus01Nbr
+     C                   exsr      ExiCust
+      *
+     C                   endsr
+      *=====================================================================
+      * User wants to review his registration data
+      *=====================================================================
+     C     Review        begsr
+      * Retrieve and check the customer data
+     C                   exsr      ChkCusDta
+     C                   eval      xCus01Bth = Cus01Bth
+     C                   eval      xCus01Pwd = Cus01Pwd
+     C                   eval      xCus01Sex = Cus01Sex
+     C                   eval      xCus01Fnm = Cus01Fnm
+     C                   eval      xCus01Lnm = Cus01Lnm
+     C                   eval      xCus01Zip = Cus01Zip
+     C                   eval      xCus01Adr = Cus01Adr
+     C                   eval      xCus01Cit = Cus01Cit
+     C                   eval      xCus01Sta = Cus01Sta
+     C                   eval      xOrh01Ctr = Cus01Ctr
+     C                   move      Cus01CCI      xccdnbr
+     C                   eval      xCus01CCW = Cus01CCW
+     C                   eval      xCus01CCN = Cus01CCN
+     C                   move      Cus01CCY      xCus01CCY
+     C                   move      Cus01CCM      xCus01CCM
+      *
+     C                   if        NewDataSW = ' '
+     C                   callp     wrtsection('revcust')
+     C                   endif
+      * Customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('revdta')
+      * Countries to select from
+     C                   exsr      SelCtr
+      * More customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('revdta1')
+      * Credit cards companies to select from
+     C                   exsr      SelCard
+      * More customer data
+     C                   exsr      SetNewDta
+     C                   callp     wrtsection('revdta2')
+      *
+     C                   endsr
+      *=====================================================================
+      * User changed his registration data
+      *=====================================================================
+     C     RevData       begsr
+      * Retrieve and check the customer data
+     C                   exsr      ChkCusDta
+      * Check the data entered to register as a customer
+     C                   exsr      ChkNewData
+      *==================
+      * If any data missing, ...
+     C                   if        NewDataSW <> ' '
+     C                   callp     wrtsection('revcust')
+     C                   callp     wrtsection('newdtaerr')
+     C                   exsr      Review
+     C                   exsr      Exit
+     C                   ENDIF
+      *==================
+      * Update customer data
+     C                   move      xCus01Nbr     Cus01Nbr
+     C     Cus01Nbr      chain     Cus01Rcd
+     C                   if        not%found
+     C                   exsr      Exit
+     C                   endif
+     C                   eval      Cus01Bth = xCus01Bth
+     C                   eval      Cus01Pwd = xCus01Pwd
+     C                   eval      Cus01Sex = xCus01Sex
+     C                   eval      Cus01Fnm = xCus01Fnm
+     C                   eval      Cus01Lnm = xCus01Lnm
+     C                   eval      Cus01Zip = xCus01Zip
+     C                   eval      Cus01Adr = xCus01Adr
+     C                   eval      Cus01Cit = xCus01Cit
+     C                   eval      Cus01Sta = xCus01Sta
+     C                   eval      Cus01Ctr = xOrh01Ctr
+     C                   move      xccdnbr       Cus01CCI
+     C                   eval      Cus01CCW = xCus01CCW
+     C                   eval      Cus01CCN = xCus01CCN
+     C                   move      xCus01CCY     Cus01CCY
+     C                   move      xCus01CCM     Cus01CCM
+     C                   Update    Cus01Rcd                             69
+      *==================
+      * Same as for an existing customer
+     C                   move      Cus01Nbr      xCus01Nbr
+     C                   exsr      ExiCust
+      *
+     C                   endsr
+      *=====================================================================
+      * User entered data for an existing customer
+      *=====================================================================
+     C     ExiCust       begsr
+      * Retrieve and check the customer data
+     C                   exsr      ChkCusDta
+      * Customer data  accepted
+     C                   exsr      SetExiCust
+     C                   callp     wrtsection('exicust')
+     C                   eval      section ='exicust' + Cus01Sex
+     C                   callp     wrtsection(section)
+     C                   callp     wrtsection('exicustx')
+      *
+     C                   endsr
+      *=====================================================================
+      * User wants to enter shipping data
+      *=====================================================================
+     C     ShipDta       begsr
+      * Retrieve and check the customer data
+     C                   exsr      ChkCusDta
+      * Customer data  accepted
+     C                   eval      xOrh01Sex = Cus01Sex
+     C                   eval      xOrh01Fnm = Cus01Fnm
+     C                   eval      xOrh01Lnm = Cus01Lnm
+     C                   eval      xOrh01Zip = Cus01Zip
+     C                   eval      xOrh01Adr = Cus01Adr
+     C                   eval      xOrh01Cit = Cus01Cit
+     C                   eval      xOrh01Sta = Cus01Sta
+     C                   eval      xOrh01Ctr = Cus01Ctr
+     C                   exsr      SetShipDta
+     C                   callp     wrtsection('exicust')
+     C                   eval      section ='exicust' + Cus01Sex
+     C                   callp     wrtsection(section)
+     C                   callp     wrtsection('shipdta')
+      *
+      * Countries to select from
+     C                   exsr      SelCtr
+      *
+     C                   callp     wrtsection('shipdta1')
+      *
+     C                   endsr
+      *=====================================================================
+      * User wants to close the order
+      *=====================================================================
+     C     OrdClose      begsr
+      * Retrieve and check the customer data
+     C                   exsr      ChkCusDta
+      * Retrieve credit card company of this customer
+     C     Cus01CCI      chain     CCDRcd
+      * Close the order
+     C                   move      xorh01nbr     Orh01Nbr
+     C     Orh01nbr      chain     Orh01Rcd                           60
+     C                   exsr      TimeStamp
+     C                   move      DateNow       Orh01Dat
+     C                   move      TimeNow       Orh01Tme
+     C                   move      xCus01Nbr     Orh01Cus
+     C                   eval      Orh01Sex = xOrh01Sex
+     C                   eval      Orh01Fnm = xOrh01Fnm
+     C                   eval      Orh01Lnm = xOrh01Lnm
+     C                   eval      Orh01Zip = xOrh01Zip
+     C                   eval      Orh01Cit = xOrh01Cit
+     C                   eval      Orh01Adr = xOrh01Adr
+     C                   eval      Orh01Sta = xOrh01Sta
+     C                   eval      Orh01Ctr = xOrh01Ctr
+     C     *in60         ifeq      '1'
+     C                   write     Orh01Rcd                             69
+     C                   else
+     C                   update    Orh01Rcd                             69
+     C                   endif
+      * Edit order number
+     C                   eval      OrderNo = Month + CurrDD + CurrYYYY +
+     C                             '/' + xorh01nbr
+      * Provide html response
+     C                   exsr      SetExiCust
+     C                   callp     wrtsection('epilog')
+     C                   eval      section ='epilog' + Cus01Sex
+     C                   callp     wrtsection(section)
+     C                   callp     wrtsection('epiloga')
+      *
+     C                   eval      Pieces = 0
+     C                   eval      Value  = 0
+     C                   eval      Total  = 0
+     C                   move      xorh01nbr     ord01nbr
+     C     Ord01Nbr      setll     Ord01Rcd
+      *
+     C     Ord01Nbr      reade     Ord01Rcd
+     C                   dow       not%eof
+     C                   exsr      RtvBook
+     C                   if        RtvSW <> ' '
+     C                   eval      Pieces = Pieces + 1
+     C                   eval      value = value + Boo01Eur
+     C                   exsr      SetEpiRow
+     C                   callp     wrtsection('epilogrow')
+     C                   endif
+     C     Ord01Nbr      reade     Ord01Rcd
+     C                   enddo
+      * Retrieve shipping charge
+     C     Orh01ctr      chain     ctrrec
+     C                   if        not%found
+     C                   eval      CtrEur = 0
+     C                   endif
+     C                   eval      Total = Value + CtrEur
+      * Display the order
+     C                   exsr      SetEpiEnd
+     C                   callp     wrtsection('epilogend')
+      * Display the shipping data
+      * and the credit card data
+     C                   eval      section ='epilog' + Orh01Sex
+     C                   callp     wrtsection(section)
+     C                   callp     wrtsection('epilogend1')
+      *
+     C                   endsr
+      *=====================================================================
+      * Check the data entered to register as a customer
+      *=====================================================================
+     C     ChkNewData    begsr
+      * Assume no errors
+     C                   eval      NewDataSW = ' '
+     C                   eval      color01 = 'white'
+     C                   eval      color02 = 'white'
+     C                   eval      color03 = 'white'
+     C                   eval      color04 = 'white'
+     C                   eval      color05 = 'white'
+     C                   eval      color06 = 'white'
+     C                   eval      color07 = 'white'
+     C                   eval      color08 = 'white'
+     C                   eval      color09 = 'white'
+     C                   eval      color10 = 'white'
+     C                   eval      color11 = 'white'
+     C                   eval      color12 = 'white'
+     C                   eval      color13 = 'white'
+     C                   eval      color14 = 'white'
+     C                   if        xcus01sex = ' '
+     C                   eval      color01 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01fnm = ' '
+     C                   eval      color02 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01lnm = ' '
+     C                   eval      color03 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01zip = ' '
+     C                   eval      color04 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01adr = ' '
+     C                   eval      color05 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01cit = ' '
+     C                   eval      color06 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01sta = ' '
+     C                   eval      color07 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xorh01ctr = ' '
+     C                   eval      color08 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01bth = ' '
+     C                   eval      color09 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01pwd = ' '
+     C                   eval      color10 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xccdnbr   = ' '
+     C                   eval      color11 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01ccn = ' '
+     C                   eval      color12 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01ccw = ' '
+     C                   eval      color13 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+     C                   if        xcus01ccy = ' '  or xcus01ccm = ' '
+     C                   eval      color14 = 'pink'
+     C                   eval      NewDataSW = 'X'
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================
+      * Retrieve and check the customer data
+      *=====================================================================
+     C     ChkCusDta     begsr
+     C                   eval      BadCustSW = ' '
+     C     *like         define    Cus01Lnm      Cus01LnmU
+     C     *like         define    Cus01Bth      Cus01BthU
+     C     *like         define    Cus01Pwd      Cus01PwdU
+      * Shift right customer number
+     C                   exsr      ShfRCusN
+     C                   move      xCus01Nbr     Cus01Nbr
+     C     Cus01Nbr      chain     Cus01Rcd
+     C                   if        not%found
+     C                   eval      BadCustSW = 'X'
+     C                   else
+     C                   update    Cus01Rcd
+     C                   endif
+     C     lw:up         xlate     Cus01Lnm      Cus01LnmU
+     C     lw:up         xlate     Cus01Bth      Cus01BthU
+     C     lw:up         xlate     Cus01Pwd      Cus01PwdU
+     C     lw:up         xlate     xCus01Lnm     xCus01Lnm
+     C     lw:up         xlate     xCus01Bth     xCus01Bth
+     C     lw:up         xlate     xCus01Pwd     xCus01Pwd
+     C     xCus01Lnm     ifne      Cus01LnmU
+     C     xCus01Bth     orne      Cus01BthU
+     C     xCus01Pwd     orne      Cus01PwdU
+     C                   eval      BadCustSW = 'X'
+     C                   endif
+      *
+      * Customer data not accepted
+     C                   IF        BadCustSw <> ' '
+     C                   exsr      SetStart
+     C                   callp     wrtsection('start')
+     C                   callp     wrtsection('startbad')
+     C                   callp     wrtsection('starta')
+     C                   exsr      Exit
+     C                   ENDIF
+      *
+     C                   endsr
+      *=====================================================================
+      * Countries to select from
+      *=====================================================================
+     C     SelCtr        begsr
+     C                   callp     wrtsection('ctr')
+      *
+     C                   eval      ctrnam = *blanks
+     C     ctrnam        setll     ctrrec
+      *
+     C                   read      ctrrec
+     C                   dow       not%eof
+     C                   exsr      SetCtrRow
+     C                   callp     wrtsection('ctrrow')
+     C                   read      ctrrec
+     C                   enddo
+      *
+     C                   callp     wrtsection('ctrend')
+     C                   endsr
+      *=====================================================================
+      * Credit card companies to select from
+      *=====================================================================
+     C     SelCard       begsr
+     C                   callp     wrtsection('card')
+      *
+     C                   eval      ccdcom = *blanks
+     C     ccdcom        setll     ccdrcda
+      *
+     C                   read      ccdrcda
+     C                   dow       not%eof
+     C                   exsr      SetCardRow
+     C                   callp     wrtsection('cardrow')
+     C                   read      ccdrcda
+     C                   enddo
+      *
+     C                   callp     wrtsection('cardend')
+     C                   endsr
+      *=====================================================================
+      * Shift right customer number
+      *=====================================================================
+     C     ShfRCusN      begsr
+     C                   if        xCus01Nbr = ' '
+     C                   eval      xCus01Nbr = '0'
+     C                   endif
+     C     ' '           checkr    xCus01Nbr     r1
+     C                   eval      r2 = 7 - r1 + 1
+     C                   movea     *blanks       Arr7
+     C                   movea     xCus01Nbr     Arr7(r2)
+     C                   movea     Arr7          xCus01Nbr
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "top"
+      *=====================================================================
+     C     SetTop        begsr
+      * Order number (character)
+     C                   callp     updHTMLvar('XORH01NBR':xOrh01Nbr)
+      * Current shelf number (character)
+     C                   callp     updHTMLvar('XBCT01NBR':xbct01nbr)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "start"
+      *=====================================================================
+     C     SetStart      begsr
+      * Order number (character)
+     C                   callp     updHTMLvar('XORH01NBR':xOrh01Nbr)
+      * Current shelf number (character)
+     C                   callp     updHTMLvar('XBCT01NBR':xbct01nbr)
+      * Customer number
+     C                   callp     updHTMLvar('XCUS01NBR':xcus01nbr)
+      * Customer last name
+     C                   callp     updHTMLvar('XCUS01LNM':xcus01lnm)
+      * Customer birth date
+     C                   callp     updHTMLvar('XCUS01BTH':xcus01bth)
+      * Customer password
+     C                   callp     updHTMLvar('XCUS01PWD':xcus01pwd)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "newdta"
+      *=====================================================================
+     C     SetNewDta     begsr
+     C                   if        NewDataSW = ' '
+     C                   eval      color01 = 'white'
+     C                   eval      color02 = 'white'
+     C                   eval      color03 = 'white'
+     C                   eval      color04 = 'white'
+     C                   eval      color05 = 'white'
+     C                   eval      color06 = 'white'
+     C                   eval      color07 = 'white'
+     C                   eval      color08 = 'white'
+     C                   eval      color09 = 'white'
+     C                   eval      color10 = 'white'
+     C                   eval      color11 = 'white'
+     C                   eval      color12 = 'white'
+     C                   eval      color13 = 'white'
+     C                   eval      color14 = 'white'
+     C                   endif
+      *
+      * Order number (character)
+     C                   callp     updHTMLvar('XORH01NBR':xOrh01Nbr)
+      * Current shelf number (character)
+     C                   callp     updHTMLvar('XBCT01NBR':xbct01nbr)
+      * Customer number
+     C                   callp     updHTMLvar('XCUS01NBR':xcus01nbr)
+      * Sex
+     C                   callp     updHTMLvar('RADIO1':' ')
+     C                   callp     updHTMLvar('RADIO2':' ')
+     C                   callp     updHTMLvar('RADIO3':' ')
+     C                   eval      varnm = 'RADIO' + xCus01Sex
+     C                   callp     updHTMLvar(varnm:'checked')
+      * First name
+     C                   callp     updHTMLvar('XCUS01FNM':xcus01fnm)
+      * Last name
+     C                   callp     updHTMLvar('XCUS01LNM':xcus01lnm)
+      * Zip code
+     C                   callp     updHTMLvar('XCUS01ZIP':xCus01zip)
+      * Address
+     C                   callp     updHTMLvar('XCUS01ADR':xCus01adr)
+      * City
+     C                   callp     updHTMLvar('XCUS01CIT':xCus01Cit)
+      * State
+     C                   callp     updHTMLvar('XCUS01STA':xCus01Sta)
+      * Birth date
+     C                   callp     updHTMLvar('XCUS01BTH':xCus01Bth)
+      * Password
+     C                   callp     updHTMLvar('XCUS01PWD':xCus01Pwd)
+      * Credit card number
+     C                   callp     updHTMLvar('XCUS01CCN':xCus01CCN)
+      * Credit card owner
+     C                   callp     updHTMLvar('XCUS01CCW':xCus01CCW)
+      * Credit card expiration year
+     C                   callp     updHTMLvar('XCUS01CCY':xCus01CCY)
+      * Credit card expiration month
+     C                   callp     updHTMLvar('XCUS01CCM':xCus01CCM)
+      * Header colors
+     C                   callp     updHTMLvar('COLOR01':Color01)
+     C                   callp     updHTMLvar('COLOR02':Color02)
+     C                   callp     updHTMLvar('COLOR03':Color03)
+     C                   callp     updHTMLvar('COLOR04':Color04)
+     C                   callp     updHTMLvar('COLOR05':Color05)
+     C                   callp     updHTMLvar('COLOR06':Color06)
+     C                   callp     updHTMLvar('COLOR07':Color07)
+     C                   callp     updHTMLvar('COLOR08':Color08)
+     C                   callp     updHTMLvar('COLOR09':Color09)
+     C                   callp     updHTMLvar('COLOR10':Color10)
+     C                   callp     updHTMLvar('COLOR11':Color11)
+     C                   callp     updHTMLvar('COLOR12':Color12)
+     C                   callp     updHTMLvar('COLOR13':Color13)
+     C                   callp     updHTMLvar('COLOR14':Color14)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "cardrow"
+      *=====================================================================
+     C     SetCardRow    begsr
+      * Credit card ID
+     C                   move      CCDNbr        ccdnbrC           3
+     C                   callp     updHTMLvar('XCCDNBR':ccdnbrC)
+      * Credit card company name
+     C                   callp     updHTMLvar('XCCDCOM':ccdcom)
+      * Selected ?
+     C     *like         define    xCCDNbr       yCCDNbr
+     C                   move      CCDNbr        yCCDNBR
+     C     yCCDNbr       ifne      xCCDNbr
+     C                   callp     updHTMLvar('SELECTED':' ')
+     C                   else
+     C                   callp     updHTMLvar('SELECTED':'selected')
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "yrcustno"
+      *=====================================================================
+     C     SetYrCNo      begsr
+      * Customer number (edited)
+     C                   callp     updhtmlvar('YRCUSTNO':
+     C                             %trim(%editw(Cus01Nbr:'     0 ')))
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "exicust"
+      *=====================================================================
+     C     SetExiCust    begsr
+      * Order number
+     C                   callp     updHTMLvar('XORH01NBR':xOrh01Nbr)
+      * Current shelf number (character)
+     C                   callp     updHTMLvar('XBCT01NBR':xbct01nbr)
+      * Customer number
+     C                   callp     updHTMLvar('XCUS01NBR':xcus01nbr)
+      * Customer last name
+     C                   callp     updHTMLvar('XCUS01LNM':xcus01lnm)
+      * Customer first name
+     C                   callp     updHTMLvar('XCUS01FNM':cus01fnm)
+      * Customer birth date
+     C                   callp     updHTMLvar('XCUS01BTH':xcus01bth)
+      * Customer password
+     C                   callp     updHTMLvar('XCUS01PWD':xcus01pwd)
+      * Edited order number (e.g. JAN272000/0000458)
+     C                   callp     updHTMLvar('ORDERNO':OrderNo)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "shipdta"
+      *=====================================================================
+     C     SetShipDta    begsr
+      * Order number (character)
+     C                   callp     updHTMLvar('XORH01NBR':xOrh01Nbr)
+      * Current shelf number (character)
+     C                   callp     updHTMLvar('XBCT01NBR':xbct01nbr)
+      * Customer number
+     C                   callp     updHTMLvar('XCUS01NBR':xcus01nbr)
+      * Customer last name
+     C                   callp     updHTMLvar('XCUS01LNM':Cus01Lnm)
+      * Customer first name
+     C                   callp     updHTMLvar('XCUS01FNM':cus01fnm)
+      * Customer birth date
+     C                   callp     updHTMLvar('XCUS01BTH':xcus01bth)
+      * Customer password
+     C                   callp     updHTMLvar('XCUS01PWD':xcus01pwd)
+      *==================
+      * Shipping data
+      *==================
+      * Last name
+     C                   callp     updHTMLvar('XORH01LNM':xOrh01lnm)
+      * Sex
+     C                   eval      varnm = 'RADIO' + xOrh01Sex
+     C                   callp     updHTMLvar(varnm:'checked')
+      * First name
+     C                   callp     updHTMLvar('XORH01FNM':xOrh01fnm)
+      * Zip code
+     C                   callp     updHTMLvar('XORH01ZIP':xOrh01zip)
+      * Address
+     C                   callp     updHTMLvar('XORH01ADR':xOrh01adr)
+      * City
+     C                   callp     updHTMLvar('XORH01CIT':xOrh01cit)
+      * State
+     C                   callp     updHTMLvar('XORH01STA':xOrh01sta)
+      * Country
+     C                   callp     updHTMLvar('XORH01CTR':xOrh01ctr)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "ctrrow"
+      *=====================================================================
+     C     SetCtrRow     begsr
+      * Country name
+     C                   callp     updHTMLvar('XORH01CTR':CtrNam)
+      * Selected?
+     C     Cus01Ctr      ifeq      CtrNam
+     C                   callp     updHTMLvar('SELECTED':'selected')
+     C                   else
+     C                   callp     updHTMLvar('SELECTED':' ')
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "epilogrow"
+      *=====================================================================
+     C     SetEpiRow     begsr
+      * Item number (edited)
+     C                   callp     updhtmlvar('PIECE':
+     C                             %trim(%editw(pieces:'   0 ')))
+      * Book title
+     C                   callp     updHTMLvar('XBOO01TIT':Boo01Tit)
+      * Price in EUR (edited)
+     C                   callp     updhtmlvar('XBOO01EUR':
+     C                             %trim(%editw(Boo01Eur:'  , 0 .  ')))
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html for section "epilogend"
+      *=====================================================================
+     C     SetEpiEnd     begsr
+      * Total cost of books in EUR (edited)
+     C                   callp     updhtmlvar('VALUE':
+     C                             %trim(%editw(Value:' ,   , 0 .  ')))
+      * Shipping charge (edited)
+     C                   callp     updhtmlvar('CTREUR':
+     C                             %trim(%editw(CtrEur:' 0 .  ')))
+      * Shipping days (edited)
+     C                   callp     updhtmlvar('CTRDAY':
+     C                             %trim(%editw(CtrDay:' 0 ')))
+      * Total cost of order in EUR (edited)
+     C                   callp     updhtmlvar('TOTAL':
+     C                             %trim(%editw(Total:' ,   , 0 .  ')))
+      *==================
+      * Shipping data
+      *==================
+      * First name
+     C                   callp     updHTMLvar('ORH01FNM':Orh01fnm)
+      * Last name
+     C                   callp     updHTMLvar('ORH01LNM':Orh01lnm)
+      * Zip code
+     C                   callp     updHTMLvar('ORH01ZIP':Orh01zip)
+      * Address
+     C                   callp     updHTMLvar('ORH01ADR':Orh01Adr)
+      * City
+     C                   callp     updHTMLvar('ORH01CIT':Orh01Cit)
+      * State / Provice
+     C                   callp     updHTMLvar('ORH01STA':Orh01Sta)
+      * Country
+     C                   callp     updHTMLvar('ORH01CTR':Orh01Ctr)
+      *==================
+      * Credit card data
+      *==================
+      * Credit card company
+     C                   callp     updHTMLvar('CCDCOM':CCDCom)
+      * Credit card number
+     C                   callp     updHTMLvar('CUS01CCN':Cus01CCN)
+      *
+     C                   endsr
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+      *=====================================================================
+     C     LoadHtml      begsr
+      * Read externally defined output html
+     C                   eval      HtmlSrcLib = '*LIBL'
+     C                   eval      HtmlSrcFil = 'HTMLSRC' + lng
+     C                   eval      HtmlSrcMbr = 'FRCNT04'
+     C                   callp     gethtml(HtmlSrcFil:HtmlSrcLib:HtmlSrcMbr:
+     C                             '/CGITAG/')
+      *
+     C                   endsr
+      *=====================================================================
+      * Retrieve a book
+      *=====================================================================
+     C     RtvBook       begsr
+     C     BookKey       klist
+     C                   kfld                    Ord01Bct
+     C                   kfld                    Ord01Boo
+     C     Bookkey       chain     boo01rcd
+     C                   if        %found
+     C                   eval      RtvSW = 'Y'
+     C                   else
+     C                   eval      RtvSW = ' '
+     C                   endif
+     C                   endsr
+      *=====================================================================
+      * Open database files
+      *=====================================================================
+     C     OpenDbf       begsr
+     C                   IF        InitSW = ' '
+     C                   eval      InitSW = 'x'
+      *
+     C                   eval      rc = docmd('OVRDBF FILE(ORD01) +
+     C                             TOFILE(CENTAUR2/ORD01) +
+     C                             RCDFMTLCK((ORD01RCD *SHRUPD)) +
+     C                             WAITRCD(5) SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(BOO01) +
+     C                             TOFILE(CENTAUR2/BOO01) +
+     C                             RCDFMTLCK((BOO01RCD *SHRUPD)) +
+     C                             WAITRCD(5) SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(CUS01) +
+     C                             TOFILE(CENTAUR2/CUS01) +
+     C                             RCDFMTLCK((CUS01RCD *SHRUPD)) +
+     C                             WAITRCD(5) SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(COUNTRIES) +
+     C                             TOFILE(CENTAUR2/COUNTRIES) +
+     C                             SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(ORH01) +
+     C                             TOFILE(CENTAUR2/ORH01) +
+     C                             RCDFMTLCK((ORH01RCD *SHRUPD)) +
+     C                             WAITRCD(5) SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(CCARD) +
+     C                             TOFILE(CENTAUR2/CCARD) +
+     C                             SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(CCARDA) +
+     C                             TOFILE(CENTAUR2/CCARDA) +
+     C                             SECURE(*YES)')
+      *
+     C                   open      ORD01
+     C                   open      BOO01
+     C                   open      CUS01
+     C                   open      COUNTRIES
+     C                   open      ORH01
+     C                   open      CCARD
+     C                   open      CCARDA
+      *
+     C                   ENDIF
+     C                   endsr
+      *=====================================================================
+      * Close database files
+      *=====================================================================
+     C     CloseDbf      begsr
+     C                   close     ORD01
+     C                   close     BOO01
+     C                   close     CUS01
+     C                   close     COUNTRIES
+     C                   close     ORH01
+     C                   close     CCARD
+     C                   close     CCARDA
+     C                   endsr
+      *=====================================================================
+      * Time stamp
+      *=====================================================================
+     C     TimeStamp     begsr
+     C                   time                    TimeNow           6 0
+     C                   time                    CurrDate
+     C                   eval      CurrDateC = %char(CurrDate)
+     C                   eval      DateNow = CurrYYYY + CurrMM + CurrDD
+     C                   move      CurrMM        MonthNbr
+     C                   eval      Month = %subst(Months:
+     C                             (%dec(MonthNbr)-1)*3+1:3)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Time started
+      *=====================================================================
+     C     SetTimeStr    begsr
+     C                   time                    TimeStart
+     C                   endsr
+      *=====================================================================
+      *  Time ended and time elapsed elapsed
+      *=====================================================================
+     C     SetTimeEnd    begsr
+     C                   time                    TimeEnd
+     C     TimeEnd       subdur    TimeStart     MsElaps:*ms
+     C                   eval      SecElaps = MsElaps / 1000000
+     C                   endsr
+      *=====================================================================
+      * Send response html and quit
+      *=====================================================================
+     C     Exit          begsr
+     C*                  exsr      CloseDbf
+      *
+     C                   exsr      SetTimeEnd
+     C                   callp     updhtmlvar('RUNTIME':
+     C                             %trim(%editw(SecElaps:'     0 .   ')))
+     C                   callp     wrtsection('runtime')
+     C                   callp     wrtsection('end')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse the input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      action     = zhbgetvar('action    ')
+     C                   eval      subaction  = zhbgetvar('subaction ')
+     C                   eval      lng        = zhbgetvar('lng       ')
+     C                   eval      xbct01nbr  = zhbgetvar('xbct01nbr ')
+     C                   eval      xbct01des  = zhbgetvar('xbct01des ')
+     C                   eval      xboo01bct  = zhbgetvar('xboo01bct ')
+     C                   eval      xboo01nbr  = zhbgetvar('xboo01nbr ')
+     C                   eval      xboo01tit  = zhbgetvar('xboo01tit ')
+     C                   eval      xboo01eur  = zhbgetvar('xboo01eur ')
+     C                   eval      xord01nbr  = zhbgetvar('xord01nbr ')
+     C                   eval      xord01bct  = zhbgetvar('xord01bct ')
+     C                   eval      xord01boo  = zhbgetvar('xord01boo ')
+     C                   eval      xorh01nbr  = zhbgetvar('xorh01nbr ')
+     C                   eval      xorh01cus  = zhbgetvar('xorh01cus ')
+     C                   eval      xorh01dat  = zhbgetvar('xorh01dat ')
+     C                   eval      xorh01tme  = zhbgetvar('xorh01tme ')
+     C                   eval      xorh01sex  = zhbgetvar('xorh01sex ')
+     C                   eval      xorh01fnm  = zhbgetvar('xorh01fnm ')
+     C                   eval      xorh01lnm  = zhbgetvar('xorh01lnm ')
+     C                   eval      xorh01zip  = zhbgetvar('xorh01zip ')
+     C                   eval      xorh01adr  = zhbgetvar('xorh01adr ')
+     C                   eval      xorh01cit  = zhbgetvar('xorh01cit ')
+     C                   eval      xorh01sta  = zhbgetvar('xorh01sta ')
+     C                   eval      xorh01ctr  = zhbgetvar('xorh01ctr ')
+     C                   eval      xcus01nbr  = zhbgetvar('xcus01nbr ')
+     C                   eval      xcus01sex  = zhbgetvar('xcus01sex ')
+     C                   eval      xcus01lnm  = zhbgetvar('xcus01lnm ')
+     C                   eval      xcus01fnm  = zhbgetvar('xcus01fnm ')
+     C                   eval      xcus01bth  = zhbgetvar('xcus01bth ')
+     C                   eval      xcus01pwd  = zhbgetvar('xcus01pwd ')
+     C                   eval      xcus01zip  = zhbgetvar('xcus01zip ')
+     C                   eval      xcus01adr  = zhbgetvar('xcus01adr ')
+     C                   eval      xcus01cit  = zhbgetvar('xcus01cit ')
+     C                   eval      xcus01sta  = zhbgetvar('xcus01sta ')
+     C                   eval      xcus01ctr  = zhbgetvar('xcus01ctr ')
+     C                   eval      xcus01eml  = zhbgetvar('xcus01eml ')
+     C                   eval      xcus01cci  = zhbgetvar('xcus01cci ')
+     C                   eval      xcus01ccw  = zhbgetvar('xcus01ccw ')
+     C                   eval      xcus01ccn  = zhbgetvar('xcus01ccn ')
+     C                   eval      xcus01ccy  = zhbgetvar('xcus01ccy ')
+     C                   eval      xcus01ccm  = zhbgetvar('xcus01ccm ')
+     C                   eval      xccdnbr    = zhbgetvar('xccdnbr   ')
+     C                   endsr

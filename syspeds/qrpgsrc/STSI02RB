@@ -1,0 +1,322 @@
+********************************************************************
+      * Skriv merkelapper fra Oppdrag ved lossing TERM, Inn
+      *        kopi av merkey gods (I eller E..)
+      *        Nye lapper av umerket gods - om Fr.brev mangler printes basert på oppdrag.
+      *        Ved spredning (mange brev på EN pos. ) så printes for alle!!!
+      * derette blankes skytefil, og gjenoppbygges fra aktuelt oppdrag og nedover
+********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 ta vare på også dato/klokkeslett/user når skytestatus bevares
+      *********************************************************************
+     FDOKUF     IF   E           K DISK
+     FDOKUFM    IF   E           K DISK
+     FDOKUFM1   UF   E           K DISK
+     F                                     RENAME(DOKUFMR:DOKUFMR1)
+     FSTSOPD    UF A E           K DISK
+     FSTSFBR    UF A E           K DISK
+     FSTSCLI    UF A E           K DISK
+     FSTSCLI1   UF   E           K DISK
+     F                                     RENAME(STSCLIR:STSCLIR1)
+     FBRPARF    IF   E           k disk
+     D DOKFMID         s             35
+     D                 DS
+     D  DFBREF                 1     17
+     D  WSBRTX                 1      7
+     D  WSBRAV                 8     11
+     D  WSBRST                12     12
+     D  WSBROP                13     17
+     D                 DS
+     D  FMAI00                 1      2    inz('00')
+     D  FMMRK1                 3     37
+     D  FMMRK18                3     20
+     D  FMCLID                 1     20
+     D                 DS
+     D  SCCLID                 1     20
+     D  SCCLID18               3     37
+     D                 DS
+     D  PRT                    1     50
+     D  LABTYPE                1      1
+     D  LABOUTQ                2     11
+     D  TRANSPORTØR           12     31
+      *
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+      *
+     C                   exsr      Init
+     c     LABOUTQ       ifeq      *blanks
+     c                   eval      UUMSG='Bruker mangler printerstyring.'
+     c                             +' (Param "LABTY").'
+     c                   goto      Slutt
+     c                   end
+      * 1 Print label
+     C                   exsr      PrtLab
+      *
+      * HVIS NYE labels(kolli-IDs) er printet (på minst ett av evt flere fbrev) - gjenoppbygg
+     C     PrtNY         ifeq      'J'
+      * 2 slett eksisterende fra STSOPD og ned...
+     C     OpdKey        CHAIN     STSOPD                             33
+     c     *in33         cabeq     '1'           Slutt
+     c                   delete    stsopdr
+     C                   exsr      DFBR
+     C                   exsr      DCLI
+      * 3 Hent inn igjen data/gjenoppbygg skytefil
+     C                   EXSR      HETTOPD
+     c                   end
+      *
+     c     Slutt         tag
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+     C***********************************************
+     C     PrtLab        BEGSR
+     C***********************************************
+     c                   move      'N'           Prtny             1
+      ** ett brev..
+     c     UUFBNR        ifne      *zeros
+      ** skjer ikke foreløpig ved kall fra STSI02R
+     c                   else
+      *  prt labels for alle brev på oppdraget
+     C     DOKUFK        SETLL     DOKUF
+     C     DOKUFK        READE     DOKUF                                  33
+     C     *IN33         DOWEQ     '0'
+     C                   EXSR      PrtLab2
+     C     DOKUFK        READE     DOKUF                                  33
+     C  N33              ENDDO
+      * fant ingen - skriv på oppdragsnivå
+     c                   IF        DF1004 = *blanks
+     C                   z-add     1             DFFBNR
+     C                   EXSR      PrtLab2
+     c                   end
+     c                   end
+      *
+     c                   endsr
+      *******************************************************************
+     c     PrtLab2       begsr
+      *******************************************************************
+     C                   MOVE      HEAVD         FMAVD
+     C                   MOVE      HEOPD         FMOPD
+     C                   MOVE      DFFBNR        FMFBNR
+      * hvis brevet er DUPPet så ligger Kolli-IDs under DUPEN (/fb 1)
+     C     WSBRTX        ifeq      'Utk.op:'
+     C                   MOVE      WSBRAV        FMAVD
+     C                   MOVE      WSBROP        FMOPD
+     C                   z-add     1             FMFBNR
+     C                   end
+      * Om det IKKE finnes - skriv original , ellers, kopi
+     C     DOKFMK        SETLL     DOKUFM
+     C     DOKFMK        READE     DOKUFM                                 33
+     c     *in33         doweq     '0'
+     c     FMst          ifeq      'I'
+     c     FMst          oreq      'E'
+     c                   leave
+     c                   end
+     C     DOKFMK        READE     DOKUFM                                 33
+     c                   end
+      *
+     c                   select
+     c     FMst          wheneq    'I'
+     C                   MOVE      'J'           UUKOPI            1
+     c                   eval      UUMSG = 'Kopi av internt utstedte lapper '
+     c                             +'er skrevet'
+     c     FMst          wheneq    'E'
+     C                   MOVE      'J'           UUKOPI
+     c                   eval      UUMSG = 'Kopi av eksternt motatte lapper '
+     c                             +'er skrevet'
+     c                   other
+     c                   move      'J'           Prtny
+     C                   MOVE      'N'           UUKOPI
+     c                   eval      UUMSG = 'NYE lapper (m/nye kolliIDs)'
+     c                             +' er skrevet'
+     c                   endsl
+
+      *
+      * Basert på oppdrag eller brev..
+     c     DF1004        Ifeq      *blanks
+     C     WSBRTX        oreq      'Utk.op:'
+      * hvis ingen fraktbrev fantes - print labels basert på oppdraget.
+      * hvis Duppet -  print kopi basert på dup.oppdraget..
+     c                   move      'HE'          VMLAYO                         basert på Headf
+     C                   move      FMAVD         DFAVD
+     C                   move      FMOPD         DFOPD
+     C                   move      *zeros        DFFBNR
+     c                   else
+     c                   move      '  '          VMLAYO                         basert på fbrev
+     c                   end
+      *
+     C                   Call      LABPGM
+     C                   PARM                    UUFIRM
+     C                   PARM                    VMLAYO            2
+     C                   PARM                    DFAVD
+     C                   PARM                    DFOPD
+     C                   PARM                    DFFBNR
+     C                   PARM                    UUKOPI
+      *
+     c     UtPrt         endsr
+      *
+     C***********************************************
+     C     DCLI          BEGSR
+     C***********************************************
+      *
+     C     OpdKey        SETLL     STSCLI
+     C     OpdKey        READE     STSCLI                                 94
+     C     *IN94         DOWEQ     '0'
+      * Dersom kolli-Id finnes i dokufm (Ekstern/beholdt ved reprint..) mellomlagre skytestatus
+     c                   eval      DOKFMID = SCCLID18
+s01  c*    DOKFMID       chain     dokufm1
+s01  c* n33              move      scstat        FMITER
+s01  c* n33              update    dokufmr1
+n01  c     DOKFMID       chain     dokufm1                            33
+n01  C     *IN33         ifeq      '0'
+n01  c                   move      scstat        FMITER
+n01  c                   move      SCDT          FMITDT
+n01  c                   move      *zeros        FMITTM
+n01  c                   movel     SCTID         FMITTM
+n01  c                   move      SCUSER        FMITUS
+n01  c                   update    dokufmr1
+n01  C                   endif
+     c                   delete    stsclir
+     C     OpdKey        READE     STSCLI                                 94
+     C  N94              ENDDO
+      *
+     c                   ENDSR
+     C***********************************************
+     C     DFBR          BEGSR
+     C***********************************************
+      *
+     C     OpdKey        SETLL     STSFBR
+     C     OpdKey        READE     STSFBR                                 94
+     C     *IN94         DOWEQ     '0'
+     c                   delete    stsfbrr
+     C     OpdKey        READE     STSFBR                                 94
+     C  N94              ENDDO
+      *
+     c                   ENDSR
+      *
+     C***********************************************
+     C     HETTOPD       BEGSR
+     C***********************************************
+     C                   CLEAR                   STSOPDR
+     C                   MOVE      STTYPE        SOTYPE
+     C                   MOVE      WSPRO         SOPRO
+     C                   MOVE      HEAVD         SOAVD
+     C                   MOVE      HEOPD         SOOPD
+      *
+     C                   EXSR      HFBR
+      *
+     C                   WRITE     STSOPDR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HFBR          BEGSR
+     C***********************************************
+     C     DOKUFK        SETLL     DOKUF
+     C     DOKUFK        READE     DOKUF                                  33
+      * ingen fraktbrev, simuler nr 001 ("frittstående" edimottatte CLID!!!)
+     C     *in33         ifeq      '1'
+     C                   Z-add     1             DFFBNR
+     C                   goto      dummyf
+     C                   end
+     C     *IN33         DOWEQ     '0'
+     C     dummyf        tag
+     C                   ADD       1             SOANFB
+     C                   CLEAR                   STSFBRR
+     C                   MOVE      SOTYPE        SFTYPE
+     C                   MOVE      WSPRO         SFPRO
+     C                   MOVE      SOAVD         SFAVD
+     C                   MOVE      SOOPD         SFOPD
+     C                   MOVE      DFFBNR        SFFBNR
+      *
+     C                   EXSR      HCLI
+      *
+     C                   WRITE     STSFBRR
+     C     DOKUFK        READE     DOKUF                                  33
+     C  N33              ENDDO
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HCLI          BEGSR
+     C***********************************************
+     C                   MOVE      SFAVD         FMAVD
+     C                   MOVE      SFOPD         FMOPD
+     C                   MOVE      SFFBNR        FMFBNR
+      * hvis brevet er DUPPet så ligger Kolli-IDs under DUPEN (/fb 1)
+     C     WSBRTX        ifeq      'Utk.op:'
+     C                   MOVE      WSBRAV        FMAVD
+     C                   MOVE      WSBROP        FMOPD
+     C                   z-add     1             FMFBNR
+     C                   end
+     C     DOKFMK        SETLL     DOKUFM
+     C     DOKFMK        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   ADD       1             SFANKI
+     C                   CLEAR                   STSCLIR
+     C                   MOVE      SFTYPE        SCTYPE
+     C                   MOVE      WSPRO         SCPRO
+     C                   MOVE      SFAVD         SCAVD
+     C                   MOVE      SFOPD         SCOPD
+     C                   MOVE      FMFBNR        SCFBNR
+     C                   MOVE      FMCLID        SCCLID
+     C                   WRITE     STSCLIR
+     C     DOKFMK        READE     DOKUFM                                 33
+     C  N33              ENDDO
+      *
+     C                   ENDSR
+      *************************************************************
+     C     INIT          begsr
+      *************************************************************
+     c     *entry        plist
+     c                   parm                    UUFIRM            2
+     c                   parm                    UUBRID           10
+     c                   parm                    STTYPE            5
+     c                   parm                    WSPRO             8 0
+     c                   parm                    HEAVD             4 0
+     c                   parm                    HEOPD             7 0
+     c                   parm                    UUFBNR            3 0
+     c                   parm                    UUMSG            50
+      *
+     C     OPDKEY        KLIST
+     C                   KFLD                    STTYPE
+     C                   KFLD                    WSPRO
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+      *
+     C     DOKUFK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   MOVE      'F'           DFRI
+     C     DOKFMK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+      *
+     C     BrParKey      klist
+     C                   kfld                    UUBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      'LABTY'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     C                   MOVE      PAVRDA        PRT
+     c                   IF        LABTYPE = 'E'
+     C                   MOVE      'SYFA12SE  '  LABPGM           10
+     C                   EVAL      CMDLINE = 'OVRPRTF FILE(SYLA03P) OUTQ('+
+     c                             %trim(LABOUTQ)+') SPLFOWN(*JOB) ' +
+     C                             'OVRSCOPE(*JOB)'
+     c                   else
+     C                   MOVE      'SYFA12SN  '  LABPGM           10
+     C                   EVAL      CMDLINE =  'OVRPRTF FILE(ZBARC) OUTQ('+
+     C                             %trim(LABOUTQ)+') SPLFOWN(*JOB) ' +
+     C                             'OVRSCOPE(*JOB)'
+     c                   end
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *
+     c                   ENDSR

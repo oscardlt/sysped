@@ -1,0 +1,188 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJOPOS1 MODULE(*LIBL/TJOPOS1 *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          S             10
+     d jsonstring      s          32000
+     d error           s            150
+     d rowhead         s             10
+     d odd             s             10
+     d even            s             10
+     d logoimg         s             50
+     d xsprak          s              2
+     d xintern         s              1
+     d parmds1         s           1024
+     d parmds2         s           1024
+     d parmds3         s           1024
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+     ‚* Prototype
+     d jsonescape      pr                  extpgm('JSONESC')
+     d   jsonstr                  32000a
+     ‚*  Prototype for 'ESGETPAR'
+     d esgetpar        pr                  extpgm('ESGETPAR')
+     d bibrid_                             like(bibrid)
+     d bifirm_                             like(bifirm)
+     d bikunr_                             like(bikunr)
+     d bikng_                              like(bikng)
+     d rowhead_                            like(rowhead)
+     d odd_                                like(odd)
+     d even_                               like(even)
+     d logoimg_                            like(logoimg)
+     d xsprak_                             like(xsprak)
+     d xintern_                            like(xintern)
+     d parmds1_                            like(parmds1)
+     d parmds2_                            like(parmds2)
+     d parmds3_                            like(parmds3)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for bilibl
+     d bilibl_001      pr                  extpgm(bilibl)
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      * Prolog3=GetInput
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+       // Get input /parse input string
+       exsr parse;
+
+       // File open / keys
+       exsr init;
+
+
+       exsr setall;
+
+       // File close/exit
+       exsr exit;
+
+       *inlr = *on;
+       return;
+
+
+       //**************************
+       begsr parse;
+       //**************************
+         // Parse variables from QUERY_STRING environment variable
+         // Userid.....
+         WSUSER  = zhbgetvar('USER');
+         // result  = %xlate(LC:UC:source:startpos);
+         WSUSER  = %xlate(LC:UC:WSUSER);
+       endsr;
+
+
+       //**************************
+       begsr exit;
+       //**************************
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+
+         close bridf;
+       endsr;
+
+
+       //**************************
+       begsr setall;
+       //**************************
+
+         jsonstring='{'
+         +'¬inp_user¬ : ¬'+%trim(WSUSER)+'¬ ';
+         exsr skrivjson;
+
+         exsr tstinput;
+
+         if error=*blanks;
+    ‚      // gyldig input er gitt - vis info om ett oppdrag
+           // fiks gitte data
+           jsonstring=', '
+           +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+           +'¬kunde¬ : ¬'+%trim(%editc(BIKUNR:'Z'))+'¬,'
+           +'¬sdato¬ : ¬'+%trim(%editw(BIDTV:'    .  .  '))+'¬,'
+           +'¬stid¬ : ¬'+%trim(%editw(BITIDV:'    .  .  '))+'¬,'
+           +'¬bookref¬ : ¬'+' '+'¬, '
+           +'¬sendref¬ : ¬'+' '+'¬, '
+           +'¬blnr¬ : ¬'+' '+'¬, '
+           +'¬contnr¬ : ¬'+' '+'¬, '
+           +'¬godsnr¬ : ¬'+' '+'¬, '
+           +'¬kolliid¬ : ¬'+' '+'¬';
+           exsr skrivjson;
+         endif;
+
+    ‚    //avslutning
+         jsonstring=', ¬errMsg¬ : ¬'+%trim(error)+'¬ }';
+         exsr skrivjson;
+
+       endsr;
+
+
+       //**************************
+       begsr tstinput;
+       //**************************
+
+       endsr;
+
+
+       //**************************
+       begsr init;
+       //**************************
+       // prepare HTMLbuffer - write top section
+         gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+         wrtsection('top');
+
+         open bridf;
+         chain WSUSER bridf;
+         if not %found;
+         // kall på SkrivJSON/jsonescape (extpg JSONESC) kan feile om ikke libl er satt..
+         //         - alternativt må vi ALLTID sørge for at JSONESC ligger i SYSPED
+           jsonstring='{"errMsg" : "Ugyldig userid"}';
+           updhtmlvar2('JSONstring':%addr(jsonstring):%len(jsonstring));
+           wrtsection('JSONlin');
+           // send htmlbuffer + avslutt
+           wrtsection('*fini');
+           close bridf;
+           *inlr = *on;
+           return;
+         else;
+           if bilibl = *blanks;
+             incgi ( bistdl );              // standardliste via nr
+           else;
+             bilibl_001();                  // helt egen libl
+           endif;
+             esgetpar ( bibrid : bifirm : bikunr : bikng : rowhead : odd :
+             even : logoimg : xsprak : xintern: parmds1 : parmds2 : parmds3);
+         endif;
+
+       endsr;
+
+       //**************************
+       begsr skrivjson;
+       //**************************
+         callp jsonescape(jsonstring);
+         updhtmlvar2('JSONstring':%addr(jsonstring):%len(jsonstring));
+         wrtsection('JSONlin');
+       endsr;
+
+      /end-free

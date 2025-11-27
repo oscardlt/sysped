@@ -1,0 +1,361 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTERE XML-FIL TIL LOGISTIKKSYSTEM ***
+      *** Kingsrød DK - Vareinngang                           3***
+      ***********************************************************
+      *
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCAF   IF   E           K DISK                                         Attributter
+      *
+     FLLVARE01  UF A E           K DISK
+     FLLTARF    UF A E           K DISK
+     FLLAGJL01  UF A E           K DISK
+xxx  FLLAGJFEU  UF A E           K DISK
+     FLLLISF    O  A E           K DISK
+     FLLMRT     UF A E           K DISK
+     FLLMRF     O  A E             DISK
+     FLLTELL    UF   E             DISK
+     D xxTDTA          S              8A
+     D*xxINVno         S             15A
+     D xxINVno         S             35A
+     D xxItem          S             25A
+     D xxTARno         S             15A
+     D xxOrLk          S              2A
+     D xxNetV          S              7  2
+     D xxGrosV         S              7  2
+     D xxGrosVcust     S              7  2
+     D xxEnhM3         S              7  4
+     D xxStkKRT        S              7  0
+     D xxKRTVkt        S              7  2
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+      * Les EN OG EN TAG ("Nøstede tager" kommer nå i "rett rekkefølge" )
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   EXSR      SRXML2
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      * Handling utfra tag-navn
+      *    ( ekstra tester dersom samme tagnavn fins på flere nivå                     )
+      *    ( les i filene XMLRCAF (attributt-verdier)+ XMLRCLF ("Extras") om nødvendig )
+     C                   SELECT
+      * Start Mrap-header
+     C                   WHEN      XRNV = 'Header'
+     c                   clear                   LLMRFR
+      *
+      * Ordrenummr  = Lev. REF
+     C                   WHEN      XRNV = 'OrderNo'
+     c                   eval      MRLREF = XRVERD
+      * Reciept     = kun. REF
+     C                   WHEN      XRNV = 'ReceiptNo'
+     c                   eval      MRKREF = XRVERD
+     C* FAKTURANr...... (Lagres både på mrap-header og Lisens med kode FAK)
+     C*                  WHEN      XRNV = 'InvoiceNo'
+     C                   WHEN      XRNV = 'VendorsInvoiceNo'
+N01  c                   eval      MRLREF = XRVERD
+     c                   eval      xxINVno= XRVERD
+     C* Lev navn/adr mm (Country regnes som varens opprinnelse...)
+     C                   WHEN      XRNV = 'Name'
+     c                   eval      MRLNA  = XRVERD
+     C                   WHEN      XRNV = 'Address'
+     c                   eval      MRLAD1 = XRVERD
+     C                   WHEN      XRNV = 'AdditionalAddress'
+     c                   eval      MRLAD1 = XRVERD
+     C                   WHEN      XRNV = 'CountryCode'
+     c                   eval      xxOrLk = XRVERD
+     c                   movel     '*PENDING*'   MRGN
+     c                   movel     'Ori:'        OriLand           6
+     c                   move      xxOrLk        Oriland
+     c                   move      OriLand       MRTRNR
+     C                   WHEN      XRNV = 'PostCode'
+     c                   eval      MRLAD3 = XRVERD
+     C                   WHEN      XRNV = 'City'
+     c                   eval      MRLAD3 =%trim(MRLAD3)+' '+ XRVERD
+      * Dato er siste element i header  format: 2014-06-10
+     C                   WHEN      XRNV = 'WarehouseDate'
+     c                   eval      xxtdtA = %subst(XRVERD:1:4)
+     c                             +%subst(XRVERD:6:2)+%subst(XRVERD:9:2)
+     c                   movel     xxTDTA        MRDT
+      ***
+     C                   EXSR      SRHEAD
+      ***
+      ***
+      ***
+      * Start Pakseddel-linjer (Kun tollager-linjer skrives til LLINE )
+      ***
+     C                   WHEN      XRNV = 'Line'
+     c                   move      'J'           OKlinje           1
+     c                   move      *blanks       Bonded            5
+     c                   clear                   LLAGJR
+xx   c                   clear                   LLAGJEUR
+     C
+      * ItemNo
+      * Ta vare på ItemNo = fullt varenr (stylenr + farge/size) i el LIS-post
+     C                   WHEN      XRNV = 'ItemNo'
+     c                   eval      xxItem = XRVERD
+      * Artnr
+     C                   WHEN      XRNV = 'StyleNo'
+     c                   eval      VAANR  = XRVERD
+      * Tariffnr
+      * (ved uttak fra tollager benyttes IKKE tolltariffnr fra fil men fra innlegg)
+     C                   WHEN      XRNV = 'TariffNo'
+     c                   eval      xxTARno = XRVERD
+xx    * Opprinnelse
+xx   C                   WHEN      XRNV = 'CountryOfOrigin'
+xx   c                   eval      VAOPLK = XRVERD
+      * Beskrivelse
+     C                   WHEN      XRNV = 'Description'
+     c                   eval      VAVARE = XRVERD
+      * Tollagerlinje??
+     C                   WHEN      XRNV = 'BondedWarehouse'
+     c                   eval      Bonded = XRVERD
+     c     Bonded        IFne      'true'
+     c                   move      'N'           OKlinje
+     c                   end
+      * Mengde (dersom 0 - skipp )
+     C                   WHEN      XRNV = 'CustomsQuantity'
+     c                   eval(H)   VAOANT = %float(XRVERD)
+     C                   z-add     VAOANT        VASALD
+     C                   z-add     VAOANT        VASAE0
+     c     VAOANT        ifeq      0
+     c                   move      'N'           OKlinje
+     c                   end
+      * Kostpris
+      *  - punktum som desimal..eks:  22.38
+     C*                  WHEN      XRNV = 'UnitCostPrice'
+     C                   WHEN      XRNV = 'DirectUnitCost'
+     c                   eval(H)   VAVERD = %float(XRVERD)
+      * valuta ligger som attributt (ogs enhet , men ds SKAL være PCS..)
+     C     XMLKEY01      setll     XMLRCAF
+     C     XMLKEY01      reade     XMLRCAF                                33
+     C     *IN33         doweq     *off
+     c                   if        XRATN  = 'CurrencyCode'
+     c                   eval      VAFAR  = XRATV
+     c                   leave
+     c                   endif
+     C     XMLKEY01      reade     XMLRCAF                                33
+     C                   enddo
+      * Enh.Netto vekt
+     C                   WHEN      XRNV = 'UnitNetWeight'
+     c                   eval(H)   xxNetV = %float(XRVERD)
+     C                   WHEN      XRNV = 'CustomsNetWeight'
+     c                   eval(H)   VAVKT0 = %float(XRVERD)
+      * Enh.Brutto vekt
+     C                   WHEN      XRNV   = 'UnitGrossWeight'
+     c                   eval(H)   xxGrosV= %float(XRVERD)
+     C                   WHEN      XRNV   = 'CustomsGrossWeight'
+     c                   eval(H)   VAVKF0 = %float(XRVERD)                      Brutto i Fraktvekt.
+     c                   eval(H)   xxGrosVcust= %float(XRVERD)
+      * enhets M3
+     C                   WHEN      XRNV = 'UnitCubage'
+     c                   eval(H)   VAKUB0 = %float(XRVERD)
+     c                   eval(H)   xxEnhM3= %float(XRVERD)
+      * ant stk pr kartong
+     C                   WHEN      XRNV = 'QuantityPerParcel'
+     c                   eval(H)   xxStkKRT = %float(XRVERD)
+      * kartong-vekt
+     C                   WHEN      XRNV = 'ParcelWeight'
+     c                   eval(H)   xxKrtVkt = %float(XRVERD)
+      *<ParcelWeight> er siste Tag - skriv linje
+     c     OKlinje       ifeq      'J'
+     C                   exsr      SRLine
+     C                   end
+      *
+     C                   ENDSL
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRhead        BEGSR
+      ***********************************************
+      *Lagrer EDIsendnr SIST I KREF
+     c                   MOVEL     'EDI:'        USNTX            13
+     c                   MOVE      USN           USNTX
+     c                   MOVE      USNTX         MRKREF
+     C                   MOVE      XKJED         MRGRUP
+     C                   MOVE      XPNR          MRKJED
+      * tildel Mrap.nr/Skriv
+     C     LMRTK         CHAIN     LLMRT                              33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      MTNR          MRMRNR
+     C                   ADD       1             MTNR
+     C                   UPDATE    LLMRTR
+     C                   ELSE
+     C                   Z-ADD     1             MRMRNR
+     C                   Z-ADD     2             MTNR
+     C                   MOVE      XKJED         MTGRUP
+     C                   MOVE      XPNR          MTKJED
+     C                   WRITE     LLMRTR
+     C                   END
+     C                   WRITE     LLMRFR
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRLine        BEGSR
+      ***********************************************
+      *
+     c                   eval      VAGRUP = XKJED
+     c                   eval      VAKJED = XPNR
+     c                   if        VAVKT0 = 0
+     c                   eval      VAVKT0 = 0.01
+     c                   endif
+     c                   eval(H)   VAVKTS = VAVKT0 * VAOANT
+      * OPPDATER ARTIKKELREGISTER
+     C     LLVARE01K     CHAIN     LLVARE01                           33
+     C     *IN33         IFEQ      '1'
+     C                   CLEAR                   LLVARER
+     C                   MOVE      'A'           LVAKT
+     C                   MOVE      XKJED         LVGRUP
+     C                   MOVE      XPNR          LVPNR
+     C                   MOVE      VAANR         LVANR
+     C                   MOVE      VAVARE        LVVB
+     C                   MOVE      'STK'         LVEH0
+     C                   MOVEL     'STYKK'       LVEH0T
+     C                   MOVE      'ESK'         LVEH1
+     C                   MOVEL     'ESKE'        LVEH1T
+     C                   MOVE      'KRT'         LVEH2
+     C                   MOVEL     'KARTONG'     LVEH2T
+     C                   MOVE      'PAL'         LVEH3
+     C                   MOVEL     'PALL'        LVEH3T
+     C                   MOVE      'STK'         LVMEH
+     C                   Z-ADD     0             LVMIN
+     C                   END
+     C                   MOVE      VAVKT0        LVVKT0
+     C                   MOVE      VAVKF0        LVVKF0                         F-vkt lånes- Brutto
+     C                   eval      LVKUB0  = xxEnhM3
+     C                   eval      LVKUF0  = xxEnhM3
+     C                   MOVEL     'XMLNAV'      LVBUSE
+     C                   MOVE      WDT           LVBDAT
+     C                   MOVE      WTM           LVBKL
+     C     *IN33         IFEQ      '1'
+     C                   WRITE     LLVARER
+     C                   ELSE
+     C                   UPDATE    LLVARER
+     C                   END
+      * Oppdater Tariffnr
+     C                   MOVE      XKJED         LTGRUP
+     C                   MOVE      XPNR          LTPNR
+     C                   MOVE      VAANR         LTANR
+     C                   MOVE      'DK'          LTLK
+     C     LLTARKey      CHAIN     LLTARF                             33
+     C                   MOVEL     xxTARno       LTTANR
+     C                   MOVE      xxOrLk        LTLKOP
+     c   33              write     LLTARFR
+     c  N33              update    LLTARFR
+      * OPPDATER LAGER-innlegspost
+     C     3             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        VAMN
+      *
+     c                   eval      VALLOK = 'KTTL '+'X'
+     c                   eval      VALLT  = 'A  '
+     C                   MOVE      MRMRNR        VAMRNR
+     C                   MOVE      99999999      VADATO
+     C                   MOVEL     'XMLNAV'      VABUSE
+     C                   MOVE      WDT           VABDAT
+     C                   MOVE      WTM           VABKL
+      *
+     C                   WRITE     LLAGJR
+xx   C                   WRITE     LLAGJEUR
+      *
+      *
+      * Fakturanr
+     C                   MOVE      VAMN          LIMN
+     C                   Z-ADD     1             LILN
+     C                   MOVE      'FAK'         LIKD
+     C                   MOVE      *blanks       LITXT
+     C                   MOVEL     xxINVno       LITXT
+     c                   write     LLLISFR
+      * Ta vare på Triffnummer benyttet ved INNLEGG slik at UTTAK kan avskrive p
+     C                   MOVE      VAMN          LIMN
+     C                   ADD       1             LILN
+     C                   MOVE      'TAR'         LIKD
+     C                   MOVE      *blanks       LITXT
+     C                   MOVEL     xxTARno       LITXT
+     c                   write     LLLISFR
+      * Ta vare på fullt varenr - just fo rthe hell of it
+     C                   MOVE      VAMN          LIMN
+     C                   ADD       1             LILN
+     C                   MOVE      'ITE'         LIKD
+     C                   MOVE      *blanks       LITXT
+     C                   MOVEL     xxItem        LITXT
+     c                   write     LLLISFR
+     c
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+NXX  C     LLVARE01K     KLIST
+NXX  C                   KFLD                    XKJED
+NXX  C                   KFLD                    XPNR
+NXX  C                   KFLD                    VAANR
+     C     LLTARKey      KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    LTANR
+     C                   KFLD                    LTLK
+     C     LMRTK         KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+      * for henting av attributt på samme nivå
+     C     XMLKEY01      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    XRLEV1
+     C                   KFLD                    XRLEV2
+     C                   KFLD                    XRLEV3
+     C                   KFLD                    XRLEV4
+     C                   KFLD                    XRLEV5
+     C                   KFLD                    XRLEV6
+     C                   KFLD                    XRLEV7
+     C                   KFLD                    XRLEV8
+     C                   KFLD                    XRLEV9
+      *
+     C                   MOVE      USN           XRSN
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     21453         XPNR              8 0
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           WDT08             8 0
+      *
+      * Det må finnes MINST EN med BondedWarehouse = true dersom filens skal behanldes
+      * (kunne her lest på key med fila er ikke større enn at det enkle er det beste..)
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   If        XRNV = 'BondedWarehouse'
+     c                             and  XRVERD = 'true'
+     c                   leave
+     c                   endif
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      * 94 on = fant ingen true ...
+     C     *In94         ifeq      *ON
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   endif
+      *
+     C                   ENDSR
+      *

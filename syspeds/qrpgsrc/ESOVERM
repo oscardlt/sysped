@@ -1,0 +1,309 @@
+      ****************************************************************************************
+      * Generere mail med link til oversjøsystem                                             *
+      ****************************************************************************************
+      * OBS!!!! BRUKER FUNKSJONER FRA CGIDEV2 - MÅ KOMPILERES SPESIELT.....:                 *
+      *         DFTACTGRP(*NO) ACTGRP(CGI)     går bra                                       *
+      *         - om dette er opimalt /eneste måte vites ikke - bør sjekkes                  *
+      ****************************************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 CRLF BAK URL ...
+10XXX * 02 JOV PTF10 CRLF DIREKTEFEFINER VIA HEX
+********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+     FFIRM      IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+     FBRIDF     IF   E           K DISK
+     FARKSRC160 O    E             DISK    USROPN
+     F                                     RENAME(arksrc160:arcdat)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+N01   * Definere  hex 0D / 25 (CRLF)
+s02  D*Hex0D           c                   x'0D'
+s02  D*Hex25           c                   x'25'
+N02  D CrLf            c                   x'0D25'
+     D                 DS
+     D  DGR                    1      7    DIM(7)
+     D  DgrA                   1      7
+      *Definisjon av variabler
+     D EMNE            S             70
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  IDagÅR                 1      4  0
+     D  IDagÅR2                3      4  0
+     D  IDagMND                5      6  0
+     D  IDagDAG                7      8  0
+     D  IDag                   1      8  0
+      * User space variables
+     D UsrSpcName      s             10
+     D UsrSpcLib       c                   'SYCGIUSP'
+      * State related variables
+     D State           ds                  based(StateP)
+     D  UBRID                        10
+     D  UINNDT                        8
+     D  UINNTM                        6
+      * Message ID for CrtUsrSpc
+     D MsgId           s              7
+      *
+     C                   exsr      INIT
+      *
+      * Sjekk alle eSped users på aktuelt firma
+     c     *loval        setll     BRIDF
+     c                   read      BRIDF                                  33
+     c     *in33         doweq     *off
+     c     BIFIRM        ifeq      FIFIRM
+TMP  c**   BIBRID        andeq     'OVERSJ'
+     c                   exsr      EnUser
+     c                   end
+     c                   read      BRIDF                                  33
+     c                   end
+      *
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      *
+      ******************************************************************************
+     C     EnUser        BEGSR
+      ******************************************************************************
+      *  Hvis bruker har kode OSMAI og aktuell dag stemmer - send mail
+      *  (ingen dager oppgitt tolkes som 12345 = mandag-fredag)
+     c     UserKey       setll     BRPARF
+     c     UserKey       reade     BRPARF                                 33
+     c     *in33         doweq     *off
+     c                   z-add     PAVRDN        DgrN              7 0
+     c     DgrN          ifne      *zeros
+     c                   Move      DgrN          DgrA
+     c                   else
+     c                   Move      '0012345'     DgrA
+     c                   end
+     C     DagNrA        LOOKUP    DGR                                    33
+     c     *IN33         ifeq      '1'
+     c                   exsr      SndMail
+     c                   end
+     c     UserKey       reade     BRPARF                                 33
+     c                   end
+      *
+     c                   ENDSR
+      *
+      ******************************************************************************
+     C     SndMail       BEGSR
+      ******************************************************************************
+      * tildel en USERSPACE for Brukeren som er gyldig til neste nattrutine
+     C                   eval      UsrSpcName= CrtUsrSpc(
+     C                               UsrSpcLib : StateP : MsgID : '*ALL')
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    UINNDT
+     C                   PARM                    UINNTM
+     C                   MOVEL     BIBRID        UBRID
+     C
+      *  Subject / emne
+     C                   eval      EMNE = 'Track & Trace info from '
+     C                             + FIFT
+      *  Fyll opp sourcefil som brukes som body
+     C                   open      ARKSRC160
+     c                   move      *zeros        srcseq
+      *
+     C                   eval      SRCDTA = 'Information about booking '
+     C                             +'and status from '
+     C                             + %trim(FIFT) +'.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Please click the link below.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      * URL-en (DirLnk=Y gjør at kall tillates selv om timout, MEN UsrSpcName MÅ finnes)
+S01  C*                  eval      SRCDTA = %trim(IPExt)
+N01  c                   move      *blanks       TMPlink         160
+N01  C                   eval      TMPlink= %trim(IPExt)
+     c                             + '/sycgip/esovers1.pgm?user='
+     C                             + %trim(BIBRID) + '&UsrSpcName='
+     C                             + %trim(UsrSpcName) + '&DirLnk=Y'
+N01  C                   eval      SRCDTA = 'Click <A HREF="'
+N01  c                             +%trim(TMPlink)+'">here</A> to view '
+N01  c                             +'your bookings.'
+N01  c                   add       1             srcseq
+N01  C                   WRITE     arcdat
+N01   *
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+N01  C                   eval      SRCDTA = 'Or, if your mail client does not'
+N01  C                             +'support HTML, use this link in your '
+N01  C                             +'browser.'
+N01  c                   add       1             srcseq
+N01  C                   WRITE     arcdat
+N01   *
+N01   * full link
+N01  C                   eval      SRCDTA = %trim(TMPlink) +' .'
+N01  c                   add       1             srcseq
+N01  C                   WRITE     arcdat
+      *
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Please note that the above link '
+     C                             +'- due to security reasons - '
+     C                             +'is valid only today.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '(New valid links are sent on '+
+     C                             'agreed days)'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Please note that you can - '
+     C                             +'at any time - '
+     C                             +'get your information via '
+     C                             +'our web site. '
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     c     HPeSped       ifne      *blanks
+     C                   eval      SRCDTA = 'Find the link '
+     C                             +%trim(HPeSped)
+     C                             +' on our website (below).'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C                   eval      SRCDTA = 'Log on with your '
+     C                             +'personal UserID and Password. '
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+S01  C*                  eval      SRCDTA = HomePage
+N01  C                   eval      SRCDTA = %trim(HomePage)+' .'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      *
+     C                   close     ARKSRC160
+      *
+     c                   eval      XXavad = NOREPLY
+     c                   eval      XXavNa = XXavad
+     C                   MOVEL     PAVRDA        XXINT1
+     C                   MOVEL     PAVRDA        XXNAV1
+     C                   CALL      'ESOVERMC2'
+     C                   PARM                    UUnik
+     C                   PARM                    Emne
+     C                   PARM                    XXavNa           50
+     C                   PARM                    XXavAd           50
+     C                   PARM                    XXNAV1           50
+     C                   PARM                    XXINT1           50
+     C                   PARM                    XXNAV2           50
+     C                   PARM                    XXINT2           50
+     C                   PARM                    XXNAV3           50
+     C                   PARM                    XXINT3           50
+     C                   PARM                    XXNAV4           50
+     C                   PARM                    XXINT4           50
+     C                   PARM                    XXNAV5           50
+     C                   PARM                    XXINT5           50
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    UUnik             7
+      *
+     C     *loval        setll     FIRM
+     c  N34              read      FIRM                                   34
+      * Hent parameter for URL-Ekstern (IPadresse  til Esped-link) og for framtid Intern
+     C     FirmKey       klist
+     C                   kfld                    DFTUSER          10
+     C                   kfld                    NULLKU            8 0
+     C                   kfld                    PAID
+     C                   Eval      DFTUSER = '*KUNDFT*'+FIFIRM
+      * IP Ekstern - MÅ FINNES
+     C                   MOVEL     'URLEX'       PAID
+     c     FirmKey       chain     BRPARF                             33
+     c  N33              movel     PAVRDA        IPExt            50
+     c   33              move      *on           *inlr
+     c   33              return
+      * Avsenders mailadresse - MÅ finne
+     C                   MOVEL     'URLNR'       PAID
+     c     FirmKey       chain     BRPARF                             33
+     c  N33              movel     PAVRDA        NoReply          50
+     c   33              move      *on           *inlr
+     c   33              return
+      * evt Intern IP for framtidig bruk
+     C                   MOVEL     'URLIN'       PAID
+     c     FirmKey       chain     BRPARF                             33
+     c  N33              movel     PAVRDA        IPInt            50
+      * Hjemmeside
+     C                   MOVEL     'URLWW'       PAID
+     c     FirmKey       chain     BRPARF                             33
+     c  N33              movel     PAVRDA        HomePage         50
+      * Beskr av eSped inngangen på hjemmesiden
+     C                   MOVEL     'URLW2'       PAID
+     c     FirmKey       chain     BRPARF                             33
+     c  N33              movel     PAVRDA        HPeSped          50
+      *
+     C     UserKey       klist
+     C                   kfld                    BIBRID
+     C                   kfld                    NULLKU            8 0
+     C                   kfld                    PAID
+     C                   MOVEL     'OSMAI'       PAID
+      *
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         IDagDag
+     C                   MOVE      XULMM         IDagMnd
+     C                   MOVE      XULÅÅ         IDagÅr
+      * finn Ukedag for dagens dato...
+      * Ret-parameter: Ukedag - 0=Sø,1=Ma,2=Ti,3=On,4=To,5=Fr,6=Lø
+     C                   Move      9             Dagnr             1 0
+     C                   Move      Idag          DatoInn           8 0
+     c                   CALL      'SYGE26'
+     C                   PARM                    DatoInn
+     C                   PARM                    Dagnr
+     c                   Move      DagNr         DagNrA            1
+      * Bruk 7 for søndag videre i programmet
+     c     DagnrA        ifeq      '0'
+     c                   move      '7'           DagNrA
+     c                   end
+      *
+S02   * Initier CrLF
+s02  c*                  movel     Hex0D         CrLf              2
+s02  c*                  move      Hex25         CrLf
+      *
+     C                   ENDSR

@@ -1,0 +1,740 @@
+N01   * 01  KONVERTER ORDERS FRA GRESVIG TIL COLLICARE2
+      * Tolking av inncommende ORDERS (Voice -> Collicare)
+      * Voice = MASTER, ved en hver endring sendes komplett ny ORDER
+      * Hovedprinsipp - Delete alt / skap på ny, MEN
+      *      * dersom linje HAR OPPDRAGSNR (=satt på oppdrag/container) SKIPP
+      *      * bevar gammel linjes STATUS/REASON i EPOLW, hent derfra når den skrives på ny
+      *    ( * Når NY sublinje skrives - hent T&T-logg fra morlinja )
+      *
+     FEUNB      IF   E           K DISK
+     FEUNH      IF   E           K DISK
+     FEDIM      IF   E           K DISK
+     FEDTM96A   IF   E           K DISK
+     FEIMD96A   IF   E           K DISK
+     FELIN96A   IF   E           K DISK
+     FELOC96A   IF   E           K DISK
+     FEMEA96A   IF   E           K DISK
+     FENAD96A   IF   E           K DISK
+     FEPIA96A   IF   E           K DISK
+     FEQTY96A   IF   E           K DISK
+     FERFF96A   IF   E           K DISK
+     FETDT96A   IF   E           K DISK
+     FETOD96A   IF   E           K DISK
+     FECTA96A   IF   E           K DISK
+     FECOM96A   IF   E           K DISK
+     FVADR3     IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FEPOH      UF A E           K DISK
+     FEPOH99W   UF A E           K DISK
+     FEPOL      UF A E           K DISK
+     FEPOL99W   UF A E           K DISK
+      *
+     D TAB1            S             20    DIM(74) CTDATA PERRCD(1)
+     D TAB2            S              7    DIM(74) ALT(TAB1)
+     D A               S              1    DIM(79)
+     D B               S              1    DIM(18)
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  WMN2                   1      9  0
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * CONVERT
+      *""""""""
+     C                   EXSR      RTVD
+
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Get numerical value                               GETNUM /
+      *////////////////////////////////////////////////////////////
+     C     GETNUM        BEGSR
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     EPOHK         KLIST
+     C                   KFLD                    EHKUND
+     C                   KFLD                    EHBES
+     C     EPOLK         KLIST
+     C                   KFLD                    ELKUND
+     C                   KFLD                    ELBES
+     C                   KFLD                    ELLIN
+     C                   KFLD                    ELULIN
+     C     VADR3K        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    EHKUND
+     C                   KFLD                    EHLEVN17
+     C     KEYMS0        KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C     KEYMS1        KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C                   KFLD                    LREP0
+     C     KEYMS1T       KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C                   KFLD                    TREP0
+     C     KEYMS1C       KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN1
+     C                   KFLD                    NREP0
+     C     KEYMS2C       KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN2
+     C                   KFLD                    CREP0
+     C                   KFLD                    CREP1
+
+     C     *LIKE         DEFINE    NMN           ZMN
+     C     *LIKE         DEFINE    NGN           ZGN0
+     C     *LIKE         DEFINE    NGN           ZGN1
+     C     *LIKE         DEFINE    NGN           ZGN2
+
+     C     *ENTRY        PLIST
+     C                   PARM                    WMN1              9
+     C                   MOVEL     WMN1          WMN2
+     C                   Z-ADD     WMN2          ZMN
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED        RTVD /
+      *////////////////////////////////////////////////////////////
+     C     RTVD          BEGSR
+      *__________________
+      * READ ALL SEGMENTS
+      *""""""""""""""""""
+
+     C     ZMN           CHAIN     EDIM                               50
+     C                   IF        *IN50 = *OFF                                 1<-B
+
+      * HENT KUNDES ORDRENR
+     C     ZMN           CHAIN     EUNH                               51
+     C                   MOVEL     U1004         EHBES
+     C                   Z-ADD     16739         EHKUND
+     C                   Z-ADD     176           EHKUND
+     C                   Z-ADD     21647         EHKUND
+N01  C                   SELECT
+N01  C                   WHEN      M0010 = 'COLLICARE2'
+N01  C                   Z-ADD     16721         EHKUND
+N01  C                   ENDSL
+      * Get interchange values
+     C     UIN           CHAIN     EUNB                               51
+      *
+      * delete workfile med gml status mm
+     c                   exsr      DELWRK
+      *
+      * SJEKK OM BESTILLING FINNES
+     C     EPOHK         CHAIN     EPOH                               33
+     C                   IF        *IN33 = *OFF
+     C                   EXSR      SRTSTPO
+     C     XSLUTT        CABEQ     'J'           SLRTVD
+     C                   END
+
+      * Dokumentdato(2005=137)
+     C                   MOVE      *ZEROS        EHDATO
+     C                   Z-ADD     0             ZGN0
+     C     KEYMS0        SETLL     EDTM96A
+     C     KEYMS0        READE     EDTM96A                                51
+     C     *IN51         DOWEQ     '0'
+     C                   IF        D2005 = '137'
+     C                   MOVEL     D2380         WPOD              8
+     C                   MOVEA     WPOD          A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          EHDATO
+     C                   LEAVE
+     C                   ENDIF
+     C     KEYMS0        READE     EDTM96A                                51
+     C  N51              ENDDO
+      * Les Transport service code
+     C                   EXSR      RFF01
+
+      * Les Name&Address
+     C                   EXSR      NAD02
+      * Les Transportinstruksjoner
+     C                   EXSR      TDT09
+
+      * Les leveringsbetingelse
+     C                   EXSR      TOD11
+
+      * HENT VARENR OG ANTALL KOLLI
+     C                   Z-ADD     25            ZGN0
+     C     KEYMS0        SETLL     ELIN96A
+     C     KEYMS0        READE     ELIN96A                                51
+     C     *IN51         DOWEQ     '0'
+     C                   CLEAR                   EPOLR
+     C                   EVAL      ELKUND = EHKUND
+     C                   EVAL      ELBES  = EHBES
+     C* RFF+LI !!        MOVEA     L1082A        A
+     C*                  EXSR      GETNUM
+     C*                  Z-ADD     ZNUM          ELLIN
+     C*                  MOVEA     L1082B        A
+     C*                  EXSR      GETNUM
+     C*                  Z-ADD     ZNUM          ELULIN
+     C                   EVAL      ELART  = L7140
+      * HENT VARENR
+     C                   EXSR      PIA25
+      * HENT VARETEKST
+     C                   EXSR      IMD25
+      * HENT MÅL
+     C                   EXSR      MEA25
+      * HENT ANTALL KOLLI
+     C                   EXSR      QTY25
+      * HENT DATOER
+     C                   EXSR      DTM25
+      * HENT linjenummer via RFF
+     C                   EXSR      RFF29
+      *
+      * Hent evt gammel status (skriv
+     c     EPOLK         chain     EPOL99W
+     C                   IF        ELAVD = 0 AND ELOPD = 0
+     C                   WRITE     EPOLR
+     c                   endif
+      *
+     C                   IF        EHGBES = *BLANKS
+     C                   EVAL      EHGBES = ELABES
+     C                   END
+     C                   IF        EHTTD  = 0
+     C                   EVAL      EHTTD  = ELTTD
+     C                   END
+     C                   IF        EHETD  = 0
+     C                   EVAL      EHETD  = ELETD
+     C                   END
+     C                   IF        EHETA  = 0
+     C                   EVAL      EHETA  = ELETA
+     C                   END
+     C                   IF        EHSTD  = 0
+     C                   EVAL      EHSTD  = ELSTD
+     C                   END
+     C                   ADD       ELANTS        EHANTS
+     C                   ADD       ELVKTL        EHVKT
+     C                   ADD       ELM3L         EHM3
+      *
+     C     KEYMS0        READE     ELIN96A                                51
+     C  N51              ENDDO                                                   2<-E
+      * hent staus/reason fra evt gml
+     c     EPOHK         chain     EPOH99W
+     C                   WRITE     EPOHR
+
+     C                   ENDIF                                                  1<-E
+      * delete workfile med gml status mm
+     c                   exsr      DELWRK
+
+     C     SLRTVD        ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT VARENR                                         PIA25 /
+      *////////////////////////////////////////////////////////////
+     C     PIA25         BEGSR
+     C     KEYMS1        CHAIN     EPIA96A                            52
+     C                   DOW       *IN52 = *OFF
+     C                   SELECT
+      * SUPPLIER ARTICLE NUMBER
+     C                   WHEN      P7143A = 'SA'
+     C                   EVAL      ELARTL = P7140A
+     C                   WHEN      P7143A = 'BP'
+     C                   EVAL      ELARTL = P7140A
+      * GRESVIG ARTICLE NUMBER
+     C                   WHEN      P7143A = 'IN'
+     C*                  EVAL      ELARTK = P7140A
+     C                   ENDSL
+
+     C     KEYMS1        READE     EPIA96A                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * LES NAME&ADDRESS                                    NAD02 /
+      *////////////////////////////////////////////////////////////
+     C     NAD02         BEGSR
+     C                   Z-ADD     2             ZGN0
+     C     KEYMS0        SETLL     ENAD96A
+     C     KEYMS0        READE     ENAD96A                                51
+     C                   DOW       *IN51 = *OFF
+
+     C                   SELECT
+     C     N3035         WHENEQ    'BY'
+     C                   EXSR      CTA05
+     C     N3035         WHENEQ    'SU'
+     C                   MOVEL     N3039         EHLEVN
+     C                   MOVEL     N3039         EHLEVN17         17
+     C     VADR3K        CHAIN     VADR3                              33
+     C                   IF        *IN33
+     C                   IF        N3036A = *BLANKS
+     C                   MOVEL     N3039         EHLNAV
+     C                   ELSE
+     C                   MOVEL     N3036A        EHLNAV
+     C                   MOVEL     N3042A        EHLAD1
+     C                   MOVEL     N3042B        EHLAD2
+     C                   MOVEL     N3207         EHLAD3
+     C                   CAT       N3251:1       EHLAD3
+     C                   CAT       N3164:1       EHLAD3
+     C                   ENDIF
+     C                   ELSE
+     C                   MOVE      VADRNA        EHLNAV
+     C                   MOVE      VADRN1        EHLAD1
+     C                   MOVE      VADRN2        EHLAD2
+     C                   MOVE      VADRN3        EHLAD3
+     C                   END
+     C                   EXSR      CTA05
+     C     N3035         WHENEQ    'DP'
+     C     N3035         OREQ      'BY'
+      * DESTINATION
+     C                   EVAL      EHTLK  = 'NO'
+     C                   SELECT
+     C                   WHEN      N3039 = '01'
+     C                   EVAL      EHTSTE = 'MSS'
+     C                   WHEN      N3039 = '02'
+     C                   EVAL      EHTSTE = 'MSS'
+     C                   WHEN      N3039 = '03'
+     C                   EVAL      EHTSTE = 'MSS'
+     C                   WHEN      N3039 = '09'
+     C                   EVAL      EHTSTE = 'GÅRUT'
+     C                   ENDSL
+     C                   ENDSL
+
+     C     KEYMS0        READE     ENAD96A                                51
+     C  N51              ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT KONTAKTER                                      CTA05 /
+      *////////////////////////////////////////////////////////////
+     C     CTA05         BEGSR
+     C                   EVAL      *IN52=*OFF
+     C                   EVAL      ZGN1=5
+     C     KEYMS1C       CHAIN     ECTA96A                            52
+     C                   DOW       *IN52 = *OFF
+      * Kontaktfunksjon
+     C                   IF        N3035='BY'
+     C                   MOVEL     C3413         EHIID
+     C                   MOVEL     C3412         EHINV
+     C                   ENDIF
+     C                   IF        N3035='SU'
+     C                   MOVEL     C3412         EHLKP
+     C                   ENDIF
+     C                   EXSR      COM05
+
+     C     KEYMS1C       READE     ECTA96A                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT KONTnummer/ID                                  COM05 /
+      *////////////////////////////////////////////////////////////
+     C     COM05         BEGSR
+     C                   EVAL      *IN53=*OFF
+     C                   EVAL      ZGN2=5
+     C     KEYMS2C       CHAIN     ECOM96A                            53
+     C                   DOW       *IN52 = *OFF
+      * Kontaktfunksjon
+     C                   IF        N3035='BY'
+     C                   IF        C3155='TE'
+     C                   MOVEL     C3148         EHITLF
+     C                   ENDIF
+     C                   IF        C3155='EM'
+     C                   MOVEL     C3148         EHIEM
+     C                   ENDIF
+     C                   IF        C3155='FX'
+     C                   MOVEL     C3148         EHIFAX
+     C                   ENDIF
+     C                   ENDIF
+     C                   IF        N3035='SU'
+     C                   IF        C3155='TE'
+     C                   MOVEL     C3148         EHLTLF
+     C                   ENDIF
+     C                   IF        C3155='EM'
+     C                   MOVEL     C3148         EHLEM
+     C                   ENDIF
+     C                   IF        C3155='FX'
+     C                   MOVEL     C3148         EHLFAX
+     C                   ENDIF
+     C                   ENDIF
+
+     C     KEYMS2C       READE     ECOM96A                                53
+     C  N53              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT VARETEKST                                      IMD25 /
+      *////////////////////////////////////////////////////////////
+     C     IMD25         BEGSR
+     C     KEYMS1        SETLL     EIMD96A
+     C     KEYMS1        READE     EIMD96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   EVAL      ELABES = I7008A
+     C     KEYMS1        READE     EIMD96A                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT MÅL                                            MEA25 /
+      *////////////////////////////////////////////////////////////
+     C     MEA25         BEGSR
+     C     KEYMS1        SETLL     EMEA96A
+     C     KEYMS1        READE     EMEA96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   SELECT
+      * VOLUM
+     C                   WHEN      M6311 = 'VOL'
+     C                   MOVEA     M6314         A
+     C                   EXSR      GETNUM
+     C     ZNUM          DIV       1000          ELM3L
+     C                   ADD(H)    0,000499      ELM3L
+      * VEKT
+     C                   WHEN      M6311 = 'WT'
+     C                   MOVEA     M6314         A
+     C                   EXSR      GETNUM
+     C                   EVAL(H)   ELVKTL = ZNUM + 0,000499
+     C                   EVAL(H)   ELVKNL = ZNUM + 0,000499
+
+     C                   ENDSL
+     C     KEYMS1        READE     EMEA96A                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT ANTALL KOLLI                                   QTY25 /
+      *////////////////////////////////////////////////////////////
+     C     QTY25         BEGSR
+     C     KEYMS1        CHAIN     EQTY96A                            52
+     C                   IF        *IN52 = *OFF
+     C                   MOVEA     Q6060         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          ELANTS
+     C                   Z-ADD     ZNUM          ELNTSL
+     C                   END
+      * Beregn enhetsvekt/volum
+     C                   EVAL      ELVKTE=ELVKTL/ELNTSL
+     C                   EVAL      ELM3E=ELM3L/ELNTSL
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT DATOER                                         DTM25 /
+      *////////////////////////////////////////////////////////////
+     C     DTM25         BEGSR
+      * OBS - I praksis - FÅR KUN 110=Shipm Date orig scheduled (ETD) i ORDERS fra VOICE
+      * OBS - ETA settes til ETD + 32 dager
+     C     KEYMS1        SETLL     EDTM96A
+     C     KEYMS1        READE     EDTM96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   MOVEA     D2380         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+      * 110=Forventet shippingdato
+     C                   WHEN      D2005 = '110'
+     C                   Z-ADD     ZNUM          ELETD
+      * 132=Forventet ankomstdat     ***
+     C                   WHEN      D2005 = '132'
+     C*                  Z-ADD     ZNUM          EHETA
+     C                   Z-ADD     ZNUM          ELETA
+      * 171=Bestillingsdato          ***
+     C                   WHEN      D2005 = '171'
+     C                   Z-ADD     ZNUM          EHDATO
+      * 234=Tidligeste shippingdato
+     C                   WHEN      D2005 = '234'
+     C                   Z-ADD     ZNUM          ELTTD
+      * 238=Seneste shippingdato
+     C                   WHEN      D2005 = '238'
+     C                   Z-ADD     ZNUM          ELSTD
+      * EARLIEST SHIPPING DATE i følge e-post 24.03.2009 fra Frank Nordbæk
+     C                   WHEN      D2005 = '63'
+     C                   Z-ADD     ZNUM          ELTTD
+      * EXPECTED SHIPPING DATE
+     C                   WHEN      D2005 = '2'
+     C                   Z-ADD     ZNUM          ELETD
+      * LATEST SHIPPING DATE i følge e-post 24.03.2009 fra Frank Nordbæk
+     C                   WHEN      D2005 = '64'
+     C                   Z-ADD     ZNUM          ELSTD
+
+     C                   ENDSL
+     C     KEYMS1        READE     EDTM96A                                52
+     C  N52              ENDDO
+      *
+     c                   IF        ELETA=*zeros
+      *  ETD + 32 dgr = ETA
+      * (antar at i stedet for 32 fast blir dette variabel utfra havn/land..)
+     C                   CALL      'SYGE20'
+     C                   PARM      'ADD'         FUNK              3
+     C                   PARM      ELETD         innDat            8 0
+     C                   PARM                    ELETA             8 0
+     C                   PARM      32            DAGER             5 0
+     c                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Referanser                                          RFF01 /
+      *////////////////////////////////////////////////////////////
+     C     RFF01         BEGSR
+     C                   Z-ADD     1             ZGN0
+     C     KEYMS0        SETLL     ERFF96A
+     C     KEYMS0        READE     ERFF96A                                51
+     C                   DOW       *IN51 = *OFF
+     C                   IF        R1153 = 'ZZ1'
+     C                   MOVEL     R1154         EHTRKO                         LCL/FCL (Transp.kod)
+     C                   ENDIF
+     C     KEYMS0        READE     ERFF96A                                51
+     C  N51              ENDDO
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Referanser                                          RFF29 /
+      *////////////////////////////////////////////////////////////
+     C     RFF29         BEGSR
+     C                   EVAL      *IN52=*OFF
+     C                   Z-ADD     29            ZGN0
+     C     KEYMS1        SETLL     ERFF96A
+     C     KEYMS1        READE     ERFF96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   IF        R1153 = 'LI'
+     C                   MOVEA     R1154         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          ELLIN
+     C                   MOVEA     R1156         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          ELULIN
+     C                   ENDIF
+     C     KEYMS1        READE     ERFF96A                                52
+     C  N52              ENDDO
+     C                   Z-ADD     25            ZGN0
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Transportinstruksjoner                              TDT09 /
+      *////////////////////////////////////////////////////////////
+     C     TDT09         BEGSR
+     C                   Z-ADD     9             ZGN0
+     C     KEYMS0        SETLL     ETDT96A
+     C     KEYMS0        READE     ETDT96A                                51
+     C                   DOW       *IN51 = *OFF
+     C                   EXSR      LOC10
+     C     KEYMS0        READE     ETDT96A                                51
+     C  N51              ENDDO
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT LEVERINGSBETINGELSE                            TOD11 /
+      *////////////////////////////////////////////////////////////
+     C     TOD11         BEGSR
+     C                   Z-ADD     11            ZGN0
+     C     KEYMS0        SETLL     ETOD96A
+     C     KEYMS0        READE     ETOD96A                                51
+     C                   DOW       *IN51 = *OFF
+     C                   SELECT
+      * SUPPLIER ARTICLE NUMBER
+     C                   WHEN      T4055 = '6'
+     C                   MOVEL     T4053         EHLBET
+     C                   MOVEL     T4052A        EHLBES
+     C     EHLBES        LOOKUP    TAB1          TAB2                     33
+     C                   IF        *IN33
+     C                   MOVEL     TAB2          EHFSTE
+     C                   MOVE      TAB2          EHFLK
+     C                   END
+     C                   OTHER
+     C                   MOVEL     T4053         EHLBET
+     C                   EXSR      LOC11
+     C                   ENDSL
+     C     KEYMS0        READE     ETOD96A                                51
+     C  N51              ENDDO
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * TEST OM PO HAR VÆRT FRA FØR                       SRTSTPO /
+      *////////////////////////////////////////////////////////////
+     C     SRTSTPO       BEGSR
+     C                   MOVE      'J'           XSLUTT            1
+     C     EPOHK         CHAIN(N)  EPOH                               33
+     C                   SELECT
+     C                   WHEN      *IN33
+      * FINNES IKKE = NY - RETT PÅ SKRIV
+     C                   MOVE      'N'           XSLUTT
+     C                   WHEN      EHAVD = 0 AND EHOPD = 0
+      * PO-FINNES/HEADERS AVD/OPD=0, SLETT/SKRIV LINJER SOM ENNÅ IKKE ER PLUKKET
+     C                   MOVE      'N'           XSLUTT
+     C     EPOHK         SETLL     EPOL
+     C     EPOHK         READE     EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELAVD <= 0 AND ELOPD <= 0
+     C                   DELETE    EPOLR
+      * om den VAR slettet lokalt (hos CC= sørg for at den blir reaktivert om den kommer på ny)
+     c                   move      *zeros        ELAVD                          for EPOL99W
+     c                   move      *zeros        ELOPD                          for EPOL99W
+     C                   ENDIF
+     C                   WRITE     EPOL99R                                      Bevar gml stat/reas.
+     C     EPOHK         READE     EPOL                                   33
+     C                   ENDDO
+     C     EPOHK         CHAIN     EPOH                               33
+     C                   WRITE     EPOH99R                                      Bevar gml stat/reas.
+     C                   DELETE    EPOHR
+      *
+     C                   OTHER
+      * PO-FINNES/HEADERs AVD/OPD ULIK 0,  BETYR:ER FULLPLUKKET=> XSLUTT=J
+     C                   GOTO      SLSRTSTPO
+     C                   ENDSL
+
+     C     SLSRTSTPO     ENDSR
+      *************************************
+     C     DELWRK        BEGSR
+      *************************************
+      *
+     C     EPOHK         SETLL     EPOL99W
+     C     EPOHK         READE     EPOL99W                                33
+     C                   DOW       *IN33 = *OFF
+     C                   DELETE    EPOL99R
+     C     EPOHK         READE     EPOL99W                                33
+     C                   ENDDO
+      *
+     C     EPOHK         CHAIN     EPOH99W                            33
+     C  N33              DELETE    EPOH99R
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT FRA-TIL steder og landkoder                    LOC10 /
+      *////////////////////////////////////////////////////////////
+     C     LOC10         BEGSR
+     C                   EVAL      *IN52=*OFF
+     C                   Z-ADD     10            ZGN0
+     C     KEYMS1T       SETLL     ELOC96A
+     C     KEYMS1T       READE     ELOC96A                                52
+     C     *IN52         DOWEQ     *OFF
+     C                   SELECT
+     C     L3227         WHENEQ    '27'
+     C                   MOVEL     L3225         EHFLK                          Landk fra
+     C     L3227         WHENEQ    '28'
+     C                   MOVEL     L3225         EHTLK                          Landk til
+     C     L3227         WHENEQ    '9'
+     C                   MOVEL     L3225         EHFSTE                         Sted fra
+     C     L3227         WHENEQ    '8'
+     C                   MOVEL     L3225         EHTSTE                         Sted til
+     C                   ENDSL
+     C     KEYMS1T       READE     ELOC96A                                52
+     C  N52              ENDDO
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT LEVERINGSBETINGELSE STED                       LOC11 /
+      *////////////////////////////////////////////////////////////
+     C     LOC11         BEGSR
+     C                   EVAL      *IN52=*OFF
+     C                   Z-ADD     11            ZGN0
+     C     KEYMS1T       SETLL     ELOC96A
+     C     KEYMS1T       READE     ELOC96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   SELECT
+     C                   WHEN      L3227 = '1'
+     C                   MOVEL     L3224         EHLBES
+     C                   ENDSL
+     C     KEYMS1T       READE     ELOC96A                                52
+     C  N52              ENDDO
+      *
+     C                   ENDSR
+** TOLLBEREGNINGSREGEL
+EXW TREUCHTLINGEN   91751DE
+FCA HORSEHEADS      HORSE
+FCA BANGKOK         BKK  TH
+FCA BUSAN           BUS  KR
+FCA CHINA PORT      CHINACN
+FCA CHITTAGONG      CGP  BD
+FCA COLUMBUS        COLUMLK
+FCA DALIAN          DAI  CN
+FCA FUZHOU          FOO  CN
+FCA GUANGZHOU       KWA  CN
+FCA HAIPONG         HPH  VN
+FCA HAMILTON, ON.   HAMIL
+FCA HO CHI MINH     SGN  VN
+FCA HONG KONG       HKG  CN
+FCA HUANGPU         HUP  CN
+FCA HUSKVARNA       56101SE
+FCA KAOHSIUNG       KAO  TW
+FCA KARACHI         KHI  PK
+FCA KEELUNG         KEE  TW
+FCA LAEM CHABANG    LZP  TH
+FCA NANJING         NKG  CN
+FCA NANTONG         NNT  CN
+FCA NINGBO          NPO  CN
+FCA ORIENT          07349ES
+FCA PAKISTAN        PAKISPK
+FCA PENANG          PEN  MY
+FCA QINGDAO         TST  CN
+FCA SEATTLE         SEA  US
+FCA SHANGHAI        SGH  CN
+FCA ST.CREEK, ON.   ST.CR
+FCA TAICHUNG        TAI  TW
+FCA TAIPEI          TAIPETW
+FCA TAIWAN          TAIWATW
+FCA TIANJIN         TAINJCN
+FCA WESTFIELD MA    WESTF
+FCA XIAMEN          XIM  CN
+FCA XINGANG         HSK  CN
+FCA YANTIAN         YAT  CN
+FOB BANGKOK         BKK  TH
+FOB BUSAN           BUS  KR
+FOB CHINA PORT      CHINACN
+FOB CHITTAGONG      CGP  BD
+FOB COLUMBUS        COLUMLK
+FOB DALIAN          DAI  CN
+FOB FUZHOU          FOO  CN
+FOB GUANGZHOU       KWA  CN
+FOB HAIPONG         HPH  VN
+FOB HAMILTON, ON.   HAMIL
+FOB HO CHI MINH     SGN  VN
+FOB HONG KONG       HKG  CN
+FOB HUANGPU         HUP  CN
+FOB HUSKVARNA       56101SE
+FOB KAOHSIUNG       KAO  TW
+FOB KARACHI         KHI  PK
+FOB KEELUNG         KEE  TW
+FOB LAEM CHABANG    LZP  TH
+FOB NANJING         NKG  CN
+FOB NANTONG         NNT  CN
+FOB NINGBO          NPO  CN
+FOB ORIENT          07349ES
+FOB PAKISTAN        PAKISPK
+FOB PENANG          PEN  MY
+FOB QINGDAO         TST  CN
+FOB SEATTLE         SEA  US
+FOB SHANGHAI        SGH  CN
+FOB ST.CREEK, ON.   ST.CR
+FOB TAICHUNG        TAI  TW
+FOB TAIPEI          TAIPETW
+FOB TAIWAN          TAIWATW
+FOB TIANJIN         TAINJCN
+FOB WESTFIELD MA    WESTF
+FOB XIAMEN          XIM  CN
+FOB XINGANG         HSK  CN
+FOB YANTIAN         YAT  CN

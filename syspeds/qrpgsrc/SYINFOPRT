@@ -1,0 +1,230 @@
+      *================================================================
+      *  RPG ILE MODULE XXXINFOPRI
+      *  Ask Infoprint Server to convert a spool file to PDF
+      *  Return the pdf path&name
+      *
+      *  DOCUMENTATION
+      *
+      * See redbook IBM e-server iSeries Printing VI
+      * http://www.redbooks.ibm.com/redbooks/pdfs/sg246250.pdf
+      *
+      *================================================================
+     Hnomain
+      /copy MMAIL/qrpglesrc,hspecs
+      /copy MMAIL/qrpglesrc,mailproto
+      /copy MMAIL/qrpglesrc,prototypeb
+      /copy MMAIL/qrpglesrc,variables3
+      *==================================================================
+      *  "InfoPrint" subprocedure
+      *  Purpose: ask infoprint to convert a spool file to pdf
+      *  Inputs:1-qualified job name (char 26) =
+      *           jobname    (char 10) +
+      *           user       (char 10) +
+      *           job number (char 6)
+      *         2-spooled file name (char 10)
+      *         3-spooled file number (bin 4); special values:
+      *            0 = *ONLY
+      *           -1 = *LAST
+      *  Output: path & name of the generated pdf stream file
+      *          (if unsuccessful, this string is blank)
+      *  Example:
+      *  D  pdf            s            256a
+      *  D  jobname        s             26a
+      *  D  splfName       s             10a
+      *  D  splfNbr        s              9b 0
+      *  C                   eval      pdf=infoprint(jobname:splfName:
+      *  C                             splfNbr)
+      *
+      *================
+      *  "InfoPrint" subprocedure definition
+     P InfoPrint       b                   export
+     D InfoPrint       pi           256a
+     D jobName                       26a
+     D splfName                      10a
+     D splfNbr                        9b 0
+      *================
+      /copy MMAIL/qrpglesrc,SPLA
+     D librname        s             10a
+     D Pdf             s            256a
+     D SplfNbr6        s              6s 0
+     D SplfNbr6C       s              6a
+     D SplfNbr4C       s              4a
+     D PdfName         s            512a
+     D timestamp       s               z
+     D timestampC      s             26a
+     D today           s              8a
+     D t               s             10i 0
+     D i               s              6s 0
+     D iC              s              6a
+     D Cmd             s           5000a
+     D originusr       s             10a
+     D originnbr       s              6a
+     D newowner        s             10a   inz('QTMHHTP1')
+     D DtaQName        s             10a
+     D DtaQData        s              1a
+     D DtaQLen         s              5  0 inz(1)
+     D DtaQWait        S              5  0 inz(-1)
+     D  IfsFileNam     s           1024a
+     D  IfsFileNam1    s                   like(IfsFileNam)
+     D  IfsFileSiz     s             10i 0
+     D  IfsCrtStamp    s               z
+      *
+      * Setter biblioteksnavn
+      *
+     C     *entry        plist
+     c                   parm                    librname         10
+     c                   parm                    JobName          26
+      *
+      * plukker bruker og jobnr fra innparameter
+      *
+     C                   eval      originusr = %subst(jobName:11:10)
+      * Number of the job that generated the spool file
+     C                   eval      originnbr = %subst(jobName:21:06)
+      *
+     C                   eval      pdf = ' '
+     C                   time                    timestamp
+     C                   move      timestamp     timestampC
+     C                   eval      today = %subst(timestampC:6:2) +
+     C                             %subst(timestampC:9:2) +
+     C                             %subst(timestampC:1:4)
+      * Start printer writer
+     C                   eval      rc = docmd('strprtwtr ' + %trim(librname) +
+     C                             ' formtype(*all *nomsg)')
+      * Retrieve spool file attributes
+     C                   eval      SPLA=RtvSplFA(jobName:splfName:
+     C                             splfNbr)
+     C                   if        SPLA = ' '
+     C                   return    pdf
+     C                   endif
+      *
+      * For use of INFOPRINT MD /mmail/infoprint/jobname
+      *
+     C                   eval      IfsFilenam = '/' + %trim(librname) +
+     C                             '/infoprint/' + %trim(%subst(jobName:01:10))
+     C                   eval      rc = ChkIfs(IfsFileNam:IfsFileSiz:
+     C                                  IfsCrtStamp)
+     C                   if        rc<>0
+     C                   eval      rc = doCmd('md dir(''' + %trim(IfsFilenam) +
+     C                             ''') dtaaut(*rwx) objaut(*all)')
+     C                   endif
+      *
+      * For use of INFOPRINT MD /mmail/infoprint/jobname/username
+      *
+     C                   eval      IfsFilenam = %trim(IfsFilenam) + '/' +
+     C                             %trim(%subst(jobName:11:10))
+     C                   eval      rc = ChkIfs(IfsFileNam:IfsFileSiz:
+     C                                  IfsCrtStamp)
+     C                   if        rc<>0
+     C                   eval      rc = doCmd('md dir(''' + %trim(IfsFilenam) +
+     C                             ''') dtaaut(*rwx) objaut(*all)')
+     C                   endif
+      * Move spool file to outq QUSRSYS/&LIBRNAME
+     C                   eval      splfNbr = SplASplNbr
+     C                   eval      splfNbr6 = splfNbr
+     C                   move      splfNbr6      splfNbr6C
+     C                   eval      splfNbr4C = %subst(splfNbr6C:3:4)
+     C                   eval      rc = docmd('chgsplfa file(' +
+     C                             %trim(splfName) +
+     C                             ') job(' +
+     C                             %trim(%subst(jobName:21:06)) + '/' +
+     C                             %trim(%subst(jobName:11:10)) + '/' +
+     C                             %trim(%subst(jobName:01:10)) +
+     C                             ') splnbr(' + splfNbr6C +
+     C                             ') outq(qusrsys/' + %trim(librname) +
+     C                             ')')
+     C                   if        rc <> 0
+     C                   return    pdf
+     C                   endif
+      * Release spool file
+     C                   eval      rc = docmd('rlssplf file(' +
+     C                             %trim(splfName) +
+     C                             ') job(' +
+     C                             %trim(%subst(jobName:21:06)) + '/' +
+     C                             %trim(%subst(jobName:11:10)) + '/' +
+     C                             %trim(%subst(jobName:01:10)) +
+     C                             ') splnbr(' + splfNbr6C +
+     C                             ')')
+      * Build almost all pdf path and name
+     C                   eval      IfsFileNam1 = '/' + %trim(librname) +
+     C                             '/infoprint/' +
+     C                             %trim(%subst(jobName:01:10)) + '/' +
+     C                             %trim(%subst(jobName:11:10)) + '/' +
+     C                             %subst(jobName:21:06) + '_' +
+     C                             splfNbr6C             + '_' +
+     C                             %trim(splfName)       + '_' +
+     C                             today                 + '_'
+      * Repeat 10 times maximum
+     C     1             DO        55            t
+     C                   if        t = 1
+     C                   eval      rc = docmd('dlyjob 5')
+     C                   else
+     C                   eval      rc = docmd('dlyjob 1')
+     C                   endif
+      * Find the first available PDF matching the requested name
+     C     1             do        100           i
+     C                   move      i             iC
+     C                   eval      IfsFileNam = %trim(IfsFileNam1) + IC + '.PDF'
+     C                   eval      rc = ChkIfs(IfsFileNam:IfsFileSiz:
+     C                                  IfsCrtStamp)
+     C                   IF        rc = 0
+     C                   eval      pdf = IfsFileNam
+     C                   if        originusr='QTMHHTTP'
+     C                   exsr      ChgOwn
+     C                   endif
+     C                   leave
+     C                   ENDIF
+     C                   enddo
+      *
+     C                   IF        pdf<>' '
+     C                   if        pdf ='..'
+     C                   eval      pdf=' '
+     C                   endif
+     C                   leave
+     C                   ENDIF
+     C                   ENDDO
+      * Return the pdf name or blank
+     C                   return    pdf
+      *================
+      * Change the owner of the InpfoPrint generated PDF ("IfsFileNam")
+     C     ChgOwn        begsr
+      *    Create a data queue
+     C                   eval      DtaQname='DTAQ'+originnbr
+     C                   eval      rc = doCmd('crtdtaq dtaq(' +
+     C                             %trim(librname) + '/' +
+     C                             %trim(DtaQname) + ') maxlen(500) aut(*all)')
+      *    Submit the job to change the owner of the InpfoPrint generated PDF
+     C                   eval      Cmd = 'sbmjob jobq(qsysnomax) +
+     C                             job(' + %trim(DtaQName) + ') +
+     C                             log(4 0 *seclvl) +
+     C                             user(' + %trim(originusr) + ') +
+     C                             cmd(call ' + %trim(librname) +
+     C                             '/chgifsown parm(''' +
+     C                             newowner + ''' ''' +
+     C                             pdf + ''' ''' +
+     C                             DtaQName + ''' ''' +
+     C                             librname + '''))'
+     C                   eval      rc = doCmd(Cmd)
+      *    If sbmjob failed, ...
+     C                   if        rc<>0
+     C                   eval      pdf = '..'
+     C                   goto      ChgOwnX
+     C                   endif
+      *    Receive data queue
+     C                   call      'QRCVDTAQ'
+     C                   parm                    DtaQName
+     C                   parm                    librname
+     C                   parm                    DtaQLen
+     C                   parm                    DtaQData
+     C                   parm                    DtaQWait
+     C                   if        DtaQData<>'0'
+     C                   eval      pdf = ' '
+     C                   endif
+      *    Delete data queue
+     C                   eval      rc = doCmd('dltdtaq dtaq(' +
+     C                             %trim(librname) + '/' +
+     C                             %trim(DtaQname) + ')')
+      *
+     C     ChgOwnX       tag
+     C                   endsr
+      *================
+     P InfoPrint       e

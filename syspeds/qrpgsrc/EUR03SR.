@@ -1,0 +1,448 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 YBC PTF11 FLERE KUNDER
+********************************************************************
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FEPOH      UF   E           K DISK
+     FEPOL      UF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FBILLOF    IF   E           K DISK
+     FBLV1      IF   E           K DISK
+     FTURER14   IF   E           K DISK
+     FTRACKT    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FCDTRAFL2  IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E             DISK
+     FEDISX     O  A E             DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                 DS
+     D  WMBR                   1     14
+     D  WMBRA                  1      1
+     D  WMBRB                  2     10  0
+     D                 DS
+     D  HEAVD                  1      4  0 INZ(*zeros)
+     D  strek                  5      5    INZ('/')
+     D  HEOPD                  6     12  0 INZ(*zeros)
+     D   CCREF                 3     12                                         eks 10/1234567
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    ELKUND
+     C                   PARM                    ELBES
+     C                   PARM                    HEALIN            1            Hele Head/Bare S-lin
+     C                   PARM                    FUNKSJON          2
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEY           KLIST
+     C                   KFLD                    ELKUND
+     C                   KFLD                    ELBES
+     C     HeaKey        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     CDTRAFL2K     KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    XXTRAF
+      *
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *_____________
+      * Init av felt
+      *"""""""""""""
+     C                   MOVE      'G'           WMBRA                          GENERELL
+     C* Hente dagens dato og klokkeslett.
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      * hent firmakode
+     c     *loval        setll     Firm
+     c                   read      Firm
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *                                                       SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+
+     C     KEY           CHAIN     EPOH                               51
+
+     C     *IN51         CABEQ     '1'           SRB9
+     c     EHOPD         cabeq     -9999999      SRB9
+
+      * hos EuroPris er alle Statuser sendt på linjenivå - blank head/send merke i fall satt..
+     c                   move      ' '           EHSTA2
+     c                   move      *blanks       EHreas
+     c                   update    EPOHR
+     c     HEALIN        cabeq     'H'           SRB9
+      *________________________________________
+      * Hente og oppdater neste sendningsnummer
+      *""""""""""""""""""""""""""""""""""""""""
+     C     1             CHAIN     EDIC                               51
+     C     *IN51         CABEQ     '1'           SRB9
+     C                   ADD       1             CSN
+     C                   UPDATE    EDICR
+     C                   EVAL      WMBRB=CSN
+      * Lag fil og set codepage (pc)
+N01  C                   SELECT
+N01  C                   WHEN      ELKUND = 10136
+N01  C                   MOVE      *BLANKS       WFilNam2        256
+N01  C                   EVAL      WFilNam2='/SYSPEDFX/EUROSKO/EDISE1K/' + WMBR
+N01  C                   WHEN      ELKUND = 13705
+N01  C                   MOVE      *BLANKS       WFilNam2        256
+N01  C                   EVAL      WFilNam2='/SYSPEDFX/SHOEDAY/EDISE1K/' + WMBR
+N01  C                   OTHER
+S01  C*                  MOVE      *BLANKS       WFilNam         256
+S01  C*                  EVAL      WFilNam='/SYSPEDFX/EUROPRIS/EDISE1K/' + WMBR
+     C                   MOVE      *BLANKS       WFilNam2        256
+     C                   EVAL      WFilNam2='/SYSPEDFX/EUROPRIS/EDISE1K' +
+     C                                     '/BACKUP/' + WMBR
+N01  C                   ENDSL
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam2 )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam2 )
+     C                             : 'w' )
+
+      *Skriv hode til fil
+     C                   EXSR      SR00
+     C                   EXSR      SR10
+      *Skriv linjer til fil
+     C     KEY           SETLL     EPOL
+     C     KEY           READE     EPOL                                   54
+     C     *IN54         DOWEQ     *OFF
+     c     ELSTA2        ifeq      'N'                                          kun Nye
+     c     ELSTA2        oreq      'S'                                          kun de m/endring/S
+      *** livsfarlig (om det var INGEN ending av linjer men endrer ETD på Head.
+     c***  HEALIN        oreq      'H'                                          Alle ved beh på HEAD
+     C                   EXSR      SR20
+     c                   move      ' '           ELSTA2
+     c                   move      *blanks       ELreas
+      * fjern finsihed-merke straks det er sendt (åpne for å splitte flere ganger)
+     c                   move      ' '           ELSLUT
+      * SETT 99999 PÅ UNDERLINJENR STRAKS DET ER SENDT
+     C                   IF        ELSTA3 = 'R'
+     C                   EVAL      ELSTA3 = ' '
+     C                   Z-ADD     99999         ELULIN
+     C                   END
+     C                   endif
+     c                   update    EPOLR
+     C     KEY           READE     EPOL                                   54
+     C                   ENDDO
+      *Skriv avslutt til fil
+     C                   EXSR      SR09
+      *_________________
+      * Logge sendningen
+      *"""""""""""""""""
+     C                   CLEAR                   EDISR
+     C                   EVAL      S0004='CC'
+N01  C                   SELECT
+N01  C                   WHEN      ELKUND = 10136
+N01  C                   EVAL      S0010='EUROSKO'
+N01  C                   WHEN      ELKUND = 13705
+N01  C                   EVAL      S0010='SHOEDAY'
+N01  C                   OTHER
+     C                   EVAL      S0010='EUROPRIS'
+N01  C                   ENDSL
+     C                   Z-ADD     CSN           WMBRB
+     C                   MOVE      WMBR          S0020
+     C                   Z-ADD     CSN           SSN
+     C                   MOVE      'S'           SSR
+N01  C                   SELECT
+N01  C                   WHEN      ELKUND = 10136
+N01  C                   EVAL      SST  = 'C'
+N01  C                   EVAL      SIFS = WFILNAM2
+N01  C                   WHEN      ELKUND = 13705
+N01  C                   EVAL      SST  = 'C'
+N01  C                   EVAL      SIFS = WFILNAM2
+N01  C                   OTHER
+     C                   MOVE      'A'           SST
+N01  C                   ENDSL
+     C                   MOVEL     WDT           SDT
+     C                   MOVEL     WTM           STM
+     C                   MOVEL     '*IFS'        SFILE
+     C*                  MOVEL     WFILNAM2      SIFS
+     C                   MOVEL     WMBR          SMBR
+     C                   MOVEL     'SYSPEDF'     SLIB
+     C                   WRITE     EDISR
+
+     C                   CLEAR                   EDISXR
+     C                   EVAL      SXPRODM=WMBR
+     C                   EVAL      SXIFSOBJ=Wfilnam2
+     C                   WRITE     EDISXR
+
+     C     SRB9          ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 00 Start av fil                                SR00 /
+      *////////////////////////////////////////////////////////////
+     C     SR00          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '00':0        SDATA          1024
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       'CCNO':0      SDATA
+     C                   CAT       ';':0         SDATA
+
+N01  C                   SELECT
+N01  C                   WHEN      ELKUND = 10136
+N01  C                   CAT       'EUROSKO;':0  SDATA
+N01  C                   WHEN      ELKUND = 13705
+N01  C                   CAT       'SHOEDAY;':0  SDATA
+N01  C                   OTHER
+     C                   CAT       'EUROPRIS':0  SDATA
+     C                   CAT       ';':0         SDATA
+N01  C                   ENDSL
+
+     C                   CAT       WDT:0         SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WTM:0         SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WMBR:0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       'ORDRSP':0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       FUNKSJON:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 09 Slutt på fil                                SR09 /
+      *////////////////////////////////////////////////////////////
+     C     SR09          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '09':0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WMBR:0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      rc = close( FILE_o )
+      * Kopier filen til produksjonkatalogen
+     C*                  EVAL      CmdLine = 'CPY OBJ(' + X'7D'
+     C*                            + %trimr(WFILNAM2) + X'7D'
+     C*                            + ') TOOBJ(' +X'7D'
+     C*                            + %trimr(WFILNAM)
+     C*                            + X'7D' + ') '
+     C*                  EVAL      CmdLen = %len(%trim(CmdLine))
+     C** KUN I BACKUP.   CALL      'QCMDEXC'     Qcmdexc                98
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 10 Hode                                        SR10 /
+      *////////////////////////////////////////////////////////////
+     C     SR10          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '10':0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       ELBES:0       SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 20 Linje                                       SR20 /
+      *////////////////////////////////////////////////////////////
+     C     SR20          BEGSR
+     c*    ELOPD         cabeq     9999999       UtSr20                         Slettet
+     c     ELOPD         cabeq     -9999999      UtSr20                         Slettet
+     c                   move      *blanks       XXBLNR           16
+     c                   move      *blanks       XXCONT           35
+     c                   move      *blanks       XXKDC             2
+     c                   move      *blanks       XXAGT            10
+N01  C                   MOVE      *ZEROS        XXAGT11          11
+     c                   move      *blanks       XXTRAF            4
+     c                   move      *blanks       XXTRNV           30
+     c                   move      *zeros        TXETDD
+     c                   move      *zeros        TXATDD
+     c                   move      *zeros        TXETAD
+     c                   move      *zeros        TXATAD
+      * visse felt fra head-nivå
+     c                   move      *zeros        HEAVD
+     c                   move      *zeros        HEOPD
+     c     ELOPD         ifne      *zeros
+     c                   move      ELAVD         HEAVD
+     c                   move      ELOPD         HEOPD
+     c                   else
+     c                   move      EHAVD         HEAVD
+     c                   move      EHOPD         HEOPD
+     c                   endif
+      *
+     c     HEOPD         ifne      *zeros
+     C     HeaKey        CHAIN     HEADF                              52
+     C     HeaKey        CHAIN     BILLOF                             53
+     C     HeaKey        CHAIN     BLV1                               56
+     C     HeaKey        CHAIN     TRACKT                             54
+     C     HEPRO         CHAIN     TURER14                            55
+N01  C                   IF        ELKUND = 10136
+N01  C                   MOVEL     HEAVD         XXAGT11
+N01  C                   MOVE      HEOPD         XXAGT11
+N01  C                   ELSE
+     c                   movel     CCref         XXAGT                          CCref i forw.agt
+N01  C                   END
+     c                   endif
+     c     XXAGT         ifeq      *blanks
+N01  C     ELKUND        ANDNE     10136
+     c                   movel     'X'           XXAGT                          CCref i forw.agt
+     c                   endif
+      * Fra ulike nivå i prioritert rekkefølge
+     c* N55              eval      XXBLNR = TUBLNR   - spres til BILLOF , BLBLNR
+     c* N55              eval      XXCONT = TUCON1   - spres til BLV1 , BVMN
+     c  N55              eval      XXTRAF = %subst(TUTARF:2:4)
+     c  N54              eval      XXBLNR = BLBLNR
+     c* N54              eval      XXTRAF = BLTR     - inneholder signatur
+     c  N56              eval      XXCONT = BVMN
+     c  N56              eval      XXKDC  = BVKDC
+      *
+      * trafikk / reason/ cc-staus/Cont-kode/Fra-Til havn i Carrier name
+     c     XXTRAF        ifne      *blanks
+     C     CDTRAFL2K     CHAIN     CDTRAFL2                           33
+     C   33              EVAL      XXTRNV = CTKD
+     C  N33              EVAL      XXTRNV = CTFT
+     C                   endif
+      * Kode 15 ready for stuffing sendes som 1 = Contactes
+     C                   movel     ELSTA         ELSTA_1           1
+     C                   movel     EHFSTE        POL               3            Port Of Loading
+     C     ELFSTE        ifne      *blanks
+     C                   movel     ELFSTE        POL               3            Port Of Loading
+     C                   endif
+     C                   movel     EHTSTE        POD               3            Port Of Discharge
+     C     ELTSTE        ifne      *blanks
+     C                   movel     ELTSTE        POD               3            Port Of Discharge
+     C                   endif
+     c                   eval      XXTRNV = %TRIM(XXTRNV)+'/'
+     c                             +%TRIM(ELREAS)+'/'+%trim(ELSTA_1)
+     c                             +'/'+%trim(XXKDC)+'/'+POL+'-'+POD
+      *
+      * Men f.om BOOKED  (status 3 eller høyere) er det verdier i TRACKT som gjelder
+      * Verdi på POHead overstytrer
+     C     ELSTA         iflt      '3    '
+     c*    EHETD         ifne      *zeros
+     c*                  eval      TXETDD=EHETD
+     c*                  endif
+     c*    EHETA         ifne      *zeros
+     c*                  eval      TXETAD=EHETA
+     c*                  endif
+     c     EHBLNR        ifne      *blanks
+     c                   eval      XXBLNR = EHBLNR
+     c                   endif
+
+      * Verdi opp på POlin ovesrstyrer (men cont/agent/Transp-Carrrier ER ALDRI GITT..)
+     c     ELETD         ifne      *zeros
+     c     TXETDD        andeq     *zeros
+     c                   eval      TXETDD=ELETD
+     c                   endif
+     c     ELETA         ifne      *zeros
+     c     TXETAD        andeq     *zeros
+     c                   eval      TXETAD=ELETA
+     c                   endif
+     c     ELBLNR        ifne      *blanks
+     c                   eval      XXBLNR = ELBLNR
+     c                   endif
+     C                   endif
+      *
+      * ant kolli lev ligger med 3 desim - over i heltall
+     c                   z-add(H)  ELNTKL        ELNTKLH           7 0
+     c                   z-add     ELULIN        XXULIN            5 0
+     C*                  SELECT
+     C*                  WHEN      XXULIN = 99999
+      * SPLITTET FRA HOVEDLINJE
+     C*                  MOVE      *ZEROS        XXULIN
+     C*                  WHEN      XXULIN < 0
+      * SPLITTET FRA UNDERLINJE
+     C*                  Z-SUB     XXULIN        XXULIN
+     C*                  ENDSL
+      * Sluttmerke - Movex krever 0/1 ikke blank/X
+     c                   move      '0'           XXSLUT            1
+     c     ELSLUT        ifeq      'X'
+     c                   move      '1'           XXSLUT
+     c                   endif
+      *
+     c                   EVAL      SDATA='20;'                                  01=Posttype
+     c                             +%trim(%editc(ELLIN:'Z'))+';'                02=Linjenr
+     c                             +%trim(%editc(XXULIN:'Z'))+';'               03=UnderLinjenr
+     c                             +%trim(ELART)+';'                            04=Art.Nr Europris
+     c                             +%trim(ELARTE)+';'                           05=Art.Nr EAN
+     c                             +%trim(ELARTL)+';'                           06=Art.Nr Leverandør
+     c                             +%trim(ELABES)+';'                           07=Art.Beskrivelse
+     c                             +%trim(%editc(ELANTS:'Z'))+';'               08=Ant.F-Pak best.
+     c                             +%trim(%editc(ELNTSL:'Z'))+';'               09=Ant.F-Pak bekr.
+     c                             +%trim(%editc(ELANKL:'Z'))+';'               10=Ant.D-Pak best.
+     c                             +%trim(%editc(ELNTKLH:'Z'))+';'              11=Ant.D-Pak bekr.
+     c                             +%trim(%editc(TXETDD:'Z'))+';'               12=Shi.date forv-ETD
+     c                             +%trim(%editc(TXETAD:'Z'))+';'               13=Ank.dato forv-ETA
+     c                             +%trim(%editc(TXATAD:'Z'))+';'               14=Ank.dato bekr-ATA
+     c                             +%trim(XXCONT)+';'                           15=BL..INNH:Cont no
+     c                             +%trim('    ')+';'                           16=CON INNH:...
+N01  C                   IF        ELKUND = 10136
+N01  C                   EVAL      SDATA=%TRIM(SDATA)
+N01  C                             +%trim(XXAGT11)+';'                          17=Forw.ag I:CCref
+N01  C                   ELSE
+N01  C                   EVAL      SDATA=%TRIM(SDATA)
+     c                             +%trim(XXAGT)+';'                            17=Forw.ag I:CCref
+N01  C                   END
+N01  C                   EVAL      SDATA=%TRIM(SDATA)
+     c                             +%trim(XXBLNR)+';'                           18=DelNot IN:BL-nr
+     c                             +%trim(XXTRNV)+';'                           19=Carr I:Traf/Re/St
+     c                             +%trim(%editc(TXATDD:'Z'))+';'               20=Shi.dato bekr-ATD
+     c                             +%trim(XXSLUT)+';'                           21=Sluttmarkert
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C     UtSr20        ENDSR

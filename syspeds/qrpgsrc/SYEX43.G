@@ -1,0 +1,1415 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 kun dds - skrv "SNDNR:.... kun dersom 52 ON
+10XXX * 02 sh  PTF10 barkode flytett
+10XXX * 03 sh  PTF10 overlay inne i program
+10XXX * 04 sh  PTF10 rettelse til 3
+10XXX * 05 YBC PTF10 EGEN BUNNTEKST FRA BRUKER PARAMETER "HECM1"
+10XXX * 06 sh  PTF10 hvis dato ikke er overstryrt settes oppdragsdato inn
+10XXX * 07 sh  PTF10 ved N og P i HEPK7 ikke skriv
+10159 * 08 JOV PTF10 ved korte linjer (<35)feetext/C ikke forbruk 2 cmr-linjer
+10159 * 09 SH  PTF10 tar hengernr hvis bilnummer er blankt
+10XXX * 10 YBC PTF10 KUNDE-DEFAUL VERDI HENTES MED RIKTIG FIRMAKODE
+10XXX * 11 SH  PTF10 fjerne firma fra uds
+10XXX * 12 SH  PTF10 endringer ref feltet i printfil
+10XXX * 13 SH  PTF10 tester om sendingsnummer er numerisk
+10XXX * 14 SH  PTF10 web kan nå også gå på headf
+10XXX * 15 SH  PTF10 MER I SENDERINSTRUKS
+********************************************************************
+***** **************************************************************
+      * UTSKRIFT AV ENKELTCMR-FRAKTBREV                                   SYEX41
+      *** LEDIGE INDIKATORER 01-26
+      *** LEDIGE INDIKATORER 28-31 35 37-40       56-69 71-89 91-97
+      * VED U8  ER DET KOPIUTSKRIFT                                       SYEX41
+***** **************************************************************
+     H DECEDIT('0,') DATEDIT(*DMY.) debug(*yes)
+     FVADR      if   E           K DISK
+     FFIRMARC   IF   E           K DISK
+     FARKTXT    IF   E           K DISK
+     FARKIVP    O  A E             DISK
+     FBRPARF    IF   E           K DISK
+     FTURER14   IF   E           K DISK
+     F                                     RENAME(TURERR:TUR14)
+     FSAEH      IF   E           K DISK
+     FKODTP     IF   E           K DISK
+     FKODTFM    IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FKODTFR    IF   E           K DISK
+     FSTED2     IF   E           K DISK
+     FSTED2D    IF   E           K DISK
+     F                                     RENAME(sted2r:steddr)
+     FSTEDIL01  IF   E           K DISK
+     FTURER     IF   E           K DISK
+     FHEADF     UF   E           K DISK
+     FZEADL02   IF   E           K DISK
+     F                                     RENAME(headfr:zeadfr)
+     FDOKEC     UF   E           K DISK
+     FDOKEC1    IF   E           K DISK
+     F                                     RENAME(DOKECR:DOKECR1)
+     FFIRM      IF   E           K DISK
+     FDOKECE    UF   E           K DISK
+     FDOKECE1   IF   E           K DISK
+     F                                     RENAME(DOKECER:DOKECER1)
+     FDOKECEL   IF   E           K DISK
+     FDOKECET   IF   E           K DISK
+     FFREETXT2  IF   E           K DISK
+     FZREETXT1  IF   E           K DISK
+     F                                     RENAME(freetxtr:zreetxtr)
+     FFRISOK    IF A E           K DISK
+     FKODFRI    IF   E           K DISK
+     FZRISOL01  IF A E           K DISK
+     F                                     RENAME(frisokr:zrisokr)
+     FSYEX43P   O    E             PRINTER
+     FCMRBREV   O    F   90        PRINTER
+     F                                     FORMLEN(72)
+     F                                     FORMOFL(72)
+     D MN              S             13    DIM(9)
+     D NT              S              5  0 DIM(9)
+     D EH              S             11    DIM(9)
+     D VS              S             14    DIM(9)
+     D VK              S              9  0 DIM(9)
+     D M3              S              7  3 DIM(9)
+     D FT              S             68    DIM(3)
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D                SDS
+     D  ZUSER                254    263
+     D                 DS
+     D  DCDT                   1      8  0
+     D  DCDTÅ                  1      4  0
+     D  DCDTM                  5      6  0
+     D  DCDTD                  7      8  0
+     D                 DS
+     D  XCDT                   1      6  0
+     D  XCDTD                  1      2  0
+     D  XCDTM                  3      4  0
+     D  XCDTÅ                  5      6  0
+     D  XCDTB                  1      6  0
+     D  XCDTC                  1      6  0
+     D                 DS
+     D  DEDT1Å                 1      4  0
+     D  DEDT1M                 5      6  0
+     D  DEDT1D                 7      8  0
+     D  DEDT1                  1      8  0
+     D                 DS
+     D  XEDT1D                 1      2  0
+     D  XEDT1M                 3      4  0
+     D  XEDT1Å                 5      6  0
+     D  XEDT1                  1      6  0
+     D                 DS
+     D  DEDT2Å                 1      4  0
+     D  DEDT2M                 5      6  0
+     D  DEDT2D                 7      8  0
+     D  DEDT2                  1      8  0
+     D                 DS
+     D  XEDT2D                 1      2  0
+     D  XEDT2M                 3      4  0
+     D  XEDT2Å                 5      6  0
+     D  XEDT2                  1      6  0
+     D                 DS
+     D  SndNr                  1     20
+     D  SndNr0103              1      3
+     D  SndNr0420              4     20
+     D  SndNrn                 1     20
+     D  SndNrB                 1     20
+     D  SndNrC                 1     20
+     D                 DS
+     D  DEAVD                  1      4  0
+     D  DCAVD                  1      4  0
+     D                 DS
+     D  DEOPD                  1      7  0
+     D  DCOPD                  1      7  0
+     D                 DS
+     D  DELIN                  1      1  0
+     D  DN                     1      1  0
+     D                 DS
+     D  DESG                   1      3
+     D  DCSG                   1      3
+S15  D*                DS
+S15  D* HEFT1                  1     51
+S15  D* DCAI5                  1     23
+S15  D* DCAI51                24     51
+S08   *
+S08  D*                DS
+S08  D* TEKST1                 1     70
+S08  D* XDCAI1                 1     35
+S08  D* XDCAI2                36     70
+S08  D*                DS
+S08  D* TEKST2                 1     70
+S08  D* XDCAI3                 1     35
+S08  D* XDCAI4                36     70
+     D                 DS
+     D  Test70                 1     70
+S15  D* test70A                1     35
+S15  D* test70b               36     70
+N15  D  test70A                1     50
+N15  D  test70b               51     70
+     D                 DS
+     D  FRA1                   1     18
+     D  FRA1X                  1     18
+     D                 DS
+     D  DCADM3                 1     30
+     D  DCADM3X                1     30
+     D                 DS
+     D  AADR3                  1     30
+     D  AADR3X                 1     30
+      *
+     D WSMTxt          S            700
+     D WSTTxt          S            700
+      *SENDERS  INSTRUKS
+N15  D                 DS
+N15  D  SI                     1    300    DIM(6)
+N15  D  SITXT                  1    300
+N15  D  XDCAI1                 1     35
+N15  D  XDCAI2                51     85
+N15  D  XDCAI3               101    135
+N15  D  XDCAI4               151    185
+N15  D  XDCAI5               201    235
+N15  D  XDCAI6               250    288
+N15  D  XDCAI150               1     50
+N15  D  XDCAI250              51    100
+N15  D  XDCAI350             101    150
+N15  D  XDCAI450             151    200
+N15  D  XDCAI550             201    250
+N15  D  XDCAI650             251    300
+      *Array for fri-tekster
+     D                 DS
+     D  TEXT                   1    700
+     D  TX                     1    700    DIM(700)
+     D                 DS
+     D  FTX                    1     70
+     D  FX                     1     70    DIM(70)
+     D Wpos            s              4  0
+     D Gmpos           s              4  0
+     D BLF             s              4  0
+     D Tst700          s            700
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+      *
+     D                UDS
+S11  D* FIRMA                  1      2
+     D  DAVD                  15     18  0
+     D  DSIGN                 19     21
+     D  UPRO                  22     29  0
+V10  D  UOPD                  82     88  0
+     D  KOPI                 100    100
+     D  OP1                  101    107  0
+     D  OP2                  108    114  0
+     D  XXUNIK               101    109  0
+     D  OP3                  115    121  0
+     D  OP4                  122    128  0
+     D  OP5                  129    135  0
+     D  OP6                  136    142  0
+     D  OP7                  143    149  0
+     D  OP8                  150    156  0
+     D  WGODS                190    200
+     D  WTUR                 209    216  0
+     D  PRANT                231    233  0
+     D  USTMF                301    350
+      *
+     C                   EXSR      INIT
+     C*
+     C* KOPI = J ER KOPIUTSKRIFT
+     C* KOPI = F ER SENDING PÅ FAX
+     C*
+     C     KOPI          IFEQ      'J'
+     C     KOPI          OREQ      'F'
+     C                   EXSR      KOPISR
+     C                   GOTO      SLUTT
+     C                   END
+     C* KOPI = W BESTILLING FRA WEB-BOOKING (ZEADF)
+     C     KOPI          IFEQ      'W'
+     C                   EXSR      ZEADSR
+     C                   GOTO      SLUTT
+     C                   END
+     C*
+     C                   MOVE      *BLANKS       DCSTFA
+     C*
+     C  N27DC1KEY        SETLL     DOKEC1
+     C   27DC1KEY        SETLL     DOKECE1
+     C*
+     C     START         TAG
+     C  N27DC1KEY        READE     DOKEC1                                 33
+     C   27DC1KEY        READE     DOKECE1                                33
+     C   33              GOTO      SLUTT
+     C     DSIGN         IFNE      'ALL'
+     C     UPRO          andeq     *ZEROS
+V10  C     UOPD          andeq     *ZEROS
+     C     DCSG          IFNE      DSIGN
+     C                   GOTO      START
+     C                   END
+     C                   END
+      *... litt surrete tester her vel ???
+     C     HEAKEY        CHAIN(N)  HEADF                              36
+N07  C  N36HEPK7         IFEQ      'N'
+N07  C     HEPK7         OREQ      'P'
+N07  C                   GOTO      START
+N07  c                   end
+     C  N36HEUR          COMP      'H'                                    90    *TRANSP-MODUL
+V10  C*    UPRO          IFEQ      HEOPD
+V10  C     UOPD          IFEQ      HEOPD
+     C                   SETON                                        34
+     C                   ELSE
+     C     HESG          COMP      DSIGN                                  34
+     C  N34DSIGN         COMP      'ALL'                                  34
+     C                   END
+     C   34DAVD          COMP      HEAVD                                  34
+     C  N34              GOTO      START
+     C*
+     C     UPRO          IFNE      *ZEROS
+     C     UPRO          ANDNE     HEPRO
+V10  C*    UPRO          ANDNE     HEOPD
+V10  C     UOPD          ANDEQ     *ZEROS
+V10  C     UOPD          ORNE      *ZEROS
+V10  C     UOPD          ANDNE     HEOPD
+V10  C     UPRO          ANDEQ     *ZEROS
+     C                   GOTO      START
+     C                   END
+     C*
+     C     HEAKEY        CHAIN     HEADF                              36
+     C                   MOVE      'P'           HEPK7
+     C  N36              EXCEPT    OPDHEA
+     C  N27              EXSR      TOLL
+     C   27              EXSR      TOLLE
+     C                   GOTO      START
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C*
+     C*
+     C******************************************
+     C     TOLL          BEGSR
+     C******************************************
+     C                   MOVE      *BLANKS       FRA1             18
+     C                   MOVE      *BLANKS       TIL1             18
+     C                   MOVE      *BLANKS       ANAVN            30
+     C                   MOVE      *BLANKS       AADR1            30
+     C                   MOVE      *BLANKS       AADR2            30
+     C                   MOVE      *BLANKS       AADR3            30
+     C                   MOVE      *BLANKS       DCNAM
+     C                   MOVE      *BLANKS       DCADM1
+     C                   MOVE      *BLANKS       DCADM2
+     C                   MOVE      *BLANKS       DCADM3
+     C                   MOVE      *BLANKS       TUNAT
+     C                   MOVE      *BLANKS       TUAD1T
+     C                   MOVE      *BLANKS       TUAD2T
+     C                   MOVE      *BLANKS       TUAD3T
+     C                   MOVE      *BLANKS       DCNAL
+     C                   MOVE      *BLANKS       DCADL1
+     C                   MOVE      *BLANKS       DCADL2
+     C                   MOVE      *BLANKS       DCADL3
+     C                   MOVE      *ZEROS        DCDT
+     C                   MOVE      *BLANKS       KFRTTX
+     C**
+     C     KOPI          IFNE      'W'
+     C     HEAKEY        CHAIN     DOKEC                              41
+     c                   else
+      * kall fra web - flytt div. HE-variable over i DC-variabler
+     c                   move      *off          *in41
+     C                   MOVEL     HENAK         DCNAM
+     C                   MOVEL     HEADK1        DCADM1
+     C                   MOVEL     HEADK2        DCADM2
+     C                   MOVEL     HEADK3        DCADM3
+     c                   end
+     C*
+     C*  TRANR LIGGER IKKE I HEAD VED EKSPORT.
+     C*  KAN VÆRE TASTET PÅ CMR.TILLEGG. HVIS IKKE HENT FRA EVT.TUR-RECORD
+     C** VED HENTING AV TRANSPORTØRINFO FRA TURER-REGISTRET: I 99% AV TILFELLER
+     C*  VIL AVDELINGSNR PÅ TUREN VÆRE LIK AVDNR PÅ OPPDRAGET.
+     C*  (M.A.O. EN TUR BESTÅR VANLIGVIS BARE AV OPPDRAG FOR EN AVDELING OG DET
+     C*   VIL VÆRE AVDELINGEN SOM OPPRETTET TUREN.)
+     C*
+     C*
+     C     HEUR          IFEQ      'H'                                          * I TRANSPORTMODUL
+     C     DCKNFF        ANDEQ     *ZEROS                                       * ER AVDELING SELV.
+     C     KOPI          OREQ      'W'                                          * ER AVDELING SELV.
+     C                   MOVE      KOAKNR        DCKNFF                         * ALLTID FRAKTFØRER
+     C                   END                                                    * OM IKKE OVERSTYRT
+     C                   MOVE      *BLANKS       TUBILN
+     C     HEPRO         CHAIN     TURER14                            36
+     C     DCKNFF        IFEQ      *ZEROS                                       *"BEFRAKTER" IKKE..
+     C     HEPRO         IFNE      *ZEROS                                             ....OVERSTYRT
+     C     TURKEY        CHAIN     TURER                              36
+     C                   END
+     C                   ELSE                                                   * "BEFRAKTER" ER ..
+     C                   MOVE      DCKNFF        TUKNT                              ...OVERSTYRT
+     C                   MOVE      DCKNFF        KUNDNR
+     C     KUNKEY        CHAIN     CUNDL01                            70
+     C  N70              MOVE      KNAVN         TUNAT
+     C  N70              MOVE      ADR1          TUAD1T
+     C  N70              MOVE      ADR2          TUAD2T
+     C  N70              MOVE      *BLANKS       TUAD3T
+     C  N70POSTNR        IFEQ      *ZEROS
+     C     sypoge        ifne      *blanks
+     C     tuad3t        CAT       sypoge:0      tuad3t
+     C     tuad3t        cat       adr3:1        tuad3t
+     c                   else
+     C                   MOVEL     ADR3          tuad3t
+     c                   end
+     C                   ELSE
+     C                   MOVEL     POSTNR        TUAD3T
+     C                   MOVE      ADR3          TUAD3T
+     C                   END
+     C                   END
+N09  C     tubiln        ifeq      *blanks
+N09  c                   movel     tuheng        tubiln
+N09  c                   end
+     C*
+     C* AVSENDER PÅ FRAKTBREVET
+     C* HENTER SELGER FRAOPPD.HVIS AVDELINGEN ER EGEN TRANSPØRTØR
+     C* (OM AVDELINGEN KJØPER TRANSPORTEN SKAL AVDELINGEN SELV STÅ SOM AVSENDER
+     C     DCKNA         IFEQ      *ZEROS
+     C     TUKNT         IFEQ      KOAKNR
+     C     HEUR          OREQ      'H'                                          *I TRANSMODUL:
+     C                   MOVE      HENAS         ANAVN                           AVSENDER ALLTID
+     C                   MOVE      HEADS1        AADR1                           LIK AVS. PÅ OPPDRAG
+     C                   MOVE      HEADS2        AADR2
+     C                   MOVE      HEADS3        AADR3
+     C                   ELSE
+     C                   MOVE      KOAKNR        KUNDNR
+     C                   END
+     C                   ELSE
+     C                   MOVE      DCKNA         KUNDNR
+     C                   END
+     C* AVSENDER ER OVERSTYRT ELLER AVDELINGEN SKAL STÅ SOM AVSENDER...
+     C     ANAVN         IFEQ      *BLANKS
+     c     vadKEY        chain     vadr                               34
+     c     *in34         ifeq      '0'
+     C                   MOVE      VADRNA        ANAVN
+     C                   MOVE      VADRN1        AADR1
+     C                   MOVE      VADRN2        AADR2
+     C                   MOVE      VADRN3        AADR3
+     c                   else
+     C     KUNKEY        CHAIN     CUNDL01                            70
+     C  N70              MOVE      KNAVN         ANAVN
+     C  N70              MOVE      ADR1          AADR1
+     C  N70              MOVE      ADR2          AADR2
+     c  N70              move      *blanks       aadr3
+     C  N70POSTNR        IFEQ      *ZEROS
+     C     sypoge        ifne      *blanks
+     C     aadr3         CAT       sypoge:0      aadr3
+     C     aadr3         cat       adr3:1        aadr3
+     c                   else
+     C                   MOVEL     ADR3          aadr3
+     c                   end
+     C                   ELSE
+     C                   MOVEL     POSTNR        AADR3
+     C                   MOVE      ADR3          AADR3
+     C                   END
+     C                   END
+     C                   END
+     C*
+     C                   MOVE      DCFR          KFRKOD
+     c     KOPI          ifeq      'W'
+     C                   MOVE      HEFR          KFRKOD
+     c                   end
+     C     KFRKEY        CHAIN     KODTFR                             70
+     C   70              MOVEL     DCFR          KFRTTX
+     C*
+     C     FRA1          IFEQ      *BLANKS
+N05  C                   IF        XBUNNTXT = *BLANKS
+     C                   MOVE      FRAAVD        FRA1
+N05  C                   ELSE
+N05  C                   EVAL      FRA1 = XBUNNTXT
+N05  C                   END
+     C                   END
+      *
+      * ved transportdisp hent fra sted2d
+      *
+     C                   MOVEL     FRAAVD        FRA1B            18
+     c     heur          ifeq      'H'
+     c     STEFRA        chain     sted2D                             33
+     C  N33              MOVEL     ST2NVN        FRA1B
+     C                   END
+     C     KOAPOS        IFNE      'J'
+     C     HEUR          OREQ      'D'
+     C     HESDT         CHAIN     STED2                              70
+     C                   ELSE
+     C     WKSDVT        CHAIN     STEDIL01                           70
+     C                   END
+     C  N70              MOVEL     ST2NVN        TIL1
+     C*
+     C     DCDT          IFEQ      *ZEROS
+s06  C*                  MOVE      UDAY          DCDTD
+s06  C*                  MOVE      UMONTH        DCDTM
+s06  C*                  MOVE      UYEAR         DCDTÅ
+s06  C*    UYEAR         IFGT      50
+s06  C*                  MOVEL     '19'          DCDTÅ
+s06  C*                  ELSE
+s06  C*                  MOVEL     '20'          DCDTÅ
+s06  C*                  END
+N06  C                   move      hedtop        dcdt
+     C                   END
+     C*
+     C                   MOVE      *OFF          *IN99
+     C     HETLL         IFNE      *BLANKS
+     C     SADKEY        CHAIN     SAEH                               98
+     C                   MOVE      *ON           *IN99
+     C                   END
+     C     HEM3          COMP      0                                      44
+     C     HELM          COMP      0                                      45
+     C     HELKS         COMP      *BLANKS                                46
+     C     HELKK         COMP      *BLANKS                                47
+     C     HEKNK         COMP      *ZEROS                                 48
+     C     HEPRO         COMP      *ZEROS                                 49
+     C     TUBILN        COMP      *BLANKS                                50
+     C     HEOPD         COMP      *ZEROS                                 51
+S15  C*    DCAI5         comp      *blanks                                54
+N15  C     HEFT1         comp      *blanks                            5454
+     C  N41              EXSR      KDTFMT
+s08  C*                  MOVE      *BLANKS       TEKST1
+s08  C*                  MOVE      *BLANKS       TEKST2
+N15  C                   MOVE      *BLANKS       SITXT
+e08  C                   MOVEL     DCAI1         XDCAI1           35
+e08  C                   MOVEL     DCAI2         XDCAI2           35
+e08  C                   MOVEL     DCAI3         XDCAI3           35
+e08  C                   MOVEL     DCAI4         XDCAI4           35
+N15  C                   EVAL      XDCAI6 = HEFT1
+      *
+      *
+      * Når fra WEB må mottaker-fritekst (R) benyttes/fixes(se ESOP11)
+     c     KOPI          IFEQ      'W'
+     c                   Exsr      fixzreetxt
+     c                   else
+      * Fra ordinært oppdrag - fritekst med kode C
+     C     *IN41         IFEQ      '0'
+S15  C*    DCAI1         IFEQ      *BLANKS
+S15  C*    DCAI2         ANDEQ     *BLANKS
+S15  C*    DCAI3         ANDEQ     *BLANKS
+S15  C*    DCAI4         ANDEQ     *BLANKS
+     C     FRIKEY        SETLL     FREETXTR
+     C     FRIKEY        READE     FREETXTR                               70
+S08  C*    *IN70         IFEQ      '0'
+S08  C*                  MOVE      FRTTXT        TEKST1           70
+S08  C*                  READ      FREETXTR                               70
+S08  C*                  MOVE      FRTTXT        TEKST2           70
+N08  C     *IN70         doweq     '0'
+N08  c                   movel     FRTTXT        Test70
+N08  c     Test70A       Ifne      *blanks
+S15  c*                  Move      test70A       txt35            35
+N15  c                   Move      test70A       txt50            50
+N08  c                   exsr      skriv2                                       ->første XDCAI..
+N08  c                   end
+N08  c     Test70B       Ifne      *blanks
+S15  c*                  Move      test70B       txt35            35
+N15  c                   EVAL      TXT50 = test70B
+N08  c                   exsr      skriv2                                       ->første XDCAI..
+N08  c                   end
+N08  c     CmrFtxFull    ifeq      'J'
+N08  c                   leave
+N08  c                   endif
+N08  C     FRIKEY        READE     FREETXTR                               70
+     C                   END
+S15  C*                  END
+     C                   END
+     C                   END
+      *
+      * Skriv EAN sendingsnr ??
+     C     EANJN         IFEQ      'J'
+     C                   EXSR      GETSNDNR
+N13  C                   TESTN                   SNDNR                35
+N13  C     *in35         ifeq      *off
+N13  C                   move      *blanks       sndnr
+N13  C                   end
+     C                   end
+     C                   MOVE      *off          *in53
+     C                   MOVE      *off          *in56
+     C     SndNr0420     comp      *blanks                            5252
+     C   52KOPI          Ifeq      'F'
+     C     KOPI          Oreq      'W'
+     C     LASTYP        oreq      'P'
+     C                   MOVE      *on           *in53
+     C                   else
+     C     LASTYP        COMP      'F'                                    56
+     C                   end
+      *
+     C  N41              EXSR      UTCMR
+     C  N41              EXSR      KDTFMT
+      *
+      * Oppdater status mm. i fil, men ikke ved WEB.
+     c     KOPI          IFNE      'W'
+     C  N41KOPI          IFNE      'J'
+     C                   MOVE      'P'           DCST
+     C   52              MOVE      SndNr0420     DCSNR
+     C                   EXCEPT    OPDFIL
+     C                   ELSE
+     C                   EXCEPT    DUMFIL
+     C                   END
+     C                   END
+     C  N41              ADD       1             PRANT
+      * SKRIV LABEL (Men ikke hvis kall fra web)
+     C     *in41         Ifeq      *OFF
+     C     DCMLAP        ANDEQ     'J'
+     C     KOPI          ANDEQ     ' '
+     C                   move      'HE'          XXLAYOUT          2
+     C                   move      *ZEROS        NULLFBNR          3 0
+     C                   move      ' '           UUKOPI            1
+     C     ELTRON        IFEQ      'N'
+     C                   CALL      'SYFA12SN'
+s11  C*                  PARM                    FIRMA
+n11  C                   PARM                    FIFIRM
+     C                   PARM                    XXLAYOUT
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    NULLFBNR
+     C                   PARM                    UUKOPI
+     C                   ELSE
+     C                   CALL      'SYFA12SE'
+S11  C*                  PARM                    FIRMA
+n11  C                   PARM                    FIFIRM
+     C                   PARM                    XXLAYOUT
+     C                   PARM                    HEAVD
+     C                   PARM                    HEOPD
+     C                   PARM                    NULLFBNR
+     C                   PARM                    UUKOPI
+     C                   END
+     c                   end
+     C                   ENDSR
+     C*
+     C******************************************
+     C     TOLLE         BEGSR
+     C******************************************
+     C                   MOVE      *BLANKS       DENAA            30
+     C                   MOVE      *BLANKS       DEADA1           30
+     C                   MOVE      *BLANKS       DEADA2           30
+     C                   MOVE      *BLANKS       DEADA3           30
+     C     HEAKEY        CHAIN     DOKECE                             55
+     C     DEKNA         IFNE      *ZEROS                                       1<-B
+     C                   MOVE      DEKNA         KUNDNR
+     C     KUNKEY        CHAIN     CUNDL01                            55
+     C  N55              DO                                                      2<-B
+     C                   MOVE      KNAVN         DENAA
+     C                   MOVE      ADR1          DEADA1
+     C                   MOVE      ADR2          DEADA2
+     c                   move      *blanks       deada3
+     C     POSTNR        IFEQ      0                                              3<-B
+     C     sypoge        ifne      *blanks
+     C     deada3        CAT       sypoge:0      deada3
+     C     deada3        cat       adr3:1        deada3
+     c                   else
+     C                   MOVEL     ADR3          deada3
+     c                   end
+     C                   ELSE                                                     3
+     C                   MOVEL     POSTNR        DEADA3
+     C                   MOVE      ADR3          DEADA3
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C                   MOVE      *BLANKS       MN
+     C                   MOVE      *ZEROS        NT
+     C                   MOVE      *BLANKS       EH
+     C                   MOVE      *BLANKS       VS
+     C                   MOVE      *ZEROS        VK
+     C                   MOVE      *ZEROS        M3
+     C     HEAKEY        SETLL     DOKECEL                            55
+     C     STTLLE        TAG
+     C     HEAKEY        READE     DOKECEL                                55
+     C  N55              DO
+     C                   MOVE      DEMN          MN(DN)
+     C                   MOVE      DENT          NT(DN)
+     C                   MOVE      DEEH          EH(DN)
+     C                   MOVE      DEVS          VS(DN)
+     C                   MOVE      DEVK          VK(DN)
+     C                   MOVE      DEM3          M3(DN)
+     C                   GOTO      STTLLE
+     C                   END
+      *
+     C                   MOVE      *BLANKS       FT
+     C     HEAKEY        SETLL     DOKECET                            55
+     C     STTLL2        TAG
+     C     HEAKEY        READE     DOKECET                                55
+     C  N55              DO
+     C                   MOVE      DEFRT         FT(DN)
+     C                   GOTO      STTLL2
+     C                   END
+      *
+     C                   EXSR      KDTFM2
+     C                   EXSR      UTcmRE
+     C                   EXSR      KDTFM2
+      *
+     C     KOPI          IFNE      'J'
+     C                   MOVE      'P'           DEST
+     C                   EXCEPT    OPDFCE
+     C                   ELSE
+     C                   EXCEPT    DUMFCE
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C******************************************
+     C     GetSndnr      BEGSR
+     C******************************************
+     C*
+     C                   Move      *blanks       SndNr
+     c                   Move      '401'         SndNr0103
+      * Ordinær utskr (Ikke fra web)
+     C     KOPI          IFNE      'W'
+     C* Finnes i CMR-brevet ??
+     C     DCSNR         Ifne      *blanks
+     c                   move      DCSNR         SndNr0420
+     c                   goto      UtSndNr
+     c                   end
+     C* Finnes som fri søkevei ??
+     C* (forutsetter at det er ETT og bare ETT innl.fraktbrev..)
+     C* (Skulle det være "stjerne-innhenting" sprekker logikken her.)
+     C     FRISOKKEY     CHAIN     FRISOK                             33
+     c     *IN33         IFEQ      '0'
+     c                   movel     FSSOK         SndNr0420
+     c                   goto      Utsndnr
+     c                   end
+      * KALL FRA WEB - hent fra zrisok
+     c                   else
+     c     HEUNIK        setll     Zrisol01
+     c     HEUNIK        Reade     Zrisol01                               33
+     c     *in33         doweq     '0'
+     c     FSKODE        IFEQ      'IFB'
+     c                   movel     FSSOK         SndNr0420
+     c                   goto      UtSndNr
+     c                   end
+     c     HEUNIK        Reade     Zrisol01                               33
+     c                   end
+     c                   end
+      *
+      * Fines ikke - tildel NÅ
+     C                   call      'SYGE15'
+     c                   parm                    SndNr
+     c                   move      HEAVD         FSAVD
+     c                   move      HEOPD         FSOPD
+     c                   move      'IFB'         FSKODE
+     C                   MOVEL     SndNr0420     FSSOK
+     c                   move      HEDTOP        FSDTOP
+     c                   move      *BLANKS       FSDOKK
+     C     KOPI          IFNE      'W'
+     C     FSKODE        CHAIN     KODFRI                             33
+     C  N33              MOVE      KFSODK        FSDOKK
+     C                   write     FRISOKR
+     c                   else
+     c                   move      HEUNIK        FSUNIK
+     c                   move      HEREFF        FSREFF
+     C                   write     ZRISOKR
+     c                   end
+      *
+     C     UtSndNr       ENDSR
+      *
+      *=====================================================================******
+      * Fix freetekst når det er fra web..
+      *=====================================================================******
+     C     FixZreeTxt    begsr
+      * Fritekst ligger i en tekstboks med CRLF som del av strengen..
+      * dette er lagret fortløpende i ZREETXT og må splittes..
+      * Hent Fritekst til samlet streng max 700 lang
+     C     HEUNIK        SETLL     Zreetxt1
+     C     HEUNIK        Reade     Zreetxt1                               33
+     C     *in33         doweq     '0'
+     c     frtkod        IFEQ      'R'
+     c                   cat       FRTTXT:0      WSMTXT
+     c                   end
+     c     frtkod        IFEQ      'G'
+     c                   cat       FRTTXT:0      WSTTXT
+     c                   end
+     C     HEUNIK        Reade     Zreetxt1                               33
+     c                   end
+      *
+     c                   movel     Hex0D         CrLf              2
+     c                   move      Hex25         CrLf
+     c                   move      'N'           CmrFtxFull        1
+      * Melding til mottaker....
+     c     WSMtxt        Ifne      *blanks
+     c                   moveA     WSMTXT        TX
+     c                   exsr      SkrivFrt
+     c                   end
+      * Melding til Transportør.
+     c     WSTtxt        Ifne      *blanks
+     c     CmrFtxFull    andne     'J'
+     c                   move      'G'           FRTKOD
+     c                   moveA     WSTTXT        TX
+     c                   exsr      SkrivFrt
+     c                   end
+     c                   endsr
+      *=====================================================================******
+      * Skriv freetekst
+      *=====================================================================******
+     C     SkrivFrt      begsr
+     C                   z-add     1             GMPOS
+     C                   z-add     1             WPOS
+      * Neste linje er fram til neste CR/LF eller max 70 tegn
+     c     NextCRLF      Tag
+     C     CRLF          SCAN      TEXT:GMPOS    WPOS                     51
+      * fant ikke flere CRLF, resten blank? Hopp ut / ellers lagre 70+70.
+     C     *IN51         IFEQ      *OFF
+     c                   MOVE      *BLANKS       TST700
+     c                   movea     TX(GMpos)     TST700
+     C     TST700        CABEQ     *BLANKS       UTSKRIV
+     c                   z-add     9999          Wpos
+     c                   end
+      *
+      * Lagre uansett fra og med start.sted
+     C                   MOVEA     TX(GMPOS)     FX
+      * Finn lengde på siste streng(max 70) - blank resten (fra lengde +1)
+     C                   EVAL      BLF = WPOS - GMPOS + 1
+     C     BLF           IFGT      70
+      *(51 OFF. skal IKKE hoppe over CRLF før neste linje.)
+     C                   MOVE      *OFF          *IN51
+     C                   eval      wpos = GMPOS +70
+     c                   end
+     C     BLF           IFge      1
+     C     BLF           andle     70
+     C                   MOVEA     *BLANKS       FX(BLF)
+     C                   END
+      *
+      *
+      * legg linja inn i neste ledige cmr fritekst...
+      * (4 linj, a 35 lang. )
+     c                   Movea     FX            Test70
+     c     Test70A       Ifne      *blanks
+S15  c*                  Move      test70A       txt35            35
+N15  c                   Move      test70A       txt50            50
+     c                   exsr      skriv2
+     c                   end
+     c     Test70B       Ifne      *blanks
+     c     CmrFtxFull    andne     'J'
+S15  c*                  Move      test70B       txt35            35
+N15  c                   EVAL      TXT50 = test70B
+     c                   exsr      skriv2
+     c                   end
+      *
+      *
+      * Finn neste start-posisjon (HVIS CRLF - hopp pver)
+     C                   Z-add     WPOS          GMPOS
+     C     *IN51         IFEQ      *ON
+     C                   ADD       2             GMPOS
+     C                   END
+     C     GMPOS         CABLE     700           NEXTCRLF
+     C
+      *
+     c     UtSKRIV       endsr
+      *=====================================================================******
+      * Legg 35 lang stern ut i neste cmr-fritekst
+      *=====================================================================******
+     C     Skriv2        begsr
+     C                   select
+s15  C*    XDCAI1        wheneq    *blanks
+n15  C     XDCAI150      wheneq    *blanks
+S15  c*                  move      txt35         XDCAI1
+N15  c                   move      txt50         XDCAI150
+s15  C*    XDCAI2        wheneq    *blanks
+N15  C     XDCAI250      wheneq    *blanks
+S15  c*                  move      txt35         XDCAI2
+N15  c                   move      txt50         XDCAI250
+s15  C*    XDCAI3        wheneq    *blanks
+N15  C     XDCAI350      wheneq    *blanks
+S15  c*                  move      txt35         XDCAI3
+N15  c                   move      txt50         XDCAI350
+s15  C*    XDCAI4        wheneq    *blanks
+N15  C     XDCAI450      wheneq    *blanks
+S15  c*                  move      txt35         XDCAI4
+N15  c                   move      txt50         XDCAI450
+N15  C     XDCAI550      wheneq    *blanks
+N15  c                   move      txt50         XDCAI550
+N15  C     XDCAI650      wheneq    *blanks
+N15  c                   move      txt50         XDCAI650
+     c                   other
+     c                   move      'J'           CmrFtxFull
+     c                   end
+     c                   endsr
+     C******************************************
+     C     INIT          BEGSR
+     C******************************************
+     C     STEFRA        KLIST
+     C                   KFLD                    HELKA
+     C                   KFLD                    HESDF
+     C     SADKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     KODTPK        KLIST
+     C                   KFLD                    WSPUNI
+     C                   KFLD                    DAVD
+     C                   KFLD                    WSPLNR
+     C                   MOVE      'P'           WSPUNI            1
+     C*
+     C     KUNKEY        KLIST
+s11  C*                  KFLD                    FIRMA
+N11  C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C*
+     C     VADKEY        KLIST
+s11  C*                  KFLD                    FIRMA
+n11  C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C                   KFLD                    VANR              5 0
+     C                   Z-ADD     1             VANR
+     C     KOAKEY        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    KOAAVD
+     C     KFRKEY        KLIST
+     C                   KFLD                    KFRUNI
+     C                   KFLD                    KFRKOD
+     C     TURKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEPRO
+     C     HEAKEY        KLIST
+     C                   KFLD                    DCAVD
+     C                   KFLD                    DCOPD
+     C     FRIKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    KODE              1
+     C     FRISOKKEY     KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    XXSOK
+     C                   move      'IFB'         XXSOK             3
+     C     BrParKey      KLIST
+     C                   KFLD                    PABRID
+     C                   KFLD                    PAKUNR
+     C                   KFLD                    PAID
+     C                   MOVE      *ZEROS        PAKUNR
+     C                   MOVE      'OLBAN'       PAID
+N05  C     BrParKey2     KLIST
+N05  C                   KFLD                    PABRID
+N05  C                   KFLD                    PAKUNR
+N05  C                   KFLD                    X2PAID
+N05  C     *LIKE         DEFINE    PAID          X2PAID
+N05  C                   MOVE      'HECM1'       X2PAID
+      *
+     C     *LIKE         DEFINE    DCST          DCSTFA
+     C     DC1KEY        KLIST
+     C                   KFLD                    DCSTFA
+      *
+     C     *LIKE         DEFINE    DCAVD         DOKAVD
+     C     *LIKE         DEFINE    DCOPD         DOKOPD
+     C     DOKKEY        KLIST
+     C                   KFLD                    DOKAVD
+     C                   KFLD                    DOKOPD
+     C                   MOVE      DAVD          DOKAVD
+     C                   MOVE      *ZEROS        PRANT
+     C                   MOVEL     'FR'          KFRUNI
+     C                   MOVE      'A'           KOAUNI
+     C                   MOVE      DAVD          KOAAVD
+     C                   MOVE      'C'           KODE
+      * hent laser-type ved print for evt
+     c                   move      ' '           lastyp            1
+     c     KOPI          ifeq      'J'
+     c     KOPI          oreq      ' '
+     C                   Z-ADD     24            WSPLNR            3 0
+     C     KODTPK        CHAIN     KODTP                              33
+     c  N33              move      KOPLAS        lastyp
+     c                   end
+N11  C     *LOVAL        SETLL     FIRM
+N11  C                   READ      FIRM                                   27
+N11  C     FILAND        COMP      *BLANKS                            2727
+N11  C   27FILAND        COMP      'NO'                               2727
+      *
+     C     KOAKEY        CHAIN     KODTA                              33
+      * Fra web - uten avd, Hent første og beste (til fraktfører...)
+     C     KOPI          IFEQ      'W'
+     C     DAVD          andeq     *zeros
+     c                   Read      kodta
+     c                   move      koaavd        Davd
+     c                   end
+     C                   MOVE      KOAKNR        KUNDNR
+     C     KUNKEY        CHAIN     CUNDL01                            33
+     C                   MOVEL     ADR3          FRAAVD           18
+     c  N33              movel     syrg          firg             11
+     C     WKSDVT        KLIST
+     C                   KFLD                    HELKK
+     C                   KFLD                    HESDVT
+      *
+S11  C*    FIFIRM        SETLL     FIRM
+S11  C*                  READ      FIRM                                   27
+S11  C*    FILAND        COMP      *BLANKS                            2727
+S11  C*  27FILAND        COMP      'NO'                               2727
+      * EAN-sendingsnr?? foreløpig hardkodet...
+     c                   MOVE      'J'           EANJN             1
+     c*                  MOVE      'N'           EANJN             1
+      * hent printerstyring for merkelapp (STRIPE eller ELTRON??)
+     C                   Z-ADD     67            WSPLNR
+     C                   MOVE      'N'           ELTRON            1
+     C                   MOVE      *BLANKS       KOPTY
+     C     KODTPK        CHAIN     KODTP                              33
+     C     KOPTY         IFEQ      'ELTRON'
+     C                   MOVE      'J'           ELTRON
+     C                   END
+      *
+     C                   ENDSR
+     C*
+     C******************************************
+     C     KOPISR        BEGSR
+     C******************************************
+     C*
+     C     OP1           IFNE      *ZEROS
+     C                   MOVE      OP1           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP2           IFNE      *ZEROS
+     C                   MOVE      OP2           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP3           IFNE      *ZEROS
+     C                   MOVE      OP3           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP4           IFNE      *ZEROS
+     C                   MOVE      OP4           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP5           IFNE      *ZEROS
+     C                   MOVE      OP5           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP6           IFNE      *ZEROS
+     C                   MOVE      OP6           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP7           IFNE      *ZEROS
+     C                   MOVE      OP7           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C*
+     C     OP8           IFNE      *ZEROS
+     C                   MOVE      OP8           DOKOPD
+     C                   EXSR      KOPIS2
+     C                   END
+     C                   ENDSR
+     C*
+     C******************************************
+     C     KOPIS2        BEGSR
+     C******************************************
+     C*
+     C  N27DOKKEY        CHAIN(N)  DOKEC                              33
+     C   27DOKKEY        CHAIN(N)  DOKECE                             33
+     C  N33HEAKEY        CHAIN(N)  HEADF                              33
+     C  N33
+     CANN27              EXSR      TOLL
+     C  N33
+     CAN 27              EXSR      TOLLE
+     C                   ENDSR
+     C******************************************
+     C     ZEADSR        BEGSR
+     C******************************************
+     C*
+     C                   MOVE      XXUNIK        HEUNIK
+     C     HEUNIK        CHAIN     ZEADL02                            33
+N14  C     *in33         ifeq      '1'
+N14  c                   move      davd          dcavd
+N14  c                   move      op1           dcopd
+N14  C     HEAKEY        CHAIN(N)  HEADF                              33
+N14  C                   end
+     c*                  dump
+     C     *in33         CABEQ     '1'           UtZeadSR
+      *
+     C                   MOVE      *BLANKS       USTMF
+     C                   MOVEL     HEFILE        PABRID
+N05  C     BrParKey2     CHAIN     BRPARF                             33
+N05  C                   IF        *IN33
+N05  C                   MOVE      *BLANKS       XBUNNTXT         18
+N05  C                   ELSE
+N05  C                   EVAL      XBUNNTXT = PAVRDA
+N05  C                   END
+N05  C                   EVAL      PAVRDA = *BLANKS
+N05  C                   EVAL      PAID   = 'OLBAN'
+     C     HEUNIK        setll     Zrisol01
+     C     HEUNIK        Reade     Zrisol01                               33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ((FSKODE = '#VD') AND
+     C                              (FSSOK = 'CMRFrbrev.pdf'))
+     C     BrParKey      CHAIN     BRPARF                             33
+     C     *in33         ifeq      '1'
+S10  c*                  eval      PABRID='*KUNDFT*SY'
+N10  C                   eval      PABRID= '*KUNDFT*' + %TRIM(FIFIRM)
+     C     BrParKey      CHAIN     BRPARF                             33
+     c                   end
+     c***                dump
+     C                   GOTO      CMROK
+     C                   END
+     C     HEUNIK        Reade     Zrisol01                               33
+     C                   ENDDO
+     C     BrParKey      CHAIN     BRPARF                             33
+     C     *in33         ifeq      '1'
+S10  c*                  eval      PABRID='*KUNDFT*SY'
+N10  C                   eval      PABRID= '*KUNDFT*' + %TRIM(FIFIRM)
+     C     BrParKey      CHAIN     BRPARF                             33
+     c                   end
+     C***                dump
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN           10
+     C                   EVAL      FSDOKK = NEWRAN
+     C                   EVAL      FSSOK = 'CMRFrbrev.pdf'
+     C                   MOVE      '#VD'         FSKODE
+     C                   MOVE      HEAVD         FSAVD
+     C                   MOVE      HEOPD         FSOPD
+     C                   MOVE      HEUNIK        FSUNIK
+     C                   MOVE      HEREFF        FSREFF
+     C                   WRITE     ZRISOKR
+     C     CMROK         TAG
+     C                   EVAL      USTMF = PAVRDA
+     C                   MOVEL     FSUNIK        XAN09             9
+     C                   CAT       XAN09:0       USTMF
+     C                   CAT       FSDOKK:0      USTMF
+     C                   CAT       FSSOK:0       USTMF
+      *
+     C                   EXSR      TOLL
+      *
+     C     UtZeadSR      ENDSR
+     C*
+     C******************************************
+     C     UTCMR         BEGSR
+     C******************************************
+     C* IKKE STRING VED FAX
+     C     KOPI          IFNE      'F'
+     C     KOPI          ANDNE     'W'
+     C                   Z-ADD     24            WSPLNR            3 0
+     C     KODTPK        CHAIN     KODTP                              42
+     c* logg cmr til arkiv
+     C     FIFIRM        CHAIN     FIRMARC                            33
+     C  N33'cm'          chain     arktxt                             33
+     C     *IN33         IFEQ      '0'
+     C     arkjn         andeq     'J'
+     C     KOPI          ANDNE     'J'
+     C                   MOVE      FIFIRM        ARFIRM
+     C                   MOVE      HEAVD         ARAVD
+     C                   MOVE      HEOPD         AROPD
+     C                   MOVE      'cm'          ARTYPE
+     C                   MOVE      ZUSER         ARUSER
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      ULDT          ARDATE
+     C                   MOVE      XULTM         ARTIME
+     C                   move      dckna         arkund
+     C                   WRITE     ARKIVR
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       KFMT1
+     C                   MOVE      *BLANKS       KFMT2
+      *
+      * Ingen henvisning til stringkode...
+     C     KOPFM         IFEQ      *BLANKS                                      1<-B
+     C                   WRITE     CMR
+N03  C                   exsr      ovlsr
+     C                   ELSE                                                   1
+      *  henvisning til stringkode...
+     C                   MOVEA     '00'          *IN(42)
+     C     KOPFM         SETLL     KODTFM
+     C     STFM1         TAG
+     C     KOPFM         READE     KODTFM                                 42
+     C  N42              DO                                                      2<-B
+     C                   MOVE      '1'           *IN43
+      * Stringkode før....
+     C     KFMT1         IFNE      *BLANKS
+     C                   WRITE     CMRH1
+     C                   END                                                     2<-E
+     C     KFMT2         IFNE      *BLANKS
+     C                   WRITE     CMRH2
+     C                   END                                                     2<-E
+      * Selve CMR-en
+     C                   WRITE     CMR
+      * Stringkode etter..
+     C     KFMT3         IFNE      *BLANKS
+     C                   WRITE     CMRH2
+     C                   END                                                     2<-E
+N03  C                   exsr      ovlsr
+     C                   GOTO      STFM1
+     C                   END                                                     2<-E
+      *  henvisning til stringkode, men fant ikke post - skriv normal
+      * Selve CMR-en
+     C   42
+     CANN43              WRITE     CMR
+s04  C*                  END                                                    1<-E
+N03  C   42
+N03  CANN43              EXSR      OVLSR
+n04  C                   END                                                    1<-E
+      *
+     C                   ENDSR
+     C*
+     C******************************************
+     C     UTCMRE        BEGSR
+     C******************************************
+     C* IKKE STRING VED FAX
+     C     KOPI          IFNE      'F'
+     C     KOPI          ANDNE     'W'
+     C                   Z-ADD     24            WSPLNR            3 0
+     C     KODTPK        CHAIN     KODTP                              42
+     c* logg cmr til arkiv
+     C     FIFIRM        CHAIN     FIRMARC                            33
+     C  N33'cm'          chain     arktxt                             33
+     C     *IN33         IFEQ      '0'
+     C     arkjn         andeq     'J'
+     C     KOPI          ANDNE     'J'
+     C                   MOVE      FIFIRM        ARFIRM
+     C                   MOVE      HEAVD         ARAVD
+     C                   MOVE      HEOPD         AROPD
+     C                   MOVE      'cm'          ARTYPE
+     C                   MOVE      ZUSER         ARUSER
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      ULDT          ARDATE
+     C                   MOVE      XULTM         ARTIME
+     C                   move      dckna         arkund
+     C                   WRITE     ARKIVR
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       KFMT1
+     C                   MOVE      *BLANKS       KFMT2
+      *
+     C     KOPFM         IFEQ      *BLANKS                                      1<-B
+     C                   EXCEPT    SKCMRE
+     C                   ELSE                                                   1
+     C                   MOVEA     '00'          *IN(42)
+     C     KOPFM         SETLL     KODTFM
+     C     STFM2         TAG
+     C     KOPFM         READE     KODTFM                                 42
+     C  N42              DO                                                      2<-B
+     C                   MOVE      '1'           *IN43
+     C                   EXCEPT    SKCMRE
+     C                   GOTO      STFM2
+     C                   END                                                     2<-E
+     C   42
+     CANN43              EXCEPT    SKCMRE
+     C                   END                                                    1<-E
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KDTFMT        BEGSR
+     C***********************************************
+     C                   MOVE      DCDTD         UDT1              2 0
+     C                   MOVE      DCDTM         UDT2              2 0
+     C                   MOVE      DCDTÅ         UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          XCDTD
+     C                   MOVE      UDT2          XCDTM
+     C                   MOVE      UDT3          XCDTÅ
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KDTFM2        BEGSR
+     C***********************************************
+     C                   MOVE      DEDT1D        UDT1              2 0
+     C                   MOVE      DEDT1M        UDT2              2 0
+     C                   MOVE      DEDT1Å        UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          XEDT1D
+     C                   MOVE      UDT2          XEDT1M
+     C                   MOVE      UDT3          XEDT1Å
+      *
+     C                   MOVE      DEDT2D        UDT1              2 0
+     C                   MOVE      DEDT2M        UDT2              2 0
+     C                   MOVE      DEDT2Å        UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          XEDT2D
+     C                   MOVE      UDT2          XEDT2M
+     C                   MOVE      UDT3          XEDT2Å
+      *
+     C                   ENDSR
+      *
+N03  C****************************************************************
+N03  C     OVLSR         BEGSR
+N03  C****************************************************************
+N03  C     LASTYP        IFEQ      'F'
+N03  C     LASTYP        OREQ      'P'
+N03  C     LASTYP        OREQ      'W'
+N03  C     KOPI          OREQ      'F'
+N03  C                   MOVEL     'CM1'         OVL03             3
+N03  C     KFMSD         IFNE      0
+N03  C                   MOVE      KFMSD         OVL03
+N03  C                   END
+N03  C                   MOVEL     OVL03         FB01
+N03  C                   write     ovl
+N03  C                   END
+N03   *
+N03  C                   ENDSR
+N03   *
+N03  C*
+      ************************
+      *
+      * CMR - FRAKTBREV
+     O*
+     O************************
+     OCMRBREV   E            SKCMRE           01
+     O                       KFMT1               75
+     OCMRBREV   E            SKCMRE           05
+     O                       DENAA               37
+     O          E            SKCMRE           06
+     O                       DEADA1              37
+     O          E            SKCMRE           07
+     O                       DEADA2              37
+     O          E            SKCMRE           08
+     O                       DEADA3              37
+     O          E            SKCMRE           09
+     O                                           32 'REF.NO.     /     /   '
+     O                       HEAVD               22
+     O                       HEOPD               30
+     O                       HESG                34
+     O          E            SKCMRE           11
+     O                       DENAM               37
+     O                       DENAG               74
+     O          E            SKCMRE           12
+     O                       DEADM1              37
+     O                       DEADG1              74
+     O          E            SKCMRE           13
+     O                       DEADM2              37
+     O                       DEADG2              74
+     O          E            SKCMRE           14
+     O                       DEADM3              37
+     O                       DEADG3              74
+     O          E            SKCMRE           18
+     O                       DESTM1              37
+     O          E            SKCMRE           19
+     O                       DESTM2              37
+     O          E            SKCMRE           21
+     O                       DESTA1              37
+     O          E            SKCMRE           22
+     O                       DESTA2              37
+     O          E            SKCMRE           23
+     O                       XEDT1         Y     15
+     O          E            SKCMRE           25
+     O                       DER51               37
+     O          E            SKCMRE           26
+     O                       DER52               37
+     O          E            SKCMRE           29
+     O                       MN(1)               18
+     O                       NT(1)         Z     24
+     O                       EH(1)               36
+     O                       VS(1)               51
+     O                       VK(1)         Z     66
+     O                       M3(1)         4     76
+     O          E            SKCMRE           30
+     O                       MN(2)               18
+     O                       NT(2)         Z     24
+     O                       EH(2)               36
+     O                       VS(2)               51
+     O                       VK(2)         Z     66
+     O                       M3(2)         4     76
+     O          E            SKCMRE           31
+     O                       MN(3)               18
+     O                       NT(3)         Z     24
+     O                       EH(3)               36
+     O                       VS(3)               51
+     O                       VK(3)         Z     66
+     O                       M3(3)         4     76
+     O          E            SKCMRE           32
+     O                       MN(4)               18
+     O                       NT(4)         Z     24
+     O                       EH(4)               36
+     O                       VS(4)               51
+     O                       VK(4)         Z     66
+     O                       M3(4)         4     76
+     O          E            SKCMRE           33
+     O                       MN(5)               18
+     O                       NT(5)         Z     24
+     O                       EH(5)               36
+     O                       VS(5)               51
+     O                       VK(5)         Z     66
+     O                       M3(5)         4     76
+     O          E            SKCMRE           34
+     O                       MN(6)               18
+     O                       NT(6)         Z     24
+     O                       EH(6)               36
+     O                       VS(6)               51
+     O                       VK(6)         Z     66
+     O                       M3(6)         4     76
+     O          E            SKCMRE           35
+     O                       MN(7)               18
+     O                       NT(7)         Z     24
+     O                       EH(7)               36
+     O                       VS(7)               51
+     O                       VK(7)         Z     66
+     O                       M3(7)         4     76
+     O          E            SKCMRE           36
+     O                       MN(8)               18
+     O                       NT(8)         Z     24
+     O                       EH(8)               36
+     O                       VS(8)               51
+     O                       VK(8)         Z     66
+     O                       M3(8)         4     76
+     O          E            SKCMRE           37
+     O                       MN(9)               18
+     O                       NT(9)         Z     24
+     O                       EH(9)               36
+     O                       VS(9)               51
+     O                       VK(9)         Z     66
+     O                       M3(9)         4     76
+     O          E            SKCMRE           38
+     O                       FT(1)               73
+     O          E            SKCMRE           39
+     O                       FT(2)               73
+     O          E            SKCMRE           40
+     O                       FT(3)               73
+     O          E            SKCMRE           41
+     O                                           66 '---------'
+     O                                           76 '--------'
+     O          E            SKCMRE           42
+     O                       DEFT1               45
+     O                       DEVKTT        Z     66
+     O                       DEM3T         4     76
+     O          E            SKCMRE           43
+     O                       DEFT2               45
+     O          E            SKCMRE           45
+     O                       DECLAS              14
+     O                       DENTT         Z     27
+     O                       DEKD                36
+     O                       DEAPR               46
+     O          E            SKCMRE           47
+     O                       DEINS1              37
+     O          E            SKCMRE           48
+     O                       DEINS2              37
+     O          E            SKCMRE           49
+     O                       DEINS3              37
+     O          E            SKCMRE           50
+     O                       DEINS4              37
+     O          E            SKCMRE           51
+     O                       DEINS5              37
+     O          E            SKCMRE           58
+     O                       DEFR                15
+     O                       DEFRFT              43
+     O          E            SKCMRE           60
+     O                       XEDT2         Y     37
+     O          E            SKCMRE           61
+     O                       DESTA3              37
+     O          E            SKCMRE           64
+     O                       KFMT2               75
+      *
+     OHEADFR    E            OPDHEA
+     O                       HEPK7
+     ODOKECR    E            OPDFIL
+     O                       DCST
+     O                       DCDT
+     O                       DCSNR
+     ODOKECR    E            DUMFIL
+     ODOKECER   E            OPDFCE
+     O                       DEST
+     ODOKECER   E            DUMFCE

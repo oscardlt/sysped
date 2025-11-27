@@ -1,0 +1,254 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVI030R MODULE(*LIBL/TSVI030R *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSVTVK     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          c                   const('''')
+     d SqlStm          s            512a
+     d myrows          s             10i 0
+     D WSUSER          S             10
+     D SYAVA           S              4
+     D SYAV            S              4  0
+     D SYOPA           S              7
+     D SYOP            S              7  0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d X               S             10  0
+     d MyPoDS          ds                  Qualified  dim(100)
+     d  SVIF_syav                     4S 0
+     d  SVIF_syop                     7S 0
+     d  SVIF_faty                     4
+     d  SVIF_fatx                    35
+     d  SVIF_vakd                     3
+     d  SVIF_vaku                     7S 4
+     d  SVIF_fabl                    11S 3
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+         exsr ParseSr;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(SYAV:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(SYOP:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"invList" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+         if myrows > 0;
+           exsr LesSr;
+         endif;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+         exsr Exit;
+
+       //-----------------------------------------------------------------
+       // Select fra fil via SQL
+       //-----------------------------------------------------------------
+       begsr     SelSr;
+
+       If    SYAV > 0;
+         Exsr  AddAnd;
+         Eval  WhereC = ' SVIF_SYAV  = ' + SYAVA;
+       EndIf;
+
+       If    SYOP > 0;
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' SVIF_SYOP  = ' + SYOPA;
+       EndIf;
+
+         Eval      WhereC =  ' Where ' + %trim(WhereC);
+
+         Eval       SqlStm = 'Select SVIF_SYAV, SVIF_SYOP, SVIF_FATY, ' +
+                             'SVIF_FATX, SVIF_VAKD, SVIF_VAKU, ' +
+                             'SVIF_FABL ' +
+                             'from SVIF ' +
+                              %trim(WhereC)  +
+                             ' Order by '       +
+                             'SVIF_FATX ' +
+                             'FOR READ ONLY ';
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  A33  cursor for DynSel;
+         Exec SQL OPEN A33;
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+       //-----------------------------------------------------------------
+       // Set inn "AND" mellom where settninger
+       //-----------------------------------------------------------------
+       begsr     AddAnd;
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+       //-----------------------------------------------------------------
+       // hent input
+       //-----------------------------------------------------------------
+       begsr     ParseSr;
+         wsuser  = zhbgetvar('USER');
+         syava   = zhbgetvar('AVD');
+         syav    = c2n2(syava);
+         syopa   = zhbgetvar('OPD');
+         syop    = c2n2(syopa);
+        endsr;
+        // __________________________________________________
+        // Læs array                                    LESSR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr LesSr;
+       for x = 1 to myrows;
+
+       if mypods(x).SVIF_faty = *blanks;
+         leave;
+       endif;
+
+           chain (mypods(x).SVIF_vakd) SVTVK;
+           if not %found;
+              svvk_omr = *zeros;
+           endif;
+
+
+        // Valider extern ref
+           error=' ';
+
+           if error = *blanks;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬svif_syav¬ : ¬'+%trim(%editc(mypods(x).SVIF_SYAV:'Z'))+'¬, '
+          +'¬svif_syop¬ : ¬'+%trim(%editc(mypods(x).SVIF_SYOP:'Z'))+'¬, '
+          +'¬svif_faty¬ : ¬'+%trim(mypods(x).SVIF_FATY)+'¬, '
+          +'¬svif_fatx¬ : ¬'+%trim(mypods(x).SVIF_FATX)+'¬, '
+          +'¬svif_vakd¬ : ¬'+%trim(mypods(x).SVIF_VAKD)+'¬, '
+          +'¬svif_vaku¬ : ¬'+%trim(%editc(mypods(x).SVIF_VAKU:'4'))+'¬, '
+          +'¬svif_omr¬ : ¬'+%trim(%editc(SVVK_omr:'4'))+'¬, '
+          +'¬svif_fabl¬ : ¬'+%trim(%editc(mypods(x).SVIF_FABL:'4'))+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endif;
+
+        endfor;
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         open svtvk;
+         // Test innlogging
+         chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       endsr;
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close svtvk;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free

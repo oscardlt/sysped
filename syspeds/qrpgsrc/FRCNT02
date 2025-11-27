@@ -1,0 +1,344 @@
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/FRCNT02
+      *
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/FRCNT02 MODULE(*LIBL/FRCNT02)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Bookshelves
+     FKODTA     IF   e           K DISK    USROPN
+      * Books
+     FDISPL04   IF   e           K DISK    USROPN
+     Fheadf     IF   e           K DISK    USROPN
+     Fhested    IF   e           K DISK    USROPN
+     Ffreetxt2  IF   e           K DISK    USROPN
+      *=====================================================================
+      * Includes to be used in all CGIs
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      *  Fields used for parsing the input string
+     D action          s             10a
+     D subaction       s             10a
+     D lng             s              2a
+      * aktiv tur...
+     D Tur             s              8a
+     D Turnr           s              8  0
+      * aktiv avd...
+     D Avd             s              4a
+     D Avdnr           s              4  0
+      *
+     D AVDdes          s             33a
+     D InAvd           s              4a
+     D InAvdN          s              4  0
+     D InOpd           s              7a
+     D InOpdN          s              7  0
+     D OPPDBESK1       s             70a
+     D OPPDBESK2       s            700a
+      *
+     D htmlsrclib      s             10a
+     D htmlsrcfil      s             10a
+     D htmlsrcmbr      s             10a
+      * "InitSW"- is blank only the first time pgm is called
+     DInitSW           S              1a
+      *
+     Dlinenbr          S              3s 0
+      *--------------------------------------------------------------------
+      *  Composite keys
+      *--------------------------------------------------------------------
+     C     KodtaKey      klist
+     C                   kfld                    KOAUNI
+     C                   kfld                    AvdNr
+     C                   move      'A'           KOAUNI
+     C     HeadfKey      klist
+     C                   kfld                    DIAVD
+     C                   kfld                    DIOPD
+     C     Free2Key      klist
+     C                   KFLD                    DIAVD
+     C                   KFLD                    DIOPD
+     C                   KFLD                    XXSKKO            1
+     C                   MOVE      'G'           XXSKKO
+      *=====================================================================
+     C                   exsr      SetTimeStr
+      *=====================================================================
+      * Read remote browser input string and parse it
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prolog3
+     C                   exsr      Parse
+      *=====================================================================
+      * Main line
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+     C                   exsr      LoadHtml
+      *------------------
+      * Open database files
+     C                   exsr      OpenDbf
+      *------------------
+      * Action requested (not used)
+     C                   eval      action = uppify(action)
+      * Bookshelf number and description
+     C     KodtaKey      chain     KODTA
+     C                   if        %found
+     C                   eval      AVDDES = Koanvn
+     C                   else
+     C                   eval      AVDDES = 'Not Found'
+     C                   endif
+      * =================
+      * "Action" analysis:
+      * 1-Display the ordering page
+     C                   if        Action ='DISPLAY'
+     C                   exsr      Display
+     C                   exsr      Exit
+     C                   endif
+      * 2-Order a book
+     C                   if        Action ='ORDER'
+     C                   exsr      Order
+     C                   exsr      Display
+     C                   exsr      Exit
+     C                   endif
+      * =================
+      * Flush the html buffer and exit
+     C                   exsr      Exit
+      *=====================================================================
+      * Display the ordering page
+      *=====================================================================
+     C     Display       begsr
+      * Start html
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+     C                   eval      wrotetop = *on                               For pssr
+      * =================
+      * Start right leg
+     C                   exsr      SetLeg2
+     C     TurNr         ifne      *zeros
+     C                   callp     wrtsection('leg2a')
+     C                   else
+     C                   callp     wrtsection('leg2b')
+     C                   end
+      * Fill right leg
+     C                   eval      linenbr = 0
+     c     Disp4Key      KLIST
+     C                   kfld                    DISTA1
+     C                   kfld                    DITUR
+     C                   kfld                    KOAAVD
+     C     Disp4Key      setll     DISPL04
+      *
+     C     Disp4Key      reade     DISPL04
+     C                   dow       not%eof
+      * INFOR FRA HEADF
+     C     HeadfKey      CHAIN     HEADF                              33
+     C     *in33         cabeq     *on           NextDisp
+     C                   eval      linenbr = linenbr +1
+     C                   exsr      SetLeg2Row
+     C                   callp     wrtsection('leg2row')
+     C     NextDisp      tag
+     C     Disp4Key      reade     DISPL04
+     C                   enddo
+      *
+      * End right leg
+     C                   callp     wrtsection('leg2end')
+     C                   endsr
+      *=====================================================================
+      * Order a book  (SETT PÅ TUR)
+      *=====================================================================
+     C     Order         begsr
+     C     TurNr         Ifne      *zeros
+     c                   call      'SYGE21'
+     c                   parm                    InavdN
+     c                   parm                    InopdN
+     c                   parm                    TurNr
+     c                   parm                    In30              1
+     C                   end
+     C                   endsr
+      *=====================================================================
+      * Set variables in html section "top"
+      *=====================================================================
+     C     SetTop        begsr
+      * Gjeldende tur
+     C                   callp     updHTMLvar('TUR':
+     C                             %trim(%editc(TurNr:'Z')))
+      * Gjeldende Avd
+     C                   callp     updHTMLvar('AVD':
+     C                             %trim(%editc(AvdNr:'Z')))
+     C                   endsr
+      *=====================================================================
+      * Set variables in html section "leg2"
+      *=====================================================================
+     C     SetLeg2       begsr
+      * Selected Bookshelf description
+     C                   callp     updHTMLvar('AVDDES':AVDDes)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html section "leg2row"
+      *=====================================================================
+     C     SetLeg2Row    begsr
+     C     HeadfKey      CHAIN     HEsted                             33
+      * Linjer fra notisblokk merket G, samles i EN lang streng
+     c                   Move      *blanks       Merknad         500
+     C     Free2Key      SETLL     FREETXT2
+     C     Free2Key      READE     FREETXT2                               33
+     C     *in33         doweq     *OFF
+     c     Merknad       ifeq      *blanks
+     C                   eval      Merknad = 'Merkn: ' + FRTTXT
+     C                   else
+     C                   eval      Merknad=%trim(Merknad)+'<br>'+%trim(FRTTXT)
+     C                   END
+     C     Free2Key      READE     FREETXT2                               33
+     C                   END
+      * Line number
+     C                   callp     updHTMLvar('linenbr':
+     C                             %trim(%editc(linenbr:'Z')))
+      * Oppdr- beskrivelse 1 / 2
+     C                   move      diavd         diavda            4
+     C                   move      diopd         diopda            7
+     C                   movel     disonf        LKF               2
+     C                   movel     disont        LKT               2
+     C                   eval      OPPDBESK1 = DIAVDA+'/'+DIOPDA +
+     C                             '  Fra: '+LKF+' '+ DISTEF+' '+%trim(HSFROM)+
+     C                             '  Til: '+LKT+' '+ DISTET + ' ' +%trim(HSTO)
+     C                   callp     updHTMLvar('OPPDBESK1':OPPDBESK1)
+      *
+     C                   eval      OPPDBESK2 = 'Avs: '+%trim(Henas)+' '+
+     C                                         %trim(Heads1)+' '+
+     C                                         %trim(Heads3)+'<br>'+
+     C                                         'Mot: '+%trim(Henak)+' '+
+     C                                         %trim(Headk1)+' '+
+     C                                         %trim(Headk3)
+     C     Merknad       ifne      *blanks
+     C                   eval      OPPDBESK2 = %trim(OPPDBESK2)+'<br>'+
+     C                                         %trim(Merknad)
+     c                   end
+     C                   callp     updHTMLvar('OPPDBESK2':OPPDBESK2)
+      *
+     C                   callp     updHTMLvar('ANT':
+     C                             %trim(%editc(HENT:'Z')))
+     C                   callp     updHTMLvar('VKT':
+     C                             %trim(%editc(hevkt:'Z')))
+     C                   callp     updhtmlvar('M3':
+     C                             %trim(%editc(HEM3:'3')))
+      *
+     C                   callp     updHTMLvar('InAVD':DiAVDA)
+     C                   callp     updHTMLvar('InOPD':DiOPDA)
+      *
+     C                   endsr
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+      *=====================================================================
+     C     LoadHtml      begsr
+      * Read externally defined output html
+     C                   eval      HtmlSrcLib = '*LIBL'
+     C                   eval      HtmlSrcFil = 'HTMLSRC' + lng
+     C                   eval      HtmlSrcMbr = 'FRCNT02'
+     C                   callp     gethtml(HtmlSrcFil:HtmlSrcLib:HtmlSrcMbr:
+     C                             '/CGITAG/')
+      *
+     C                   endsr
+      *=====================================================================
+      * Open database files
+      *=====================================================================
+     C     OpenDbf       begsr
+     C*                  IF        InitSW = ' '
+     C*                  eval      InitSW = 'x'
+      *
+     C*                  eval      rc = docmd('OVRDBF FILE(KODTA) +
+     C*                            TOFILE(SYSPEDF/KODTA) +
+     C*                            RCDFMTLCK((KOAR *SHRUPD)) +
+     C*                            WAITRCD(5) SECURE(*YES)')
+     C*                  eval      rc = docmd('OVRDBF FILE(DispL04) +
+     C*                            TOFILE(syspedf/displ04) +
+     C*                            RCDFMTLCK((DISPR *SHRUPD)) +
+     C*                            WAITRCD(5) SECURE(*YES)')
+     C*                  eval      rc = docmd('OVRDBF FILE(HEADF) +
+     C*                            TOFILE(syendptf/Headf) +
+     C*                            RCDFMTLCK((HEADFR *SHRUPD)) +
+     C*                            WAITRCD(5) SECURE(*YES)')
+     C*                  eval      rc = docmd('OVRDBF FILE(HESTED) +
+     C*                            TOFILE(syspedf/hested) +
+     C*                            RCDFMTLCK((HESTEDR *SHRUPD)) +
+     C*                            WAITRCD(5) SECURE(*YES)')
+     C*                  eval      rc = docmd('OVRDBF FILE(FREETXT2) +
+     C*                            TOFILE(syendptf/FREETXT2) +
+     C*                            RCDFMTLCK((FREETXTR *SHRUPD)) +
+     C*                            WAITRCD(5) SECURE(*YES)')
+     C                   call      'INCGIFULL'
+      *  Open bookshelves
+     C                   open      KODTA
+      *  Open books
+     C                   open      Displ04
+     C                   open      headf
+     C                   open      hested
+     C                   open      freetxt2
+      *
+     C**                 ENDIF
+     C                   endsr
+      *=====================================================================
+      * Close database files
+      *=====================================================================
+     C     CloseDbf      begsr
+      *  Close bookshelves
+     C                   close     KODTA
+      *  Close books
+     C                   close     DISPL04
+     C                   close     HEADF
+     C                   close     HESTED
+     C                   close     FREETXT2
+     C                   endsr
+      *=====================================================================
+      *  Time started
+      *=====================================================================
+     C     SetTimeStr    begsr
+     C                   time                    TimeStart
+     C                   endsr
+      *=====================================================================
+      *  Time ended and time elapsed elapsed
+      *=====================================================================
+     C     SetTimeEnd    begsr
+     C                   time                    TimeEnd
+     C     TimeEnd       subdur    TimeStart     MsElaps:*ms
+     C                   eval      SecElaps = MsElaps / 1000000
+     C                   endsr
+      *=====================================================================
+      * Send response html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Close database files
+     C                   exsr      CloseDbf
+      *
+     C                   exsr      SetTimeEnd
+     C                   callp     updhtmlvar('RUNTIME':
+     C                             %trim(%editw(SecElaps:'     0 .   ')))
+     C                   callp     wrtsection('runtime')
+     C                   callp     wrtsection('end')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse the input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      action     = zhbgetvar('action    ')
+     C                   eval      subaction  = zhbgetvar('subaction ')
+     C                   eval      lng        = zhbgetvar('lng       ')
+     C                   eval      Tur        = zhbgetvar('TUR       ')
+     C                   eval      Turnr      = c2n2(tur)
+     C                   eval      AVD        = zhbgetvar('AVD')
+     C                   eval      AVDNr      = c2n2(AVD)
+     C                   eval      InAvd      = zhbgetvar('InAVD')
+     C                   eval      InAvdN     = c2n2(InAVD)
+     C                   eval      InOpd      = zhbgetvar('InOPD')
+     C                   eval      InOpdN     = c2n2(InOPD)
+     C                   endsr

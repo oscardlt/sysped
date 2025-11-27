@@ -1,0 +1,258 @@
+PGM (&FILE &JOB &SPLNBR &PDFPATH &PDFNAME +
+     &LOGO &LOGOPATH &LOGOSCALE &PASSWORD &PASSCHECK +
+     &BASEFONT &BACKGROUND &PAGESIZE &PAGEWIDTH &PAGEHEIGHT +
+     &POINTSIZE &VERTSPACE &COLS &LEFTMARGIN &TOPMARGIN &ORIENT +
+     &DEBUG)
+
+  COPYRIGHT  ('Giuseppe Costagliola 2005 - beppecosta@yahoo.it')
+
+  DCL &FILE       *CHAR 10
+  DCL &JOB        *CHAR 26
+  DCL &SPLNBR     *DEC  6
+  DCL &PDFPATH    *CHAR 70
+  DCL &PDFNAME    *CHAR 30
+  DCL &LOGO       *CHAR 10
+  DCL &LOGOPATH   *CHAR 50
+  DCL &LOGOSCALE  *DEC  3
+  DCL &PASSWORD   *CHAR 20
+  DCL &PASSCHECK  *CHAR 20
+  DCL &BASEFONT   *CHAR 21
+  DCL &BACKGROUND *CHAR 4
+  DCL &PAGESIZE   *CHAR 15
+  DCL &PAGEWIDTH  *DEC  4
+  DCL &PAGEHEIGHT *DEC  4
+  DCL &POINTSIZE  *DEC  2
+  DCL &VERTSPACE  *DEC  2
+  DCL &COLS       *DEC  4
+  DCL &LEFTMARGIN *DEC  3
+  DCL &TOPMARGIN  *DEC  3
+  DCL &ORIENT     *CHAR 10
+  DCL &DEBUG      *CHAR  4
+
+  DCL &JOBNAME    *CHAR  10
+  DCL &USER       *CHAR  10
+  DCL &JOBNBR     *CHAR  6
+
+  DCL &FILENBR    *CHAR  6
+
+  DCL &DEVTYPE    *CHAR  10
+  DCL &RCDLEN     *CHAR  4
+  DCL &OVRFLW     *CHAR  4
+
+  DCL &BINNBR     *CHAR  4
+  DCL &RCVLEN     *CHAR  4
+  DCL &SPLA0100   *CHAR  2048
+  DCL &APIERR     *CHAR  100
+
+  DCL &J          *DEC   3
+  DCL &TSTPATH    *CHAR  101
+  DCL &PDF        *CHAR  100
+  DCL &NULL       *CHAR  1    VALUE(X'00')
+  DCL &STRUCT     *CHAR  128
+  DCL &RETVAL     *CHAR  4
+  DCL &SECONDS    *CHAR  9
+  DCL &MEMBER     *CHAR  10
+
+  DCL &CLASSPATH  *CHAR  300
+  DCL &OUTPUT     *CHAR  20
+
+  DCL &RCDLENs    *CHAR  3
+  DCL &OVRFLWs    *CHAR  3
+  DCL &LOGOSCALEs *CHAR  3
+  DCL &PAGEWIDTHs *CHAR  4
+  DCL &PAGEHEIGHs *CHAR  4
+  DCL &POINTSIZEs *CHAR  2
+  DCL &VERTSPACEs *CHAR  2
+  DCL &COLSs      *CHAR  4
+  DCL &LEFTMARGIs *CHAR  3
+  DCL &TOPMARGINs *CHAR  3
+
+  DCL &MSGID      *CHAR  7
+  DCL &MSGDTA     *CHAR  80
+
+  DCL &ERRORSW    *LGL
+  MONMSG CPF0000 EXEC(GOTO ERROR)
+
+  /*--------------------------------------------------------------- */
+  /* Verify password                                                */
+  /*----------------------------------------------------------------*/
+
+  IF (&PASSWORD *NE *NONE) DO
+    IF (&PASSWORD *NE &PASSCHECK) +
+    SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+              MSGDTA('Passwords do not match') MSGTYPE(*ESCAPE)
+  ENDDO
+
+
+  /*--------------------------------------------------------------- */
+  /* Get the attributes of the spooled file                         */
+  /*----------------------------------------------------------------*/
+
+  IF (&JOB = '*') RTVJOBA  JOB(&JOBNAME) USER(&USER) NBR(&JOBNBR)
+  ELSE (DO)
+    CHGVAR &JOBNAME %SST(&JOB 1 10)
+    CHGVAR &USER %SST(&JOB 11 10)
+    CHGVAR &JOBNBR %SST(&JOB 21 6)
+  ENDDO
+  CHGVAR &FILENBR &SPLNBR
+  CHGVAR %BIN(&BINNBR) &FILENBR
+  CHGVAR %BIN(&RCVLEN) 2048
+  CHGVAR &APIERR X'0000006400000000'
+  CALL QUSRSPLA (&SPLA0100 &RCVLEN 'SPLA0100' +
+                 &JOB ' ' ' ' &FILE &BINNBR &APIERR)
+  CHGVAR &MSGID %SST(&APIERR 9 7)
+ IF (&MSGID *NE ' ') DO
+   CHGVAR &MSGDTA %SST(&APIERR 17 80)
+   SNDPGMMSG MSGID(&MSGID) MSGF(QCPFMSG) MSGDTA(&MSGDTA) +
+             MSGTYPE(*ESCAPE)
+ ENDDO
+
+ /*----------------------------------------------------------------*/
+ /* Check the device type                                          */
+ /*----------------------------------------------------------------*/
+
+ CHGVAR &DEVTYPE %SST(&SPLA0100 319 10)
+ IF (&DEVTYPE *NE '*SCS') +
+   SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+             MSGDTA('Spool is not *SCS') MSGTYPE(*ESCAPE)
+
+ /*----------------------------------------------------------------*/
+ /* Check if the requester is authorized to the spool              */
+  /*----------------------------------------------------------------*/
+
+  IF (&SPLNBR = -1) CHGVAR &FILENBR *LAST
+  ELSE IF (&SPLNBR = 0) CHGVAR &FILENBR *ONLY
+  CHGSPLFA &FILE JOB(&JOBNBR/&USER/&JOBNAME) SPLNBR(&FILENBR)
+
+  /*----------------------------------------------------------------*/
+  /* Check path                                                     */
+  /*----------------------------------------------------------------*/
+
+  /* Path missing */
+  IF (&PDFPATH = ' ') +
+    SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+              MSGDTA('Parameter PDFPATH missing') MSGTYPE(*ESCAPE)
+
+  /* Default PATH */
+  IF (&PDFPATH = '*CURDIR') +
+    CALL SCS2ITEXTD (&PDFPATH)
+
+  /* Check Path existence */
+  CHGVAR &J 71
+  SCANPATH:
+  CHGVAR &J (&J - 1)
+  IF (%SST(&PDFPATH &J 1) = '/') GOTO CHECKPATH
+  IF (%SST(&PDFPATH &J 1) = ' ') GOTO SCANPATH
+  CHGVAR &PDFPATH (&PDFPATH *TCAT '/')
+  CHECKPATH:
+  CHGVAR &TSTPATH (&PDFPATH *TCAT &NULL)
+  CALLPRC PRC('stat') PARM(&TSTPATH &STRUCT) RTNVAL(%BIN(&RETVAL))
+  IF (%BIN(&RETVAL) *NE 0) +
+    SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+              MSGDTA('Wrong Path') MSGTYPE(*ESCAPE)
+
+  /*----------------------------------------------------------------*/
+  /*----------------------------------------------------------------*/
+  /* Check PDF Name                                                 */
+  /*----------------------------------------------------------------*/
+
+  /* PDFNAME missing */
+  IF (&PDFNAME = ' ') +
+    SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+              MSGDTA('PDF name missing') MSGTYPE(*ESCAPE)
+
+  /* Default PDFNAME */
+  IF (&PDFNAME = '*FILE') +
+    CHGVAR &PDFNAME &FILE
+
+  /*----------------------------------------------------------------*/
+  /* Copy the Spool into a PF                                       */
+  /*----------------------------------------------------------------*/
+
+  /* Get the spool page size */
+  CHGVAR &RCDLEN %SST(&SPLA0100 429 4)
+  CHGVAR &OVRFLW %SST(&SPLA0100 437 4)
+
+  /* Add a member for this spool */
+  RTVSYSVAL QTIME &SECONDS
+  CHGVAR &MEMBER ('A' *CAT &SECONDS)
+  CLRPFM QGPL/CPYSPOOL &MEMBER
+  MONMSG CPF3141 EXEC(ADDPFM QGPL/CPYSPOOL &MEMBER)
+  MONMSG CPF0000 EXEC(SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+                      MSGDTA('PDF work not valid') MSGTYPE(*ESCAPE))
+
+  /* Copy the spoolfile into the member */
+  CPYSPLF &FILE QGPL/CPYSPOOL +
+          JOB(&JOBNBR/&USER/&JOBNAME) SPLNBR(&FILENBR) +
+          TOMBR(&MEMBER) MBROPT(*ADD) CTLCHAR(*FCFC)
+
+  /*----------------------------------------------------------------*/
+  /*----------------------------------------------------------------*/
+  /* Create PDF                                                     */
+  /*----------------------------------------------------------------*/
+
+  CHGVAR &CLASSPATH ('/QIBM/ProdData/OS400/jt400/lib/jt400Native.jar:+
+                      /pdfm/itext-1.3.6.jar:/pdfm/:.')
+
+  CHGVAR &PDF (&PDFPATH *TCAT &PDFNAME *TCAT '.pdf')
+
+  CHGVAR &RCDLENs    %BIN(&RCDLEN)
+  CHGVAR &OVRFLWs    %BIN(&OVRFLW)
+  IF (&PASSWORD = *NONE) CHGVAR &PASSWORD ' '
+  IF (&BASEFONT = *DFT)  CHGVAR &BASEFONT DFT
+  CHGVAR &BACKGROUND %SST(&BACKGROUND 2 1)
+  IF (&LOGO = *TOPLEFT) CHGVAR &LOGO '0'
+  ELSE CHGVAR &LOGO %SST(&LOGO 2 1)
+  CHGVAR &LOGOSCALES &LOGOSCALE
+  CHGVAR &PAGESIZE   %SST(&PAGESIZE 2 14)
+  CHGVAR &PAGEWIDTHs &PAGEWIDTH
+  CHGVAR &PAGEHEIGHs &PAGEHEIGHT
+  CHGVAR &POINTSIZEs &POINTSIZE
+  CHGVAR &VERTSPACEs &VERTSPACE
+  CHGVAR &COLSs      &COLS
+  CHGVAR &LEFTMARGIs &LEFTMARGIN
+  CHGVAR &TOPMARGINs &TOPMARGIN
+
+  IF (&DEBUG = *NO) CHGVAR &OUTPUT *NONE
+  ELSE CHGVAR &OUTPUT '*'
+
+  RUNJVA CLASS('SCS2ITEXT') +
+         PARM(&FILE &MEMBER &RCDLENs &OVRFLWs &PDF +
+              &LOGO &LOGOPATH &LOGOSCALEs &PASSWORD +
+              &BASEFONT &BACKGROUND +
+              &PAGESIZE &PAGEWIDTHs &PAGEHEIGHs +
+              &POINTSIZEs &VERTSPACEs &COLSs +
+              &LEFTMARGIs &TOPMARGINs &ORIENT) +
+         CLASSPATH(&CLASSPATH) CHKPATH(*IGNORE) OUTPUT(&OUTPUT)
+
+  /*----------------------------------------------------------------*/
+  /* Terminate                                                      */
+  /*----------------------------------------------------------------*/
+
+  /* Remove the temporary copy of the spool */
+  RMVM QGPL/CPYSPOOL &MEMBER
+  RMVMSG MSGQ(*PGMQ) CLEAR(*ALL)
+
+  /* Send a completion message */
+  SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGTYPE(*COMP) +
+             MSGDTA('Spool file' *BCAT &FILE *BCAT +
+                    'converted into' *BCAT &PDFPATH +
+                    *TCAT &PDFNAME *TCAT '.pdf')
+
+
+  RETURN
+
+/********************************************************************/
+/* Errors                                                           */
+/********************************************************************/
+
+ERROR:
+  IF &ERRORSW SNDPGMMSG MSGID(CPF9899) +
+     MSGF(QCPFMSG) MSGTYPE(*ESCAPE)    /* FUNCTION CHECK           */
+  CHGVAR &ERRORSW '1'                  /* SET SWITCH TO ERROR      */
+  CALL QMHRSNEM ('    ' X'0000000F0000000040404040404040' +
+                 X'000000015CD5D6D5C540404040405CD5D6D5C54040404040+
+                   000000095CD7C7D4C2C4E840404040404040404040404040' +
+                 X'00000030' RSNM0100 * X'00000000')
+
+ENDPGM

@@ -1,0 +1,335 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/INQKVADR MODULE(*LIBL/INQKVADR *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+ODDEV *ODDEV   PTF9 ODDEVEN-logikk
+      * 01 JOV PTF9 SLUTTER MED LAGE NY OGSÅ I BUNN (MÅ VÆRE KONSVEKVENT)
+      *             + RETTING II HTML (INNPARAM TIL LAG NY)
+P9XXX * 02 YBC PTF9 SOKVM  : Variable navn som mottar verdi
+      *             WSFORMS: Formnavn som mottar verdi
+      *             WSREFR : J/Y betyr program for mottak av verdi skal refreshes
+P9XXX * 03 YBC PTF9 Vis også kundenr og andre kunder
+XXXXXX*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+11XXX * 04 YBC PTF11 USERSPCNAME
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FKUNKO1    IF   E           K DISK    USROPN
+     FKUNKO2    IF   E           K DISK    USROPN
+     F                                     RENAME(KUNKOR:KUNKOR2)
+     FVADR      IF   E           K DISK    USROPN
+N03  FCUNDL01   IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+OddEvD OddEven         s             10
+      * Client input variables
+     D INNTYPE         s              1
+     D SOKNVN          s             10
+     D SOKNVNMAX       s             10
+     D SOKNR           s             17
+     D SOKNRMAX        s             17
+     D USER            s             10
+     D VADRN           s             90
+     D SOKVM           s             17
+N02  D WSFORMS         s             20
+N02  D WSREFR          s              1
+N02  D REFRESH         s             50
+N04  D UsrSpcName      s             10
+     D MaxV            s              5
+     D MaxVis          s              5  0
+      * Other variables
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D NIER            s             17a   inz('99999999999999999')
+N03  D                 DS
+N03  D  POSTNR                 1      4  0
+N03  D  XPOSTNR                1      4
+      *
+      *
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetTop
+      * Send section top
+     C                   callp     wrtsection('top')
+     C                   IF        INNTYPE = 'E'
+     C                   callp     wrtsection('Lageny1')
+     C                   END
+     C                   callp     wrtsection('Hode')
+      * Find/send lines
+     C                   exsr      LINES
+      * Send section bot
+      *
+     C                   callp     wrtsection('bot')
+S01  C*                  IF        INNTYPE = 'E'
+S01  C*                  callp     wrtsection('Lageny2')
+S01  C*                  END
+     C                   callp     wrtsection('Bunn')
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      INNTYPE = zhbgetvar('INNTYPE')
+N04  C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      SOKNVN  = zhbgetvar('SOKNVN')
+     C                   eval      SOKNVN  = uppify(SOKNVN)
+     C                   eval      SOKNVNMAX = SOKNVN
+     C                   CAT       NIER:0        SOKNVNMAX
+     C                   eval      SOKNR   = zhbgetvar('SOKNR')
+     C                   eval      SOKNR   = uppify(SOKNR)
+     C                   eval      SOKNRMAX = SOKNR
+     C                   CAT       NIER:0        SOKNRMAX
+     C                   eval      MaxV    = zhbgetvar('MaxV')
+     C                   eval      MaxVis  = c2n2(MaxV)
+     c     MaxVis        ifeq      *zeros
+     c                   z-add     50            MaxVis
+     c                   end
+      * Userid.....
+     C                   eval      USER = zhbgetvar('USER')
+     C                   eval      SOKVM   = zhbgetvar('SOKVM')
+N02  C                   eval      WSFORMS = zhbgetvar('WSFORMS')
+N02  C                   IF        WSFORMS = *BLANKS
+N02  C                   EVAL      WSFORMS = 'forms[0]'
+N02  C                   END
+N02  C                   eval      WSREFR  = zhbgetvar('WSREFR')
+N02  C                   IF        ((((WSREFR = 'J') OR
+N02  C                                (WSREFR = 'j')) OR
+N02  C                                (WSREFR = 'Y')) OR
+N02  C                                (WSREFR = 'y'))
+N02  C                   eval      REFRESH = 'self.opener.document.'
+N02  C                             + %trim(WSFORMS)
+N02  C                             + '.submit();'
+N02  C                   END
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     KUNKO1
+     C                   CLOSE     KUNKO2
+     C                   CLOSE     VADR
+N03  C                   CLOSE     CUNDL01
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C*                  callp     gethtml('HTMLSRC':
+     C*                            '*LIBL':
+     C*                            'INQKVADR':'/CGITAG/')
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'INQKVADR'
+     C                   CAT       XSPRÅK:0      MBR
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+     C* klargjøre HTMLvariable
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+      *
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+N04  C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('INNTYPE':INNTYPE)
+     C                   callp     updHTMLvar('SOKNR':SOKNR)
+     C                   callp     updHTMLvar('SOKNVN':SOKNVN)
+     C                   callp     updHTMLvar('SOKVM':SOKVM)
+N02  C                   callp     updHTMLvar('wsforms':WSFORMS)
+N02  C                   callp     updHTMLvar('wsrefr':WSREFR)
+N02  C                   callp     updHTMLvar('refresh':REFRESH)
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * Fine lins - send to browser
+      *=====================================================================
+     C     Lines         begsr
+     c                   Move      *zeros        AntVist           5 0
+     C     SOKNVN        IFEQ      *BLANKS
+     C     SOKNR         ANDEQ     *BLANKS
+     C                   GOTO      UTLES
+     C                   END
+      *
+     C     SOKNVN        IFNE      *BLANKS
+     C     KUNKO1K       SETLL     KUNKO1
+     C     BIKUNR        READE     KUNKO1                                 33
+     C                   ELSE
+     C     KUNKO2K       SETLL     KUNKO2
+     C     BIKUNR        READE     KUNKO2                                 33
+     C                   END
+     C     *in33         DOWEQ     *OFF
+     C     SOKNVN        IFNE      *BLANKS
+     C     SOKNVNMAX     CABLT     KUALFA        UTLES
+     C                   ELSE
+     C     SOKNRMAX      CABLT     KUINTN        UTLES
+     C                   END
+     C                   exsr      exclude
+     c     EXCL          IFEQ      'N'
+      * klargjøre HTMLvariable - SEND ROW
+     C     VADRK         CHAIN     VADR                               33
+N03  C                   IF        *IN33
+N03  C     KUVADR        CABNE     0             STNESTE
+N03  C     CUNDL01K      CHAIN     CUNDL01                            33
+N03  C  N33AKTKOD        CABEQ     'I'           STNESTE
+N03  C                   EVAL      VADRN = %TRIM(ADR1) + ' '
+N03  C                             + %TRIM(ADR2) + ' '
+N03  C                             + %TRIM(XPOSTNR) + ' '
+N03  C                             + %TRIM(ADR3)
+N03  C                   callp     updHTMLvar('VADRNA':KNAVN)
+N03  C                   ELSE
+     C  N33AKTKOD        CABEQ     'I'           STNESTE
+     C                   EVAL      VADRN = VADRN1
+     C                   CAT       VADRN2:1      VADRN
+     C                   CAT       VADRN3:1      VADRN
+     C                   callp     updHTMLvar('VADRNA':VADRNA)
+N03  C                   END
+     C                   callp     updHTMLvar('KUINTN':KUINTN)
+     C                   callp     updHTMLvar('VADRN':VADRN)
+N03  C                   callp     updHtmlVar('KUNDNR':
+N03  C                             %trim(%editc(KUNDNR:'Z')))
+OddEvc     OddEven       IFEQ      ODD
+OddEvc                   eval      OddEven = EVEN
+OddEvc                   else
+OddEvc                   eval      OddEven = ODD
+OddEvc                   end
+OddEvC                   callp     updHTMLvar('ODDEVEN':OddEven)
+OddEv *
+     C                   callp     wrtsection('row')
+     C                   IF        INNTYPE = 'E'
+     C                   callp     wrtsection('row2')
+     C                   ELSE
+     C                   callp     wrtsection('row1')
+     C                   END
+     C                   callp     wrtsection('row3')
+     c                   Add       1             AntVist           5 0
+     c     AntVist       cabge     MaxVis        UtLes
+     C                   END
+     C     STNESTE       TAG
+     C     SOKNVN        IFNE      *BLANKS
+     C     BIKUNR        READE     KUNKO1                                 33
+     C                   ELSE
+     C     BIKUNR        READE     KUNKO2                                 33
+     C                   END
+     C  N33              ENDDO
+      *
+     C     UTLES         TAG
+      *
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Eksluder post basert på...
+      *=====================================================================******
+     C     EXCLUDE       begsr
+     C                   Move      'J'           EXCL              1
+      * diverse tester - om ikke bestått hopp ut (med J i EXCL)
+      * Posten skal med på liste
+     C                   Move      'N'           EXCL              1
+      *
+     C     UTEXCL        endsr
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+      *
+     C                   OPEN      KUNKO1
+     C                   OPEN      KUNKO2
+     C                   OPEN      VADR
+N03  C                   OPEN      CUNDL01
+      * Key for KUNKO1
+     C     KUNKO1K       KLIST
+     C                   KFLD                    BIKUNR
+     C                   KFLD                    SOKNVN
+      * Key for KUNKO2
+     C     KUNKO2K       KLIST
+     C                   KFLD                    BIKUNR
+     C                   KFLD                    SOKNR
+      * Key for VADR
+     C     VADRK         KLIST
+     C                   KFLD                    BIFIRM
+S03  C*                  KFLD                    BIKUNR
+N03  C                   KFLD                    KUKUN2
+     C                   KFLD                    KUVADR
+N03   * Key for CUNDL01
+N03  C     CUNDL01K      KLIST
+N03  C                   KFLD                    BIFIRM
+N03  C                   KFLD                    KUKUN2
+      *
+     C                   endsr

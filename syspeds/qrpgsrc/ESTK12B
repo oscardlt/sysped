@@ -1,0 +1,213 @@
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FTKGPS     IF   E           K DISK
+     FTURER14   IF   E           K DISK
+     FHEAD11    IF   E           K DISK
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+     D Origin          s            500A
+     D Destination     s            500A
+     D Waypoints       s           2000A
+      * midlertideige for test..
+     D Start           s             50A
+     D Stopp           s             20A
+     D Text            S             30A
+      * konvertering særtegn til OKTegn
+     D SÆRT            C                   CONST('ÆÅØæøå')
+     D OKT             C                   CONST('EAOeao')
+
+     C                   EXSR      INIT
+
+      /free
+
+        *inlr = *on;
+
+        // ****************************************************
+        //  Bygg parametrene...
+        //  System iNetwork to a temporary file in the IFS
+        // ****************************************************
+          Enc = http_url_encoder_new();
+          http_url_encoder_addvar_s(Enc : 'origin'
+                                        : %trim(Origin));
+          http_url_encoder_addvar_s(Enc : 'destination'
+                                        : %trim(Destination));
+          http_url_encoder_addvar_s(Enc : 'waypoints'
+                                        : %trim(Waypoints));
+          http_url_encoder_addvar_s(Enc : 'sensor'
+                                        : 'false');
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+          url = 'http://maps.googleapis.com/maps/api/directions/xml?'
+               + http_url_encoder_getstr(Enc);
+
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+        // unlink(filename);
+        // dsply result ' ' wait;
+        // return;
+
+      /end-free
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    TUR               8
+      *
+     C     KEY           KLIST
+     C                   KFLD                    XXBRID           10
+     C                   KFLD                    XXDT              8 0
+     c                   move      99999999      XXDT
+      *
+     C                   MOVE      TUR           TURNR             8 0
+     c     TurNr         chain     TURER14                            33
+     c                   movel     'PD'          XXBRID
+     c                   move      TUSJA1        XXBRID
+      * Utgangspunkt = Terminal
+     c* hent bilens / sjåførens nåværende pos.. Om den finnes - bruk den..:
+     C                   EVAL      Origin='Lokkebergveien 12 3014 DRAMMEN NO'
+     C     Key           setgt     TKGPS
+N01  c     Next          tag
+     C     XXBRID        ReadPE    TKGPS                                  50
+     c     *in50         Cabeq     '1'           SluttLes
+N01  c     TKBRE         Cabeq     *zeros        Next
+     C**   TKDtTi        cablt     MiniDtTi      SluttLes  (HVOR GAMMEL SKAL AKSEPTERES..)
+     C                   EVAL      Origin=%trim(%editw(TKBRE:'  .      '))
+     c                             + ','+%trim(%editw(TKLEN:'   .      '))
+      *
+     c     SluttLes      tag
+     c                   move      *blanks       GmSTED           90
+     C     TURNR         SETLL     HEAD11
+     C     TURNR         READE     HEAD11                                 50
+     C     *IN50         DOWEQ     '0'
+     c                   if        GmSTED<>*blanks
+     c                   if        Waypoints=*blanks
+     C                   EVAL      Waypoints=%trim(GmSTED)
+     c                   else
+     C                   EVAL      Waypoints=%trim(Waypoints)
+     c                             +'|'+ %trim(GmSTED)
+     c                   endif
+     c                   endif
+     c                   eval      GmSTED=%trim(HEADK1)+' '+%trim(HEADK3)+' NO'
+     c*                  eval      GmSTED=%trim(HEADK1)+' NO'
+     c     SÆRT:OKT      XLATE     GmSTED        GmSTED
+     C     TURNR         READE     HEAD11                                 50
+     C                   ENDDO
+     C                   EVAL      Destination=GmSTED
+      * TEST...
+     C*                  EVAL      Destination='60.305880,10.600681'
+     C*                  EVAL      Waypoints=*blanks
+      *
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+      /free
+
+            select;
+            when name = 'start_address';
+               START  = value;
+            when name = 'end_address';
+               STOPP  = value;
+            when name = 'duration';
+               TEXT   = 'x';
+            when name = 'text';
+               TEXT    = value;
+            endsl;
+
+      /end-free
+     P                 E

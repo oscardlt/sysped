@@ -1,0 +1,456 @@
+      ***************************************************************************************
+NOR   * STANDARD - MEN HALVFABRIKATA - KBVK HARDKODET
+      ***************************************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 ta høyde for blank/ingenting i num verdier. Sett da 0 (%float tryner ellers)
+11XXX * 02 YBC PTF12 OPPDRAGSNR PROBLEM + Kreditnodta har ikke KID- endret 'header'flagg (JOV)
+11XXX * 03 JOV PTF11 Loggfør selgesr/kjørpers ref i KOSTB
+********************************************************************
+     H DATEDIT(*DMY)
+     FXMLRCVF   IF   E           K DISK
+     FKOSTA     O  A E           K DISK
+     FKOSTA2    IF   E           K DISK
+     F                                     RENAME(KOSTAR:KOSTAR2)
+     FKOSTB     O  A E           K DISK
+     FKOSTT     UF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FCUIFAMO   IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FLISTE     O    F  132        PRINTER OFLIND(*INOF)
+     D                SDS
+     D  ZJOB                 244    253
+     D  ZUSER                254    263
+     D  ZJOBNR               264    269  0
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D                 DS
+     D  KABDT                  1      8  0
+     D    KABDT_ÅR             1      4  0
+     D    KABDT_MN             5      6  0
+      * workvariabler
+     D xxUNBid         S             35A
+     D xxCustID        S             15A
+     D xxCustNr        S              8S 0
+     D XXBuyOrd        S             17A
+     D XXSupOrd        S             17A
+N02  D XXInvTy         S              3A
+     D XXInvNo         S             17A
+     D XXDueDt         S              8A
+     D XXInvDt         S              8A
+     D XXKidNo         S             30A
+     D xxCURR          S              3A
+     D xxDesc          S             35A
+     D xxSREF          S             20A
+     D xxPris          S             11S 2
+     D xxMVA           S             11S 2
+      *
+     C                   EXSR      INIT
+      *
+      * Les EN OG EN TAG ("Nøstede tager" kommer nå i "rett rekkefølge" )
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   EXSR      SRXML2
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      * write KOSTA
+     c     KABNR         ifne      *zeros
+     C                   WRITE     KOSTAR
+     c                   endif
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      * Handling utfra tag-navn
+      *    ( ekstra tester dersom samme tagnavn fins på flere nivå                     )
+      *    ( les i filene XMLRCAF (attributt-verdier)+ XMLRCLF ("Extras") om nødvendig )
+     C                   SELECT
+      * UNBID Avsender
+     C                   WHEN      XRNV = 'From'
+     c                   eval      xxUNBid  = XRVERD
+      * CustomerID Buyer
+     C                   WHEN      XRNV = 'PartyId' AND
+     C                             XRPATH='/Interchange/Invoice/InvoiceHeader'
+     C                                   +'/Buyer'
+     c                   if        xxCustId = *blanks
+     c                             and XRVERD <> *blanks
+     c                   eval      xxCustId = XRVERD
+N01  c                   if        XRVERD=*blanks
+N01  c                   eval      XRVERD='0'
+N01  c                   endif
+     c                   eval      xxCustNr = %float(XRVERD)
+     c                   endif
+N02   * Ved kreditt markere start på detaljer INITIER KOSTA-records(skrives til sist)
+N02  C                   IF        xxInvTy = '381'
+N02  C                   EXSR      SRKAI
+N02  C                   END
+N02   * InvoiceType
+N02  C                   WHEN      XRNV = 'InvoiceType'
+N02  c                   eval      xxInvTy  = XRVERD
+      * InvoiceNumber
+     C                   WHEN      XRNV = 'InvoiceNumber'
+     c                   eval      xxInvNo  = XRVERD
+      * InvoiceDate
+     C                   WHEN      XRNV = 'InvoiceDate'
+     c                   eval      xxInvDt  = %subst(XRVERD:1:4)
+     C                                       +%subst(XRVERD:6:2)
+     C                                       +%subst(XRVERD:9:2)
+      * DueDate
+     C                   WHEN      XRNV = 'DueDate'
+     c                   eval      xxDueDt  = %subst(XRVERD:1:4)
+     C                                       +%subst(XRVERD:6:2)
+     C                                       +%subst(XRVERD:9:2)
+      * Currency
+     C                   WHEN      XRNV = 'Currency'
+     c                   eval      xxCurr = XRVERD
+      * KIDnr         = Siste tag i header  - INITIER KOSTA-records(skrives til sist)
+S02  C*                  WHEN      XRNV = 'KidNumber'
+N02  C                   WHEN      XRNV = 'KidNumber' and xxInvTy <> '381'
+     c                   eval      xxKidNo = XRVERD
+     C                   EXSR      SRKAI
+      *
+      *
+      *
+      * Buyers orderNO
+     C                   WHEN      XRNV = 'BuyersOrderNumber'
+     c                   eval      xxBuyOrd = XRVERD
+      * supplyers orderNO
+     C                   WHEN      XRNV = 'SuppliersOrderNumber'
+     c                   eval      xxSupOrd = XRVERD
+      * Description
+     C                   WHEN      XRNV = 'Description'
+     c                   eval      xxDesc = XRVERD
+     C* Beløp
+     C                   WHEN      XRNV = 'LineItemAmount'
+N01  c                   if        XRVERD=*blanks
+N01  c                   eval      XRVERD='0'
+N01  c                   endif
+     c                   eval(H)   xxPris = %float(XRVERD)
+N02  C                   IF        xxInvTy = '381'
+N02  C                   MULT      -1            xxPris
+N02  C                   END
+     C* 'VatAmount' = Siste tag i linje - behandle linje
+     C                   WHEN      XRNV = 'VatAmount'
+     c                   eval(H)   xxMVA  = %float(XRVERD)
+N02  C                   IF        xxInvTy = '381'
+N02  C                   MULT      -1            xxMVA
+N02  C                   END
+     C                   EXSR      SRKB
+     C                   ENDSL
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+     C     SRKB          BEGSR
+      *////////////////////////////////////////////////////////////
+      *
+N03  c                   move      *blanks       KBBILT
+      *
+     C     xxPris        ADD       XXMVA         KBBLHB
+     C                   SUB       KBBLHB        KABL                           Headervariabel
+     C                   SUB       XXMVA         KABLM                          Headervariabel
+     C     XXMVA         IFNE      *ZEROS
+     C                   Z-ADD     1             KBKDM
+     C                   MOVE      'P'           KBKDPF
+     C                   ELSE
+     C                   Z-ADD     0             KBKDM
+     C                   MOVE      'F'           KBKDPF
+     C                   END
+      *
+     C                   MOVE      *ZEROS        KBAVD
+     C                   MOVE      *ZEROS        KBOPD
+     C                   MOVE      *ZEROS        KBKN
+     C**                 MOVE      xxSndn        KBBILT
+      *
+     C                   MOVE      *ZEROS        HEAVD
+     C                   MOVE      *ZEROS        HEOPD
+      *
+      * Oppgitt i Buyers Order No
+S02  C*                  IF        %subst(xxBuyOrd:5:1)='/' and
+S02  C*                            %subst(xxBuyOrd:13:1)='/'
+S02  C*                  eval      HEAVD = %float(%subst(xxBuyOrd:1:4))
+S02  C*                  eval      HEOPD = %float(%subst(xxBuyOrd:6:7))
+N02  C     '/'           SCAN      xxBuyOrd:1    XPOS              3 0    33
+N02  C   33              IF        XPOS > 1 AND XPOS <= 5
+N02  C                   eval      HEAVD = %float(%subst(xxBuyOrd:1:XPOS-1))
+N02  C                   ADD       1             XPOS
+N02  C     '/'           SCAN      xxBuyOrd:XPOS XPOS2             3 0    33
+N02  C   33XPOS2         SUB       XPOS          XPOS3             3 0
+N02  C   33              IF        XPOS3 > 0 AND XPOS3 <= 7
+N02  C                   eval      HEOPD = %float(%subst(xxBuyOrd:XPOS:XPOS3))
+     C     OPDKEY        CHAIN     HEADF                              33
+     C  N33              GOTO      UTOPD
+N02  C                   END
+     C                   MOVE      *ZEROS        HEAVD
+     C                   MOVE      *ZEROS        HEOPD
+     C                   END
+      *
+      *
+     C     UTOPD         TAG
+      * Legg ut posten i KOSTB
+     C                   EXSR      SRKBU
+      *
+      *
+     C                   ENDSR
+      *
+      *
+      *
+      *////////////////////////////////////////////////////////////
+     C     SRKBU         BEGSR
+      *////////////////////////////////////////////////////////////
+N03  c                   eval      KBREFA='BuyersRef: ' + xxBuyOrd
+N03  c                   eval      KBREFB='Suppl.Ref: ' + xxSupOrd
+      *
+      * MANGLENDE MATCH -  Skriv til liste...
+     C                   MOVE      *ZEROS        KBKAVD
+     C                   MOVE      *BLANKS       KBKKEY
+n03  C                   MOVE      *BLANKS       MATCHTXT         20
+      * HEAVD/HEOPD lik 0 = ref ikke funnet - åpne ferdig-status m.m.
+     C* 7/8 av KBTUNR: 7:GEBYR,1=GEB.0=Vkt 8:NØKKEL,1=etter opd 9=IKKE
+     C     HEOPD         IFEQ      *ZEROS                                       B1
+     C                   MOVE      ' '           KAST
+n03  c                   eval      MATCHTXT= 'Ingen match !!!'
+     C                   MOVE      1             KBGEBY
+     C                   MOVE      9             KBNØKK
+     C                   ELSE                                                   X1
+     C                   MOVE      1             KBGEBY
+     C                   MOVE      1             KBNØKK
+     C                   Z-ADD     HEAVD         KBKAVD
+     C                   MOVEL     HEOPD         KBKKEY
+     C                   MOVE      HEAVD         KBAVD
+     C                   MOVE      HEOPD         KBOPD
+     C                   SELECT
+     C     HEUR          WHENEQ    'H'
+     C                   MOVE      HEKNSF        KBKN
+     C     KBKN          IFEQ      *ZEROS
+     C                   MOVE      HEKNKF        KBKN
+     C                   END
+     C     HEUR          WHENEQ    'A'
+     C     HEUR          OREQ      'C'                                          IMPORT
+     C     HEUR          OREQ      'F'
+     C                   MOVE      HEKNKF        KBKN
+     C     KBKN          IFEQ      *ZEROS
+     C                   MOVE      HEKNSF        KBKN
+     C                   END
+     C     HEUR          WHENEQ    'B'                                          EKSPORT
+     C     HEUR          OREQ      'D'
+     C     HEUR          OREQ      'G'
+     C                   MOVE      HEKNSF        KBKN
+     C     KBKN          IFEQ      *ZEROS
+     C                   MOVE      HEKNKF        KBKN
+     C                   END
+     C                   ENDSL
+      * Ikke funnet kunde - åpne bilaget m.m.
+     C     KBKN          IFEQ      *ZEROS                                        B2
+     c                   eval      MATCHTXT= 'Knr mangler(oppd)!!!'
+     C                   MOVE      ' '           KAST
+     C                   MOVE      9             KBNØKK
+     C                   END                                                     E2
+      *
+     C                   END                                                    E1
+      * GEBYRKODE
+     c                   select
+     C                   when      xxDesc ='HOVEDFRAKT'
+     C                   MOVE      'FR2'         KBVK
+     C                   when      xxDesc ='DRIVSTOFF TILLEGG'
+     C                   MOVE      'OIL'         KBVK
+     C                   other
+     C                   MOVE      'VID'         KBVK
+     c                   endsl
+      *
+     C                   WRITE     KOSTBR
+      *
+      *
+      * MANGLENDE MATCH -  Skriv til liste...
+     C     KBNØKK        IFEQ      9
+     C   OF              EXCEPT    PHEAD
+     C   OF              SETOFF                                       OF
+     C                   EXCEPT    DET
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *
+      *////////////////////////////////////////////////////////////
+     C     SRKAI         BEGSR
+      *////////////////////////////////////////////////////////////
+N03   * SAMME FAKT-NR MOTTATT FØR.. (FRA GITT LEVERANDØR??)  (men ignorere slettede)
+      * låner SUINVEfil for å parametersette leverandørnr mm
+     c     SyInveKey     chain     CUIFAMO                            35
+N03  C  N35              eval      KALNR = CMLEV
+N03  C                   eval      KAFNR = xxInvNo
+N03  C     KOSA2K        SETLL     KOSTA2                             33
+N03  C     KOSA2K        READE     KOSTA2                                 33
+N03  C     *IN33         DOWEQ     '0'
+N03  C     kast          IFNE      'D'
+N03  C* Finnes fra før ?? - meld og hopp ut 'J'
+     C                   EXCEPT    PHEAD
+     C                   EXCEPT    DETFIN
+     C                   SETON                                        LR
+     C                   RETURN
+N03  C                   END
+N03  C     KOSA2K        READE     KOSTA2                                 33
+N03  C                   END
+N03   *
+N03   * bilaget SKAL behandles
+      * INITIERING AV KOSTA-FELT
+     C                   CLEAR                   KOSTAR
+N03  C  N35              eval      KALNR = CMLEV
+N03  C                   eval      KAFNR = xxInvNo
+     C                   MOVE      'EDI'         KASG
+     C                   MOVE      'NOK'         KAVAL
+     C                   Z-ADD     100           KAVKU
+     C                   Z-ADD     100           KAOMRF
+     C                   MOVE      ZUSER         KAUSER
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      ULDT          KADTE
+     C                   MOVE      XULTM         KATME
+     C                   MOVE      ULDT          KADTR
+     C                   MOVE      XULTM         KATDR
+      *
+     C                   MOVE      'N'           UKJENT            1
+      *
+     C* TILDEL PRE.REG.NR (LØPENR FRA FAST TELLER)...
+     C     'Ø'           CHAIN     KOSTT                              33
+     C                   MOVE      KTNR          KBBNR
+     C                   ADD       1             KTNR
+     C  N33              UPDATE    KOSTTR
+      * Prereg løpenr
+     C                   MOVE      KBBNR         KABNR
+     c                   move      ' '           BILSERIE          1
+     c  N35              move      CMBISE        BILSERIE          1
+     C     BILSERIE      IFNE      *BLANKS
+     C* Bilagsnr til økonomi
+     C     BILSERIE      CHAIN     KOSTT                              33
+     C  N33              MOVE      KTNR          KABNR2
+     C  N33              ADD       1             KTNR
+     C  N33              UPDATE    KOSTTR
+     C                   END
+      * Bilagsdato / Lev.s fakt.dato/forfallsdato/KID  - mangler dessverre i fila
+     C                   MOVE      xxInvDt       KABDT
+     C                   MOVE      xxinvDt       KAFDT
+     C                   MOVE      xxDueDt       KAFFDT
+     C                   MOVEL     xxKidNo       KALKID
+      *
+     C                   MOVEL     KABDT_ÅR      KAPCC
+     C                   MOVE      KABDT_ÅR      KAPÅR
+     C                   MOVE      KABDT_MN      KAPMN
+      * MOMSSATS
+      * MOTTAR DESSVERRE IKKE BILAGSDATO - BENYTT DAGENS FOR Å HENTE MOMSSATS
+N01  c                   move      KADTE         MVADT             8 0
+N01  C     MVADT         IFEQ      *zeros
+N01  c                   move      ULDT          MVADT
+N01  c                   endif
+     C                   Z-ADD     FITAX         FITAXN            5 4
+     C     FITAXD        IFNE      *ZEROS
+     C     FITAX2        ANDNE     *ZEROS
+N01  C     MVADT         ANDLT     FITAXD
+     C                   Z-ADD     FITAX2        FITAXN
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+      *////////////////////////////////////////////////////////////
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+     C                   MOVE      USN           XRSN
+      *
+     C     OPDKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+      *
+     C     KOSA2K        KLIST
+     C                   KFLD                    KALNR
+     C                   KFLD                    KAFNR
+     C     SyInveKey     KLIST
+     C                   KFLD                    xxUNBid
+     C                   KFLD                    xxCustNr
+      *
+      *
+     c                   move      *zeros        KABDT
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      * Trigge print av heading (hvis manglende match)
+     C                   SETON                                        OF
+      *
+     C                   ENDSR
+      *
+      *
+      *
+     OLISTE     E            PHEAD            01
+     O                       FIFT                45
+     O                                           71 'Fakt.nr:'
+     O                       XXINVNO             88
+     O                                           98 'Kn:'
+     O                       xxCustId           115
+     OLISTE     E            PHEAD            02
+     O                                           24 '*******     e2b FAKTURA '
+     O                                           48 '. M/REF.  SOM IKKE MATCH'
+     O                                           72 'ER SYSPED OPPDRAG ******'
+     O                                          100 'DATO:'
+     O                       UDATE         Y    110
+     O                                          120 'SIDE:'
+     O                       PAGE          Z    126
+N03
+N03  OLISTE     E            PHEAD            03
+N03  O                                           24 '-----------       ****  '
+N03  O                                           48 'Mottatte referanser for '
+N03  O                                           72 'matching ****      -----'
+N03  O                                           96 '------------------------'
+N03  O                                          120 '------------------------'
+N03  O                                          132 '------------'
+     O          E            PHEAD            04
+N03  O                                           10 'PREREG.NR'
+N03  O                                           35 'SENDINGSNUMMER  '
+N03  O                                           65 'ANNEN REFERANSE     '
+N03  O                                           88 'FEILTYPE            '
+N03  O                                          104 'NETTO BELØP'
+N03  O                                          120 'MOMS'
+     OLISTE     E            PHEAD          1 05
+     O                                           24 '------------------------'
+     O                       *PLACE              48
+     O                       *PLACE              72
+     O                       *PLACE              96
+     O                       *PLACE             120
+     O                                          132 '------------'
+      *
+     OLISTE     E            DET            1
+     O                       KABNR         Z     10
+     O*                      XXSNDN              35
+     O                       XXBuyOrd            65
+     O                       MATCHTXT            88
+     O                       XXPRIS        J    105
+     O                       XXMVA         J    121
+     OLISTE     E            DETFIN         1
+     O                                           28 '*FAKTURA FINNES FRA FØR*'
+     O                                           33 'Lev:'
+     O                       KALNR         Z     41
+     O                                           47 'F.nr:'
+     O                       KAFNR               61
+     O                                           75 '(M/Prereg.nr:'
+     O                       KABNR         Z     84
+     O                                           90 'B.nr:'
+     O                       KABNR2        Z     97
+     O                                          105 'B.dt:'
+     O                       KABDT              116 '    .  .  '
+     O                                          118 ')'

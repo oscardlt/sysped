@@ -1,0 +1,956 @@
+      *********************************************************************
+      * Endring av LAGERPOSTER
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/SLAGSC2
+      *  BASERT PÅ RPG ILE MODULE CGIDEV2/BOATSCH2
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/SLAGSC2b MODULE(*LIBL/SLAGSC2b
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Boats for sale data base file (LF on BOATSALE by boat serial number)
+     FLLGRPK05  if   e           k disk    USROPN
+     FLLVARE01  Uf   E           k disk    USROPN
+     FLLVARLOG  O  A E           k disk    USROPN
+     FLLVADR3   IF   E           K DISK    USROPN
+     FKUFAST    IF   E           K DISK    USROPN
+     FCUNDC01   if   e           k disk    usropn
+     FFIRM      if   e           k disk    usropn
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype definitions and standard system API error structure
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Variables common to CGI programs
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * VARIABLES SPECIFIC TO THIS PROGRAM
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D USER            s             10a
+     D UsrSpcName      s             10
+     D quit            s              4
+     D WSVB            s             35
+     D WSAG01          s              5
+     D WSAG02          s              5
+     D WSAG03          s              5
+     D WSAG04          s              5
+     D WSAG05          s              5
+     D WSEIER          s              5
+     D WSMSTK          s              6
+     D BWSMSTK         s              5  0
+     D WSANS           s             30
+     D WSLNR           s             17
+     D WSTXT           s             40
+      * Variables used to load the external html source member
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      * Array for konv. av alfa til numerisk
+     D FE              S              1    DIM(15)
+     D VG              S              5    DIM(10)
+     D VE              S              5    DIM(10)
+     D                 DS
+     D  PAVRDA                 1     50
+     D  VV                     1     50    DIM(10)
+      * Varegrupper 1 - 5
+     D                 DS
+     D  VAGDS                  1     30
+     D  LVAG01                 1      5
+     D  LVAG02                 7     11
+     D  LVAG03                13     17
+     D  LVAG04                19     23
+     D  LVAG05                25     29
+     D                 DS
+     D  XKFTXT                 1     56
+     D  KFKOD                  1      5
+     D  KFTXT                  7     56
+     D                 DS
+     D  DatoTid                1     30
+     D  DatoAar                1      4
+     D  DatoMnd                6      7
+     D  DatoDag                9     10
+     D  TidTT                 12     13
+     D  TidMM                 15     16
+     D  TidSS                 18     19
+     D                 DS
+     D  XDatoTid               1     14
+     D  XDatoAar               1      4
+     D  XDatoMnd               5      6
+     D  XDatoDag               7      8
+     D  XDato                  1      8
+     D  XTidTT                 9     10
+     D  XTidMM                11     12
+     D  XTidSS                13     14
+     D  XTid                   9     14
+      * Command to be executed
+     D Command         s            256a
+      * Switches
+     D VareOpenSW      s              1a
+      *
+     D Align           s              5a
+     D r               s             10i 0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D Changed         s              1a
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESSING LINE
+      *=====================================================================
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input string
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Change variable non blank?? Execute change
+     C     Changed       ifeq      'Y'
+     C                   exsr      Change
+     C                   end
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html into core
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      *
+      * Issue html section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *------------------
+     C     VareKey       chain(n)  LLVARER                            60
+     C     *in60         ifeq      '0'
+     C                   exsr      SetFound
+     C                   else
+     C                   callp     wrtsection('notfound')
+     C                   endif
+      * Send output buffer and quit
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *=====================================================================
+      * Send output buffer and quit
+      *=====================================================================
+     C     Exit          begsr
+     C                   IF        UINN = 'N'
+     C                   EVAL      QUIT = 'J'
+     C                   ELSE
+      * Compute and display run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C                   END
+      *
+     C*    quit          ifne      *blank
+     C                   close     LLGRPK05
+     C                   close     LLVARE01
+     C                   close     LLVARLOG
+     C                   close     LLVADR3
+     C                   close     KUFAST
+     C                   close     Cundc01
+     C                   close     FIRM
+     C                   close     BRPARF
+     C                   eval      *inlr = *on
+     C*                  endif
+      *
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   eval      USER    = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      quit    = zhbgetvar('quit')
+     C                   eval      LvAnr  = ZhbGetVar('serno')
+     C                   eval      WSVB   = ZhbGetVar('WSVB')
+     C                   eval      WSAG01 = ZhbGetVar('WSAG01')
+     C                   eval      WSAG02 = ZhbGetVar('WSAG02')
+     C                   eval      WSAG03 = ZhbGetVar('WSAG03')
+     C                   eval      WSAG04 = ZhbGetVar('WSAG04')
+     C                   eval      WSAG05 = ZhbGetVar('WSAG05')
+     C                   eval      WSEier  = ZhbGetVar('WSeier')
+     C                   eval      WSMSTK  = ZhbGetVar('WSMSTK')
+     C                   EVAL      BWSMSTK = c2n2(WSMSTK)
+     C                   eval      WSAns   = ZhbGetVar('WSans')
+     C                   eval      WSLNR   = ZhbGetVar('WSLNR')
+     C                   eval      WSTxt   = ZhbGetVar('WStxt')
+     C                   eval      CHANGED = ZhbGetVar('CHANGED')
+      *
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTopB       begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * Protocol
+     C                   callp     updHtmlVar('PROTOCOL':S_Protocol)
+     C                   endsr
+      *=====================================================================
+      * Change record based on NY.. values
+      *=====================================================================
+     C     Change        begsr
+     C     VareKey       chain     LLVARER                            60
+     C     *IN60         ifeq      '0'
+      * Verdier FØR endring skrives til logg-fil
+     C                   write     LVARLOGR
+      *
+     C                   eval      Lvvb   = WSVB
+     C                   eval      Lvag01 = WSAG01
+     C                   eval      Lvag02 = WSAG02
+     C                   eval      Lvag03 = WSAG03
+     C                   eval      Lvag04 = WSAG04
+     C                   eval      Lvag05 = WSAG05
+     C                   eval      Lveier = WSEier
+     C                   eval      LvMstk = BWSMSTK
+     C                   eval      Lvans  = WSAns
+     C                   eval      LvLNR  = WSLNR
+     C                   eval      Lvtxt  = WSTxt
+      * userid - endring
+     C                   eval      LVBUSE = 'WEB'
+     C                   movel     timedata1     DatoTid
+     C                   move      DatoAar       XDatoAar
+     C                   move      DatoMnd       XDatoMnd
+     C                   move      DatoDag       XDatoDag
+     C                   move      TidTT         XTidTT
+     C                   move      TidMM         XTidMM
+     C                   move      TidSS         XTidSS
+     C                   TestN                   XDato                33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      XDato         LVBDAT
+     C                   END
+     C                   TestN                   XTid                 33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      XTid          LVBKL
+     C                   END
+     C                   UPDATE    LLVARER
+     C                   end
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('user':user)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+      * Color for text, background, links, visited links, active links
+     C                   exsr      SetColor
+      * Protocol
+     C                   callp     updHtmlVar('PROTOCOL':S_Protocol)
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$found (display a boat)
+      *=====================================================================
+     C     SetFound      begsr
+      * Melding om endret
+     C     Changed       Ifeq      'Y'
+     C                   callp     wrtsection('changed')
+     C                   end
+      * Skriv HTML til og med varegrp til buffer...
+      * Sett inn i HTMLvariabler
+     C                   callp     updHtmlVar('LVANR':lvanr)
+     C                   callp     updHtmlVar('WSVB':LVvb)
+      *
+     C                   callp     wrtsection('del10')
+      * Pull-down-boks for varegruppe 1
+     C                   callp     wrtsection('VG11')
+     C                   IF        LVAG01 = *BLANKS
+     C                   callp     updhtmlvar('WSAG01X':'')
+     C                   callp     updhtmlvar('WSAG01Y':XINGEN)
+     C                   callp     wrtsection('VG12')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSAG01X':LVAG01)
+     C                   EVAL      KFKOD = LVAG01
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) = LVAG01
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VG(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG01Y':XKFTXT)
+     C                   callp     wrtsection('VG12')
+     C                   END
+      *
+     C                   IF        VG(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG01
+     C                   callp     updhtmlvar('WSAG01X':KfKod)
+     C                   callp     updhtmlvar('WSAG01Y':XKFTXT)
+     C                   callp     wrtsection('VG12')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VG(XN) <> LVAG01) AND (VG(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VG(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG01X':KfKod)
+     C                   callp     updhtmlvar('WSAG01Y':XKFTXT)
+     C                   callp     wrtsection('VG12')
+     C                   END
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVAG01 <> *BLANKS
+     C                   callp     updhtmlvar('WSAG01X':'')
+     C                   callp     updhtmlvar('WSAG01Y':XINGEN)
+     C                   callp     wrtsection('VG12')
+     C                   END
+     C                   callp     wrtsection('VG13')
+      * Pull-down-boks for varegruppe 2
+     C                   callp     wrtsection('VG21')
+     C                   IF        LVAG02 = *BLANKS
+     C                   callp     updhtmlvar('WSAG02X':'')
+     C                   callp     updhtmlvar('WSAG02Y':XINGEN)
+     C                   callp     wrtsection('VG22')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSAG02X':LVAG02)
+     C                   EVAL      KFKOD = LVAG02
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) = LVAG02
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VG(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG02Y':XKFTXT)
+     C                   callp     wrtsection('VG22')
+     C                   END
+      *
+     C                   IF        VG(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG02
+     C                   callp     updhtmlvar('WSAG02X':KfKod)
+     C                   callp     updhtmlvar('WSAG02Y':XKFTXT)
+     C                   callp     wrtsection('VG22')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VG(XN) <> LVAG02) AND (VG(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VG(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = LVAG02 + ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG02X':KfKod)
+     C                   callp     updhtmlvar('WSAG02Y':XKFTXT)
+     C                   callp     wrtsection('VG22')
+     C                   end
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVAG02 <> *BLANKS
+     C                   callp     updhtmlvar('WSAG02X':'')
+     C                   callp     updhtmlvar('WSAG02Y':XINGEN)
+     C                   callp     wrtsection('VG22')
+     C                   END
+     C                   callp     wrtsection('VG23')
+      * Pull-down-boks for varegruppe 3
+     C                   callp     wrtsection('VG31')
+     C                   IF        LVAG03 = *BLANKS
+     C                   callp     updhtmlvar('WSAG03X':'')
+     C                   callp     updhtmlvar('WSAG03Y':XINGEN)
+     C                   callp     wrtsection('VG32')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSAG03X':LVAG03)
+     C                   EVAL      KFKOD = LVAG03
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) = LVAG03
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VG(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG03Y':XKFTXT)
+     C                   callp     wrtsection('VG32')
+     C                   END
+      *
+     C                   IF        VG(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG03
+     C                   callp     updhtmlvar('WSAG03X':KfKod)
+     C                   callp     updhtmlvar('WSAG03Y':XKFTXT)
+     C                   callp     wrtsection('VG32')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VG(XN) <> LVAG03) AND (VG(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VG(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG03X':KfKod)
+     C                   callp     updhtmlvar('WSAG03Y':XKFTXT)
+     C                   callp     wrtsection('VG32')
+     C                   end
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVAG03 <> *BLANKS
+     C                   callp     updhtmlvar('WSAG03X':'')
+     C                   callp     updhtmlvar('WSAG03Y':XINGEN)
+     C                   callp     wrtsection('VG32')
+     C                   END
+     C                   callp     wrtsection('VG33')
+      * Pull-down-boks for varegruppe 4
+     C                   callp     wrtsection('VG41')
+     C                   IF        LVAG04 = *BLANKS
+     C                   callp     updhtmlvar('WSAG04X':'')
+     C                   callp     updhtmlvar('WSAG04Y':XINGEN)
+     C                   callp     wrtsection('VG42')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSAG04X':LVAG04)
+     C                   EVAL      KFKOD = LVAG04
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) = LVAG04
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VG(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG04Y':XKFTXT)
+     C                   callp     wrtsection('VG42')
+     C                   END
+      *
+     C                   IF        VG(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG04
+     C                   callp     updhtmlvar('WSAG04X':KfKod)
+     C                   callp     updhtmlvar('WSAG04Y':XKFTXT)
+     C                   callp     wrtsection('VG42')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VG(XN) <> LVAG04) AND (VG(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VG(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG04X':KfKod)
+     C                   callp     updhtmlvar('WSAG04Y':XKFTXT)
+     C                   callp     wrtsection('VG42')
+     C                   end
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVAG04 <> *BLANKS
+     C                   callp     updhtmlvar('WSAG04X':'')
+     C                   callp     updhtmlvar('WSAG04Y':XINGEN)
+     C                   callp     wrtsection('VG42')
+     C                   END
+     C                   callp     wrtsection('VG43')
+      * Pull-down-boks for varegruppe 5
+     C                   callp     wrtsection('VG51')
+     C                   IF        LVAG05 = *BLANKS
+     C                   callp     updhtmlvar('WSAG05X':'')
+     C                   callp     updhtmlvar('WSAG05Y':XINGEN)
+     C                   callp     wrtsection('VG52')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSAG05X':LVAG05)
+     C                   EVAL      KFKOD = LVAG05
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) = LVAG05
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VG(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG05Y':XKFTXT)
+     C                   callp     wrtsection('VG52')
+     C                   END
+      *
+     C                   IF        VG(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG05
+     C                   callp     updhtmlvar('WSAG05X':KfKod)
+     C                   callp     updhtmlvar('WSAG05Y':XKFTXT)
+     C                   callp     wrtsection('VG52')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VG(XN) <> LVAG05) AND (VG(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VG(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSAG05X':KfKod)
+     C                   callp     updhtmlvar('WSAG05Y':XKFTXT)
+     C                   callp     wrtsection('VG52')
+     C                   end
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVAG05 <> *BLANKS
+     C                   callp     updhtmlvar('WSAG05X':'')
+     C                   callp     updhtmlvar('WSAG05Y':XINGEN)
+     C                   callp     wrtsection('VG52')
+     C                   END
+     C                   callp     wrtsection('VG53')
+      * Slutt - pull-odwn FOR VAREGRUPPER
+      *
+      * Pull-down-boks for vareEIER
+     C                   callp     wrtsection('VE01')
+     C                   IF        LVEIER = *BLANKS
+     C                   callp     updhtmlvar('WSEIERX':'')
+     C                   callp     updhtmlvar('WSEIERY':XINGEN)
+     C                   callp     wrtsection('VE02')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSEIERX':LVEIER)
+     C                   EVAL      KFKOD = LVEIER
+     C                   MOVE      *ON           *IN33
+     C     1             DO        10            XN                3 0
+     C                   IF        VE(XN) = LVEIER
+     C                   MOVE      *OFF          *IN33
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C   33VE(1)         COMP      *BLANKS                            3333
+     C  N33KUFASTKVE     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSEIERY':XKFTXT)
+     C                   callp     wrtsection('VE02')
+     C                   END
+      *
+     C                   IF        VE(1) = *BLANKS
+      * VIS ALLE GRUPPER TIL KUNDER
+     C                   MOVE      BIKUNR        KFTYP
+     C     KFTYP         SETLL     KUFAST
+     C     KFTYP         READE     KUFAST                                 33
+     C  N33              IF        KFKOD = ' DEFN'
+     C     KFTYP         READE     KUFAST                                 33
+     C                   END
+     C                   DOW       *IN33 = *OFF
+     C                   IF        KFKOD <> LVAG05
+     C                   callp     updhtmlvar('WSEIERX':KfKod)
+     C                   callp     updhtmlvar('WSEIERY':XKFTXT)
+     C                   callp     wrtsection('VE02')
+     C                   END
+     C     KFTYP         READE     KUFAST                                 33
+     C                   ENDDO
+     C                   ELSE
+      *
+     C     1             DO        10            XN
+     C                   IF        ((VE(XN) <> LVEIER) AND (VE(XN) <> *BLANKS))
+     C                   EVAL      KFKOD = VE(XN)
+     C     KUFASTKVG     CHAIN     KUFAST                             33
+     C   33              EVAL      KfTXT = ' ER *UKJENT'
+     C                   callp     updhtmlvar('WSEIERX':KfKod)
+     C                   callp     updhtmlvar('WSEIERY':XKFTXT)
+     C                   callp     wrtsection('VE02')
+     C                   end
+     C                   enddo
+      *
+     C                   END
+      *
+     C                   IF        LVEIER <> *BLANKS
+     C                   callp     updhtmlvar('WSEIERX':'')
+     C                   callp     updhtmlvar('WSEIERY':XINGEN)
+     C                   callp     wrtsection('VE02')
+     C                   END
+     C                   callp     wrtsection('VE03')
+      * Slutt - pull-DOWN FOR VAREEIER
+      * legg ut HTML til og med ansvarlig innkjøper
+      *
+     C                   callp     updhtmlvar('LVSALD':
+     C                             %trim(%editc(lvsald:'J')))
+     C                   callp     updhtmlvar('WSMSTK':
+     C                             %trim(%editc(lvmstk:'J')))
+      * prosent  over minimumsnivå..
+     C     LvMstk        IFEQ      0
+     C                   z-add     100,00        DiffPros          8 2
+     C                   else
+     C     LVsald        sub       LVMstk        XXDiff            7 0
+     C                   eval      DiffPros = XXDiff / LvMstk * 100
+     C                   end
+     C                   callp     updhtmlvar('DIFFPROS':
+     C                             %trim(%editc(DiffPros:'J')))
+     C                   callp     updHtmlVar('LVANS':lvans)
+      *
+     C                   callp     wrtsection('DEL30')
+      *
+      * Pull-down-boks for ansvarlig innkjøper
+     C                   callp     wrtsection('ANS01')
+     C                   IF        LVANS = *BLANKS
+     C                   callp     updhtmlvar('WSANSX':'')
+     C                   callp     updhtmlvar('WSANSY':XINGEN)
+     C                   callp     wrtsection('ANS02')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSANSX':LVANS)
+     C                   callp     updhtmlvar('WSANSY':LVANS)
+     C                   callp     wrtsection('ANS02')
+     C                   END
+     C     CundcKey      setll     CUNDCR
+     C     CundcKey      reade     CUNDCR                                 40
+     C     *in40         doweq     '0'
+     C     CConta        IFNE      *blanks
+     C     CConta        andne     LVANS
+     C                   callp     updhtmlvar('WSANSX':CConta)
+     C                   callp     updhtmlvar('WSANSY':CConta)
+     C                   callp     wrtsection('ANS02')
+     C                   end
+     C     CundcKey      reade     CUNDCR                                 40
+     C                   enddo
+     C                   IF        LVANS <> *BLANKS
+     C                   callp     updhtmlvar('WSANSX':'')
+     C                   callp     updhtmlvar('WSANSY':XINGEN)
+     C                   callp     wrtsection('ANS02')
+     C                   END
+     C                   callp     wrtsection('ANS03')
+      * Slutt - pull-DOWN FOR ANSVARELIG
+      **
+      * Pull-down-boks for LEVERADØR
+     C                   callp     wrtsection('LEV01')
+     C                   IF        LVLNR = *BLANKS
+     C                   callp     updhtmlvar('WSLEVX':'')
+     C                   callp     updhtmlvar('WSLEVY':XINGEN)
+     C                   callp     wrtsection('LEV02')
+     C                   ELSE
+     C                   callp     updhtmlvar('WSLEVX':LVLNR)
+     C     LLVADR3K1     CHAIN     LLVADR3                            33
+     C   33              EVAL      VADRNA = '*UKJENT'
+     C                   callp     updhtmlvar('WSLEVY':VADRNA)
+     C                   callp     wrtsection('LEV02')
+     C                   END
+     C     LLVADR3K2     setll     LLVADR3
+     C     LLVADR3K2     reade     LLVADR3                                40
+     C     *in40         doweq     '0'
+     C     VAKURE        IFNE      LVLNR
+     C                   callp     updhtmlvar('WSLEVX':VAKURE)
+     C                   callp     updhtmlvar('WSLEVY':VADRNA)
+     C                   callp     wrtsection('LEV02')
+     C                   end
+     C     LLVADR3K2     reade     LLVADR3                                40
+     C                   enddo
+     C                   IF        LVLNR <> *BLANKS
+     C                   callp     updhtmlvar('WSLEVX':'')
+     C                   callp     updhtmlvar('WSLEVY':XINGEN)
+     C                   callp     wrtsection('LEV02')
+     C                   END
+     C                   callp     wrtsection('LEV03')
+      * Slutt - pull-DOWN FOR LEVERANDØR
+      * Legg ut siste del av skjermbildt
+     C                   callp     updhtmlvar('WSTXT':LVTXT)
+     C                   callp     wrtsection('DEL90')
+      *
+     C                   endsr
+      *=====================================================================
+      * Color for text, background, links, visited links, active links
+      *=====================================================================
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+      *=====================================================================
+      * Set html output skeleton member before its read into memory
+      *=====================================================================
+     C     SetSkl        begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SLAGSC2B'
+     C                   CAT       XSPRÅK:0      MBR
+     C                   endsr
+      *=====================================================================
+      *  Retrieve environment variables
+      *=====================================================================
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     c                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      LLGRPK05                             50
+     C                   open      LLVARE01                             50
+     C                   open      LLVARLOG                             50
+     C                   open      LLVADR3                              50
+     C                   open      KUFAST                               50
+     C                   open      cundc01                              50
+     C                   open      FIRM
+     C                   open      BRPARF                               50
+      *
+     c     VareKey       klist
+     c                   kfld                    GKGRP
+     c                   kfld                    GKPNR
+     c                   kfld                    LVANR
+     c     KunkoKey      klist
+     c                   kfld                    GKPNR
+     c                   kfld                    LVLNR
+     c     KufastKVG     klist
+     c                   kfld                    KFTYPVG          10
+     c                   kfld                    KFKOD
+     c     KufastKVE     klist
+     c                   kfld                    KFTYPVE          10
+     c                   kfld                    KFKOD
+     c     CundcKey      klist
+     c                   kfld                    FIFIRM
+     c                   kfld                    GKPNR
+     c     LLVADR3K1     klist
+     c                   kfld                    FIFIRM
+     c                   kfld                    GKPNR
+     c                   kfld                    LVLNR
+     c     LLVADR3K2     klist
+     c                   kfld                    FIFIRM
+     c                   kfld                    GKPNR
+     c     BRPARFK       klist
+     c                   kfld                    PABRID
+     c                   kfld                    PAKUNR
+     c                   kfld                    PAID
+      *
+     C     *loval        setll     FIRM
+     C                   read      FIRM
+     C     BIKUNR        chain     LLGrpK05                           33
+      *
+     C                   MOVE      *BLANKS       VG
+     C                   MOVE      ' '           XVGNIVÅ           1
+     C                   EVAL      KFTYPVG = 'VG'
+      * VAREGRUPPER (BRUKER-NIVÅ)
+     C                   EVAL      PABRID = USER
+     C                   EVAL      PAKUNR = 0
+     C                   EVAL      PAID   = 'LLVG'
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'B'           XVGNIVÅ           1
+     C                   MOVEA     VV            VG
+     C                   MOVE      BIKUNR        KFTYPVG
+     C                   ELSE
+      * VAREGRUPPER (KUNDE-NIVÅ)
+     C                   EVAL      PABRID = '*KUNDFT*'
+     C                   MOVE      BIFIRM        PABRID
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'K'           XVGNIVÅ           1
+     C                   MOVEA     VV            VG
+     C                   MOVE      BIKUNR        KFTYPVG
+     C                   ELSE
+      * VAREGRUPPER (FIRMA-NIVÅ)
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'F'           XVGNIVÅ           1
+     C                   MOVEA     VV            VG
+     C                   CAT       '*':0         KFTYPVG
+     C                   CAT       BIFIRM:0      KFTYPVG
+     C                   CAT       '*':0         KFTYPVG
+     C                   ELSE
+     C                   MOVE      'K'           XVGNIVÅ           1
+     C                   MOVE      BIKUNR        KFTYPVG
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   MOVE      *BLANKS       VE
+     C                   MOVE      ' '           XVENIVÅ           1
+     C                   EVAL      KFTYPVE = 'VE'
+      * VAREEIER (BRUKER-NIVÅ)
+     C                   EVAL      PABRID = USER
+     C                   EVAL      PAKUNR = 0
+     C                   EVAL      PAID   = 'LLVE'
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'B'           XVENIVÅ           1
+     C                   MOVEA     VV            VE
+     C                   MOVE      BIKUNR        KFTYPVE
+     C                   ELSE
+      * VAREEIER (KUNDE-NIVÅ)
+     C                   EVAL      PABRID = '*KUNDFT*'
+     C                   MOVE      BIFIRM        PABRID
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'K'           XVENIVÅ           1
+     C                   MOVEA     VV            VE
+     C                   MOVE      BIKUNR        KFTYPVE
+     C                   ELSE
+      * VAREEIER (FIRMA-NIVÅ)
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVE      'F'           XVENIVÅ           1
+     C                   MOVEA     VV            VE
+     C                   CAT       '*':0         KFTYPVE
+     C                   CAT       BIFIRM:0      KFTYPVE
+     C                   CAT       '*':0         KFTYPVE
+     C                   ELSE
+     C                   MOVE      'K'           XVENIVÅ           1
+     C                   MOVE      BIKUNR        KFTYPVE
+     C                   END
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       XKFTXT
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *ZEROS        PAKUNR
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   MOVE      '*INGEN'      XINGEN            6
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   MOVE      '*NONE'       XINGEN
+     C                   END
+      *
+     C                   endsr

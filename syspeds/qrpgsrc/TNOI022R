@@ -1,0 +1,175 @@
+
+      *  CRTPGM SYSPED/TNOI022R MODULE(*LIBL/TNOI022R *LIBL/INCGI)
+      *        ACTGRP(CGI) AUT(*USE)
+
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+
+     fbridf     if   e           k disk    usropn
+     fsadv      if   e           k disk    usropn
+     ‚*--------------------------------------------------------------------
+     ‚* Variables common to all CGIs
+     ‚*--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+
+     ‚* Varible for
+     d wsuser          s             10
+     d jsonstring      s          32000
+     d error           s            150
+     d wn              s             15
+     ‚*get input-string
+      /free
+        nbrVars = zhbgetinput(savedquerystring:qusec);
+       //---------------------------------------------------------------------
+       //Stand Alone Fields - BOTTOM
+       //---------------------------------------------------------------------
+
+       //Parse input
+       exsr parse;
+       // Open files etc
+       exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+        // .........................................................................................
+        // skriv JSON-Object start.(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste
+        // .........................................................................................
+
+       jsonstring='{'
+       +'¬user¬ : ¬'+%trim(wsuser)+'¬, '
+       +'¬avd¬ : ¬'+%trim(%editc(svavd:'Z'))+'¬, '
+       +'¬opd¬ : ¬'+%trim(%editc(svtdn:'Z'))+'¬, '
+       +'¬lin¬ : ¬'+%trim(%editc(svli:'Z'))+'¬, '
+       +'¬sverr¬ : ¬'+%trim(sverr)+'¬, '
+       +'¬errMsg¬ : ¬'+%trim(error)+'¬, ';
+       // JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // ..........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       // ..........................................................................................
+       jsonstring ='"lineErrupdate" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         // Uppdatera
+         exsr test;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // Quit
+       exsr exit;
+
+
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close sadv;
+
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+         // Quit
+         *inlr = *on;
+         return;
+       endsr;
+
+       //********************************************************
+       begsr parse;
+         //********************************************************
+         // Get input
+         wsuser  = zhbgetvar('USER');
+         wn         = zhbgetvar('AVD');
+         svavd      = c2n2(wn);
+         wn         = zhbgetvar('OPD');
+         svtdn      = c2n2(wn);
+         wn         = zhbgetvar('LIN');
+         svli       = c2n2(wn);
+         sverr      = zhbgetvar('SVERR');
+       endsr;
+       //********************************************************
+       begsr init;
+         //********************************************************
+         open bridf;
+         open sadv;
+         // Test innlogging
+         chain wsuser bridf;
+         if %found;
+            if bilibl = *blanks;
+              incgi ( bistdl );
+            else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       // dummy read for SADV to get field definitions
+         if sverr = ' ';
+           if sverr = 'X';
+           read sadv;
+           endif;
+         endif;
+
+       endsr;
+
+       //______________________________________________________
+       // TEST                                             TEST
+       //""""""""""""""""""""""""""""""""""""""""""""""""""""""
+       begsr test;
+
+          exec sql
+          UPDATE SADV
+          SET SVERR = :sverr
+          WHERE svavd=:SVAVD and SVTDN=:SVTDN and svli=:svli
+          WITH NC;
+       endsr;
+
+      /end-free

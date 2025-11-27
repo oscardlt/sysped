@@ -1,0 +1,239 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ETUR06GL MODULE(*LIBL/ETUR06GL *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 TIMESTAMP I FILNAVN/HINDRE CASHING I BROWSER
+10XXX * 02 YBC PTF10 BEVARE 8 LANG TURNR
+10XXX * 03 JOV PTF10 SEND MED ESPED-USERID I KALL PÅ PRINT + param for Ligg/Stå
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 04 JOV PTF11 Utg. Innland - print fraktbrev på lokal prt. (mulig den bør ha eget ikon?)
+********************************************************************
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+N03  FKODTH     IF   E           K DISK    USROPN
+N03  FKODTA     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          S             10
+     D UsrSpcName      s             10
+     D WSAVD           S              4
+     D WSTUR           S              8
+     D BSTUR           S              8  0
+     D IFSFIL          S             50
+     D Dialog          S              1
+     D EMNE            S             44
+     D SENDER          S             17
+     D CMD             S           5000
+     D MELD            S           5000
+     D XEPMOTT         S             50    DIM(5)
+      * Number of records matching search criteria
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      *
+      ** Ved behov for dialog FØR spool kjøres legges den her...
+     C     Dialog        IFeq      'J'
+     c                   else
+      *
+      * ALT OK - aktuell printjobb skal kjøres...
+     C     BSTUR         CHAIN     TURER14                            33
+     C                   IF        *IN33 = *OFF
+N03  C     KOHKEY        CHAIN     KODTH                              33
+      *  Kall prog for å generere html-fil eller PDF-fil i IFS.
+S01  C*                  EVAL      IFSFil = '/pdf/tmp/GODSLISTE'
+S01  C*                            + WSTUR + '.PDF'
+N01  C                   time                    Timedata1
+N01  C                   movel     timedata1     TS26             26
+N01  C                   MOVE      TS26          TS15             15
+N02  C                   MOVE      BSTUR         WSTUR
+N01  C                   EVAL      IFSFil = '/pdf/tmp/GL'
+N01  C                             + WSTUR + '_' + TS15 + '.PDF'
+      *
+     C                   MOVE      TUAVD         WSAVD
+     C                   call      'ETUR06CGL'
+     C                   parm                    WSAVD
+     C                   parm                    WSTUR
+     C                   PARM                    IFSFIL
+N03  C                   parm                    WSUSER
+N03  C                   parm                    KOHLS2                         L=LIGG/S=STÅENDE
+      * Set output skeleton html member name
+      *-dummy html for å få kjørt prog                                      ******
+      * "bytter ut seg selv" med Html-fil i IFS umiddelbart                 ******
+     C                   exsr      SetSklSpool
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   callp     updhtmlvar('IFSFIL':IFSFIL)
+     C                   callp     wrtsection('top')
+      *
+     C                   IF        XEPMOTT(1) <> *BLANKS                          3<-B
+     C                   EXSR      SNDEMAIL
+     C                   END                                                      3<-E
+N04  C     KOAKEY        CHAIN     KODTA                              33
+N04  C                   IF        *in33='0' and KOAIE='1'                        3<-B
+N04   * Generer FB når de ikke finnes
+N04  C                   call      'SYFA55IFB'
+N04  C                   parm                    WSTUR
+N04  C                   parm      'J'           FBFUNK            1
+N04   * Print FB til standard printer
+N04  C                   call      'PRTFBPDAC'
+N04  C                   parm      BIFIRM        FBFIRM            2
+N04  C                   parm                    WSAVD
+N04  C                   parm                    WSTUR
+N04   * Print GL til standard printer
+N04  C                   call      'PRTGLPDAC'
+N04  C                   parm                    WSAVD
+N04  C                   parm                    WSTUR
+N04  C                   END
+      *
+     C                   END
+     c                   end
+      *------------------                                                   ******
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     BRPARF
+     C                   close     TURER14
+N03  C                   close     KODTH
+N04  C                   close     KODTA
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   EVAL      WSTUR   = zhbgetvar('WSTUR')
+     C                   eval      BSTUR   = c2n2(WSTUR)
+     C                   eval      Dialog = zhbgetvar('Dialog')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSklSpool   begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'SPLHTMALL'
+     C                   endsr
+      *=====================================================================******
+      * Send MEDLING TIL BRUKER
+      *=====================================================================******
+     C     SNDEMAIL      begsr
+      *
+     C                   Z-ADD     1024          CMDL             15 5
+     C                   EVAL      SENDER = '*CURRENT'
+     C                   MOVE      TUPRO         XTUPRO            8
+      *
+     C     1             DO        5             XN                3 0
+     C                   IF        XEPMOTT(XN) <> *BLANKS
+      * Emne
+     C                   Eval      EMNE = 'Print goodslist '
+     C                                    + %trim(XTUPRO)
+      *
+     C                   EVAL      MELD = 'Goodslist is printed by '
+     C                             + %trim(BIBRID) + '/' + %trim(BIBESK)
+     C                             + ':/NTrip No. ' + %trim(%editc(TUPRO:'Z'))
+     C                             + ':/P:/PThis message is created '
+     C                             + 'automaticly by the booking system.'
+     C                             + ':/NPlease do not reply!'
+      *
+      * param for tointnet og longmsg må være i apostrofer ( hex 7D )
+      * (strenger i single-parametere som inneholder blank el. spesialtegn)
+     C                   eval      cmd = 'SNDDST TYPE(*LMSG) TOINTNET('
+     C                             +'('+ X'7D' +%trim(XEPMOTT(XN))+ X'7D' +')) +
+     C                             DSTD('+ X'7D' + %trim(EMNE) + X'7D' + ') +
+     C                             LONGMSG('+ X'7D' + %trim(MELD) + X'7D' +') +
+     C                             USRID('+  %trim(SENDER) +') SNDFMT(*NOCHG)'
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    CMD
+     C                   PARM                    CMDL
+      *
+     C                   END
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   OPEN      BRPARF
+     C                   OPEN      TURER14
+N03  C                   OPEN      KODTH
+N04  C                   OPEN      KODTA
+      *
+N03  C     KOHKEY        klist
+N03  C                   kfld                    KOHUNI
+N03  C                   kfld                    TUAVD
+N03  C                   move      'H'           KOHUNI
+N04  C     KOAKEY        klist
+N04  C                   kfld                    KOAUNI
+N04  C                   kfld                    TUAVD
+N04  C                   move      'A'           KOAUNI
+     C     BrParKey      klist
+     C                   kfld                    WSUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C                   MOVE      'EPOST'       PAID
+     C                   Z-ADD     0             XN
+     C     BrParKey      chain     BRPARF                             33
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN
+     C                   MOVEL     PAVRDA        XEPMOTT(XN)
+     C     XN            COMP      5                                      33
+     C  N33BrParKey      READE     BRPARF                                 33
+     C                   ENDDO
+      *
+     C                   endsr

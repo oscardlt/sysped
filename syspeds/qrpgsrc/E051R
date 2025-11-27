@@ -1,0 +1,1611 @@
+      *______________________________________________________________
+      * OFTP over X.25 SVC
+      * OFTP over ISDN eller TCP/IP må programmeres spesiellt, dette
+      * er ikke inkludert i dette program.
+      *
+      * MANUALER
+      * """"""""
+      * OFTP Specifications                   CD fra Odette Sverige
+      * AS/400 Cmn. Def. Ex.III Kap.26        IBM Redbook GG24-4386-00
+      * OS/400 Cmn. APIs V4R4                 AS/400 Man, SC41-5852-03
+      * OS/400 X.25 Netw. sup. V4R3           AS/400 Man, SC41-5405-01
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     FEOFTPSE   IF   E             DISK
+     FEDIS      IF   E           K DISK
+     FEDII      IF   E           K DISK
+      * CALLING DTE ADDRESS
+     D ADTE            S              1    DIM(16)
+     D X00             S              1    DIM(128)
+
+     D USDTA           DS
+     D  USDTA1                 1    512
+
+      *  CONSTANTS FOR USER SPACE AND DTAQ NAMES
+     D CZERO           C                   CONST(0)
+     D CIBUF           C                   CONST('IBUF      QTEMP')
+     D CIBUFD          C                   CONST('IBUFD     QTEMP')
+     D COBUF           C                   CONST('OBUF      QTEMP')
+     D COBUFD          C                   CONST('OBUFD     QTEMP')
+     D CDATAQ          C                   CONST('UDCDTAQ   SYSPEDF   ')
+     D XSSID           DS
+     D  XSSID01                1      1    INZ('X')
+     D  XSSID02                2      2    INZ('1')
+     D  XSSID03                3     27
+     D  XSSID04               28     35
+     D  XSSID05               36     40    INZ('00128')
+     D  XSSID06               41     41    INZ('S')
+     D  XSSID07               42     42    INZ('N')
+     D  XSSID08               43     43    INZ('N')
+     D  XSSID09               44     44    INZ('N')
+     D  XSSID10               45     47    INZ('064')
+     D  XSSID11               48     52
+     D  XSSID12               53     60
+     D  XSSID13               61     61    INZ(X'0D')
+     D XSFID           DS
+     D  XSFID01                1      1    INZ('H')
+     D  XSFID02                2     27    INZ('SYSPEDF/EDISE.T0000002    ')
+     D  XSFID03               28     36    INZ('         ')
+     D  XSFID04               37     42    INZ('010209')
+     D  XSFID05               43     48    INZ('123456')
+     D  XSFID06               49     56    INZ('        ')
+     D  XSFID07               57     81    INZ('O09420000123456789TEST   ')
+     D  XSFID08               82    106    INZ('O094200005561437764000SWT')
+     D  XSFID09              107    107    INZ('U')
+     D  XSFID10              108    112    INZ('00000')
+     D  XSFID11              113    119    INZ('0000005')
+     D  XSFID12              120    128    INZ('000000000')
+     D XEFID           DS
+     D  XEFID1                 1      1    INZ('T')
+     D  XEFID2                 2     10S 0 INZ(000000000)
+     D  XEFID3                11     22S 0 INZ(000000000000)
+     D XESID           DS
+     D  XESID01                1      1    INZ('F')
+     D  XESID02                2      3    INZ('00')
+     D  XESID03                4      4    INZ(X'0D')
+     D**************************************************************
+     D* COMMON PARAMETERS USED ON UDC CALLS:
+     D*
+     D* DAVL2   DATA AVAILABLE (2 BYTES)                          QOLRECV
+     D* DAVL1   DATA AVAILABLE (SECOND BYTE)                      QOLRECV
+     D* DGNDTA  DIAGNOSTIC DATA                                   QOLSEND
+     D*                                                           QOLRECV
+     D* DUNUM   NUMBER OF DATA UNITS CREATED                      QOLELINK
+     D* DUSZ    DATA UNIT SIZE                                    QOLELINK
+     D* EROFST  ERROR DATA OFFSET                                 QOLSETF
+     D* HANDLE  COMMUNICATIONS HANDLE                             QOLELINK
+     D*                                                           QOLSETF
+     D*                                                           QOLSEND
+     D*                                                           QOLRECV
+     D*                                                           QOLDLINK
+     D* IBUF    USER SPACE NAME FOR INPUT BUFFER (DATA UNITS)     QOLELINK
+     D* IBUFD   USER SPACE NAME FOR INPUT BUFFER DESCRPITORS      QOLELINK
+     D* KEYLEN  DATA QUEUE KEY LENGTH                             QOLELINK
+     D* KEYVAL  DATA QUEUE KEY VALUE                              QOLELINK
+     D* LIND    LINE DESCRIPTION                                  QOLELINK
+     D* LUDSZ   LAN USER DATA SIZE                                QOLELINK
+     D* NUCEP   NEW USER CONNECTION END POINT ID                  QOLSEND
+     D* NPCEP   NEW PROVIDER CONNECTION END POINT ID              QOLSEND
+     D*                                                           QOLRECV
+     D* NUMDU   NUMBER OF DATA UNITS                              QOLSEND
+     D*                                                           QOLRECV
+     D* OBUF    USER SPACE NAME FOR OUTPUT DATA UNITS             QOLELINK
+     D* OBUFD   USER SPACE NAME FOTR OUTPUT DESCRIPTORS           QOLELINK
+     D* OPRTN   OPERATION (2 BYTES)                               QOLSEND
+     D*                                                           QOLRECV
+     D* OPRTN1  OPERATION (FIRST BYTE)                            QOLSEND
+     D*                                                           QOLRECV
+     D* OPRTN2  OPERATION (FIRST SECOND BYTE)                     QOLSEND
+     D*                                                           QOLRECV
+     D* OPTN2   VARY OPTION (2 BYTES)                             QOLELINK
+     D* OPTN1   VARY OPTION (RIGHT BYTE)                          QOLELINK
+     D* PCEP    EXISTING PROVIDER CONNECTION END POINT ID         QOLSEND
+     D* RSNCDE  REASON CODE                                       A11
+     D* RTNCDE  RETURN CODE                                       A11
+     D* UCEP    EXISTING USER CONNECTION END POINT ID             QOLRECVK
+     D* XUDSZ   X.25 USER DATA SIZE                               QOLELINK
+     D UDCPRM          DS                  INZ
+     D  DAVL2                  1      2B 0
+     D  DAVL1                  2      2
+     D  DGNDTA                10     49
+     D  DUNUM                 50     53B 0
+     D  DUSZ                  54     57B 0
+     D  EROFST                60     63B 0
+     D  HANDLE                70     79
+     D  IBUF                  80     99
+     D  IBUFD                100    119
+     D  KEYLEN               120    123B 0
+     D  KEYVAL               130    385
+     D  LIND                 390    399
+     D  LUDSZ                400    403B 0
+     D  NUCEP                404    407B 0
+     D  NPCEP                410    413B 0
+     D  NUMDU                414    417B 0
+     D  OBUF                 420    439
+     D  OBUFD                440    459
+     D  OPRTN                470    471
+     D  OPRTNN               470    471B 0
+     D  OPRTN1               470    470
+     D  OPRTN2               471    471
+     D  OPRTC1               472    472
+     D  OPRTC2               473    473
+     D  OPRTC                472    473
+     D  OPTN2                480    481B 0
+     D  OPTN1                481    481
+     D  PCEP                 490    493B 0
+     D  RSNCDE               494    497B 0
+     D  RTNCDE               500    503B 0
+     D  UCEP                 504    507B 0
+     D  XUDSZ                510    513B 0
+     D**************************************************************
+     D*FILTER DATA STRUCTURE
+     D*
+     D* FIELD
+     D* NAME DESCRIPTION
+     D* ------ -----------
+     D* FFNCTN FUNCTION
+     D* FTYP FILTER TYPE X ¢00¢  = PID
+     D* FNUM NUMBER OF FILTERS
+     D* FLEN LENGTH OF EACH FILTER
+     D* FPIDL    LENGTH OF PID
+     D* FPID PID
+     D* FDTEL    CALLING DTE ADDRESS LENGTH
+     D* FDTE CALLING DTE ADDRESS
+     D* FRDTA  ADDITIONAL ROUTING DATA
+     D**************************************************************
+     D FILTER          DS                  INZ
+     D  FFNCTN                 1      1
+     D  FTYP                   2      2
+     D  FNUM                   3      4B 0
+     D  FLEN                   5      6B 0
+     D  FPIDL                  7      7
+     D  FPID                   8      8
+     D  FDTEL                  9      9
+     D  FDTE                  10     21
+     D  FRDTA                 22     22
+      **************************************************************
+      *INITIATE AN SVC CALL
+
+      * FIELD
+      * NAME DESCRIPTION
+      * ------ -----------
+      * IR01 1 A RESERVED, MUST BE X '02'
+      * IR02 3 A RESERVED, MUST BE X '000000'
+
+      * ITPSZ    2 B TRANSMIT PACKET SIZE
+      * ITWSZ    2 B TRANSMIT WINDOW SIZE
+      * IRPSZ    2 B RECEIVE PACKET SIZE
+      * IRWSZ    2 B RECEIVE WINDOW SIZE
+
+      * IR03 7 A RESERVED, MUST BE ALL X '00'
+      * IDTEL    1 B DTE ADDRESS LENGTH
+      * IDTE    16 A DTE ADDRESS
+      * IR04 8 A RESERVED, MUST BE ALL X '00'
+      * IDBIT    1 A D-BIT SUPPORT (DELIVERY CONF)
+      * IR05 7 A RESERVED, MUST BE ALL X '00'
+      * ICUGIN 1 A CUD INDICATOR
+      * ICUGID 1 A CUD IDENTIFIER
+      * IRCHRG 1 A REVERSE CHARGE INDICATOR
+      * IFSEL    1 A FAST SELECT INDICATOR
+
+      * IFACL    1 B X.25 FACILITIES LENGTH
+      * IFAC 109 A X.25 FACILITIES
+      * IR06    48 A RESERVED, MUST BE ALL X '00'
+      * ICUDL    2 B CALL USER DATA LENGTH
+      * ICUD 128 A CALL USER DATA
+      * IR07 128 A RESERVED, MUST BE ALL X '00'
+     D* ICTRI    1 A CONNECTION CONTROL INFORMATION
+     D* IR08 3 A RESERVED, MUST BE ALL X ¢00¢
+     D* IMDTA    4 B MAX DATA UNIT ASSEMBLY
+     D* IAUTOF 2 B AUTO FLOW CONTROL, 32 IS RECOMMENDED
+     D* IR09    30 A RESERVED, MUST BE ALL X ¢00¢
+     D**************************************************************
+     D ISVC            DS                  INZ
+     D  IR01                   1      1
+     D  IR02                   2      4
+     D  ITPSZ                  5      6
+     D  ITWSZ                  7      8
+     D  IRPSZ                  9     10
+     D  IRWSZ                 11     12
+     D  IR03                  13     19
+     D  IDTEL                 20     20
+     D  IDTE                  21     36
+     D  IR04                  37     44
+     D  IDBIT                 45     45
+     D  IR05                  46     52
+     D  ICUGIN                53     53
+     D  ICUGID                54     54
+     D  IRCHRG                55     55
+     D  IFSEL                 56     56
+     D  IFACL                 57     57
+     D  IFAC                  58    166
+     D  IR06                 167    214
+     D  ICUDL                215    216B 0
+     D  ICUD                 217    344
+     D  IR07                 345    472
+     D  ICTRI                473    473
+     D  IR08                 474    476
+     D  IMDTA                477    480B 0
+     D  IAUTOF               481    482B 0
+     D  IR09                 483    512
+     D**************************************************************
+     D*RECEIVE SVC CALL CONNECT
+     D*
+     D* FIELD
+     D* NAME     DESCRIPTION
+     D* ------ -----------
+     D* CR01 2 A RESERVED, NOT USED
+     D* CLCI 2 A LOGICAL CHANNEL ID
+     D* CTPSZ    2 B TRANSMIT PACKET SIZE
+     D* CTWSZ    2 B TRANSMIT WINDOW SIZE
+     D* CRPSZ    2 B RECEIVE PACKET SIZE
+     D* CRWSZ    2 B RECEIVE WINDOW SIZE
+     D* CR02    32 A RESERVED, NOT USED
+     D* CDBIT    1 A D-BIT SUPPORT (DELIVERY CONFIRMATION)
+     D* CR03    11 A RESERVED, NOT USED
+     D* CFACL    1 B X.25 FACILITIES LENGTH
+     D* CFAC 109 A X.25 FACILITIES DATA
+     D* CR04    48 A RESERVED, NOT USED
+     D* CCCUDL 2 B CALL/CLEAR USER DATA LENGTH
+     D* CCCUD128 A CALL/CLEAR USER DATA
+     D* CR05 168 A RESERVED, NOT USED
+     D**************************************************************
+     D CCDTA           DS                  INZ
+     D  CR01                   1      2
+     D  CLCI                   3      4
+     D  CTPSZ                  5      6B 0
+     D  CTWSZ                  7      8B 0
+     D  CRPSZ                  9     10B 0
+     D  CRWSZ                 11     12B 0
+     D  CR02                  13     44
+     D  CDBIT                 45     45
+     D  CR03                  46     56
+     D  CFACL                 57     57
+     D  CFAC                  58    166
+     D  CR04                 167    214
+     D  CCCUDL               215    216B 0
+     D  CCCUD                217    344
+     D  CR05                 345    512
+     D**************************************************************
+     D*SEND/RECEIVE CLEAR REQUEST
+     D*
+     D*
+     D* FIELD
+     D* NAME DESCRIPTION
+     D* ------ -----------
+     D* RR01 2 A RESERVED, SHOULD BE X ¢0000¢
+     D* RCC 1 A X.25 CAUSE CODE
+     D* RDC 1 A X.25 DIAGNOSTIC CODE
+     D* RR02 4 A RESERVED, SHOULD BE X ¢00000000¢
+     D* RFACL    1 B X.25 FACILITIES LENGTH
+     D* RFAC 109 A X.25 FACILITIES
+     D* RR03    48 A RESERVED, SHOULD BE X ¢00..
+     D* RUDTAL 2 B CLEAR USER DATA LENGTH, VALUE 0-128
+     D* RUDTA128 A CLEAR USER DATA
+     D* RR04 216 A RESERVED, SHOULD BE X ¢00..
+     D**************************************************************
+     D CRDTA           DS                  INZ
+     D  RR01                   1      2
+     D  RCC                    3      3
+     D  RDC                    4      4
+     D  RR02                   5      8
+     D  RFACL                  9      9
+     D  RFAC                  10    118
+     D  RR03                 119    166
+     D  RUDTAL               167    168B 0
+     D  RUDTA                169    296
+     D  RR04                 296    512
+     D**************************************************************
+     D*INPUT AND OUTPUT DESCRIPTOR STUCTURE
+     D*
+     D* FIELD
+     D* NAME DESCRIPTION
+     D* ------ -----------
+     D* DATAL    DATA LENGTH
+     D* RSVD RESERVED
+     D**************************************************************
+     D IODSC           DS                  INZ
+     D  DATAL                  1      2B 0
+     D  RSVD                   3     32
+     D**************************************************************
+     D*DATA QUEUE PARAMETERS
+     D*
+     D* FIELD
+     D* NAME DESCRIPTION
+     D* ------ -----------
+     D* DATAQ    DATA QUEUE NAME AND LIBRARY
+     D* DATAQN DATA QUEUE NAME
+     D* DATAQL DATA QUEUE LIBRARY
+     D* FLDLN    NUMBER OF CHARACTERS TO RECEIVE FROM DATA QUEUE
+     D* FLD BUFFER TO PLACE DATA ONTO ARE REMOVE DATA FROM QUEUE
+     D* WAIT TIME TO WAIT
+     D**************************************************************
+     D DQ              DS                  INZ
+     D  DATAQ                  1     20
+     D  DATAQN                 1     10
+     D  DATAQL                11     20
+     D  FLDLN                 21     23P 0
+     D  FLD                   24    103
+     D  WAIT                 104    106P 0
+     D**************************************************************
+     D*RETRIEVE AND UPDATE USER SPACE PARAMETERS
+     D*
+     D* FIELD
+     D* NAME DESCRIPTION
+     D* ------ -----------
+     D* STRPOS STARTING POSITION IN USER SPACE
+     D* USDTAL NUMBER OF BYTES TO COPY TO OR FROM USER SPACE
+     D* USDTA    DATA TO COPY TO OR FROM USER SPACE
+     D* FRCHG    FORCE CHANGES TO AUXILIARY STORAGE
+     D**************************************************************
+     D US              DS                  INZ
+     D  STRPOS                 1      4B 0
+     D  USDTAL                 5      8B 0
+     D* USDTA DESCRIBED IN PROGRAM AS 2X256 DS
+     D  FRCCHG               521    521
+     I**************************************************************
+
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+      *---------------------X.25------------------------
+      * ENABLE THE LINK
+     C                   EXSR      ELINK
+      * SET THE FILTER TO RECEIVE INCOMING CALLS
+      * (SHOULD NOT BE NECESSARY IN THIS EXAMPLE)
+     C                   EXSR      PAUS
+     C                   EXSR      SETF
+      * SEND CALL REQUEST
+     C                   EXSR      PAUS
+     C                   EXSR      ESVC
+      * RECEIVE CALL CONNECT
+     C                   EXSR      PAUS
+     C                   EXSR      CC
+      *---------------------X.25------------------------
+      *---------------------OFTP------------------------
+      * RECEIVE "IOFTP READY"
+     C                   EXSR      PAUS
+     C                   EXSR      YRCVIO
+      * SEND IDENTIFICATION PASSWORD & PROFILE (X)
+     C                   EXSR      YSSIDS
+      * RECEIVE IDENTIFICATION PASSWORD & PROFILE (X)
+     C                   EXSR      YSSIDR
+      * SEND FILE INFORMATION (H)
+     C                   EXSR      YSFID
+      * Motta positivt eller negativt svar (2) OR (3)
+     C                   EXSR      YSFPA
+      * Send fil
+     C                   EXSR      YSNDF
+      * Send slutt fil
+     C                   EXSR      YEFID
+      * Motta "END OF FILE"
+     C                   EXSR      YEFPA
+      * End of file kan komme i 3 varianter:
+      * 4Y=Positiv answer, Change direction=Yes
+      * 4N=Positiv answer, Change direction=No
+      * 5 =Negativ answer
+     C                   SELECT
+
+     C     XEFPACMD      WHENEQ    '4Y'
+      * Send "Change Direction"
+     C                   EXSR      YCD
+     C                   MOVE      *ON           *IN53
+      * Motta "END TO END RESPONSE"
+     C                   EXSR      YEERP
+
+     C     XEFPACMD      WHENEQ    '4N'
+      * Send "Change Direction"
+     C                   EXSR      YCD
+     C                   MOVE      *ON           *IN53
+      * Motta "END OF SESSION"
+     C                   EXSR      YESID
+
+     C                   ENDSL
+      *---------------------OFTP------------------------
+      *---------------------X.25------------------------
+      * SEND CLEAR REQUEST
+     C                   EXSR      CLEAR
+      * RECEIVE CLEAR CONFIRMATION
+     C                   EXSR      CLEARC
+      * DISABLE LINK
+     C     ENDPGM        TAG
+     C                   EXSR      DLINK
+      *---------------------X.25------------------------
+     C                   SETON                                        LR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *__________________
+      * Define workfields
+      *""""""""""""""""""
+     C     *LIKE         DEFINE    *IN53         WOK
+     C     *LIKE         DEFINE    SSN           WSSN
+      *  INITIALIZATIONS * HEX00 IS A 128 CHAR FIELD, TO INIT VARIOUS FIELDS
+     C                   BITOFF    '1234567'     ALL00             1
+     C                   Z-ADD     1             Z                 3 0
+     C     Z             DOWNE     129
+     C                   MOVE      ALL00         X00(Z)
+     C                   ADD       1             Z
+     C                   ENDDO
+     C                   MOVEA     X00           HEX00           128
+      * HEXFF IS A 2 BYTE FIELD WITH ALL X ' FF '
+     C                   BITON     '01234567'    FF                1
+     C                   MOVEL     FF            HEXFF             2
+     C                   MOVE      FF            HEXFF
+      *____________
+      * Define keys
+      *""""""""""""
+      *_________________
+      * Input parameters
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM      *IN53         WOK
+     C                   PARM                    WSSN
+      *___________________________
+      * Hent utvekslingsparametere
+      *"""""""""""""""""""""""""""
+     C     WSSN          CHAIN     EDIS                               52
+     C     *IN52         IFEQ      *OFF
+     C                   EVAL      XSFID02=SMBR
+     C                   MOVE      SDT           XSFID04
+     C                   MOVEL     STM           XSFID05
+     C                   ENDIF
+      *______________
+      * Hent avsender
+      *""""""""""""""
+     C     S0004         CHAIN     EDII                               52
+     C     *IN52         IFEQ      *OFF
+     C                   EVAL      XSSID03=INOFID
+     C                   EVAL      XSFID08=INOFID
+     C                   ENDIF
+      *______________
+      * Hent mottager
+      *""""""""""""""
+     C     S0010         CHAIN     EDII                               52
+     C     *IN52         IFEQ      *OFF
+     C                   EVAL      XSSID04=INOFPW
+     C                   EVAL      XSFID07=INOFID
+     C                   EVAL      LIND=INOFXL
+     C                   MOVE      *BLANKS       X25ADR           16
+     C                   MOVE      *BLANKS       X25LEN            1
+     C                   EVAL      X25ADR=INOFXN
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * ENABLE THE LINK                                     ELINK /
+      *////////////////////////////////////////////////////////////
+     C     ELINK         BEGSR
+      * X.25 USER DATA SIZE (512 TO 4096)
+     C                   Z-ADD     512           XUDSZ
+      * COPY 4 USERSPACE NAMES TO PARAMETER FIELDS
+     C                   MOVEL     CIBUF         IBUF
+     C                   MOVEL     CIBUFD        IBUFD
+     C                   MOVEL     COBUF         OBUF
+     C                   MOVEL     COBUFD        OBUFD
+      * COPY DATA QUEUE NAME TO PARAMETER FIELD
+     C                   MOVEL     CDATAQ        DATAQ
+      * DTAQ KEY LENGTH, 0=NO KEY
+     C                   Z-ADD     0             KEYLEN
+      * HANDLE TO BE USED ON FUTURE CALLS = HANDLE
+     C                   MOVEL     'HANDLE'      HANDLE
+
+      * CALL ENABLE LINK UDC PROGRAM
+     C                   CALL      'QOLELINK'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DUSZ
+     C                   PARM                    DUNUM
+     C                   PARM                    LUDSZ
+     C                   PARM                    XUDSZ
+     C                   PARM                    IBUF
+     C                   PARM                    IBUFD
+     C                   PARM                    OBUF
+     C                   PARM                    OBUFD
+     C                   PARM                    KEYLEN
+     C                   PARM                    KEYVAL
+     C                   PARM                    DATAQ
+     C                   PARM                    LIND
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+      * RECEIVE DATA QUEUE ENTRY TO GET RESULTS
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SET THE FILTER TO RECEIVE CALLS ETC FOR PID X'AA'    SETF /
+      *////////////////////////////////////////////////////////////
+     C     SETF          BEGSR
+      * FILTER FUNCTION = 01 (ACTIVATE FILTERS)
+     C                   BITOFF    '01234567'    FFNCTN
+     C                   BITON     '7'           FFNCTN
+      * FILTER TYPE = 00 (X.25 PID)
+     C                   BITOFF    '01234567'    FTYP
+      * NUMBER OF FILTERS IN LIST = 1
+     C                   Z-ADD     1             FNUM
+      * LENGTH OF EACH FILTER = 16
+     C                   Z-ADD     16            FLEN
+
+      * NOW X.25 SPECIFIC FILTER INFORMATION
+      * PID LENGTH = 01 (ROUTE CALLS WITH PID IN CUD
+     C                   BITOFF    '01234567'    FPIDL
+     C                   BITON     '7'           FPIDL
+      * FPID = X 'AA'
+     C                   BITOFF    '01234567'    FPID
+     C                   BITON     '0246'        FPID
+      * CALLING DTE ADDRESS LENGTH, X '00' FOR FILTER TYPE X '00'
+     C                   BITOFF    '01234567'    FDTEL
+      * CALLING DTE ADDRESS
+      * NEEDS TO BE X '00' WHEN WORKING WITH PID
+     C                   MOVEL     HEX00         FDTE
+      * ADDL X.25 ROUTING DATA
+      * X 'C0' REVERSE CHARGE & FAST SELECT NOT ACCEPTED
+     C                   BITOFF    '01234567'    FRDTA
+     C                   BITON     '01'          FRDTA
+      * COPY FILTER INFORMATION TO DATA UNIT IN USER SPACE
+      * HEADER IS 6 BYTES, X.25 FILTER IS 16 BYTES
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     22            USDTAL
+     C                   MOVEL     FILTER        USDTA1
+     C                   MOVE      CZERO         FRCCHG
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * CALL SET FILTER UDC PROGRAM
+     C                   CALL      'QOLSETF'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    EROFST
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * INITIATE AN SVC CALL                                 ESVC /
+      *////////////////////////////////////////////////////////////
+     C     ESVC          BEGSR
+      * PREPARE SVC CALL DATA
+      * IR01 1 A RESERVED, MUST BE X '02'
+     C                   BITOFF    '01234567'    IR01
+     C                   BITON     '6'           IR01
+      * IR02 3 A RESERVED, MUST BE X '000000'
+     C                   MOVEL     HEX00         IR02
+      * ITPSZ    2 B TRANSMIT PACKET SIZE
+     C                   MOVE      HEXFF         ITPSZ
+      * ITWSZ    2 B TRANSMIT WINDOW SIZE
+     C                   MOVE      HEXFF         ITWSZ
+      * IRPSZ    2 B RECEIVE PACKET SIZE
+     C                   MOVE      HEXFF         IRPSZ
+      * IRWSZ    2 B RECEIVE WINDOW SIZE
+     C                   MOVE      HEXFF         IRWSZ
+      * IR03 7 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR03
+      * IDTE    16 A DTE ADDRESS
+     C                   MOVEL     HEX00         IDTE
+     C                   MOVEA     HEX00         ADTE
+     C                   CALL      'E052R'
+     C                   PARM                    X25ADR
+     C                   PARM                    X25LEN
+     C                   MOVEL     X25ADR        IDTE
+     C                   MOVEL     X25LEN        IDTEL
+      * IR04 8 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR04
+      * IDBIT 1 A D-BIT SUPPORT (DELIVERY CONF), X '00'= NO
+     C                   BITOFF    '01234567'    IDBIT
+      * IR05 7 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR05
+      * ICUGIN 1 A CUG INDICATOR, X '00'= NO CUGID
+     C                   BITOFF    '01234567'    ICUGIN
+      * ICUGID 1 A CUG IDENTIFIER, X '00', WHEN CUGID=X '00'
+     C                   BITOFF    '01234567'    ICUGID
+      * IRCHRG 1 A REVERSE CHARGE INDICATOR, X ¢00¢= NO
+     C                   BITOFF    '01234567'    IRCHRG
+      * IFSEL 1 A FAST SELECT INDICATOR, NO FAST SELECT
+     C                   BITOFF    '01234567'    IFSEL
+      * IFACL 1 B X.25 FACILITIES LENGTH, NO FACILITIES
+     C                   BITOFF    '01234567'    IFACL
+      * IFAC 109 A X.25 FACILITIES, NO FACILITIES
+      * IR06 48 A RESERVED, MUST BE ALL X ¢00¢
+     C                   MOVEL     HEX00         IR06
+      * ICUDL 2 B CALL USER DATA LENGTH, NO CUD
+     C                   Z-ADD     0             ICUDL
+      * ICUD 128 A CALL USER DATA, NO CUD
+      * IR07 128 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR07
+      * ICTRI 1 A CONNECTION CONTROL INFORMATION
+      * BIT 0 = OFF, NO REST SUPPORT IN THIS PROGRAM
+     C                   BITOFF    '01234567'    ICTRI
+      * IR08 3 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR08
+      * IMDTA 4 B MAX DATA UNIT ASSEMBLY (USER DATA)
+      * SEQUENCE OF PACKAGES
+     C                   Z-ADD     1024          IMDTA
+      * IAUTOF 2 B AUTO FLOW CONTROL, 32 IS RECOMMENDED
+     C                   Z-ADD     32            IAUTOF
+      * IR09 30 A RESERVED, MUST BE ALL X '00'
+     C                   MOVEL     HEX00         IR09
+
+      * COPY CALL DATA INTO DU OF USER DATA SPACE * SINGLE DATA UNIT, NO DESCRIPTOR UNIT
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     512           USDTAL
+     C                   MOVE      CZERO         FRCCHG
+     C                   MOVEL     ISVC          USDTA
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * INITIATE SENDING OUT THE SVC CALL
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION IS B000, INITIATE SVC CALL
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITON     '023'         OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   MOVE      OPRTN         OPRTC
+      * it is only one user space data unit
+     C                   Z-ADD     1             NUMDU
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE SVC CALL CONNECT                               CC /
+      *////////////////////////////////////////////////////////////
+     C     CC            BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * Copy user ¢ s data from USRSPC data unit, no descriptor
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     512           USDTAL
+
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE "IODETTE FTP READY ."                      YRCVIO /
+      *////////////////////////////////////////////////////////////
+     C     YRCVIO        BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND IDENTIFICATION PASSWORD & PROFILE (X)         YSSIDS /
+      *////////////////////////////////////////////////////////////
+     C     YSSIDS        BEGSR
+      * TRANSLATE EBCDIC-ASCII
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     XSSID         XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     61            USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     61            DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE IDENTIFICATION PASSWORD & PROFILE (X)      YSSIDR /
+      *////////////////////////////////////////////////////////////
+     C     YSSIDR        BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      *
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND FILE INFORMATION (H)                           YSFID /
+      *////////////////////////////////////////////////////////////
+     C     YSFID         BEGSR
+      * Legg in variabler for filinformasjon
+     C                   EVAL      XSFID11='0000064'
+      * TRANSLATE EBCDIC-ASCII
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     XSFID         XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     128           USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     128           DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE POSITIV OR NEGATIVE ANSWER (2) OR (3)       YSFPA /
+      *////////////////////////////////////////////////////////////
+     C     YSFPA         BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+      * Positivt eller negativt svar ?
+     C                   MOVEL     XDATA         XSFPANA           1
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND FIL                                            YSNDF /
+      *////////////////////////////////////////////////////////////
+     C     YSNDF         BEGSR
+      * Init av arbetsfelt
+     C                   EVAL      *IN51=*OFF
+      * Les fil
+     C                   READ      EOFTPSE                                51
+     C     *IN51         DOWEQ     *OFF
+     C                   EXSR      YCDT
+     C                   ADD       1             XEFID2
+     C                   MOVEL     EEDB          USDTA
+      * Tell opp RECORD COUNT
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     128           USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     128           DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   READ      EOFTPSE                                51
+     C  N51              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND END OF FILE INFORMATION                        YEFID /
+      *////////////////////////////////////////////////////////////
+     C     YEFID         BEGSR
+      * Regne ut antall UNIT COUNT
+     C     XEFID2        MULT      125           XEFID3
+     C                   Z-ADD     0             XEFID2
+      * TRANSLATE EBCDIC-ASCII
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     XEFID         XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     22            USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     22            DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE EOF NEG OR POS ANSWER      (4) OR (5)       YEFPA /
+      *////////////////////////////////////////////////////////////
+     C     YEFPA         BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+      * Positivt eller negativt svar ?
+     C                   MOVEL     XDATA         XEFPACMD          2
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND CHANGE DIRECTION                                 YCD /
+      *////////////////////////////////////////////////////////////
+     C     YCD           BEGSR
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     'R'           XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     1             USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     1             DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE CHANGE DIRECTION                             YCDR /
+      *////////////////////////////////////////////////////////////
+     C     YCDR          BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      *
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE SET CREDIT                                   YCDT /
+      *////////////////////////////////////////////////////////////
+     C     YCDT          BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     1             WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      *
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE END OF SESSION                              YESID /
+      *////////////////////////////////////////////////////////////
+     C     YESID         BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+      *
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+      * REASON CODE
+     C                   MOVEL     XDATA         XESIDCMD          2
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE END TO END RESPONSE COMMAND                 YEERP /
+      *////////////////////////////////////////////////////////////
+     C     YEERP         BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+      *    RECEIVE DATA
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+      *
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+      * COPY TOTAL DATA LENGTH FROM DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     2             USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+      * COPY USER ¢ S DATA FROM DATA UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     DATAL         USDTAL
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+      * TRANSLATE ASCII - EBCDIC
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     USDTA         XDATA
+     C                   EXSR      CVTTOE
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND READY TO RECEIVE                                YRTR /
+      *////////////////////////////////////////////////////////////
+     C     YRTR          BEGSR
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     'P'           XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     1             USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     1             DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND END OF SESSION                                YESIDS /
+      *////////////////////////////////////////////////////////////
+     C     YESIDS        BEGSR
+     C                   MOVE      *BLANKS       XDATA
+     C                   MOVEL     XESID         XDATA
+     C                   EXSR      CVTTOA
+     C                   MOVEL     XDATA         USDTA
+     C                   MOVE      CZERO         FRCCHG
+      * COPY USER ¢ S DATA TO DATA UNIT IN DATA SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     4             USDTAL
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * COPY TOTAL DATA LENGTH TO DESCRIPTOR UNIT IN USER SPACE
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     4             DATAL
+     C                   Z-ADD     2             USDTAL
+     C                   MOVE      CZERO         FRCCHG
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUFD
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    DATAL
+     C                   PARM                    FRCCHG
+      * CALL UDC SEND PROGRAM
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * OPERATION=0000 (SEND USER DATA)
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   Z-ADD     1             NUMDU
+
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C     RTNCDE        CABNE     CZERO         ENDPGM
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SEND CLEAR REQUEST                                  CLEAR /
+      *////////////////////////////////////////////////////////////
+     C     CLEAR         BEGSR
+      * RR01 2 A Reserved, should be X '0000'
+     C                   MOVEL     HEX00         RR01
+      * RCC 1 A X.25 Cause Code - WAS WAERE RICHTIG?
+     C                   BITOFF    '01234567'    RCC
+      * RDC 1 A X.25 Diagnostic Code - WAS WAERE RICHTIG?
+     C                   BITOFF    '01234567'    RDC
+      * RR02 4 A Reserved, should be X '00000000'
+     C                   MOVEL     HEX00         RR02
+      * RFACL 1 B X.25 Facilities Length
+     C                   BITOFF    '01234567'    RFACL
+      * RFAC 109 A X.25 Facilities
+     C                   MOVEL     HEX00         RFAC
+      * RR03 48 A Reserved, should be X ¢00..
+     C                   MOVEL     HEX00         RR03
+      * RUDTAL 2 B Clear User Data Length, value 0-128
+     C                   Z-ADD     0             RUDTAL
+      * RUDTA128 A Clear User Data
+     C                   MOVEL     HEX00         RUDTA
+      * RR04 216 A Reserved, should be X ¢00..
+     C                   MOVEL     HEX00         RR04
+     C                   MOVE      HEX00         RR04
+      * Copy call data into DU of user data space
+      * Single data unit, no descriptor unit
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     512           USDTAL
+     C                   MOVE      CZERO         FRCCHG
+     C                   MOVEL     CRDTA         USDTA
+
+     C                   CALL      'QUSCHGUS'
+     C                   PARM                    OBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+     C                   PARM                    FRCCHG
+      * Initiate sending out the CLEAR REQUEST
+     C                   Z-ADD     1             NUCEP
+     C                   Z-ADD     1             PCEP
+      * Operation is B100, SEND CLEAR REQUEST
+     C                   BITOFF    '01234567'    OPRTN1
+     C                   BITON     '0237'        OPRTN1
+     C                   BITOFF    '01234567'    OPRTN2
+     C                   MOVE      OPRTN         OPRTC
+      * it is only one user space data unit
+     C                   Z-ADD     1             NUMDU
+     C                   CALL      'QOLSEND'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    DGNDTA
+     C                   PARM                    NPCEP
+     C                   PARM                    NUCEP
+     C                   PARM                    PCEP
+     C                   PARM                    HANDLE
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RECEIVE CLEAR CONFIRMATION                         CLEARC /
+      *////////////////////////////////////////////////////////////
+     C     CLEARC        BEGSR
+      * RECEIVE DATA QUEUE ENTRY
+     C                   Z-ADD     -1            WAIT
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM                    DATAQN
+     C                   PARM                    DATAQL
+     C                   PARM                    FLDLN
+     C                   PARM                    FLD
+     C                   PARM                    WAIT
+
+     C                   CALL      'QOLRECV'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    UCEP
+     C                   PARM                    NPCEP
+     C                   PARM                    OPRTN
+     C                   PARM                    NUMDU
+     C                   PARM                    DAVL1
+     C                   PARM                    DGNDTA
+     C                   PARM                    HANDLE
+      * Copy user ¢ s data from USRSPC data unit, no descriptor
+     C                   Z-ADD     1             STRPOS
+     C                   Z-ADD     512           USDTAL
+
+     C                   CALL      'QUSRTVUS'
+     C                   PARM                    IBUF
+     C                   PARM                    STRPOS
+     C                   PARM                    USDTAL
+     C                   PARM                    USDTA
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * DISABLE THE LINK                                    DLINK /
+      *////////////////////////////////////////////////////////////
+     C     DLINK         BEGSR
+      * Disable type = 00, do not vary off NETWORK DEVD
+     C                   Z-ADD     0             OPTN2
+      * Call Disable Link UDC program
+     C                   CALL      'QOLDLINK'
+     C                   PARM                    RTNCDE
+     C                   PARM                    RSNCDE
+     C                   PARM                    HANDLE
+     C                   PARM                    OPTN1
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * CVT characters EBCDIC-ASCII                        CVTTOA /
+      *////////////////////////////////////////////////////////////
+     C     CVTTOA        BEGSR
+     C                   EVAL      XTABLE='QTCPASCNO '
+     C                   CALL      'QDCXLATE'
+     C                   PARM      128           XLEN              5 0
+     C                   PARM                    XDATA           128
+     C                   PARM                    XTABLE           10
+     C                   PARM      '*LIBL'       XLIB             10
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * CVT characters  ASCII-EBCDIC                       CVTTOE /
+      *////////////////////////////////////////////////////////////
+     C     CVTTOE        BEGSR
+     C                   EVAL      XTABLE='QTCPEBC   '
+     C                   CALL      'QDCXLATE'
+     C                   PARM      128           XLEN
+     C                   PARM                    XDATA
+     C                   PARM                    XTABLE
+     C                   PARM      '*LIBL'       XLIB
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Paus                                                 PAUS /
+      *////////////////////////////////////////////////////////////
+     C     PAUS          BEGSR
+     C                   MOVE      *BLANKS       QCMDR            13
+     C                   EVAL      QCMDR='DLYJOB DLY(5)'
+     C                   Z-ADD     13            QCMDLE           15 5
+     C                   CALL      'QCMDEXC'
+     C                   PARM                    QCMDR
+     C                   PARM                    QCMDLE
+     C                   ENDSR

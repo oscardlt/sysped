@@ -1,0 +1,241 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11054 * 01 CB  Engångskod via HTTP API TELLUSTALK
+********************************************************************
+     H DFTACTGRP(*NO) ACTGRP('QILE')
+     FSVT061D   CF   E             WORKSTN USROPN
+     FSVTFI     IF   E             DISK
+     FSVTHA2    IF   E           K DISK
+     FTRACKF    IF A E             DISK
+     d CEERAN0         PR
+     d seed                          10I 0
+     d ranno                          8F
+     d fc                            12A   options(*omit)
+     d highno          s             10I 0 Inz(9000000)
+     d lowno           s             10I 0 Inz(1000000)
+     d seed            s             10I 0 inz(0)
+     d rand            s              8F
+     d range           s             10I 0
+     d result          s             10I 0
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+     D RcvDtaQ         PR                  EXTPGM('QRCVDTAQ')
+     D  dqname                       10A   CONST
+     D  dqLib                        10A   CONST
+     D  dqLen                         5P 0
+     D  dqData                       80A
+     D  dqWait                        5P 0 CONST
+
+     D DQLen           S              5P 0
+     D TimeOut         S              5P 0
+     D DQData          S             80A
+     D                SDS
+     D  WUSER                254    263
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     c                   CLOSE     SVT061D
+     C                   CALLP     RUNCMD('DLTOVR FILE(SVT061D)':200)
+     C                   CALLP     RUNCMD('DLTDTAQ DTAQ(QTEMP/SVT061DQ)':200)
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    UOK               1            '1'=Ja  '0'=Nei
+      *________________________
+      * Hæmta firmaupplysningar
+      *""""""""""""""""""""""""
+     C     1             CHAIN     SVTFI
+      * Lage dataq i QTEMP
+     c                   CALLP     RUNCMD('CRTDTAQ DTAQ(QTEMP/SVT061DQ) -
+     c                             MAXLEN(80) SEQ(*FIFO)': 200)
+      * Overstyr skjermbildet til å bruke dataq
+     c                   CALLP     RUNCMD('OVRDSPF FILE(SVT061D) DTAQ(' +
+     c                              'QTEMP/SVT061DQ)': 200)
+      * Åpne skjermbildet
+     c                   OPEN      SVT061D
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      * Dummy Chain
+     C     1             CHAIN     TRACKF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Bearbeide Formater                                   SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+      *___________________________________________
+      * Hæmta upplysningar från handlæggarregister
+      *"""""""""""""""""""""""""""""""""""""""""""
+      *________________
+      * Del-1, løsenord
+      *""""""""""""""""
+     C     SRB1          TAG
+     C     WUSER         CHAIN     SVTHA2                             51
+     C  N51SVTH_SMS      COMP      *BLANKS                                51
+     C                   IF        *IN51
+     C                   EXFMT     SVT061DC
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+      * Identen låst ?
+     C     SVTH_LOCK     IFEQ      'X'
+     C                   EXFMT     SVT061DH
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+      * behandla bild-1
+     C                   WRITE     SVT061DØ
+     C                   EXFMT     SVT061DA
+     C     *IN03         IFEQ      *ON
+     C     *IN12         OREQ      *ON
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+     C     *IN22         IFEQ      *ON
+     C                   EVAL      UOK='1'
+     C                   GOTO      SRB9
+     C                   ENDIF
+      * Kolla bruker id + løsenord
+     C     ZPWD          IFNE      SVTH_PWD
+     C                   ADD       1             X                 1 0
+     C                   IF        X > 3
+     C                   EXFMT     SVT061DF
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ELSE
+     C                   EVAL      ZMSGNO='SVT0035'
+     C                   GOTO      SRB1
+     C                   ENDIF
+     C                   ENDIF
+      * Løsenordet får inte vara øver 30 dagar gammalt
+     C                   MOVE      SVTH_PWDD     FROMU
+     C                   CALL      'SVT064R'
+     C                   PARM                    FROMU             8
+     C                   PARM                    WDT
+     C                   PARM      *ZEROS        DAYS              5 0
+     C     DAYS          IFGT      30
+     C                   EXFMT     SVT061DG
+     C                   IF        *IN09 = *OFF
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ELSE
+     C                   CALL      'SVT065R'
+     C                   GOTO      SRB1
+     C                   ENDIF
+     C                   ENDIF
+      *__________________
+      * Del-2, engångskod
+      *""""""""""""""""""
+      * Skapa slumptal
+      /free
+         range = (highno - lowno) + 1;
+         CEERAN0( seed : rand : *omit );
+         result = %int(rand * range) + lowno;
+      /end-free
+N01  C                   GOTO      API
+      * Send sms
+     C                   MOVE      result        WRESULT           7
+     C                   MOVE      *BLANKS       WCMD            200
+     C                   EVAL      WCMD='SNDDST TYPE(*LMSG) TOINTNET(('
+     C                             + X'7D'
+     C                             + %TRIMR(SVTH_SMS)
+     C                             + '@esms.nu'
+     C                             + X'7D'
+     C                             + ')) DSTD('
+     C                             + X'7D'
+     C                             + 'TDS1gkod'
+     C                             + X'7D'
+     C                             + ') LONGMSG('
+     C                             + X'7D'
+     C                             + WRESULT
+     C                             + X'7D'
+     C                             + ') USRID('
+     C                             + %TRIMR(SVTF_USRI)
+     C                             + ' '
+     C                             + %TRIMR(SVTF_USRA)
+     C                             + ')'
+     C                   CALLP     RUNCMD(WCMD : 200)
+N01  C     API           TAG
+N01  C                   EVAL      USRID='roger@systema.no'
+N01  C                   EVAL      PW='straffe12'
+N01  C                   EVAL      SMSNR=SVTH_SMS
+N01  C                   MOVE      result        WRESULT
+N01  C                   EVAL      BODY=WRESULT
+N01  C                   CALL      'SVT071C'
+N01  C                   PARM                    USRID           128
+N01  c                   PARM                    PW               32
+N01  c                   PARM                    SMSNR            16
+N01  c                   PARM                    BODY             32
+      * Logga SMS-trafik i TRACKF (T&T)
+     C                   CLEAR                   TRACKFR
+     C                   EVAL      TTACTI = 'SMS'
+     C                   MOVE      WDT           TTDATE
+     C                   MOVE      WTM           TTTIME
+     C                   EVAL      TTTEXT = 'SMSNR=' + SVTH_SMS
+     C                   EVAL      TTUSER = WUSER
+     C                   EVAL      TTDATL = TTDATE
+     C                   EVAL      TTTIML = TTTIME
+     C                   EVAL      TTNAME = WUSER
+     C                   EVAL      TTMANU = 'X'
+     C                   EVAL      TTTEXL = TTTEXT
+     C                   WRITE     TRACKFR
+      *__________________________________________
+      * Jæmfør registrad engångskod med genererad
+      *""""""""""""""""""""""""""""""""""""""""""
+
+     C                   WRITE     SVT061DØ
+     C                   WRITE     SVT061DB
+
+      * Vent på en av to hendelser
+      *    1) En post i dataq
+      *    2) Et tidsavbrudd i vente på dataq
+     c                   EVAL      DQLEN = 5
+     c                   EVAL      TIMEOUT = 120
+     c                   CALLP     RCVDTAQ('SVT061DQ':'QTEMP': DQLen: DQData:
+     c                                 Timeout)
+      * Vis resultatet  (hvis Len=0, ingen data mottat)
+     c     DQLEN         IFEQ      0
+     C                   EXFMT     SVT061DE
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+
+     C                   READ      SVT061DB
+     C     *IN03         IFEQ      *ON
+     C     *IN12         OREQ      *ON
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+     C     *IN22         IFEQ      *ON
+     C                   EVAL      UOK='1'
+     C                   GOTO      SRB9
+     C                   ENDIF
+
+     C                   IF        ZRESULT <> WRESULT
+     C                   EXFMT     SVT061DD
+     C                   EVAL      UOK='0'
+     C                   GOTO      SRB9
+     C                   ENDIF
+
+
+      *__________
+      * Allt ok !
+      *""""""""""
+     C                   EVAL      UOK='1'
+
+     C     SRB9          TAG
+     C                   ENDSR

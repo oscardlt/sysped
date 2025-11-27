@@ -1,0 +1,249 @@
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER XML-FIL TIL LOGISTIKKSYSTEM  ***
+      *** KOMPLETT.NO Tollager,                               ***
+      ***    E=KORREKSJON AV SALDO - NEDSKRIVING=UTGANG NORGE ***
+      ***    kall v <ZSYSPED01> der <MOVEMENT_TYPE>=KORR      ***
+      ***********************************************************
+      *OBS!! XML INN ER SAMME TYPE SOM VED VAREINNGANG (PGA BEVEGELSEN I SAP LIGNER MEST PÅ DET)
+      *      2 FORSKJELLER: <VENDOR_NAME>=KOMPLETT, <MOVEMENT_TYPE> = KORR
+      *      MEN MAPPINGEN TILSVARER VAREUTTAK NORGE   (PGA DET ER DET SOM SKAL SKJE I LOGI    )
+      ***********************************************************
+      * 05.10.2012 - KUN stg loc = 1x12 (f.eks 1112 ) = tollager  - KAN være andre KORR i samme fil
+      *
+     FXMLRCVF   IF   E           K DISK
+      *
+     FFIRM      IF   E           K DISK
+     FLLHEAD    UF A E           K DISK
+     FLLLINE    IF A E             DISK
+NXX  FLLVARE01  IF   E           K DISK
+     FLLTELL    UF   E             DISK
+     D                 DS
+     D   STGDS                 1      4
+     D    STGDS1               1      1
+     D    STGDS34              3      4
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+      * Les EN OG EN TAG ("Nøstede tager" kommer nå i "rett rekkefølge" )
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   EXSR      SRXML2
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      * Handling utfra tag-navn
+      *    ( ekstra tester dersom samme tagnavn fins på flere nivå                     )
+      *    ( les i filene XMLRCAF (attributt-verdier)+ XMLRCLF ("Extras") om nødvendig )
+     C                   SELECT
+      * Start Pakseddel-header
+     C                   WHEN      (XRNV = 'MATERIAL_DOC_NO') and (XRLEV4=0)
+     c                   clear                   LLHEADR
+     C                   MOVE      XKJED         LHGRP
+     C                   MOVE      XPNR          LHPNR
+      * LØPENR HEADER
+     C     1             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        LHMN
+      * PLUKKLISTENR TILDELES UMIDDELBART
+     C     2             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        LHALN
+
+      *
+     C                   MOVE      'E'           LHOPR
+      *Lagrer EDIsendnr i LHFLN  på paskseddelhaeder
+     c                   eval      LHFLN  = USN
+     c                   eval      LHBLK  = 'NO'
+     c                   eval      LHTDT  = WDT08
+      *    linjeteller for varelinjer..
+     c     *like         define    LLVN          Linnr
+     c                   move      *zeros        Linnr
+      * pakkseddelnummer
+     c                   eval      LHORDR = XRVERD
+      * navn / adresser
+     C                   WHEN      XRNV = 'VENDOR_NAME'
+     c                   eval      LHBNA  = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_ADDR1'
+     c                   eval      LHBA1  = XRVERD
+     C                   WHEN      XRNV = 'VENDOR_POST_CODE'
+     C     XRVERD        IFEQ      *BLANKS
+     C                   MOVE      *ZEROS        LHBPN
+     C                   ELSE
+     C                   MOVEL     XRVERD        LHBPN
+     C                   END
+     C                   WHEN      XRNV = 'VENDOR_CITY'
+     c                   eval      LHBA3  = XRVERD
+      *kardkoder ett kolli ved korrigeringsuttak
+     c                   eval      LHKLL  = 1
+      * Dato er siste element i header
+     C                   WHEN      XRNV = 'MRN_NO'
+     C                   exsr      SRHead
+      ***
+      ***
+      * Start Pakseddel-linjer (Kun tollager-linjer skrives til LLINE )
+     C                   WHEN      (XRNV = 'MATERIAL_DOC_NO') and (XRLEV4>0)
+     c                   move      'J'           OKlinje           1
+     c                   clear                   LLLINER
+     C
+      * artnr
+     C                   WHEN      XRNV = 'MATERIAL'
+     c                   eval      LLANR  = XRVERD
+NXX  C     LLVARE01K     CHAIN     LLVARE01                           33
+NXX  C  N33              EVAL      LLVB   = LVVB
+NXX  C   33              EVAL      LLVB   = *BLANKS
+      * batch
+     C*                  WHEN      XRNV = 'PO_NUMBER'
+     C                   WHEN      XRNV = 'BATCH_NO'
+     c                   eval      LLSER  = XRVERD                              Batchnr
+      * mengde (dersom 0 - skipp )
+     C                   WHEN      XRNV = 'QUANTITY'
+     c                   eval(H)   LLANT0 = %float(XRVERD)
+     c     LLANT0        ifeq      0
+     c                   move      'N'           OKlinje
+     c                   end
+      * STGE_LOC ulik 1x12  skipp
+     C                   WHEN      XRNV = 'STGE_LOC'
+     c                   eval      STGDS = XRVERD
+     c     STGDS1        ifne      '1'
+     c     STGDS34       orne      '12'
+     c                   move      'N'           OKlinje
+     c                   end
+      * MOVEMENT_TYPE   (= siste feltet pr linje)
+     C                   WHEN      XRNV = 'MOVEMENT_TYPE'
+     c     OKlinje       ifeq      'J'
+     C                   exsr      SRLine
+     C                   end
+      *
+     C                   ENDSL
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRhead        BEGSR
+      ***********************************************
+      * divers dato/tid mm. bør inn her..
+     C                   MOVEL     'SAPXML'      LHUSR
+     C                   MOVE      WDT           LHRDT
+     C                   MOVE      WTM           LHRTD
+     C                   WRITE     LLHEADR
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRLine        BEGSR
+      ***********************************************
+      *
+     C                   MOVE      LHMN          LLMN
+     c                   add       1             Linnr
+     c                   z-add     Linnr         LLVN
+      * Allokere vare...
+     C                   Z-ADD     9             UFLAGG            1 0
+     C                   MOVE      LLANT0        LLWNT0
+     C                   MOVE      LLANT3        LLWNT3
+     C                   MOVE      LLANT2        LLWNT2
+     C                   MOVE      LLANT1        LLWNT1
+     C                   MOVE      LLANTL        LLWNTL
+     C                   MOVE      LLVEK         LLWVEK
+     C                   MOVE      LLKUB         LLWKUB
+     C                   MOVE      *BLANKS       LLLOK
+      *
+     C                   move      *zeros        UNTLK             3 0
+     C     *LIKE         DEFINE    LHGRP         UGRP
+     C     *LIKE         DEFINE    LLWNT0        UWNT0
+     C     *LIKE         DEFINE    LLWNTL        UWNTL
+     C     *LIKE         DEFINE    LLWNT1        UWNT1
+     C     *LIKE         DEFINE    LLWNT2        UWNT2
+     C     *LIKE         DEFINE    LLWNT3        UWNT3
+     C                   CALL      'LL022R'
+     C                   PARM      LHGRP         UGRP
+     C                   PARM                    LHPNR
+     C                   PARM                    LLANR
+     C                   PARM                    LLSER
+     C                   PARM                    UPRDT             8
+     C                   PARM                    LLMN
+     C                   PARM                    LLVN
+     C                   PARM      LLWNT0        UWNT0
+     C                   PARM                    UWNTL
+     C                   PARM                    UWNT1
+     C                   PARM                    UWNT2
+     C                   PARM                    UWNT3
+     C                   PARM                    UWVEK             7 2
+     C                   PARM                    UWKUB             7 4
+     C                   PARM                    LLLOK
+     C                   PARM                    UNTLK             3 0
+     C                   PARM                    UFLAGG
+      *
+     C     UFLAGG        IFEQ      0
+     C                   MOVE      UWNT0         LLWNT0
+     C                   MOVE      UWNTL         LLWNTL
+     C                   MOVE      UWNT1         LLWNT1
+     C                   MOVE      UWNT2         LLWNT2
+     C                   MOVE      UWNT3         LLWNT3
+     C                   MOVE      UNTLK         LLNTLK
+     C                   MOVE      UWVEK         LLWVEK
+     C                   MOVE      UWKUB         LLWKUB
+     C                   ELSE
+     C                   MOVE      *ZEROS        LLWNT0
+     C                   MOVE      *ZEROS        LLWNT3
+     C                   MOVE      *ZEROS        LLWNT2
+     C                   MOVE      *ZEROS        LLWNT1
+     C                   MOVE      *ZEROS        LLWNTL
+     C                   MOVE      *ZEROS        LLWVEK
+     C                   MOVE      *ZEROS        LLWKUB
+     C                   END
+      *
+     C                   MOVE      'ESK'         LLAEH1
+     C                   MOVE      'KRT'         LLAEH2
+     C                   MOVE      'PAL'         LLAEH3
+     C**                 MOVE      *BLANKS       LLSER
+      *
+     C                   WRITE     LLLINER
+      *
+     c     LHMN          chain     LLHEAD                             33
+     c     *in33         ifeq      '0'
+     c                   add       LLWNT0        LHKLL
+     c                   add       LLWVEK        LHWVEK
+     C                   UPDATE    LLHEADR
+     c                   endif
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+NXX  C     LLVARE01K     KLIST
+NXX  C                   KFLD                    LHGRP
+NXX  C                   KFLD                    LHPNR
+NXX  C                   KFLD                    LLANR
+      *
+     C                   MOVE      USN           XRSN
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     10            XPNR              8 0
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           WDT08             8 0
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+     C                   ENDSR
+      *

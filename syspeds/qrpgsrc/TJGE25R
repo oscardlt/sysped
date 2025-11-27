@@ -1,0 +1,298 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE25R MODULE(*LIBL/TJGE25R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     iF   E           K DISK    USROPN
+     FFAKT      IF   E           K DISK    USROPN
+     FKODTGE    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     F                                     RENAME(KUNDR:CUNDR)
+     FLEVEL01   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          S             10
+     D AVD             S              4
+     D AVDN            S              4S 0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D LIN             S              5
+     D LINN            S              5S 0
+     D TYPE            s              1
+     D Error           S            150
+     D JSONstring      s          64000
+     D ANTLEST         s              9  0
+     D                 DS
+     D  XXPERI                 1      6  0
+     D   FACC                  1      2  0
+     D   FAÅR                  3      4  0
+     D   FAMND                 5      6  0
+     D                 DS
+     D  FADOCN                 1     11
+     D   FADOCNA               1      4
+     D   FADOCNB               5     11
+     ICUNDR
+     I              BANKG                       SYBAGI
+     I              POSTG                       SYPOGI
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+
+      *
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬lin¬ : ¬'+%trim(LIN)+'¬, '
+        +'¬type¬ : ¬'+TYPE+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+      * Hent fakturar
+     C                   EXSR      DSPFAKT
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C     SLUTT         TAG
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         BEGSR
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     C                   EVAL      AVD    = zhbgetvar('AVD')
+     C                   EVAL      AVDN   = c2n2(AVD)
+     C                   EVAL      OPD    = zhbgetvar('OPD')
+     C                   EVAL      OPDN = c2n2(OPD)
+      * LIN = blank = alle, LIN utfylt = kun 1 (merk at 0 er et linjenr - Test på ALFA)
+     C                   EVAL      LIN    = zhbgetvar('LIN')
+     C                   EVAL      LINN = c2n2(LIN)
+      * TYPE = Filter for hvilke linker en vil ha
+      * Blank=I=Inntekter/utgående faktura,
+      * O=Open = kun ÅPNE (stus blank - C) Inntekter/utgående faktura,
+      * A=ALLE = også kostnader / slettede linjer
+     C                   EVAL      TYPE   = zhbgetvar('TYPE')
+     C                   IF        TYPE   = ' '
+     C                   EVAL      TYPE   = 'I'                                 Inntekter/utg faktur
+     C                   ENDIF
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+      *
+     C     FAKKEY        klist
+     C                   kfld                    AVDN
+     C                   kfld                    OPDN
+     C     KODTGEKEY     klist
+     C                   kfld                    KGEUNI
+     C                   kfld                    FAVK
+     C                   move      'GE'          KGEUNI
+     C     KunKey        klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    FAKUNR
+     C     LevKey        klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    FALEVN
+      *
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLb     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   END
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      FAKT
+     C  N50              OPEN      KODTGE
+     C  N50              OPEN      CUNDL01
+     C  N50              OPEN      LEVEL01
+      *
+      * Initier numerisk DS
+     C                   move      *zeros        xxPERI
+
+     C     ENDINI        ENDSR
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          BEGSR
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FAKT
+     C  N50              CLOSE     KODTGE
+     C  N50              CLOSE     CUNDL01
+     C  N50              CLOSE     LEVEL01
+     C                   CALLP     wrtsection('*fini')
+     C                   EVAL      *INlr = *on
+
+     C                   ENDSR
+      **************************************************************
+     C     DSPFAKT       BEGSR
+      **************************************************************
+      * Skriv JSON-LISTE Start
+     C                   EVAL      JSONstring ='"invoiceLines" : ['
+     C                   CALLP     UPdHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      *
+     c     Error         IFEQ      *blanks
+      *----------------------------------------------------------------
+      * les alle fakturalinjer / skipp basert på type (Blank=I=Inntekter/utg faktura)
+      *----------------------------------------------------------------
+     C     FAKKey        SETLL     Fakt
+     C     FAKKey        READE     Fakt                                   33
+     C     *IN33         DOWeq     *OFF
+
+      *
+     C                   if        Lin  <> *blanks
+     C     FALI          CABNE     LINN          NextFak
+     c                   endif
+     C                   if        Type <> 'A'                                  A=all
+      * hvis Type ulik ALLE, skipp Kostnadslinjer(I-linjer+FAKDA=I=motpost/kostnad)+slettede
+     C     FAKDA         CABEQ     'K'           NextFak
+     c                   if        FASK = 'I'
+     C     FAKDA         CABEQ     'I'           NextFak
+     c                   endif
+     C     FAKDA         CABEQ     'D'           NextFak
+     C     FAOPKO        CABEQ     'D'           NextFak
+      * hvis Type = OPEN skipp de med høy status (kostnlinjer ligger aldri med staus ' ' - 'C' )
+     c                   if        Type = 'O'                                   Open
+     C     FAOPKO        CABGT     'C'           NextFak
+     c                   endif
+     C                   endif
+
+     C                   ADD       1             ANTLEST
+      * hente tillegsdata
+     C     KODTGEKEY     CHAIN     KODTGE
+      *
+     c                   if        FAKUNR<>GMkunr
+     c                   move      *blanks       KNAVN
+     C     Kunkey        CHAIN     CUNDL01
+     C                   if        DKUND = 'D'
+     C                   if        FASK  = 'S'
+     c*                  eval      KNAVN = HENAS
+     C                   endif
+     C                   if        FASK  = 'K'
+     c*                  eval      KNAVN = HENAK
+     C                   endif
+     C                   endif
+     c                   move      FAKUNR        GMkunr            8 0
+     c                   endif
+     c                   if        FALEVN<>GMlevn
+     c                   move      *blanks       LNAVN
+     C     Levkey        CHAIN     LEVEL01
+     c                   move      FALEVN        GMlevn            8 0
+     c                   endif
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+        +'¬fali¬ : ¬'+%trim(%editc(FALI:'3'))+'¬, '                  // LinjeNr (edtc('3')=vis 0)
+        +'¬fask¬ : ¬'+FASK+'¬, '                                     // Selger/Kjøper-kode
+        +'¬favk¬ : ¬'+%trim(FAVK)+'¬, '                              // Varekode
+        +'¬stdVt¬ : ¬'+%trim(KGENOT)+'¬, '                           // Standard varetekst
+        +'¬faVT¬ : ¬'+%trim(FAVT)+'¬, '                              // Oversturt/suppl varetekst
+        +'¬faval¬ : ¬'+FAVAL+'¬, '                                   // Valutakode
+        +'¬fabelv¬ : ¬'+%trim(%editc(FABELV:'M'))+'¬, '              // Beløp i Valuta
+        +'¬fabeln¬ : ¬'+%trim(%editc(FABELN:'M'))+'¬, '              // Beløp i NOK ('Firma-valuta')
+        +'¬fakdm¬ : ¬'+FAKDM+'¬, '                                   // Momskode
+        +'¬fakda¬ : ¬'+FAKDA+'¬, '                                   // Opprinn-kode (K=kostn mm)
+        +'¬fakdul¬ : ¬'+FAKDUL+'¬, '                                 // Utleggskode J=Utlegg
+        +'¬fa01b¬ : ¬'+FA01B+'¬, '                                   // bereg-enh(L=Lin sad/D=Dgr..)
+        +'¬fakduk¬ : ¬'+FAKDUK+'¬, '                                 // Budsjett-kode
+        +'¬facu33¬ : ¬'+FACU33+'¬, '                                 // Valutakode Budsjett
+        +'¬fabelu¬ : ¬'+%trim(%editc(FABELU:'M'))+'¬, '              // Budsjett Beløp
+        +'¬fakunr¬ : ¬'+%trim(%editc(FAKUNR:'Z'))+'¬, '              // KundeNr
+        +'¬knavn¬ : ¬'+%trim(KNAVN)+'¬, '                            // KundeNavn
+        +'¬fafakt¬ : ¬'+%trim(%editc(FAFAKT:'Z'))+'¬, '              // Fakturanr
+        +'¬fadato¬ : ¬'+%trim(%editc(FADATO:'Z'))+'¬, '              // Fakturadato
+        +'¬fadaff¬ : ¬'+%trim(%editc(FADAFF:'Z'))+'¬, '              // Forfallsdato
+        +'¬faopko¬ : ¬'+FAOPKO+'¬, '                                 // Status
+        +'¬fajour¬ : ¬'+%trim(%editc(FAJOUR:'Z'))+'¬, '              // Journalnr
+        +'¬peri¬ : ¬'+%trim(%editc(XXPERI:'Z'))+'¬, '                // Periode (a la 201507 )
+        +'¬faggrp¬ : ¬'+FAGGRP+'¬, '                                 // Gebyrgruppe statistikk
+        +'¬faaccn¬ : ¬'+%trim(%editc(FAACCN:'Z'))+'¬, '              // KontoNr kontert
+        +'¬faavdr¬ : ¬'+%trim(%editc(FAAVDR:'Z'))+'¬, '              // Avd/K-sted kontert
+        +'¬fabær¬ : ¬'+%trim(%editc(FABÆR:'Z'))+'¬, '                // Bærer kontert
+        +'¬faexra¬ : ¬'+%trim(%editc(FAEXRA:'4'))+'¬, '              // Valutakurs benyttet
+        +'¬fakurs¬ : ¬'+%trim(%editc(FAKURS:'4'))+'¬, '              // Valutakurs benyttet  ??
+        +'¬fafrbn¬ : ¬'+%trim(%editc(FAFRBN:'Z'))+'¬, '              // Fraktbrev
+        +'¬fant¬  : ¬'+%trim(%editc(FANT:'M'))+'¬, '                 // Antall (ubrukt ??)
+        +'¬falevn¬ : ¬'+%trim(%editc(FALEVN:'Z'))+'¬, '              // LeverandørNr
+        +'¬lnavn¬ : ¬'+%trim(LNAVN)+'¬, '                            // LeverandørNavn
+        +'¬famade¬ : ¬'+FAMADE+'¬, '                                 // Line Made from ?????
+        +'¬faagrn¬ : ¬'+%trim(%editc(FAAGRN:'Z'))+'¬, '              // Avttalenr (i AVFRH/Postal)
+        +'¬fatax¬ : ¬'+%trim(%editc(FATAX:'4'))+'¬, '                // Momssats
+        +'¬fataxa¬ : ¬'+%trim(%editc(FATAXA:'M'))+'¬, '              // Mosm-beløp
+        +'¬facuri¬ : ¬'+FACURI+'¬, '                                 // Valuta på FakturaUtstedelse
+        +'¬fadocnA¬ : ¬'+%trim(FADOCNA)+'¬, '                        // Dok-ref A (Avd v/Ilinjeovef)
+        +'¬fadocnB¬ : ¬'+%trim(FADOCNB)+'¬, '                        // Dok-ref B (Opd v/Ilinjeovef)
+        +'¬facd11¬ : ¬'+FACD11+'¬, '                                 // Sammenslåes
+        +'¬facd12¬ : ¬'+FACD12+'¬, '                                 // Kontrollstatus
+        +'¬facd13¬ : ¬'+FACD13+'¬, '                                 // Lagereleier (L=..)
+        +'¬facd21¬ : ¬'+FACD21+'¬, '                                 // X=I TRAVR / Y=JUS i LAGD
+        +'¬facd22¬ : ¬'+FACD22+'¬, '                                 // FACD22       ledig ?
+        +'¬facd23¬ : ¬'+FACD23+'¬, '                                 // FACD23       ledig ?
+        +'¬facd31¬ : ¬'+FACD31+'¬, '                                 // FACD31       ledig ?
+        +'¬facd31¬ : ¬'+FACD32+'¬, '                                 // FACD32       ledig ?
+        +'¬fa01¬ : ¬'+FA01+'¬}';                                     // ????         ledig ?
+      /end-free
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C     NextFak       tag
+     C     FAKKey        READE     Fakt                                   33
+     C  N33              ENDDO
+      *
+     c                   ENDIF                                                  End error=*blanks
+      *----------------------------------------------------------------
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   ENDSR

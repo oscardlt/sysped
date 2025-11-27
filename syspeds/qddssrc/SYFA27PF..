@@ -1,0 +1,699 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX *    SH  RYDDET 2.06-2015
+10XXX * 48 SH  VED PDF ENDREDE DETALJLINJER
+********************************************************************
+     A*****************************************************************
+     A*                     F A K T U R A                             *
+     A* ANTALL LINJE=72,  ANTALL TEGN PR. LINJE=80,  OVERFLOW=68      *
+     A*****************************************************************
+     A          R FHEAD1                    SPACEB(2)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A N70N79                             68MSGCON(15 DIV0284 SYMSGF)
+     A  70                                68MSGCON(15 DIV0323 SYMSGF)
+     A  79                                68MSGCON(15 DIV0324 SYMSGF)
+     A          R FHEAD
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A            KFMT1         75      1  1
+     A            KFMT2         75      1  1
+     A  63                              1  1'¤&a-3R'
+     A  63                              1  1'¤(12U¤(s0p10h0s3b4099T'
+     A  46        HOHT1         80A     1  1
+     A  46        HOHT2         80A     2  1
+     A  46        HOHT3         80A     3  1
+     A  46        HOHT4         80A     4  1
+     A  46        HOHT5         80A     5  1
+     A  46        HOHT6         80A     6  1
+     A  46        HOHT7         80A     7  1
+     A  63                              8  1'¤(12U¤(s0p10h1s0b4099T'
+     A* START BOKS 1
+     A  63                              9  1'¤&a5C¤*c1110A¤*c5B¤*c11G¤*c0P'
+     A  63 60                           9  1'¤&a5C¤*c5A¤*c263B¤*c11G¤*c0P'
+     A  63 60                           9  1'¤&a42C¤*c5A¤*c263B¤*c11G¤*c0P'
+     A  63N60                           9  1'¤&a5C¤*c5A¤*c353B¤*c11G¤*c0P'
+     A  63N60                           9  1'¤&a42C¤*c5A¤*c353B¤*c11G¤*c0P'
+     A* START BOKS 2
+     A  63                              9  1'¤&a53C¤*c720A¤*c8B¤*c11G¤*c0P'
+     A  63 60                           9  1'¤&a53C¤*c8A¤*c150B¤*c11G¤*c0P'
+     A  63 60                           9  1'¤&a77C¤*c8A¤*c150B¤*c11G¤*c0P'
+     A  63N60                           9  1'¤&a53C¤*c8A¤*c206B¤*c11G¤*c0P'
+     A  63N60                           9  1'¤&a77C¤*c8A¤*c206B¤*c11G¤*c0P'
+     A            KNAVN         30A    11 11
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A N64
+     AAN88N63                          11 54'************************'
+     A                                      HIGHLIGHT
+     A N63
+     AA 88N70N79                       11 54MSGCON(24 DIV0286 SYMSGF)
+     A                                      HIGHLIGHT
+      * SIDE                                HIGHLIGHT
+     A  63
+     AA 88N70N79                       11 54MSGCON(24 SHU0685 SYMSGF)
+     A                                      HIGHLIGHT
+     A  88 70N63                       11 54MSGCON(24 DIV0321 SYMSGF)
+     A                                      HIGHLIGHT
+     A  88 70 63                       11 54MSGCON(24 SHU0691 SYMSGF)
+     A                                      HIGHLIGHT
+     A  88 79N63                       11 54MSGCON(24 DIV0322 SYMSGF)
+     A                                      HIGHLIGHT
+     A  88 79 63                       11 54MSGCON(24 SHU0692 SYMSGF)
+     A                                      HIGHLIGHT
+     A  88        PAGEPF         4  0  11 69
+     A                                      HIGHLIGHT
+     A                                      EDTCDE(Z)
+     A            ADR1          30A    12 11
+     A  64                                  FONT(420 (*POINTSIZE 12))
+      * SAMLE-FAKTURA
+     A N80N64
+     AAN70N79N63                       12 54MSGCON(24 DIV0300 SYMSGF)
+     A N80 64
+     AAN70N79N63                       12 54MSGCON(24 SHU1543 SYMSGF)
+     A                                      FONT(420 (*POINTSIZE 15))
+     A  80N64
+     AAN70N79N63                       12 54MSGCON(24 TRO0541 SYMSGF)
+     A                                      HIGHLIGHT
+     A  80 64
+     AAN70N79N63                       12 54MSGCON(24 SHU1544 SYMSGF)
+     A                                      FONT(420 (*POINTSIZE 15))
+      *
+     A*N70N79 63                       12 54MSGCON(24 SHU0688 SYMSGF)
+     A N80
+     AAN70N79 63                       12 54MSGCON(24 SHU0688 SYMSGF)
+     A  80
+     AAN70N79 63                       12 54MSGCON(24 TRO0544 SYMSGF)
+     A                                      HIGHLIGHT
+     A N64
+     AA 70N63N80                       12 54MSGCON(24 DIV0319 SYMSGF)
+     A  64
+     AA 70N63N80                       12 54MSGCON(24 SHU1545 SYMSGF)
+     A                                      FONT(420 (*POINTSIZE 15))
+     A N64
+     AA 70N63 80                       12 54MSGCON(24 TRO0542 SYMSGF)
+     A                                      HIGHLIGHT
+     A  64
+     AA 70N63 80                       12 54MSGCON(24 SHU1547 SYMSGF)
+     A  70 63N80                       12 54MSGCON(24 SHU0689 SYMSGF)
+     A  70 63 80                       12 54MSGCON(24 TRO0545 SYMSGF)
+     A                                      HIGHLIGHT
+     A N64
+     AA 79N63N80                       12 54MSGCON(24 DIV0320 SYMSGF)
+     A  64
+     AA 79N63N80                       12 54MSGCON(24 SHU1545 SYMSGF)
+     A                                      FONT(420 (*POINTSIZE 15))
+     A N64
+     AA 79N63 80                       12 54MSGCON(24 TRO0543 SYMSGF)
+     A                                      HIGHLIGHT
+     A  64
+     AA 79N63 80                       12 54MSGCON(24 SHU1548 SYMSGF)
+     A                                      FONT(420 (*POINTSIZE 15))
+     A            ADR2          30A    13 11
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A N27N63N64                       13 54'************************'
+     A                                      HIGHLIGHT
+     A N28N68N63  CPYTXT         8A    13 60
+     A                                      HIGHLIGHT
+     A  63                             13  1'¤&a53C¤*c720A¤*c8B¤*c11G¤*c0P'
+      * PRØVEUTSKRIFT
+     A  27 28N63                       13 54MSGCON(24 JOV0541 SYMSGF)
+     A                                      HIGHLIGHT
+     A  27 28 63                       13 54MSGCON(24 SHU0687 SYMSGF)
+     A                                      HIGHLIGHT
+     A N37 38     POSTNR    R          14 11REFFLD(POSTNR CUNDF)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A                                      DLTEDT
+     A N37 38     ADR3      R          14 17REFFLD(ADR3 CUNDF)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A N38        SYPOGE         9     14 11
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A N38        ADR3B     R          14 22REFFLD(ADR3 CUNDF)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A  37 38     ADR3C     R          14 11REFFLD(ADR3 CUNDF)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+      * FAKTURANUMMER
+     A N70N79                          14 54MSGCON(12 DIV0287 SYMSGF)
+     A  70                             14 54MSGCON(12 DIV0317 SYMSGF)
+     A  79                             14 54MSGCON(12 DIV0318 SYMSGF)
+     A N64        XFN            7  0  14 71EDTCDE(3)
+     A                                      HIGHLIGHT
+     A  64        YFN            7  0  14 69EDTCDE(3)
+     A                                      FONT(420 (*POINTSIZE 15))
+     A N70N79     KLKNVN    R          15 11REFFLD(KLKNVN KODTLK)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A  70        KLKNVE    R          15 11REFFLD(KLKNVN KODTLK)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A  79        KLKNVT    R          15 11REFFLD(KLKNVN KODTLK)
+     A  64                                  FONT(420 (*POINTSIZE 12))
+     A N70N79                          15 54MSGCON(12 DIV0199 SYMSGF)
+     A  79                             15 54MSGCON(12 DIV0315 SYMSGF)
+     A  70                             15 54MSGCON(12 DIV0316 SYMSGF)
+     A            KUNDNR         8  0  15 70EDTCDE(3) HIGHLIGHT
+     A  63                             16  1'¤&a5C¤*c1110A¤*c5B¤*c11G¤*c0P'
+     A  63                             16  1'¤&a5C'
+     A N70N79                          16 54MSGCON(12 DIV0288 SYMSGF)
+     A  70                             16 54MSGCON(12 DIV0313 SYMSGF)
+     A  79                             16 54MSGCON(12 DIV0314 SYMSGF)
+     A            IDAGX          6  0  16 70EDTCDE(Y) HIGHLIGHT
+     A N70N79 75                       17 11MSGCON(13 SHU0828 SYMSGF)
+     A  70    75                       17 11'Customer VATN'
+     A  79    75                       17 11'Kundens Taxn:'
+     A        75  KUTAX         25     17 25
+     A N70N79                          17 54MSGCON(12 DIV0289 SYMSGF)
+     A  70                             17 54MSGCON(12 DIV0311 SYMSGF)
+     A  79                             17 54MSGCON(12 DIV0312 SYMSGF)
+     A            XFFDT          6  0  17 70EDTCDE(Y) HIGHLIGHT
+     A N63N64                          18  1' -----------------------'
+     A N63N64                          18 25'------------------------'
+     A N63N64                          18 49'------------------------'
+     A N63N64                          18 73'-----'
+     A  64                             18  2'_______________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A  64                             18 25'________________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A  64                             18 49'________________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A  64                             18 73'_____'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A  63                             18  1'¤*c2350A¤*c55B¤*c11G¤*c2P'
+      * 93 ON=FAST TEKST I STEDEN FOR OPPDRAGSHENVISNING
+     A          R FDETH
+     A N70N79N93                       19  2MSGCON(15 SHU1555 SYMSGF)
+     A N70N79N93                       19 19MSGCON(6  SHU1549 SYMSGF)
+     A N70N79N93                       19 31MSGCON(4  SHU1551 SYMSGF)
+     A N70N79N93                       19 39'M3'
+     A N70N79N93                       19 45MSGCON(8  SHU1556 SYMSGF)
+     A N70N79N93                       19 60'Val'
+     A N70N79N93                       19 70MSGCON(8  SHU1557 SYMSGF)
+     A  70N93                          19  2'Bill no '
+     A  70N93                          19 19'No.psc'
+     A  70N93                          19 29'Weight'
+     A  70N93                          19 39'M3'
+     A  70N93                          19 45'Our ref '
+     A  70N93                          19 72'Amount'
+     A  79N93                          19  2'Reg. nr.'
+     A  79N93                          19 19'Anzahl'
+     A  79N93                          19 28'Gewicht'
+     A  79N93                          19 39'M3'
+     A  79N93                          19 45'Unsere Ref'
+     A  79N93                          19 72'Kosten'
+     A N64N93N63                       20  1' -----------------------'
+     A N64N93N63                       20 25'------------------------'
+     A N64N93N63                       20 49'------------------------'
+     A N64N93N63                       20 73'-----'
+     A                                 21 01' '
+     A     93     CPHEN1        50A    28 11HIGHLIGHT
+     A     93     CPHEN2        50A    30 11HIGHLIGHT
+NNN  A          R FDETHPDF
+     A N70N79N93                       19  2MSGCON(15 SHU1555 SYMSGF)
+     A N70N79N93                       19 19MSGCON(4  SHU1549 SYMSGF)
+     A N70N79N93                       19 26MSGCON(4  SHU1551 SYMSGF)
+     A N70N79N93                       19 34'M3'
+     A N70N79N93                       19 38MSGCON(8  SHU1556 SYMSGF)
+     A N70N79N93                       19 48'Val'
+     A N70N79N93                       19 54MSGCON(8  SHU1581 SYMSGF)
+     A N70N79N93                       19 64MSGCON(8  SHU1582 SYMSGF)
+     A N70N79N93                       19 72MSGCON(8  SHU1583 SYMSGF)
+     A  70N93                          19  2'Bill no '
+     A  70N93                          19 13'No.psc'
+     A  70N93                          19 19'Weight'
+     A  70N93                          19 22'M3'
+     A  70N93                          19 33'Our ref '
+     A  70N93                          19 41'Amount'
+     A  79N93                          19 44'Reg. nr.'
+     A  79N93                          19 13'Anzahl'
+     A  79N93                          19 19'Gewicht'
+     A  79N93                          19 22'M3'
+     A  79N93                          19 33'Unsere Ref'
+     A  79N93                          19 44'Kosten'
+     A                                 19  2'_______________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A                                 19 25'________________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A                                 19 49'________________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A                                 19 73'_____'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A    N93                          20  1' '
+     A     93     CPHEN1        50A    28 11HIGHLIGHT
+     A     93     CPHEN2        50A    30 11HIGHLIGHT
+     A          R PRTFRI                    SPACEA(1)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A            KFTFTX        51         2
+     A          R FDET
+     A            XXGNSN        17A        2
+     A            XXNT           5  0     20EDTCDE(4)
+     A            XXVKT          9  0     26EDTCDE(4)
+     A            HEM3           7  3     36EDTCDE(4)
+     A            HEAVD          4  0     45
+     A                                    49'/'
+     A            HEOPD          7  0     50
+     A            XVAL1          3A       61
+     A            XBRUTT        13  2     63EDTCDE(L)
+     A                                      SPACEA(1)
+     A          R FDETPDF
+     A                                      FONT(416 (*POINTSIZE 10))
+     A            XXGNSN        17A        2
+     A            XXNT           5  0     18EDTCDE(4)
+     A            XXVKT          9  0     23EDTCDE(4)
+     A            HEM3           7  3     31EDTCDE(4)
+     A            HEAVD          4  0     38
+     A                                    41'/'
+     A            HEOPD          7  0     42
+     A            XVAL1          3A       48
+     A            XBRU92         9  2     51EDTCDE(L)
+     A            XMVA92         9  2     60EDTCDE(L)
+     A            XTOT92         9  2     69EDTCDE(L)
+     A                                      SPACEA(1)
+     A*
+      * SUM MOMSFRI SKRIVES UANSETT OM DET ER 0  (*IN72 FJERNET)
+      * MOMSDELEN SKILT UT I EGET FORMAT PGA VARIABEL MOMS (FLERE)
+     A          R FTOT                      SPACEB(0)
+     A  64                                45'Total:'
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  64        XBRU92T        9  2     51EDTCDE(L)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  64        XMVA92T        9  2     60EDTCDE(L)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  64        XTOT92T        9  2     69EDTCDE(L)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A                                    41'______________________________'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A                                    71'_______'
+     A                                      FONT(416 (*POINTSIZE 12))
+     A                                      SPACEA(2)
+     A N70N79                             41MSGCON(17 SHU1120 SYMSGF)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  79                                41'Taxfree total:  '
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  70                                41'Taxfree total:  '
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A            XMVFR          9  2     67EDTCDE(L)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A          R FTOTMB                    SPACEB(1)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  71                                 2'('
+     A N70N79 71                           3MSGCON(10 SHU1220 SYMSGF)
+     A  79 71                              3'MWS im NOK:'
+     A  70 71                              3'VAT in NOK:'
+     A     71     MVANOK        11  2     13EDTCDE(J)
+     A     71                             27')'
+     A N70N79                             41MSGCON(22 SHU1123 SYMSGF)
+     A  70                                41'NON-taxfree total:'
+     A  79                                41'MWS, summe linien '
+     A                                    60'('
+     A            XMVAK          1        61
+     A                                    62')'
+     A            XMVGR          9  2     67EDTCDE(L)
+     A                                      SPACEA(1)
+     A            MVAPRO         4  2     41EDTCDE(4)
+     A                                    47'%'
+     A N70N79                             49'MOMS   '
+     A  70                                49'VAT    '
+     A  79                                49'MWS    '
+     A            XMOM           9  2     67EDTCDE(L)
+     A                                      SPACEA(1)
+     A          R FTOT2
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  63                                 1'¤(12U¤(s0p10h1s3b4099T'
+     A N60N61                              1' '
+     A                                      SKIPB(44)
+     A  61N60                              1' '
+     A                                      SKIPB(37)
+     A  65
+     AO 60        BLANK1         1         1SKIPB(49)
+     A N70N73N79                           2MSGCON(24 DIV0303 SYMSGF)
+     A N70 73N79                          41MSGCON(15 DIV0304 SYMSGF)
+     A  70 73                             41MSGCON(15 DIV0305 SYMSGF)
+     A N70N79N73                          41MSGCON(13 SHU1125 SYMSGF)
+     A  70N73                             41'Invoice-total:'
+     A  79N73                             41'Gesamtbetrag:'
+     A            PVAL           3A       60
+     A            XBRUT         13  2     63EDTCDE(L)
+     A                                      SPACEA(1)
+     A N70N73N79  BETTXT        30A        2
+     A  64                                  FONT(416 (*POINTSIZE 12))
+     A                                    41'=============================='
+     A                                    71'======='
+     A  64                                  FONT(416 (*POINTSIZE 12))
+     A                                      SPACEA(1)
+     A  63                                45'¤(12U¤(s0p10h1s0b4099T'
+     A  44        HOBT1         80A        2
+     A                                      SPACEA(1)
+     A  44        HOBT2         80A        2
+     A                                      SPACEA(1)
+     A  44        HOBT3         80A        2
+     A                                      SPACEA(1)
+     A  61N60 59
+     AAN65        CBRUTT        13  2     28SKIPB(45)
+     A                                      EDTCDE(J)
+     A*
+     A* UTSKRIFTER UTEN GIRO I BUNN
+     A*
+      *
+     A          R FTOT2B                    SPACEB(2)
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  63                                 1'¤(12U¤(s0p10h1s3b4099T'
+     A N70 73N79                          41MSGCON(15 DIV0304 SYMSGF)
+     A  70 73                             41MSGCON(15 DIV0305 SYMSGF)
+     A N70N79N73                          41MSGCON(13 SHU1125 SYMSGF)
+     A  70N73                             41'Invoice-total:'
+     A  79N73                             41'Gesamtbetrag:'
+     A            PVAL           3A       58
+     A            XBRUT         13  2     63EDTCDE(L)
+     A                                     1 ' '
+     A                                      SPACEB(1)
+     A                                    41'=============================='
+     A  64                                  FONT(416 (*POINTSIZE 12))
+     A                                    71'======='
+     A  64                                  FONT(416 (*POINTSIZE 12))
+     A  65                                 1 ' '
+     A                                      SKIPB(48)
+     A N65                                 1 ' '
+     A                                      SKIPB(62)
+     A N70N73N79                           2MSGCON(24 DIV0303 SYMSGF)
+     A  70N73N79                           2'Terms of payment'
+     A  79N73N70                           2'Zahlungbedingungen'
+     A            BETTXT        30A       19
+     A  63                                45'¤(12U¤(s0p10h1s0b4099T'
+     A  44        HOBT1         80A        2
+     A                                      SPACEB(1)
+     A  44        HOBT2         80A        2
+     A                                      SPACEB(1)
+     A  44        HOBT3         80A        2
+     A                                      SPACEB(1)
+     A*** SKRIVER KIDLINJE PÅ SELVE FAKTURABLANKETT
+     A          R KIDLIN
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A N60                                 1' '
+     A                                      SKIPB(56)
+     A  60                                 1' '
+     A                                      SKIPB(76)
+     A  61 63                              1'¤*c2330A¤*c60B¤*c11G¤*c2P'
+     A  63                                40'¤(12U¤(s0p10h0s5b24579T'
+     A            KIDTXT         4         4
+     A                                       SPACEB(1)
+     A                                      HIGHLIGHT
+     A                                    30'TOTAL:'
+     A                                      HIGHLIGHT
+     A            PVAL           3        37HIGHLIGHT
+     A            IBATXT         8        52
+     A                                      HIGHLIGHT
+     A            LIN20         20         4HIGHLIGHT
+     A                                      SPACEB(2)
+     A            KTOTKR        11  0     30EDTCDE(3)
+     A                                      HIGHLIGHT
+     A                                    41','
+     A                                      HIGHLIGHT
+     A            KTOTØR         2  0     42
+     A                                      HIGHLIGHT
+     A            GIRO25        25        52
+     A                                      HIGHLIGHT
+     A  63                                60'¤(12U¤(s0p10h1s0b4099T'
+     A                                      SPACEB(1)
+     A          R CVRPA2
+     A*                                     BOX(2.7 0.5 4 7.0 0.01)
+     A* 2.7 ER LINJE PÅ SIDEN FOR FØRSTE BOKS, 4 ER HØYDEN PÅ BOKSEN 7.0 ER
+     A* BREDDEN
+     A                                      BOX(9.1  0.2 10.0 7.5 0.02)
+     A* 10  ER LINJE PÅ SIDEN FOR ANDRE BOKS,  2.0 ER HØYDEN PÅ BOKSEN 8 ER
+     A* BREDDEN  (FUNGERER OGSÅ MED 10.8 OG 7.0)
+      *________________________________
+      * Format for Ordinary giro Norway
+      *""""""""""""""""""""""""""""""""
+      *________________________________
+     A*
+     A*** VANLIG BANKGIROBLANKETT
+     A          R BGIR
+     A  64                                  FONT(416 (*POINTSIZE 10))
+     A  61N60                              1' '
+     A                                      SKIPB(47)
+     A N60N61                              1' '
+     A                                      SKIPB(49)
+     A  60                                 1' '
+     A                                      SKIPB(58)
+     A
+     A* STORE ENDRINGER PÅ GIROEN
+     A* DA LINJENUMMER ER TATT BORT
+     A  60        KTOTKR        11  0     30EDTCDE(3)
+     A  60                                41','
+     A  60        KTOTØR         2  0     42
+     A                                       SPACEA(004)
+     A            KFFDT          6  0     67EDTCDE(Y)
+     A                                       SPACEA(001)
+     A N70N79                              7MSGCON(12 DIV0199 SYMSGF)
+     A  79                                 7MSGCON(12 DIV0315 SYMSGF)
+     A  70                                 7MSGCON(12 DIV0316 SYMSGF)
+     A            KUNDNR         8  0     24EDTCDE(3)
+     A                                       SPACEA(1)
+     A N70N79                              7MSGCON(12 DIV0287 SYMSGF)
+     A  70                                 7MSGCON(12 DIV0317 SYMSGF)
+     A  79                                 7MSGCON(12 DIV0318 SYMSGF)
+     A            XFN            7  0     25EDTCDE(3)
+     A                                       SPACEA(1)
+     A N70N79                              7MSGCON(12 DIV0288 SYMSGF)
+     A  70                                 7MSGCON(12 DIV0313 SYMSGF)
+     A  79                                 7MSGCON(12 DIV0314 SYMSGF)
+     A            IDAGX          6  0     24EDTCDE(Y)
+     A                                       SPACEA(1)
+     A N70N79                              7MSGCON(12 DIV0289 SYMSGF)
+     A  70                                 7MSGCON(12 DIV0311 SYMSGF)
+     A  79                                 7MSGCON(12 DIV0312 SYMSGF)
+     A            XFFDT          6  0     24EDTCDE(Y)
+     A                                       SPACEA(4)
+     A  60                                 1 ' '
+     A                                       SPACEA(3)
+     A            KNAVN         30A        7
+     A            XFNAVN        30A       46
+     A                                       SPACEA(1)
+     A            ADR1          30A        7
+     A            XFADR1        30A       46
+     A                                       SPACEA(1)
+     A            ADR2          30A        7
+     A            XFADR2        30A       46
+     A                                       SPACEA(1)
+     A N37 38     POSTNR         4  0      7
+     A N37 38     ADR3          24A       13
+     A N38        SYPOGE         9         7
+     A N38        ADR3B     R             18REFFLD(ADR3 CUNDF)
+     A  37 38     ADR3C     R              7REFFLD(ADR3 CUNDF)
+     A            XFPONR         4  0     46
+     A            XFADR3        24A       52
+     A                                       SPACEA(1)
+     A            OCRF          75         1 SPACEA(1)
+      *_________________________________________
+      * Format for H-line giro, OCR    5224/5225
+      *"""""""""""""""""""""""""""""""""""""""""
+     A          R BGIR2A
+     A                                      CPI(10)
+     A                                      DFNCHR( +
+     A                                      X'F0' X'7E818181817E000000' +
+     A                                      X'F1' X'00004000FF00000000' +
+     A                                      X'F2' X'438589819161000000' +
+     A                                      X'F3' X'818191A1D18E000000' +
+     A                                      X'F4' X'040C1424448F040000' +
+     A                                      X'F5' X'E1A1A1A1928C000000' +
+     A                                      X'F6' X'1E2949890906000000' +
+     A                                      X'F7' X'80808F90A0C0800000' +
+     A                                      X'F8' X'066991919169060000' +
+     A                                      X'F9' X'609091929478000000')
+     A N60 61                              1' '
+     A                                      SKIPB(65)
+     A N60N61                              1' '
+     A                                      SKIPB(67)
+     A  60 61                              1' '
+     A                                      SKIPB(85)
+     A  60N61                              1' '
+     A                                      SKIPB(85)
+     A                                     1'H'
+     A                                      HIGHLIGHT
+     A N59N62     XWKID         19        11HIGHLIGHT
+     A N59N62     XBAK           1  0     30HIGHLIGHT
+     A N59 62     KID8           8        16HIGHLIGHT
+     A N59        XTOTKR        11  0     31EDTCDE(3)
+     A                                      HIGHLIGHT
+     A N59                                31'<'
+     A                                      HIGHLIGHT
+     A N59        XTOTØR         2  0     46HIGHLIGHT
+     A  59N62     KWKID         19         9HIGHLIGHT
+     A  59N62     KBAK           1        28HIGHLIGHT
+     A  59 62     KID8B          8        14HIGHLIGHT
+     A  59        KTOTKR        11  0     29EDTCDE(3)
+     A                                      HIGHLIGHT
+     A  59        KTOTØR         2  0     42HIGHLIGHT
+     A  59        KNYMOD         1        47HIGHLIGHT
+     A            XFBANK        15        52HIGHLIGHT
+     A            OCRE          75         1 SPACEB(1)
+     A          R BGIR2D
+     A                                      CPI(10)
+     A                                      DFNCHR( +
+     A                                      X'F0' X'7E818181817E000000' +
+     A                                      X'F1' X'00004000FF00000000' +
+     A                                      X'F2' X'438589819161000000' +
+     A                                      X'F3' X'818191A1D18E000000' +
+     A                                      X'F4' X'040C1424448F040000' +
+     A                                      X'F5' X'E1A1A1A1928C000000' +
+     A                                      X'F6' X'1E2949890906000000' +
+     A                                      X'F7' X'80808F90A0C0800000' +
+     A                                      X'F8' X'066991919169060000' +
+     A                                      X'F9' X'609091929478000000')
+     A N60 61                              1' '
+     A                                      SKIPB(65)
+     A N60N61                              1' '
+     A                                      SKIPB(67)
+     A  60 61                              1' '
+     A                                      SKIPB(85)
+     A                                     1'H'
+     A                                      HIGHLIGHT
+     A            XTOTKR        11  0     31EDTCDE(3)
+     A                                      HIGHLIGHT
+     A            XTOTØR         2  0     46HIGHLIGHT
+     A            XFBANK        15        52HIGHLIGHT
+     A            OCRE          75         1 SPACEB(1)
+      *___________________________________________
+      * Format for H-line giro, OCR    4224(*IPDS)
+      *"""""""""""""""""""""""""""""""""""""""""""
+     A          R BGIR2B
+     A N60 61                              1' '
+     A                                      SKIPB(65)
+     A N60N61                              1' '
+     A                                      SKIPB(67)
+     A  60                                 1' '
+     A                                      SKIPB(85)
+     A                                      FONT(011)
+     A                                     1'H'
+     A                                      HIGHLIGHT
+     A N59N62     XWKID         19        11HIGHLIGHT
+     A                                      CHRID
+     A N59N62     ABAK           1        30HIGHLIGHT
+     A                                      CHRID
+     A N59 62     KID8           8        16HIGHLIGHT
+     A                                      CHRID
+     A N59        ATOTKR        11        31HIGHLIGHT
+     A                                      CHRID
+     A N59        HAKE           1        31HIGHLIGHT
+     A                                      CHRID
+     A N59        ATOTØR         2        46HIGHLIGHT
+     A                                      CHRID
+     A  59N62     KWKID         19         9HIGHLIGHT
+     A                                      CHRID
+     A  59N62     KBAK           1        28HIGHLIGHT
+     A                                      CHRID
+     A  59 62     KID8B          8        14HIGHLIGHT
+     A                                      CHRID
+     A  59        ATOTKK        11        29HIGHLIGHT
+     A                                      CHRID
+     A  59        ATOTØK         2        42HIGHLIGHT
+     A                                      CHRID
+     A  59        KNYMOD         1        47HIGHLIGHT
+     A                                      CHRID
+     A            XFBANK        15        52HIGHLIGHT
+     A                                      CHRID
+     A            OCRE          75         1 SPACEB(1)
+     A          R BGIR2E
+     A                                      FONT(011)
+     A N60 61                              1' '
+     A                                      SKIPB(65)
+     A N60N61                              1' '
+     A                                      SKIPB(67)
+     A  60 61                              1' '
+     A                                      SKIPB(85)
+     A                                     1'H'
+     A                                      HIGHLIGHT
+     A            ATOTKR        11        31HIGHLIGHT
+     A                                      CHRID
+     A            ATOTØR         2        46HIGHLIGHT
+     A                                      CHRID
+     A            XFBANK        15        52HIGHLIGHT
+     A                                      CHRID
+     A            OCRE          75         1 SPACEB(1)
+      *_____________________________________________
+      * Format for H-line giro, OCR    BELTESSKRIVER
+      *"""""""""""""""""""""""""""""""""""""""""""""
+     A          R BGIR2C
+     A N60 61                              1' '
+     A                                      SKIPB(64)
+     A N60N61                              1' '
+     A                                      SKIPB(66)
+     A  60 61                              1' '
+     A                                      SKIPB(84)
+     A                                     1'H'
+     A                                      SPACEB(1)
+     A                                      HIGHLIGHT
+     A N59N62     XWKID         19        11HIGHLIGHT
+     A N59N62     XBAK           1  0     30HIGHLIGHT
+     A N59 62     KID8           8        16HIGHLIGHT
+     A N59        XTOTKR        11  0     31EDTCDE(3)
+     A                                      HIGHLIGHT
+     A N59                                31'<'
+     A                                      HIGHLIGHT
+     A N59        XTOTØR         2  0     46HIGHLIGHT
+     A  59N62     KWKID         19         9HIGHLIGHT
+     A  59N62     KBAK           1        28HIGHLIGHT
+     A  59 62     KID8B          8        14HIGHLIGHT
+     A  59        KTOTKR        11  0     29EDTCDE(3)
+     A                                      HIGHLIGHT
+     A  59        KTOTØR         2  0     42HIGHLIGHT
+     A  59        KNYMOD         1        46HIGHLIGHT
+     A            XFBANK        15        52HIGHLIGHT
+     A N63        OCRE          75         1 SPACEB(1)
+     A  63                                 1'¤(12U¤(s0p10h0s3b4099T'
+     A                                      SPACEB(1)
+      *_____________________________________________
+      * Format for H-line giro, OCR    BELTESSKRIVER
+      * LE*2391(4214-2)  ¤1=DRAFT, ¤2=LOUVIER 10, ¤3=OCR-B(KODESETT877)
+      *"""""""""""""""""""""""""""""""""""""""""""""
+     A          R BGIR2F
+     A N60 61                              1' '
+     A                                      SKIPB(64)
+     A N60N61                              1' '
+     A                                      SKIPB(66)
+     A  60 61                              1' '
+     A                                      SKIPB(84)
+     A                                     1'H'
+     A                                      SPACEB(1)
+     A                                      HIGHLIGHT
+     A N59N62     XWKID         19        11HIGHLIGHT
+     A N59N62     XBAK           1  0     30HIGHLIGHT
+     A N59 62     KID8           8        16HIGHLIGHT
+     A N59        XTOTKR        11  0     31EDTCDE(3)
+     A                                      HIGHLIGHT
+     A N59                                31'<'
+     A                                      HIGHLIGHT
+     A N59        XTOTØR         2  0     46HIGHLIGHT
+     A  59N62     KWKID         19         9HIGHLIGHT
+     A  59N62     KBAK           1        28HIGHLIGHT
+     A  59 62     KID8B          8        14HIGHLIGHT
+     A  59        KTOTKR        11  0     29EDTCDE(3)
+     A                                      HIGHLIGHT
+     A  59        KTOTØR         2  0     42HIGHLIGHT
+     A  59        KNYMOD         1        47HIGHLIGHT
+     A            XFBANK        15        52HIGHLIGHT
+     A N63        OCRE          75         1 SPACEB(1)
+     A  63                                 1'¤(12U¤(s0p10h0s3b4099T'
+     A                                      SPACEB(1)
+      *________________________________
+      * Format for H-line giro, Not OCR
+      *""""""""""""""""""""""""""""""""
+     A          R BGIR3
+     A N60 61                              1' '
+     A                                      SKIPB(65)
+     A N60N61                              1' '
+     A                                      SKIPB(67)
+     A  60 61                              1' '
+     A                                      SKIPB(85)
+     A                                     1'H'
+     A                                      HIGHLIGHT
+     A            XTOTKR        11  0     29EDTCDE(3)
+     A                                      HIGHLIGHT
+     A            XTOTØR         2  0     42HIGHLIGHT
+     A            XFBANK        15        52HIGHLIGHT
+     A            OCRE          75         1 SPACEB(1)
+     A          R TOTFG2
+     A                                     1' '
+     A                                      SPACEA(1)
+     A N70N79     KGENOT        20A       41
+     A  70        KGEENT        20A       41
+     A  79        KG2TYT        20A       41
+     A            FABELN        13  2     63EDTCDE(L)
+     A                                      SPACEA(1)

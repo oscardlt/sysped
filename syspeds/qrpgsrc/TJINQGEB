@@ -1,0 +1,345 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQGEB MODULE(*LIBL/TJINQGEB *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FKODTGE    IF   E           K DISK    USROPN
+     FKODTGELF  IF   E           K DISK    USROPN
+     F                                     RENAME(KOGER:KOGERLF)
+     FKODTG2    IF   E           K DISK    USROPN
+     FKODTG3    IF   E           K DISK    USROPN
+     F                                     PREFIX(EU_)
+     FKODTG4    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D Kode            S              3
+     D KodeLest        S              3
+     D KodeMax         S              3
+     D Tekst           S             20
+     D TekstLest       S             20
+     D TekstMax        S             20
+     D GetVal          S              1                                         J=Get/validate
+     D FullInfo        S              1                                         J=Ret. full info
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D MaxLes          S              9  0
+      * ordinære kontoer
+     D intMVAx         S              1                                         J/N/Bl.(X=Ikke till)
+     D kosMVAx         S              1                                         J/N/Bl.(X=Ikke till)
+      * ordinære kontoer
+     D kont_IPli       S              5  0
+     D kont_IFri       S              5  0
+     D kont_KPli       S              5  0
+     D kont_KFri       S              5  0
+     D kont_Hbok       S              5  0
+      * EU Domestik kontoer
+     D eu_D_IPli       S              5  0
+     D eu_D_IFri       S              5  0
+     D eu_D_KPli       S              5  0
+     D eu_D_KFri       S              5  0
+     D eu_D_Hbok       S              5  0
+      * EU Transit  kontoer
+     D eu_T_IPli       S              5  0
+     D eu_T_IFri       S              5  0
+     D eu_T_KPli       S              5  0
+     D eu_T_KFri       S              5  0
+     D eu_T_Hbok       S              5  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬kode¬ : ¬'+%trim(kode)+'¬, '
+        +'¬tekst¬ : ¬'+%trim(tekst)+'¬, '
+        +'¬getVal¬ : ¬'+%trim(getVal)+'¬, '
+        +'¬fullInfo¬ : ¬'+%trim(fullInfo)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"gebyrKoder" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Hente koder
+      * (ved begge utfylt er kode prio 1/tekstsøk blankes)
+     c     Error         ifeq      *blanks
+     c                   eval      KODEMAX=%trim(KODE)+'999999999'
+     c                   eval      TEKSTMAX=%trim(TEKST)+'999999999'
+     c                   IF        KODE<>*blanks or TEKST=*blanks
+     c                   eval      TEKST = *blanks
+     C     KOGEKey       SETLL     KODTGE                                       søk via kode
+     C                   READ      KODTGE                                 55
+     c                   else
+     C     KOGEKeyLF     SETLL     KODTGELF                                     søk via tekst
+     C                   READ      KODTGELF                               55
+     c                   endif
+     C     *IN55         DOWEQ     *OFF
+     C     KOG2Key       CHAIN     KODTGE                             30
+     c                   eval      KodeLest  = KGEKOD
+     c                   eval      TekstLest = KGENOT
+     c                   IF        KODE <> *blanks and
+     c                             KodeLest  > KODEMAX
+     c                   goto      Utles
+     c                   ENDIF
+     c                   IF        TEKST<> *blanks and
+     c                             TekstLest > TEKSTMAX
+     c                   goto      Utles
+     c                   ENDIF
+      *
+     C                   Add       1             AntLest
+     c     Antlest       cabgt     maxles        Utles
+      * posten skal med ..
+     C     KOG2Key       CHAIN     KODTG2                             33
+     C     KOG4Key       CHAIN     KODTG4                             33
+     C                   if        FullInfo='J'
+     C                   MOVE      'D'           EU_EUDOTR                      D=EU Domestic
+     C     KOG3Key       CHAIN     KODTG3                             33
+     c     *in33         ifeq      '0'
+     c                   eval      eu_D_IPli = EU_KGEKON                        INNT.M/MVA
+     c                   eval      eu_D_IFri = EU_KG2KON                        INNT.U/MVA
+     c                   eval      eu_D_KPli = EU_KG2UTG                        UTG.M/MVA
+     c                   eval      eu_D_KFri = EU_KG2MOT                        UTG.U/MVA
+     c                   eval      eu_D_Hbok = EU_KG2HBO                        UTG.MOTKTO
+     c                   endif
+     C                   MOVE      'T'           EU_EUDOTR                      T=EU Transit
+     C     KOG3Key       CHAIN     KODTG3                             33
+     c     *in33         ifeq      '0'
+     c                   eval      eu_T_IPli = EU_KGEKON                        INNT.M/MVA
+     c                   eval      eu_T_IFri = EU_KG2KON                        INNT.U/MVA
+     c                   eval      eu_T_KPli = EU_KG2UTG                        UTG.M/MVA
+     c                   eval      eu_T_KFri = EU_KG2MOT                        UTG.U/MVA
+     c                   eval      eu_T_Hbok = EU_KG2HBO                        UTG.MOTKTO
+     c                   endif
+     C                   endif
+     c                   eval      kont_IPli = KGEKON                           INNT.M/MVA
+     c                   eval      kont_IFri = KG2KON                           INNT.U/MVA
+     c                   eval      kont_KPli = KG2UTG                           UTG.M/MVA
+     c                   eval      kont_KFri = KG2MOT                           UTG.U/MVA
+     c                   eval      kont_Hbok = KG2HBO                           UTG.MOTKTO
+      * momsstyring   inntekt      kont
+     c                   eval      intMVAx = ' '                                begge J el N
+     c                   select
+     c                   when      kont_IPli=99999 and kont_IFri=99999
+     c                   eval      intMVAx  = 'X'                               ikke tillatt intekt
+     c                   when      kont_IPli=99999
+     c                   eval      intMVAx  = 'N'                               N=Nei eneste tillatt
+     c                   when      kont_IFri=99999
+     c                   eval      intMVAx  = 'J'                               J=Ja  eneste tillatt
+     c                   endsl
+      * momsstyring   kostnad
+     c                   eval      kosMVAx = ' '                                begge J el N
+     c                   select
+     c                   when      kont_KPli=99999 and kont_KFri=99999
+     c                   eval      kosMVAx  = 'X'                               ikke tillatt intekt
+     c                   when      kont_KPli=99999
+     c                   eval      kosMVAx  = 'N'                               N=Nei eneste tillatt
+     c                   when      kont_KFri=99999
+     c                   eval      kosMVAx  = 'J'                               J=Ja  eneste tillatt
+     c                   endsl
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬kgekod¬ : ¬'+%trim(KGEKOD)+'¬,'
+          +'¬kgenot¬ : ¬'+%trim(KGENOT)+'¬,'
+          +'¬kgeent¬ : ¬'+%trim(KGEENT)+'¬,'
+          +'¬kg2tyt¬ : ¬'+%trim(KG2TYT)+'¬,'
+          +'¬intMVAx¬ : ¬'+%trim(intMVAx)+'¬,'
+          +'¬kosMVAx¬ : ¬'+%trim(intMVAx)+'¬,'
+          +'¬kgenhN¬ : ¬'+%trim(KGENHN)+'¬,'
+          +'¬kgenhE¬ : ¬'+%trim(KGENHE)+'¬,'
+          +'¬kgenhT¬ : ¬'+%trim(KGENHT)+'¬,'
+          +'¬kgeavr¬ : ¬'+%trim(KGEavr)+'¬,'
+          +'¬kg2srt¬ : ¬'+%trim(%editc(KG2SRT:'Z'))+'¬,'
+          +'¬kgeutl¬ : ¬'+%trim(KGEUTL)+'¬,'
+          +'¬kg2lev¬ : ¬'+%trim(%editc(KG2LEV:'Z'))+'¬,'
+          +'¬kg2krt¬ : ¬'+%trim(KG2KRT)+'¬';
+       if FullInfo='J';
+        JSONstring=%trim(JSONstring)+','
+          +'¬kgesta¬ : ¬'+%trim(KGESTA)+'¬,'
+          +'¬kgesad¬ : ¬'+%trim(KGESAD)+'¬,'
+          +'¬kgekk¬ : ¬'+%trim(KGEKK)+'¬,'
+          +'¬kgetyp¬ : ¬'+%trim(KGETYP)+'¬,'
+          +'¬kgeutk¬ : ¬'+%trim(%editc(KGEUTK:'Z'))+'¬,'
+          +'¬kgeie¬ : ¬'+%trim(KGEIE)+'¬,'
+          +'¬kgeke¬ : ¬'+%trim(KGEKE)+'¬,'
+          +'¬kgeii¬ : ¬'+%trim(KGEII)+'¬,'
+          +'¬kgeki¬ : ¬'+%trim(KGEKI)+'¬,'
+          +'¬kg2avd¬ : ¬'+%trim(%editc(KG2AVD:'Z'))+'¬,'
+          +'¬kg2xxx¬ : ¬'+%trim(KG2XXX)+'¬,'
+          +'¬kont_IPli¬ : ¬'+%trim(%editc(kont_IPli:'Z'))+'¬,'
+          +'¬kont_IFri¬ : ¬'+%trim(%editc(kont_IFri:'Z'))+'¬,'
+          +'¬kont_KPli¬ : ¬'+%trim(%editc(kont_KPli:'Z'))+'¬,'
+          +'¬kont_KFri¬ : ¬'+%trim(%editc(kont_KFri:'Z'))+'¬,'
+          +'¬kont_Hbok¬ : ¬'+%trim(%editc(kont_Hbok:'Z'))+'¬,'
+          +'¬eu_D_IPli¬ : ¬'+%trim(%editc(eu_D_IPli:'Z'))+'¬,'
+          +'¬eu_D_IFri¬ : ¬'+%trim(%editc(eu_D_IFri:'Z'))+'¬,'
+          +'¬eu_D_KPli¬ : ¬'+%trim(%editc(eu_D_KPli:'Z'))+'¬,'
+          +'¬eu_D_KFri¬ : ¬'+%trim(%editc(eu_D_KFri:'Z'))+'¬,'
+          +'¬eu_D_Hbok¬ : ¬'+%trim(%editc(eu_D_Hbok:'Z'))+'¬,'
+          +'¬eu_T_IPli¬ : ¬'+%trim(%editc(eu_T_IPli:'Z'))+'¬,'
+          +'¬eu_T_IFri¬ : ¬'+%trim(%editc(eu_T_IFri:'Z'))+'¬,'
+          +'¬eu_T_KPli¬ : ¬'+%trim(%editc(eu_T_KPli:'Z'))+'¬,'
+          +'¬eu_T_KFri¬ : ¬'+%trim(%editc(eu_T_KFri:'Z'))+'¬,'
+          +'¬eu_T_Hbok¬ : ¬'+%trim(%editc(eu_T_Hbok:'Z'))+'¬';
+       endif;
+       JSONstring=%trim(JSONstring)+'}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ved get/Validate  er det kun en
+     c     GetVal        ifeq      'J'
+     c                   leave
+     c                   endif
+
+     C     NEXT          TAG
+
+     C                   IF        KODE<>*blanks or TEKST=*blanks
+     C                   READ      KODTGE                                 55
+     C                   ELSE
+     C                   READ      KODTGELF                               55
+     C                   ENDIF
+     C                   ENDDO
+     C     UTLES         TAG
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     KODTGE
+     C  N50              CLOSE     KODTGELF
+     C  N50              CLOSE     KODTG2
+     C  N50              CLOSE     KODTG3
+     C  N50              CLOSE     KODTG4
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      KODE    = zhbgetvar('KODE')
+     C                   EVAL      TEKST   = zhbgetvar('TEKST')
+     C                   EVAL      GetVal  = zhbgetvar('GetVal')
+     C                   EVAL      FullInfo= zhbgetvar('FullInfo')
+     C
+     c                   endsr
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C     KOGEKey       KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    KODE
+     C                   MOVE      'GE'          KGEUNI
+     C     KOG2Key       KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    KGEKOD
+     C                   MOVE      'G2'          KG2UNI
+     C     KOG3Key       KLIST
+     C                   KFLD                    EU_EUDOTR
+     C                   KFLD                    KGEKOD
+     C     KOG4Key       KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    KGEKOD
+     C     KOGEKeyLF     KLIST
+     C                   KFLD                    TEKST
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      KODTGE
+     C  N50              OPEN      KODTGELF
+     C  N50              OPEN      KODTG2
+     C  N50              OPEN      KODTG3
+     C  N50              OPEN      KODTG4
+      *
+     c                   IF        MAXLES = 0
+     c                   z-add     300           MAXLES
+     c                   ENDIF
+      *
+     C                   IF        *IN50=*OFF
+     C                   IF        GetVal='J'
+     C     KOGEKey       CHAIN     KODTGE                             30
+     C   30              eval      Error = 'Angitt gebyrkode finnes ikke'
+     C                   ENDIF
+     C                   ENDIF
+     c                   endsr

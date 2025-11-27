@@ -1,0 +1,747 @@
+      *********************************************************************
+      * SPØRRING PÅ LAGERPOSTER
+      * PROGRAM BEHANDLER INPUT FRA SLAGSC0 (UTVALG/FILTER) OG VISER LISTE
+      *
+CRTPG+*  CRTPGM SYSPED/SLAGSC1 MODULE(*LIBL/SLAGSC1
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FLLVARE01  IF   E           K DISK    USROPN
+     FLLVARE02  IF   E           K DISK    USROPN
+     F                                     RENAME(LLVARER:LLVARER2)
+     FLLVARE03  IF   E           K DISK    USROPN
+     F                                     RENAME(LLVARER:LLVARER3)
+     FLLGrpK05  if   e           k disk    USROPN
+     FLLAGJL03  if   e           k disk    USROPN
+     FLLAGJD01  if   e           k disk    USROPN
+     FKUFAST    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      *
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D lstbrd          s              1
+     D UsrSpcName      s             10
+     D artnr           s             15
+     D artnrl          s             15
+     D artnm           s             35
+     D varegrp         s              5
+     D inkansv         s             30
+     D minpros         s              2
+     D eier            s              5
+     D WSUSER          s             10
+     D AVVKNR          S              8
+     D AVVKNN          S              8  0
+     D BevDato         S             10
+     D Saldopl         S              1
+     D DatoN           S              8  0
+     D Work500         s            500
+     D Diffpros        s             15s 2
+     D XXVB            s            200
+     D bminpros        s              2s 0
+     D l1              s              3s 0
+     D l2              s              3s 0
+     D zeros           s             15a   inz('000000000000000')
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      *Array for innsetting av 9999... bak i søkebegrep
+     D A               S              1    DIM(15)
+     D NM              S              1    DIM(35)
+     D VG              S              5    DIM(10)
+     D VE              S              5    DIM(10)
+     D                 DS
+     D  PAVRDA                 1     50
+     D  VV                     1     50    DIM(10)
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      *
+      * Set output skeleton html member name
+     C                   exsr      LoadHtml
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('stdtop')
+     C                   callp     wrtsection('top')
+      *
+     C     BIKUNR        chain     LLGrpK05                           33
+     C                   IF        *IN33
+      * her burde ligge avvisning - feilmelding - retur
+     C                   GOTO      SLHENTART
+     C                   else
+     c                   move      GKGRP         LVGRUP
+     c                   move      GKPNR         LVPNR
+     C                   END
+      *
+     C                   SELECT
+     C                   WHEN      ARTNM = *BLANKS AND ARTNRL = *BLANKS
+     C     ReadKey       setll     LLVARER
+     C                   WHEN      ARTNM = *BLANKS
+     C     ReadKey       setll     LLVARE03
+     C                   OTHER
+     C     ReadKey       setll     LLVARE02
+     C                   ENDSL
+     C                   Move      *zeros        AntSnd
+     C                   Move      *zeros        AntRcd
+     C     MaxSnd        IFEQ      *ZEROS
+     C                   Z-add     1000          MaxSnd
+     C                   END
+     C     MaxRcd        IFEQ      *ZEROS
+     C                   Z-add     5000          MaxRcd
+     C                   END
+      *
+     C     STHENTART     TAG
+     C                   SELECT
+     C                   WHEN      ARTNM = *BLANKS AND ARTNRL = *BLANKS
+     C     ReadKey       READE     LLVARER                                50
+     C                   WHEN      ARTNM = *BLANKS
+     C     ReadKey       READE     LLVARE03                               50
+     C                   OTHER
+     C     ReadKey       READE     LLVARE02                               50
+     C                   ENDSL
+     C  N50              SELECT
+     C                   WHEN      ARTNM = *BLANKS AND ARTNRL = *BLANKS
+     C                   IF        MaxAnr <> *blanks AND LvAnr > MaxAnr
+     C                   GOTO      SLHENTART
+     C                   END
+     C                   WHEN      ARTNM = *BLANKS AND ARTNRL <> *BLANKS
+     C                   IF        MaxAnrL <> *blanks AND LvAnrL > MaxAnrL
+     C                   GOTO      SLHENTART
+     C                   END
+     C                   OTHER
+     C                   IF        MaxAnM <> *blanks AND LvVB > MaxAnM
+     C                   GOTO      SLHENTART
+     C                   END
+     C                   ENDSL
+      *
+     C                   IF        *IN50 = *OFF
+     C                   Add       1             AntRcd
+     C     AntRcd        CabGe     MaxRcd        SLHENTART
+     C                   EXSR      RecordSlt
+     C                   IF        selected = 'Y'
+     C                   EXSR      SETROW
+     C                   callp     wrtsection('row')
+     C                   IF        XLEVADR = *BLANKS
+     C                   callp     wrtsection('row1')
+     C                   ELSE
+     C                   callp     wrtsection('row2')
+     C                   END
+     C                   callp     wrtsection('row3')
+     C                   Add       1             AntSnd
+     C     AntSnd        CabGe     MaxSnd        SLHENTART
+     C                   END
+     C                   GOTO      STHENTART
+     C                   END
+      *
+     C     SLHENTART     TAG
+     C                   callp     wrtsection('tableend')
+     C                   callp     updHTMLvar('ANTSND':
+     C                             %trim(%editc(ANTSND:'3')))
+     C                   callp     updHTMLvar('MaxSnd':
+     C                             %trim(%editc(MaxSnd:'3')))
+     C                   callp     updHTMLvar('ANTRCD':
+     C                             %trim(%editc(ANTRCD:'3')))
+     C                   callp     updHTMLvar('MaxRcd':
+     C                             %trim(%editc(MaxRcd:'3')))
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')
+     C                   IF        XLEVADR = *BLANKS
+     C                   callp     wrtsection('SaldoUtv')
+     C                   END
+     C                   callp     wrtsection('SaldoUtv2')
+     C                   callp     wrtsection('stdbot')
+     C                   callp     wrtsection('*fini')
+     C     SLUTT         tag
+     C                   EXSR      EXIT
+     C                   return
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   eval      lstbrd  = zhbgetvar('lstbrd')
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      AVVKNR  = zhbgetvar('AVVKNR')
+     C                   eval      AVVKNN  = c2n2(AVVKNR)
+      *
+     C                   eval      artnr   = zhbgetvar('wsanr')
+     C                   eval      artnr   = uppify(artnr)
+     C                   move      artnr         MaxAnr           15
+     C     artnr         ifne      *blanks
+     C                   moveA     MaxAnr        A
+     C                   z-add     15            nr                2 0
+     C     A(nr)         DOWEQ     ' '
+     C                   MOVE      '9'           A(nr)
+     C                   SUB       1             nr
+     C                   END
+     C                   movea     A             MaxAnr
+     C                   end
+     C                   eval      artnrL  = zhbgetvar('wsanrL')
+     C                   eval      artnrL  = uppify(artnrL)
+     C                   move      artnrL        MaxAnrL          15
+     C     artnrL        ifne      *blanks
+     C                   moveA     MaxAnrL       A
+     C                   z-add     15            nr                2 0
+     C     A(nr)         DOWEQ     ' '
+     C                   MOVE      '9'           A(nr)
+     C                   SUB       1             nr
+     C                   END
+     C                   movea     A             MaxAnrL
+     C                   end
+     C                   eval      artnm   = zhbgetvar('wsanm')
+     C                   eval      artnm   = uppify(artnm)
+     C                   move      artnM         MaxAnM           35
+     C                   IF        artnM   <> *blanks
+     C                   moveA     MaxAnM        NM
+     C                   z-add     35            nr                2 0
+     C                   DOW       NM(nr)  = ' '
+     C                   MOVE      '9'           NM(nr)
+     C                   SUB       1             nr
+     C                   END
+     C                   movea     NM            MaxAnM
+     C                   end
+      *
+     C                   eval      varegrp = zhbgetvar('varegrp')
+     C                   eval      varegrp = uppify(varegrp)
+     C                   eval      inkansv = zhbgetvar('inkansv')
+     C                   eval      minpros = zhbgetvar('minpros')
+     C                   eval      eier    = zhbgetvar('eier')
+     C                   eval      eier    = uppify(eier)
+     C                   eval      Bevdato  = zhbgetvar('Bevdato')
+     C                   eval      DATON   = c2n2(Bevdato)
+     C                   eval      Saldopl  = zhbgetvar('Saldopl')
+     C     LC:UC         XLATE     Saldopl       Saldopl
+      *
+      * Convert numeric inputs
+     C                   exsr      CvtNumInp
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      * Convert numeric inputs
+      *=====================================================================******
+     C     CvtNumInp     begsr
+      *
+     C     minpros       ifeq      *blanks
+     C                   eval      minpros = zeros
+     C                   endif
+      *
+      * Convert inputs to numeric after shifting right
+      *
+     C                   testn                   minpros              41
+     C     *in41         ifeq      '1'
+     C                   move      minpros       bminpros
+     C                   else
+     C     ' '           checkr    minpros       l2
+     C                   eval      l1 = 2 - l2
+     C     l1            ifgt      0
+     C                   eval      minpros = %subst(zeros:1:l1) +
+     C                             %subst(minpros:1:l2)
+     C                   endif
+     C                   endif
+     C                   testn                   minpros              41
+     C     *in41         ifeq      '1'
+     C                   move      minpros       bminpros
+     C                   else
+     C                   eval      bminpros = 0
+     C                   endif
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+      * KUNDE
+     C                   IF        XSPRÅK = 'EN'
+     C                   callp     updhtmlvar('TITLE':'Search in warehouse')
+     C                   ELSE
+     C                   callp     updhtmlvar('TITLE':'Søk i varelager')
+     C                   END
+     C                   callp     updhtmlvar('WSNA':BIBESK)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   MOVE      BIKUNR        XXKUNR            8
+     C                   callp     updhtmlvar('KUNR':XXKUNR)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      *
+     C                   callp     updhtmlvar('ARTNR':artnr)
+     C                   callp     updhtmlvar('ARTNRL':artnrl)
+     C                   callp     updhtmlvar('ARTNM':artnM)
+     C                   callp     updhtmlvar('VAREGRP':varegrp)
+     C                   callp     updhtmlvar('INKANSV':inkansv)
+     C                   callp     updhtmlvar('MINPROS':minpros)
+     C                   callp     updhtmlvar('BEVDATO':BEVDATO)
+     C                   callp     updhtmlvar('SALDOPL':SALDOPL)
+     C                   callp     updhtmlvar('DATOFR':'')
+     C                   callp     updhtmlvar('DATOTI':'')
+     C                   callp     updhtmlvar('eier':eier)
+      *
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetRow        begsr
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+      * Saldo  (numeric, edited)
+     C                   callp     updhtmlvar('LVSALD':
+     C                             %trim(%editc(LvSald:'3')))
+      * Minimum (numeric, edited)
+     C                   callp     updhtmlvar('LVMSTK':
+     C                             %trim(%editc(LvMstk:'Z')))
+      * Hent variabler til
+     C                   callp     updhtmlvar('LVANR':LvAnr)
+      * VIS LEV.ART.NR
+     C                   callp     updhtmlvar('LVANRl':LvAnrl)
+      * VAREGRUPPE
+     C                   EVAL      KFTYP = 'VG'
+     C                   SELECT
+     C                   WHEN      ((XVGNIVÅ = 'B') OR (XVGNIVÅ = 'K'))
+     C                   MOVE      BIKUNR        KFTYP
+     C                   WHEN      XVGNIVÅ = 'F'
+     C                   CAT       '*':0         KFTYP
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C                   OTHER
+     C                   MOVE      BIKUNR        KFTYP
+     C                   ENDSL
+     C                   MOVEL     LVAG01        KFKOD
+     C                   MOVE      *blanks       VGrp             30
+     C     KufastKey     chain     KUFAST                             30
+     C  N33              MOVEL     KFTXT         VGrp
+      * VAREEIER
+     C                   EVAL      KFTYP = 'VE'
+     C                   SELECT
+     C                   WHEN      ((XVENIVÅ = 'B') OR (XVENIVÅ = 'K'))
+     C                   MOVE      BIKUNR        KFTYP
+     C                   WHEN      XVENIVÅ = 'F'
+     C                   CAT       '*':0         KFTYP
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C                   OTHER
+     C                   MOVE      BIKUNR        KFTYP
+     C                   ENDSL
+     C                   MOVEL     LVEIER        KFKOD
+     C                   MOVE      *blanks       VEier            30
+     C     KufastKey     chain     KUFAST                             30
+     C  N33              MOVEL     KFTXT         VEier
+      *
+     C                   eval      XXVb = VEier+' '+VGrp+' '+LvVb
+     C                   callp     updhtmlvar('LVVB':XXVb)
+     C                   callp     updhtmlvar('LVANS':LvAns)
+     C                   IF        LVAKT = 'I'
+     C                   callp     updhtmlvar('LVAKT':'Ja')
+     C                   ELSE
+     C                   callp     updhtmlvar('LVAKT':'')
+     C                   END
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     LoadHtml      begsr
+cccccC                   IF        XSPRÅK = 'EN'
+cccccC                   eval      IfsMultIndicators = gethtmlifsmult(
+cccccC                             '/syspeddev/html/Header/eSpedTop.html -
+cccccC                             /syspeddev/html/SLAGSC1EN.html -
+cccccC                             /syspeddev/html/Footer/eSpedBot.html':
+cccccC                             '/CGITAG/')
+cccccC                   ELSE
+cccccC                   eval      IfsMultIndicators = gethtmlifsmult(
+cccccC                             '/syspeddev/html/Header/eSpedTop.html -
+cccccC                             /syspeddev/html/SLAGSC1.html -
+cccccC                             /syspeddev/html/Footer/eSpedBot.html':
+cccccC                             '/CGITAG/')
+cccccC                   END
+      *
+     C                   endsr
+      *=====================================================================******
+     C*  Select a Recd
+      *=====================================================================******
+     C     RecordSlt     BEGSR
+     C                   move      'N'           selected          1
+      * TEST SALDO
+     C                   IF        ((SALDOPL = 'J') OR (SALDOPL = 'Y'))
+     C     LVSALD        CABEQ     0             RecordSltX
+     C                   END
+      *  Ikke aktiv
+     C     LVAKT         cabeq     'I'           RecordSltX
+      * 0 i vekt = Ikke aktiv
+     C     LvVkt0        cabeq     0             RecordSltX
+      *
+      * Ved seleksjon på artnr (key) leses fra start... hopp over lavere!!
+      * (i leseloop hoppes det ut når høyeste matych er passert)
+      * OGSÅ NEDRE GRENSE BØR SELVSAGT STYRES AV KEY, MEN HAR FORELØPIG LITT
+      * PROBLEM MED Å SKILLE PÅ PÅ 1 / 2. GANGS VISNING(MORE) OG FÅR TULL
+      * MED AT LISTEN BEGYNNER FRA TOPP OGSÅ VED MORE..... FIXES SENERE
+     C                   IF        ARTNM = *BLANKS
+     C                   IF        ARTNRL = *BLANKS
+     C     artnr         ifne      *blanks
+     C     LvAnr         andlt     artnr
+     C                   goto      RecordSltX
+     C                   end
+     C                   ELSE
+     C     artnrL        ifne      *blanks
+     C     LvAnrL        andlt     artnrL
+     C                   goto      RecordSltX
+     C                   end
+     C                   END
+     C                   ELSE
+     C     LVVB          CABLT     ARTNM         RecordSltX
+     C                   END
+      *
+     C                   IF        VG(1) <> *BLANKS
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) <> *BLANKS
+     C     VG(XN)        IFEQ      LVAG01
+     C     VG(XN)        OREQ      LVAG02
+     C     VG(XN)        OREQ      LVAG03
+     C     VG(XN)        OREQ      LVAG04
+     C     VG(XN)        OREQ      LVAG05
+     C                   GOTO      RecordSlt1
+     C                   END
+     C                   ELSE
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   goto      RecordSltX
+     C     RECORDSLT1    TAG
+     C                   END
+      *
+     C                   IF        VE(1) <> *BLANKS
+     C     1             DO        10            XN                3 0
+     C                   IF        VE(XN) <> *BLANKS
+     C     VE(XN)        IFEQ      LVEIER
+     C                   GOTO      RecordSlt2
+     C                   END
+     C                   ELSE
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   goto      RecordSltX
+     C     RECORDSLT2    TAG
+     C                   END
+      *
+      * seleksjon på gruppe..
+     C     varegrp       ifne      *blanks
+     C     varegrp       andne     LVag01
+     C     varegrp       andne     LVag02
+     C     varegrp       andne     LVag03
+     C     varegrp       andne     LVag04
+     C     varegrp       andne     LVag05
+     C                   goto      RecordSltX
+     C                   end
+      *
+      * seleksjon på innkjøpsansvarlig
+     C     inkansv       ifne      *blanks
+     C     inkansv       andne     LVans
+     C                   goto      RecordSltX
+     C                   end
+     C*
+      *
+      * Seleksjon på "saldomargin" mindre enn xx % over MINIMUM
+     C     minpros       ifne      *blanks
+     C     minpros       andne     *zeros
+      * vis da kun poster hvor minimum er angitt
+     C     LvMstk        cabeq     0             RecordSltX
+     C     LVsald        sub       LVMstk        XXDiff            7 0
+     C                   eval      DiffPros = XXDiff / LvMstk * 100
+     C     DiffPros      cabgt     bminpros      RecordSltX
+     C                   end
+      * seleksjon på gruppe..
+     C     eier          ifne      *blanks
+     C     eier          andne     LVeier
+     C                   goto      RecordSltX
+     C                   end
+      * seleksjon på Ingen bevegelse etter dato (= Finn "hyllevarmere")
+      * (Da er det kun artikler med poitiv saldo som sjekkes...)
+     C     DATON         IFNE      *ZEROS
+     C     LVSALD        CABEQ     0             RecordSltX
+     C                   EXSR      TstBev
+     C     BEVEG         CABEQ     'Y'           RecordSltX
+     C                   end
+      *  Recd is selected
+     C                   move      'Y'           selected
+      *
+     C     RecordSltX    tag
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  Test Bevegelse etter dato....
+      *=====================================================================******
+     C     TSTBEV        begsr
+      * Hensikten med å sjekke "kun poster uten bevegelse" er å finne
+      * "hyllevarmere"..  sjekker derfor kun blant varer med positiv saldo
+     C                   MOVE      'N'           Beveg             1
+     C     BevKeyH       Setll     llagjL03
+     C     BevKeyH       Reade     llagjL03                               33
+     c     *IN33         DOWEQ     '0'
+     C                   IF        ((VADATO >= DATON) AND (VADATO <> 99999999))
+     c                   move      'Y'           Beveg
+     c                   goto      UtBev
+     C                   END
+      * ---
+      * Kun poster der det finnes uttak sjekkes....
+      * finnes dato som er høyere enn DATON ??
+     C     BevKeyDH      SetGT     llagjd01
+     C     BevKeyD       ReadPe    llagjd01                               33
+     c     *IN33         DOWEQ     '0'
+     C     VDLDAT        IFGE      DATON
+     c                   move      'Y'           Beveg
+     c                   goto      UtBev
+     c                   end
+     C     BevKeyD       ReadPe    llagjd01                               33
+     c                   end
+      *                  end
+      * ---
+     C     BevKeyH       Reade     llagjL03                               33
+     c                   end
+      *
+     C     UtBev         endsr
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   EXSR      TSTUSER
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C                   open      BRPARF                               50
+     C                   open      LLGrpK05                             50
+     C                   open      LLVare01                             50
+     C                   open      LLVare02                             50
+     C                   open      LLVare03                             50
+     C                   open      KUfast                               50
+     C                   open      LLAGJL03                             50
+     C                   open      LLAGJD01                             50
+      *
+     c     ReadKey       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c     BevKeyH       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    LVANR
+     c     BevKeyDH      klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    VAMN
+     c                   kfld                    xxVN              3 0
+     c                   move      999           xxVN
+     c     BevKeyD       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    VAMN
+     c     KufastKey     klist
+     c                   kfld                    KFTYP
+     c                   kfld                    KFKOD
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+      * dobbelttester at user virkelig er intern slik at ikke kreati skjel sender &avvkn=...
+     C                   IF        AVVKNN <> 0 AND XINTERN = 'J'
+     C                   MOVE      AVVKNN        BIKUNR
+     C                   END
+     C                   MOVE      *BLANKS       VG
+     C                   MOVE      ' '           XVGNIVÅ           1
+      * VAREGRUPPER (BRUKER-NIVÅ)
+     C                   EVAL      PABRID = WSUSER
+     C                   EVAL      PAKUNR = 0
+     C                   EVAL      PAID   = 'LLVG'
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VG
+     C                   MOVE      'B'           XVGNIVÅ           1
+     C                   ELSE
+      * VAREGRUPPER (KUNDE-NIVÅ)
+     C                   EVAL      PABRID = '*KUNDFT*'
+     C                   MOVE      BIFIRM        PABRID
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VG
+     C                   MOVE      'K'           XVGNIVÅ           1
+     C                   ELSE
+      * VAREGRUPPER (FIRMA-NIVÅ)
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VG
+     C                   MOVE      'F'           XVGNIVÅ           1
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   MOVE      *BLANKS       VE
+     C                   MOVE      ' '           XVENIVÅ           1
+      * VAREEIER (BRUKER-NIVÅ)
+     C                   EVAL      PABRID = WSUSER
+     C                   EVAL      PAKUNR = 0
+     C                   EVAL      PAID   = 'LLVE'
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VE
+     C                   MOVE      'B'           XVENIVÅ           1
+     C                   ELSE
+      * VAREEIER (KUNDE-NIVÅ)
+     C                   EVAL      PABRID = '*KUNDFT*'
+     C                   MOVE      BIFIRM        PABRID
+     C                   EVAL      PAKUNR = BIKUNR
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VE
+     C                   MOVE      'K'           XVENIVÅ           1
+     C                   ELSE
+      * VAREEIER (FIRMA-NIVÅ)
+     C                   EVAL      PAKUNR = 0
+     C     BRPARFK       CHAIN     BRPARF                             40
+     C                   IF        *IN40 = *OFF
+     C                   MOVEA     VV            VE
+     C                   MOVE      'F'           XVENIVÅ           1
+     C                   END
+     C                   END
+     C                   END
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *ZEROS        PAKUNR
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   MOVE      'Ingen '      XINGEN            6
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   MOVE      'No    '      XINGEN
+     C                   END
+      *
+     C                   MOVEL     'LLVMO'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        *IN33
+     C                   MOVE      *BLANKS       XLEVADR          17
+     C                   ELSE
+     C                   MOVEL     PAVRDA        XLEVADR
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+     C     TSTUSER       BEGSR
+      *////////////////////////////////////////////////////////////
+      /copy syspeds/qrpgsrcpy,tstuser
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   close     BRPARF
+     C                   close     BRIDF
+     C                   close     LLGrpK05
+     C                   close     LLVare01
+     C                   close     LLVare02
+     C                   close     LLVare03
+     C                   close     LLAGJL03
+     C                   close     LLAGJD01
+     C                   close     KUfast
+     C                   eval      *inlr = *on
+      *
+     C                   endsr
+      *

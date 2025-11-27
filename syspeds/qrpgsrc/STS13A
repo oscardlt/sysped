@@ -1,0 +1,376 @@
+      *********************************************************************
+      * Vis sendinger med innleste kolli-id
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/STS13
+      *
+CRTPG+*  CRTPGM SYSPED/STS13A MODULE(*LIBL/STS13A *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FHENOKW1   IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D WSUSER          s             10
+     D WSNAS           s             30
+     D WSNAK           s             30
+     D WSSNDN          s             20
+     D lastWSSNDN      s             20
+     D lstbrd          s              1
+      * Number of records matching search criteria
+     DRecordCnt        s              5S 0
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+     D                 DS
+     D  XXREF                  1     30
+     D  XUSER                  1     10
+     D  XSNDN                 11     30
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      *
+      * Parse input
+     C                   exsr      Parse
+     C                   EXSR      INIT
+     C     WSUSER        CHAIN     BRIDF                              60
+     C                   SELECT
+     C                   WHEN      *IN60
+     C                   exsr      SetSkl01B
+     C                   WHEN      BIINN = ' '
+     C                   exsr      SetSkl01B
+     C                   OTHER
+     C                   exsr      SetSkl
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      RtvEnvVar
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *------------------                                                   ******
+      * Go to the last Recd already shown (1. time = from top)
+     C                   exsr      GotoRecord
+      *------------------                                                   ******
+      * Find number of Recds matching selection criteria
+     C                   exsr      Recdsnumb
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 2-Section /$howmany
+     C                   exsr      SetHowMany
+      * 2a-Section /$0found
+     C     RecordCnt     ifeq      0
+     C                   callp     wrtsection('0found')
+     C                   goto      endhtml
+     C                   endif
+      *
+     C                   callp     wrtsection('howmany')
+      * 3-Section /$tablestr
+     C                   exsr      SetTabStr
+     C                   callp     wrtsection('tablestr')
+      * 4-Sections /$tablerow
+      *           go to the last Recd already shown
+     C                   exsr      GotoRecord
+     C                   MOVE      *BLANKS       WSSNDN
+     C                   z-add     0             bseq              2 0
+     C     WSUSER        SETLL     HENOKW1
+     C     WSUSER        READE     HENOKW1                                50
+     C     *in50         doweq     '0'
+     C     bseq          cabge     30            eopage
+     C     HKLNR         IFNE      0
+     C     lastWSSNDN    IFNE      HSSNDN
+     C     lastWSSNDN    IFNE      *BLANKS
+     C     WSANTM        IFNE      *ZEROS
+     C                   eval      bseq=bseq + 1
+     C                   exsr      SetTabRow
+     C                   callp     wrtsection('tablerow')
+     C                   ENDIF
+     C                   ENDIF
+     C                   MOVE      *ZEROS        WSANTM            5 0
+     C                   ENDIF
+     C                   MOVE      HSSNDN        WSSNDN
+     C                   MOVE      HSSNDN        lastWSSNDN
+     C                   MOVE      HONAS         WSNAS
+     C                   MOVE      HSNAK         WSNAK
+     C                   MOVE      HSANT         WSANT             5 0
+     C     HKSTIN        IFEQ      *BLANKS
+     C                   ADD       1             WSANTM
+     C                   ENDIF
+     C                   ENDIF
+     C     WSUSER        READE     HENOKW1                                50
+     C  N50              ENDDO                                                  *hival
+      *
+     C     lastWSSNDN    IFNE      *BLANKS
+     C                   eval      bseq=bseq + 1
+     C                   exsr      SetTabRow
+     C                   callp     wrtsection('tablerow')
+     C                   ENDIF
+      *
+     C     eopage        tag
+      * 5-Section /$tableend
+     C                   callp     wrtsection('tableend')
+      * 5a-Section /$foundsome
+     C     RecordCnt     ifgt      0
+     C                   exsr      SetFndSome
+     C                   callp     wrtsection('foundsome')
+     C                   endif
+      * 6-Section /$endhtml
+     C     endhtml       tag
+     C                   exsr      SetEnd
+     C                   callp     wrtsection('endhtml')
+      *
+     C                   ENDSL
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   eval      lstbrd  = zhbgetvar('lstbrd')
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      * Color for text, background, links, visited links, active links
+     C                   exsr      setcolor
+      *
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$howmany
+      *=====================================================================******
+     C     SetHowMany    begsr
+     C* Overall Recds count
+     C     RecordCnt     ifgt      0
+     C                   callp     updhtmlvar('RecordCnt':
+     C                             %trim(%editw(RecordCnt:'   0 ')))
+     C                   else
+     C                   callp     updhtmlvar('RecordCnt':'Ingen')
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablestr (table start)
+      *=====================================================================******
+     C     SetTabStr     begsr
+     C     lstbrd        ifeq      'Y'
+     C                   callp     updhtmlvar('LB':'0')
+     C                   else
+     C                   callp     updhtmlvar('LB':'1')
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+     c* Sequence of this Recd (numeric, converted to char)
+     C                   move      bseq          bseqchar          2
+     C                   callp     updhtmlvar('SEQ':bseqchar)
+     C                   callp     updhtmlvar('WSSNDN':WSSNDN)
+     C                   MOVE      WSUSER        XUSER
+     C                   MOVE      WSSNDN        XSNDN
+     C                   callp     updhtmlvar('XXREF':XXREF)
+     C                   movel     wsnas         tmpnavs           8
+     C                   callp     updhtmlvar('WSNAS':tmpnavs)
+     C                   movel     wsnak         tmpnavk          12
+     C                   callp     updhtmlvar('WSNAK':tmpnavk)
+     C                   callp     updhtmlvar('WSANT':
+     C                             %trim(%editc(WSANT:'Z')))
+     C                   callp     updhtmlvar('WSANTM':
+     C                             %trim(%editc(WSANTM:'Z')))
+      * Repeat background color
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$foundsome (some Recds were found)
+      *=====================================================================******
+     C     SetFndSome    begsr
+      * Repeat background color
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Server protocol
+     C                   callp     updhtmlvar('PROTOCOL':S_Protocol)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Color for font, background, links, visited links, active links
+      *=====================================================================******
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+      *=====================================================================******
+     C*  Find number of Recds matching search criteria
+      *=====================================================================******
+     C     Recdsnumb     begsr
+     C                   eval      RecordCnt = 0
+     C                   MOVE      *BLANKS       lastWSSNDN
+     C     WSUSER        SETLL     HENOKW1
+     C     WSUSER        READE     HENOKW1                                50
+     C     *in50         DoWeq     '0'
+     C     HKLNR         IFNE      0
+     C     HKSTIN        ANDEQ     ' '
+     C     lastWSSNDN    IFNE      HSSNDN
+     C     lastWSSNDN    ANDNE     *BLANKS
+     C                   eval      RecordCnt = RecordCnt + 1
+     C                   ENDIF
+     C                   MOVE      HSSNDN        lastWSSNDN
+     C                   ENDIF
+     C     WSUSER        READE     HENOKW1                                50
+     C  N50              enddo                                                  *hival
+      *
+     C     lastWSSNDN    IFNE      *BLANKS
+     C                   eval      RecordCnt = RecordCnt + 1
+     C                   ENDIF
+      *  re-position to top of file
+     C     WSUSER        SETLL     HENOKW1
+     C                   MOVE      *BLANKS       lastWSSNDN
+     C                   endsr
+      *=====================================================================******
+     C*  Go to the last Recd aleady shown
+      *=====================================================================******
+     C     GotoRecord    begsr
+     C     WSUSER        SETLL     HENOKW1
+     C     LastWSSNDN    cabeq     *BLANKS       GotoRecordX
+      *
+     C     Bseq          Ifne      0
+     C     WSUSER        READE     HENOKW1                                50
+     C                   end
+      *
+     C     GotoRecordX   tag
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+      * "HTMLSRC  " er dft = NORSK, ved å trykke på FLAGGET i inng.
+      * kan dette endre stil "HTMLSRCXX" avh. av støttede språk
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS13A'
+      *------------------
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl01B     begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS01B'
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   open      BRIDF                                50
+     C     WSUSER        CHAIN     BRIDF                              60
+     C                   IF        *IN60 = *OFF
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   open      HENOKW1                              50
+     C                   END
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   close     BRIDF
+     C                   close     HENOKW1
+     C                   eval      *inlr = *on
+      *
+     C                   endsr

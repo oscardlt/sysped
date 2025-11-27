@@ -1,0 +1,429 @@
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/FRL1O05
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/FRL1O05 MODULE(*LIBL/FRL1O05 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Order details
+     FVAREL01   If   e           K DISK    USROPN
+     FWOTRAHF   If   e           K DISK    USROPN
+     FWOTRALSY  uf   e           K DISK    USROPN
+     FWKOMML01  uf   e           K DISK    USROPN
+     FBRIDF     UF   e           K DISK    USROPN
+      *=====================================================================
+      * Includes to be used in all CGIs
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      *  Fields used for parsing the input string
+      * for bakgrunnsfarge
+     D OddEven         s             10
+     D lng             s              2a
+     D Ord             s              8a
+     D OrdNr           s              8  0
+     D LDATO           s              4a
+      * User
+     D WSUSER          s             10a
+     D KNAVN           S             30
+      * prisliste ..
+     D Prinr           s              5a
+     D Prinrn          s              5  0
+      * firmanummer
+     D Firma           s              2
+      *
+      * kundnummer
+     D Kundnr          s              8  0
+     D KUNDna          s              8a
+      * aktiv prodgruppe
+     D PRDGRP          s             35a
+     D KODTXT          s             30a
+      *
+     D action          s             10a
+      * Linje
+     D lin1ot          s              5  0
+     D lin             s              5a
+      * merking
+     D MERK            s             30a
+      *
+      * kommentar
+     D WKOM            s            600
+      *
+     D htmlsrclib      s             10a
+     D htmlsrcfil      s             10a
+     D htmlsrcmbr      s             10a
+      * "InitSW"- is blank only the first time pgm is called
+     DInitSW           S              1a
+      *
+     D VARTXT          s             46a
+     D TOTNT           s              5s 0
+     D RtvSW           s              1a
+     D                 DS
+     D  DSTID                  1     14  0
+     D  DSCENT                11     14  0
+     D                 DS
+     D  BESTIL                 1     11  3
+     D  BESTIL2                1     10  2
+     D  BESTIL1                1      9  1
+     D  BESTIL0                1      8  0
+     D*                DS
+     D* WKOMA                  1    600
+     D* KVT                    1    600    DIM(10)
+      *=====================================================================
+     C                   exsr      SetTimeStr
+      *=====================================================================
+      * Read remote browser input string and parse it
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,prolog3
+     C                   exsr      Parse
+     C     WSUSER        IFEQ      *BLANKS
+     C                   exsr      LoadHtml
+      * Start response html
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     wrtsection('top')
+     C                   eval      wrotetop = *on                               For pssr
+     C                   exsr      Exit
+     C                   END
+     C                   EXSR      INIT
+      *=====================================================================
+      * Main line
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+     C                   exsr      LoadHtml
+      * Open database files
+     C                   exsr      OpenDbf
+      * Check the action requested
+     C                   if        Action = ' '
+     C                   eval      action = 'DISPLAY'
+     C                   endif
+      * Start response html
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     wrtsection('top')
+     C                   eval      wrotetop = *on                               For pssr
+      *------------------
+      * Hvis Ordnr er valgt
+      * list innhold kortversjon.
+     C                   if        OrdNr  > 0
+     C                   if        Action ='SLETT'
+     C                   EXSR      slettord
+     C                   eval      action = 'DISPLAY'
+     C                   end
+     c
+     c                   exsr      testferdig
+     c     viselin       ifeq      'OK'
+     C                   exsr      ListItems
+     C                   endif
+     C                   endif
+      * =================
+      * Flush the html buffer and exit
+      * Close database files
+     C                   exsr      CloseDbf
+     C                   exsr      Exit
+      *
+      *  END OF MAIN PROG
+      *
+      *=====================================================================
+      * List the order items
+      *=====================================================================
+     C     ListItems     begsr
+     C                   eval      TotNT  = 0
+     C                   callp     updhtmlvar('ORD':
+     C                             %trim(%editc(OrdNr:'Z')))
+     C                   callp     wrtsection('tabstr')
+      *
+
+      *----------------
+     C     OrdKey        setll     WOTRALSY
+      *
+     C     OrdKey        reade     WOTRALSY
+     C                   dow       not%eof
+     C                   exsr      SetTabRow
+     C                   exsr      leskom
+     C                   callp     wrtsection('tabrow')
+     C     OrdKey        reade     WOTRALSY
+     C                   enddo
+      *
+     C                   exsr      SetTabEnd
+     C                   callp     wrtsection('tabend')
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html section "tabrow"
+      *=====================================================================
+     C     SetTabRow     begsr
+      * Gjeldende bruker
+     C                   callp     updHTMLvar('USER':WSUSER)
+      * varetekst
+     C                   eval      VARTXT    = %trim(VARTE1)  +' '+
+     C                             %trim(VARTE2)
+     C                   callp     updHTMLvar('VARTXT':VARTXT)
+      *
+      * Quantity
+     C     varekey       Klist
+     C                   KFLD                    FIRMA
+     C                   KFLD                    VARENR
+     C     varekey       chain     VAREL01                            55
+     c     desmal        ifeq      3
+     C                   callp     updhtmlvar('ANt':
+     C                             %trim(%editc(BESTIL:'M')))
+     c                   else
+     c     desmal        ifeq      2
+     C                   callp     updhtmlvar('ANt':
+     C                             %trim(%editc(BESTIL2:'M')))
+     c                   else
+     c     desmal        ifeq      1
+     C                   callp     updhtmlvar('ANt':
+     C                             %trim(%editc(BESTIL1:'M')))
+     c                   else
+     C                   callp     updhtmlvar('ANt':
+     C                             %trim(%editc(BESTIL0:'M')))
+     c                   end
+     c                   end
+     c                   end
+      *
+     C                   callp     updhtmlvar('LIN':
+     C                             %trim(%editc(LIN1OT:'M')))
+      * firma
+     C                   callp     updHTMLvar('FIRMA':Firma)
+      * Prislistenr
+     C                   callp     updHTMLvar('PRINR':
+     C                             %trim(%editc(PRINRN:'Z')))
+      * Gjeldende prod-gruppe
+     C                   callp     updHTMLvar('PRDGRP':PRDGRP)
+     C                   callp     updHTMLvar('KODTXT':KODTXT)
+      *kundenummer
+     C                   callp     updHTMLvar('KUNDNA':
+     C                             %trim(%editc(Kundnr:'Z')))
+      *Merknader
+     C                   callp     updHTMLvar('MERK':MERK)
+      *levdato
+     c                   MOVE      levaar        levaar2           2 0
+     c                   MOVEL     levaar2       ldato
+     c                   MOVE      levmnd        ldato
+     C                   callp     updHTMLvar('LDATO':LDATO)
+      * Score for bottom line
+     C*                  eval      TotNT  = TotNT  + BESTIL
+     C                   eval      TotNT  = TotNT  + 1
+      * bakgrunnsfarve
+     c     OddEven       IFEQ      ODD
+     c                   eval      OddEven = EVEN
+     c                   else
+     c                   eval      OddEven = ODD
+     c                   end
+     C                   callp     updHTMLvar('ODDEVEN':OddEven)
+      *
+     C                   endsr
+      *=====================================================================
+      * Set variables in html section "tabend"
+      *=====================================================================
+     C     SetTabEnd     begsr
+      * Total kolli
+     C                   callp     updhtmlvar('TOTNT':
+     C                             %trim(%editc(TotNt:'Z')))
+      *
+     C                   endsr
+      *=====================================================================
+      * Ask the service program to load into core
+      * the appropriate output skeleton html member
+      *=====================================================================
+     C     LoadHtml      begsr
+      * Read externally defined output html
+     C                   eval      HtmlSrcLib = '*LIBL'
+     C                   eval      HtmlSrcFil = 'HTMLSRC' + lng
+     C                   eval      HtmlSrcMbr = 'FRL1O05'
+     C                   callp     gethtml(HtmlSrcFil:HtmlSrcLib:HtmlSrcMbr:
+     C                             '/CGITAG/')
+      *
+     C                   endsr
+      *=====================================================================
+      * Open database files
+      *=====================================================================
+     C     OpenDbf       begsr
+     c     OrdKey        KLIST
+     C                   kfld                    FIRMA
+     C                   kfld                    KUNDNR
+     C                   kfld                    ORDNOT
+     c                   z-add     OrdNr         ORDNOT
+      *
+     c     komKey        KLIST
+     C                   kfld                    FIRMA
+     C                   kfld                    OTBKOD
+     C                   kfld                    OTBAAR
+     C                   kfld                    ORDNOT
+     C                   kfld                    LIN1OT
+     C                   move      'O'           OTBKOD
+     C                   TIME                    DSTID            14 0
+     c                   move      dscent        OTBAAR
+     C                   call      'INCGITALG'
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+     C                   open      WOTRALSY
+     C                   open      WKOMML01
+     C                   open      WOTRAHF
+     C                   open      VAREL01
+      *
+     C                   endsr
+      *=====================================================================
+      * Close database files
+      *=====================================================================
+     C     CloseDbf      begsr
+     C                   close     WOTRALSY
+     C                   close     WOTRAHF
+     C                   close     WKOMML01
+     C                   close     bridf
+     C                   close     VAREL01
+     C                   endsr
+      *=====================================================================
+      *  Time started
+      *=====================================================================
+     C     SetTimeStr    begsr
+     C                   time                    TimeStart
+     C                   BITON     '457'         XSTEGN1           1
+     C                   BITOFF    '01236'       XSTEGN1
+     C                   endsr
+      *=====================================================================
+      *  Time ended and time elapsed elapsed
+      *=====================================================================
+     C     SetTimeEnd    begsr
+     C                   time                    TimeEnd
+     C     TimeEnd       subdur    TimeStart     MsElaps:*ms
+     C                   eval      SecElaps = MsElaps / 1000000
+     C                   endsr
+      *=====================================================================
+      * Send response html and quit
+      *=====================================================================
+     C     Exit          begsr
+      *
+     C                   exsr      SetTimeEnd
+     C                   callp     updhtmlvar('RUNTIME':
+     C                             %trim(%editw(SecElaps:'     0 .   ')))
+     C                   callp     wrtsection('runtime')
+     C                   callp     wrtsection('end')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   move      *on           *INLR
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse the input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      lng        = zhbgetvar('lng       ')
+     C                   eval      WSUSER     = zhbgetvar('USER      ')
+     C                   eval      Ord        = zhbgetvar('Ord       ')
+     C                   eval      OrdNr   = c2n2(Ord)
+     C                   eval      KNAVN      = zhbgetvar('KNAVN     ')
+     C                   eval      Prinr      = zhbgetvar('PRINR     ')
+     C                   eval      Prinrn     = c2n2(prinr)
+     C                   eval      PRDGRP     = zhbgetvar('PRDGRP    ')
+     C                   eval      KODTXT     = zhbgetvar('KODTXT    ')
+     C                   eval      FIRMA      = zhbgetvar('FIRMA     ')
+     C                   eval      KUNDNA     = zhbgetvar('KUNDNA    ')
+     C                   eval      Kundnr     = c2n2(KUNDNA)
+     C                   eval      LIN        = zhbgetvar('LIN       ')
+     C                   eval      lin1ot     = c2n2(LIN)
+     C                   eval      action     = zhbgetvar('action    ')
+     C                   eval      action = uppify(action)
+     C                   endsr
+      *=====================================================================
+      * Parse the input string
+      *=====================================================================
+     C     slettord      begsr
+      *=====================================================================
+     c     slettk        klist
+     c                   kfld                    firma
+     c                   kfld                    kundnr
+     c                   kfld                    ORDNOT
+     c                   kfld                    lin1ot
+     C                   Z-ADD     ORDNR         ORDNOT
+     c     slettk        chain     WOTRALSY                           33
+     C  N33              DELETE    WOTRAR
+      * slett kommentarer
+     C     komkey        setll     WKOMML01
+      *
+     C     Komkey        reade     WKOMML01
+     C                   dow       not%eof
+     C                   delete    wkommr
+     C     Komkey        reade     WKOMML01
+     C                   enddo
+     C                   ENDSR
+      **********************************************************************
+     C     leskom        begsr
+      **********************************************************************
+      *=====================================================================
+      * leser og skriver kommentarlinjer
+      *=====================================================================
+      *----------------
+      *----------------
+     C                   move      *blanks       WKOM
+     c                   movel     xstegn1       wkom
+     C     komkey        setll     WKOMML01
+      *
+     C     Komkey        reade(N)  WKOMML01
+     C                   dow       not%eof
+     C     wkom          cat       OTBKOM:0      wkom
+     C     wkom          cat       xstegn1:0     wkom
+     C     Komkey        reade(N)  WKOMML01
+     C                   enddo
+      *
+     C                   callp     updHTMLvar('WKOM':WKOM)
+      *
+     C                   endsr
+      **********************************************************************
+     C     testferdig    begsr
+      **********************************************************************
+      * skal ordrehode-buttom vises   ?  ikke hvis avsluttet
+      *
+     c                   move      *blanks       viselin
+     c     ordkey        chain     wotrahf                            33
+     C   33              move      'OK'          viselin           2
+     C  N33status        ifne      'F'
+     C                   move      'OK'          viselin
+     C                   end
+     C                   endsr
+      *=====================================================================
+      *  Initier
+      *=====================================================================
+     C     INIT          begsr
+      * Get program start time for calculating execution time
+      *
+     C                   open      BRIDF                                50
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+      *
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   endsr

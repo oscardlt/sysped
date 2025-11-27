@@ -1,0 +1,184 @@
+/*  TESTER OM BILAG I LØSNING 1  */
+/*  TATT BORT QPGMR              */
+/* ********************************************************************    */
+/*        EN !! BRUKER OVERFØRING TIL REGNSKAP KOSTNADER             **    */
+/*              BEHANDLER ALLE "G" BILAG FOR AKTUELL BRUKER!!!       **    */
+/* *********************************************************************   */
+             PGM
+             DCL        VAR(&BILL1) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&PRTF) TYPE(*CHAR) LEN(10) +
+                          VALUE('SYKS35P   ')
+             DCL        VAR(&FIRMA) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&AAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&PER) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&JANEI) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&NRBE) TYPE(*DEC) LEN(3 0) VALUE(110)
+             DCL        VAR(&PRT110) TYPE(*CHAR) LEN(10) /* Printernavn+
+                          til JOURNALEN  */
+             DCL        VAR(&PT110) TYPE(*CHAR) LEN(10) /* Papirtype +
+                          til JOURNALEN */
+/* */
+             DCL        VAR(&IN01) TYPE(*LGL) LEN(1) VALUE('0')
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10) /* ARB.STASJ*/
+             DCL        VAR(&FLAGG) TYPE(*CHAR) LEN(1) VALUE('U')
+                        /*"O"=OMKJ:IKKE OPPDATER FAKT.LINJER/STATIST */
+                        /*"U"=USER:KUN "G-BILAG" FOR DENNE USREID*/
+/*           DCL        VAR(&PGMR) TYPE(*CHAR) LEN(10)       */
+             RTVJOBA    JOB(&WS) /* Hente arbeidstsjonskode WS */
+             CALL       PGM(INLIBL)
+
+/*********************************************************************/
+/* SKJEKKER FILLAG I LØSNING 1                                       */
+/*********************************************************************/
+             RTVDTAARA  DTAARA(EDIDTA (193 1)) RTNVAR(&BILL1)
+             IF         COND(&BILL1 = 'Y') THEN(DO)
+             CALL       PGM(HR900SY) PARM(&BILL1)
+             IF         COND(&BILL1 = 'J') THEN(DO)
+             RETURN
+             ENDDO
+             ENDDO
+/**********************************************************************/
+             ALCOBJ     OBJ((SYFA35CL *PGM *EXCL) (SYKS35CL *PGM +
+                          *EXCL) (SYFA39 *PGM *EXCL))
+             MONMSG     MSGID(CPF0000) EXEC(DO)
+             SNDBRKMSG  MSG('En annen kjører overføring til regnskap +
+                          eller oppdatering på statistikk  - prøv +
+                          igjen senere') TOMSGQ(&WS)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+             DLCOBJ     OBJ((SYFA35CL *PGM *EXCL) (SYKS35CL *PGM +
+                          *EXCL) (SYFA39 *PGM *EXCL))
+
+             CALL       PGM(SYFAFICL) PARM(&IN01)
+             IF         COND(&IN01 *EQ '1') THEN(DO)
+             SNDBRKMSG  MSG('Du er ikke registrert som bruker i +
+                          økonomisystemet - overføringen er +
+                          avbrutt.') TOMSGQ(&WS)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+
+/*           RTVUSRPRF  GRPPRF(&PGMR)                                  */
+/*           IF         COND(&PGMR *NE QPGMR) THEN(DO)                 */
+/*           SNDBRKMSG  MSG('Du mangler henvisning til gruppeprofil +  */
+/*                        QPGMR. Overføringen er ikke startet.') +     */
+/*                        TOMSGQ(&WS)                                  */
+/*           GOTO SLUTT                                                */
+/*           ENDDO                                                     */
+
+/* FJERN MEMBER FRA ARBEIDSFIL */
+             RMVM       FILE(KOSAL01) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSAL02) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSAF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBL01) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBL02) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+/* LEGG TIL NYTT MEMBER TIL ARBEIDSFIL(FÅR DATO) */
+             ADDPFM     FILE(KOSAF) MBR(&WS)
+             ADDPFM     FILE(KOSBF) MBR(&WS)
+             ADDLFM     FILE(KOSAL01) MBR(&WS) DTAMBRS((KOSAF (&WS)))
+             ADDLFM     FILE(KOSAL02) MBR(&WS) DTAMBRS((KOSAF (&WS)))
+             ADDLFM     FILE(KOSBL01) MBR(&WS) DTAMBRS((KOSBF (&WS)))
+             ADDLFM     FILE(KOSBL02) MBR(&WS) DTAMBRS((KOSBF (&WS)))
+/* OVERRIDE FILE TIL MEMBER (=DSPSTN NAVN.) */
+             OVRDBF     FILE(KOSAF) TOFILE(KOSAF) MBR(&WS)
+             OVRDBF     FILE(KOSAL01) TOFILE(KOSAL01) MBR(&WS)
+             OVRDBF     FILE(KOSAL02) TOFILE(KOSAL02) MBR(&WS) +
+                          FRCRATIO(1) /* N02 */
+             OVRDBF     FILE(KOSBF) TOFILE(KOSBF) MBR(&WS)
+             OVRDBF     FILE(KOSBL01) TOFILE(KOSBL01) MBR(&WS)
+             OVRDBF     FILE(KOSBL02) TOFILE(KOSBL02) MBR(&WS) +
+                          FRCRATIO(1) /* N02 */
+/*                                     */
+/*OPPDATERER STATISTIKK OG REGNSKAP    */
+/*                                     */
+/*                                     */
+/* */
+/* OVERSTYRER SKRIVERFIL                          */
+/* */
+             CALL       PGM(GETPRTB) PARM(&NRBE &PRT110 &PT110)
+             OVRPRTF    FILE(&PRTF) OUTQ(&PRT110) PAGESIZE(48 132) +
+                          CPI(10) OVRFLW(48) +
+                          FORMTYPE(&PT110)
+/*                                                */
+/* HAR KUNDEN ARKIVSYSTEM ???                     */
+/*                                                */
+             CALL       PGM(ARC016) PARM(&JANEI)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             OVRPRTF    FILE(&PRTF) OUTQ(SYARKIV) HOLD(*YES)
+             ENDDO
+
+    /* */
+/* */
+/* KALLER SYFA35 FOR Å OPPDATERE POSTERINGER      */
+/* */
+             CALL       PGM(SYKS35) PARM(&FLAGG)
+/* N02 */    CALL       PGM(SYKS35F)
+/* INGENTING Å OVERFØRE - HOPP UT */
+             IF         COND(&FLAGG *EQ '1') THEN(DO)
+             SNDBRKMSG  MSG('Det finnes ingen poster i +
+                          posteringsfilen til økonomi - overføring +
+                          avbrytes') TOMSGQ(&WS)
+             GOTO       CMDLBL(SLUTT)
+             ENDDO
+/*                                                */
+/* OPPDATERER ARKIV                               */
+/*                                                */
+             IF         COND(&JANEI = 'J') THEN(DO)
+             RTVDTAARA  DTAARA(*LDA (1 2)) RTNVAR(&FIRMA)
+             ADDLIBLE   LIB(IBMENDA)
+             MONMSG     MSGID(CPF0000)
+             CALL PGM(ARK001CL) PARM(&FIRMA &PRTF +
+                          &AAR &PER)
+             RMVLIBLE   LIB(IBMENDA)
+             ENDDO
+/* */
+/* */
+/* KALLER V005NY FOR Å OPPDATERE NATIVE ØKONOMI   */
+/* */
+             DLTOVR     FILE(*ALL)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) VALUE('                 -
+             ')
+             CALL       PGM(VC005KS) PARM(&WS)
+             CALL       PGM(INLIBL)
+/* FJERN EVT. GAMMELT MEMBER FRA KOPI/BACKUPFILER */
+             RMVM       FILE(BACKKSA) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(BACKKSB) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+/* KOPIER INN OVERFØRT MEMBER TIL  BACKUPFILER */
+             CPYF       FROMFILE(KOSAF) TOFILE(BACKKSA) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             CPYF       FROMFILE(KOSBF) TOFILE(BACKKSB) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+/* FJERN MEMBER FRA ARBEIDSFIL */
+             RMVM       FILE(KOSAL01) MBR(&WS)
+             RMVM       FILE(KOSAL02) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSAF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBL01) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBL02) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+/* GJENOPPRETT LDA FRA FØR KJØRINGEN */
+             CHGDTAARA  DTAARA(*LDA (1 1024)) VALUE('                 -
+             ')
+/* */
+             SNDPGMMSG  MSG('Utskrift av dagbok er sendt i jobkø +
+                          QBATCH i bibliotek QGPL')
+
+             SBMJOB     CMD(CALL PGM(SYFA39CL)) JOB(STATOPD) +
+                          JOBD(*USRPRF) JOBQ(SYJOBQAV)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             SIGNOFF    LOG(*LIST)
+             ENDDO
+ SLUTT:      ENDPGM

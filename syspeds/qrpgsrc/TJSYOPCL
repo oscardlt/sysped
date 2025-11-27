@@ -1,0 +1,370 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJSYOPCL MODULE(*LIBL/TJSYOPCL *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    usropn
+     FDOKUFM    IF   E           K DISK    usropn
+     FCARGOF    IF   E           K DISK    usropn
+n04   *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     D USER            S             10
+     D AVD             S              4
+     D OPD             S              7
+     D AVDN            S              4  0
+     D OPDN            S              7  0
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D                 DS
+     D DsDat                   1      8  0
+     D  DsDatÅÅ                1      4  0
+     D  DsDatMM                5      6  0
+     D  DsDatDD                7      8  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input / cvt to numeriC
+     C                   EXSR      Parse
+      * File open / keys
+     C                   EXSR      INIT
+
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(USER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, '
+        +'¬sndn¬ : ¬'+%trim(HXSNDN)+'¬, '
+        +'¬besk¬ : ¬'+%trim(BIBESK)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+     c                   eval      JSONstring ='"dspcolli" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+     c     Error         cabne     *blanks       Utliste
+      *
+      * HOVEDRUTINE
+
+      * A KOLLI-IDS  PÅ LINJE NR 00
+      *   1. Vis liste over stykkgods (IKKE LMindikator = 1)
+     C                   MOVE      *ZEROS        XXLINR
+     C     DokKey        SETLL     DOKUFM
+     C     DokKey        READE     DOKUFM                                 35
+     C     *IN35         DOWEQ     '0'
+     C                   MOVE      ' '           KOLMIN
+     C                   EVAL      KOID = '00'+FMMRK1
+     C     CARGOFKey     CHAIN     CARGOF                             34
+
+     C                   IF        KOLMIN = '1'
+     C                   ADD       1             AntLM1            5 0
+     C                   ELSE
+      *   i denne syklus - kun de uten LM = KOLMIN=0
+     C                   ADD       1             AntLM0            5 0
+     C  n34              MOVE      KOINDT        FMITDT
+     C  n34              MOVE      KOINTI        FMITTM
+     C   34              EXSR      CLEARCF
+     C                   ADD       KOMVKT        SUMVKT           11 3
+     C                   ADD       KOMM3         SUMM3            11 3
+     C                   ADD       KOMLM         SUMLM            11 3
+     C                   EXSR      Setrow
+     C                   CALLP     wrtsection('row')
+     C                   ENDIF
+
+     C     DokKey        READE     DOKUFM                                 35
+     C                   END
+
+     C     ANTLM0        IFGT      1
+     C     BIKUNR        ORNE      *zeros
+     C                   EXSR      SetrowSum
+     C                   CALLP     wrtsection('row')
+     C                   ENDIF
+
+     C     ANTLM1        IFGT      0
+      *   2. Vis liste over LM-gods  (LMindikator = 1)
+     C     DokKey        SETLL     DOKUFM
+     C     DokKey        READE     DOKUFM                                 35
+     C     *IN35         DOWEQ     '0'
+     C                   MOVE      ' '           KOLMIN
+     C                   EVAL      KOID = '00'+FMMRK1
+     C     CARGOFKey     CHAIN     CARGOF                             34
+
+      * i denne syklus - kun de med LM = KOLMIN=1
+     C     KOLMIN        IFEQ      '1'
+     C  n34              MOVE      KOINDT        FMITDT
+     C   34              MOVE      KOINTI        FMITTM
+     C   34              EXSR      CLEARCF
+     C                   MOVE      'J'           LMsyklus          1
+     C                   EXSR      Setrow
+     C                   ENDIF
+
+     C     DokKey        READE     DOKUFM                                 35
+     C                   END
+
+     C                   EXSR      SetrowSum
+
+     C                   ENDIF
+
+      * B VARELINJER/GODSMERKING  PÅ LINJE NR 01 ->
+     C                   EXSR      CLEARCF
+     C                   Z-ADD     1             XXLINR
+     C     DokKey        SETLL     DOKUFM
+     C     DokKeyE       READE     DOKUFM                                 35
+     C     *IN35         DOWEQ     '0'
+     C                   EVAL      KOID = FMMRK1
+     C                   EXSR      Setrow
+     C     DokKeyE       READE     DOKUFM                                 35
+     C                   ENDDO
+     c     Utliste       tag
+      * Skriv JSON-Liste/Array  Avslutning  array
+     c                   eval      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * Skriv JSON-string Avsluttning fil
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+     C                   callp     wrtsection('*fini')
+
+     C                   EXSR      Exit
+      *********************************************
+     C     CLEARCF       BEGSR
+      *********************************************
+     C                   CLEAR                   KOMVKT
+     C                   CLEAR                   KOMLEN
+     C                   CLEAR                   KOMBRE
+     C                   CLEAR                   KOMHØY
+     C                   CLEAR                   KOMM3
+     C                   CLEAR                   KOMLM
+     C                   CLEAR                   KOLMIN
+     C                   CLEAR                   KOPATH
+     C                   ENDSR
+      *
+      *=====================================================================
+      * Parse input / cvt to numeriC
+      *=====================================================================
+     C     Parse         BEGSR
+     C                   EVAL      AVD   = zhbgetvar('AVD')
+     C                   EVAL      AVDN  = c2n2(AVD)
+     C                   EVAL      OPD   = zhbgetvar('OPD')
+     C                   EVAL      OPDN  = c2n2(OPD)
+     C                   EVAL      USER  = zhbgetvar('USER')
+     C                   ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     DOKUFM
+     C  N50              CLOSE     CARGOF
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDSR
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        BEGSR
+      * Forkort inndato/tid
+     C                   EVAL      DSdat  =FMITDT
+     C                   MOVEL     DsDatDD       WKOINDT4          4 0
+     C                   MOVE      DsDatMM       WKOINDT4
+     C                   MOVEL     FMITTM        WKOINTI4          4 0
+      * Forkort Utdato/tid
+     C                   EVAL      DSdat  =FMUTDT
+     C                   MOVEL     DsDatDD       WKOUTDT4          4 0
+     C                   MOVE      DsDatMM       WKOUTDT4
+     C                   MOVEL     FMUTTM        WKOUTTI4          4 0
+
+     C                   MOVE      *zeros        FVEKT             9 0
+     C                   IF        LMsyklus = 'J'
+     C                   MOVE      *zeros        FVLM              9 0
+      * dersom KUNDE pålogget (annet enn NN mm / passord blank) beregn Fvekt pr kolli ??
+     C                   IF        BIKUNR<>0
+     C                   EVAL      FVLM = KOMLM * 2000
+     C                   EVAL      Fvekt= KOMVKT
+     C                   IF        FVLM > Fvekt
+     C                   EVAL      Fvekt= FVLM
+     C                   ENDIF
+     C                   ADD       Fvekt         SumFvekt         11 3
+     C                   ENDIF
+     C                   ENDIF
+      * finnes Bilde 1
+     C                   EVAL      ubane='/syspeddev/clid/'+KOID
+     C                             +'-0.jpg'
+     C                   CALL      'BHRURLCL'
+     C                   PARM                    ubane            70
+     C                   PARM                    Bilde1            1
+     C                   MOVE      *blanks       Bilde1U         256
+     C                   IF        Bilde1 = 'J'
+     C                   EVAL      Bilde1U=%trim(ubane)
+     C                   ENDIF
+      * finnes Bilde 2
+     C                   EVAL      ubane='/syspeddev/clid/'+KOID
+     C                             +'-1.jpg'
+     C                   CALL      'BHRURLCL'
+     C                   PARM                    ubane            70
+     C                   PARM                    Bilde2            1
+     C                   MOVE      *blanks       Bilde2U         256
+     C                   IF        Bilde2 = 'J'
+     C                   EVAL      Bilde2U=%trim(ubane)
+     C                   ENDIF
+     C                   Add       1             AntLest
+
+
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+        +'¬koid¬ : ¬'+%trim(KOID)+'¬, '
+        +'¬inndt¬ : ¬'+%trim(%editc(FMITDT:'Z'))+'¬, '
+        +'¬innti¬ : ¬'+%trim(%editc(FMITTM:'Z'))+'¬, '
+        +'¬utdt¬ : ¬'+%trim(%editc(FMUTDT:'Z'))+'¬, '
+        +'¬utti¬ : ¬'+%trim(%editc(FMUTTM:'Z'))+'¬, '
+        +'¬komlen¬ : ¬'+%trim(%editc(KOMLEN:'Z'))+'¬, '
+        +'¬kombre¬ : ¬'+%trim(%editc(KOMBRE:'Z'))+'¬, '
+        +'¬komhoy¬ : ¬'+%trim(%editc(KOMHØY:'Z'))+'¬, '
+        +'¬komvkt¬ : ¬'+%trim(%editc(KOMVKT:'4'))+'¬, '
+        +'¬komm3¬ : ¬'+%trim(%editc(KOMM3:'4'))+'¬, '
+        +'¬komlm¬ : ¬'+%trim(%editc(KOMLM:'4'))+'¬, '
+        +'¬fvekt¬ : ¬'+%trim(%editc(FVEKT:'Z'))+'¬, '
+        +'¬bilde1u¬ : ¬'+%trim(BILDE1U)+'¬, '
+        +'¬bilde2u¬ : ¬'+%trim(BILDE2U)+'¬, '
+        +'¬sumvkt¬ : ¬'+%trim(%editc(SUMVKT:'4'))+'¬, '
+        +'¬summ3¬ : ¬'+%trim(%editc(SUMM3:'4'))+'¬, '
+        +'¬sumlm¬ : ¬'+%trim(%editc(SUMLM:'4'))+'¬, '
+        +'¬sumfvekt¬ : ¬'+%trim(%editc(SUMFVEKT:'Z'))+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     C                   ENDSR
+      ******************************************
+     C     SetrowSum     BEGSR
+      ******************************************
+
+     C                   MOVE      *zeros        FVEKT             9 0
+     C                   MOVE      *zeros        FVM3              9 0
+     C                   MOVE      *zeros        FVLM              9 0
+      * dersom KUNDE pålogget (annet enn NN mm / passord blank) beregn Fvekt pr kolli ??
+     C                   IF        LMsyklus = 'J'
+     C                   EVAL      FVEKT = SumFvekt
+     C                   ELSE
+     C                   IF        BIKUNR<>0
+     C                   EVAL      FVM3 = SUMM3 * 286
+     C                   EVAL      FVLM = SUMLM * 2000
+     C                   EVAL      Fvekt= SUMVKT
+     C                   IF        FVM3 > Fvekt
+     C                   EVAL      Fvekt= FVM3
+     C                   ENDIF
+     C                   IF        FVLM > Fvekt
+     C                   EVAL      Fvekt= FVLM
+     C                   ENDIF
+     C                   EVAL      SumFvekt = FVEKT
+     C                   ENDIF
+     C                   ENDIF
+
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   END
+      * hent Parametre som går igjen i mange prog:
+     C                   CALL      'ESGETPAR'
+     C                   PARM                    BIBRID
+     C                   PARM                    BIFIRM
+     C                   PARM                    BIKUNR
+     C                   PARM                    BIKNG
+     C                   PARM                    RowHead          10
+     C                   PARM                    Odd              10
+     C                   PARM                    Even             10
+     C                   PARM                    LogoImg          50
+     C                   PARM                    XSPRÅK            2
+     C                   PARM                    XINTERN           1
+     C                   PARM                    PARMDS1        1024
+     C                   PARM                    PARMDS2        1024
+     C                   PARM                    PARMDS3        1024
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      DOKUFM
+     C  N50              OPEN      CARGOF
+
+     C     DOKKEY        KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C                   KFLD                    XXFBNR            3 0
+     C                   KFLD                    XXLINR            2 0
+     C                   MOVE      'F'           FMRI
+     C                   MOVE      001           XXFBNR
+     C     DOKKEYE       KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C                   KFLD                    XXFBNR
+     C     CARGOFKey     KLIST
+     C                   KFLD                    KOID
+     C                   KFLD                    KOTERM
+     C                   IF        AVDN >8000
+     C                   EVAL      KOTERM = 'OSL'
+     C                   ELSE
+     C                   EVAL      KOTERM = 'DRA'
+     C                   ENDIF
+     C     HeaKey        KLIST
+     C                   KFLD                    AVDN
+     C                   KFLD                    OPDN
+     C  N50Heakey        CHAIN     Headf
+      * HENT OVER EVT BILDER FRA CARGOSCAN BILDESERVER
+      * vil måttet hardkodes fra case til case (i første omgangs:=) se hos Ramberg
+     C                   MOVE      AVDN          AVD
+     C                   MOVE      OPDN          OPD
+OBS   *                  CALL      'CARGOIMGC'
+OBS   *                  PARM                    AVD
+OBS   *                  PARM                    OPD
+     C                   ENDSR

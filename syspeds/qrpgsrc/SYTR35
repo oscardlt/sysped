@@ -1,0 +1,1388 @@
+      *
+      *
+      **   OG IBM REGNSKAPSSYSTEM   INTERNPOSTERINGER
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 V10-7 lang-feil rettet (kjør V10V10RE114 ) OGSÅ SYFI10X/SYTR35 !!!!
+      * 02 jov PTF10 Fjernet motavd fra slutten av FAVT - meningsløst ???
+      * 03 SH  PTF10 tar gammel serie hvis ikke lagt inn
+********************************************************************
+      *
+      **
+      ** A:UNDEROPPDRAG ("DUP") BELASTER DET OVERORDNEDE OPPDRAGET (OG
+      **   DERMED OGSÅ AVDELING) FOR DEN AVTALTE INTERNPRISEN
+      **   (NETTOPRIS + PROVISJON FOR Å GI INNTEKT OGSÅ TIL UTFØRENDE)
+      **   DET OVERORDNEDE OPPDRAGET KAN GJERNE OGSÅ VÆRE ET INTERN-
+      **   OPPDRAG, SOM IGJEN BELASTER SITT OVERORDNEDE ("DUP PÅ DUP")
+      ** B:INTERNLINJER TASTET INN PÅ HOVEDOPPDRAGET.
+      **   BRUKES NÅR INTERNE TJENESTER SOM IKKE MEDFØRER DUPOPPDRAG
+      **   SKAL AVREGNES MELLOM AVDELINGENE (F. EKS INTERN FORTOLLING,
+      **   TERMINAL....)
+      **   "DEBET" MOTLINJE LEGGES PÅ DUMMY OPPDRAG NR 0 PÅ DEN AVD.
+      **   SOM GODSKRIVES. (DETTE SÅ QUERIES SKAL GI RIKTIG AVD.TALL)
+      **   DET NORMALE ER AT DEN AVDELINGEN SOM HAR UTFØRT TJENESTEN
+      **   GÅR INN PÅ OPPDRAGET (SOM TILHØRER EN ANNEN) OG TAR INN SINE
+      **   PENGER PÅ DEN MÅTEN. FOR AT OPERATØRENE SKAL SLIPPE Å HUSKE
+      **   Å SETTE MINUS VED SLIKE TREKK ER DET NORMALT Å SETTE EN
+      **   PARAMETER "SNU" TIL "J" (I REG. FOR VAREKODERS INTERNKONT.)
+      **   OPERATØREN SLÅR DA ALLTID POSITIVE BELØP - ENTEN DET ER
+      **   SNAKK OM DEBITERING PÅ EGNE DUPOPPDR. ELLER TREKKE FRA ANDRE
+      **
+      ** OBS! REGISTERET FOR VAREKODERS INTERNKONTERING INNEHOLDER
+      **      KONTO FRA/KONTO TIL SLIK AT DET OGSÅ KAN BRUKES TIL REN
+      **      KONTOFLYTTING INNEN SAMME AVD (UTTREKK AV DØR-DØR PRIS??)
+      **      I DET TILFELLE LEGGES MOTLINJE PÅ SAMME OPPDRAGS.NR
+      *****************************************************************
+      *
+     H DATEDIT(*DMY)
+     FKODIL01   IF   E           K DISK
+     FKODJL01   IF   E           K DISK
+     FTURER     IF   E           K DISK
+     FTRAB      IF   E           K DISK
+     FTRAN      IF   E           K DISK
+     FFIRMTEL   UF A E           K DISK
+     FKONTL01   IF   E           K DISK
+     FFAKT      UF A E           K DISK
+     FFAK5      IF   E           K DISK
+     F                                     RENAME(FAKTR:FAKTR5)
+     FPOSTB1    UF A E           K DISK
+     FPOSTA1    UF A E           K DISK
+     FKODTÅ     IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FKODTV     IF   E           K DISK
+     FKODTGE    IF   E           K DISK
+     FKODTG2    IF   E           K DISK
+     FKODTGI    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRTR     IF   E           K DISK
+     FNUMML01   UF   E           K DISK                                         X010
+     FSYSRL01   UF   E           K DISK                                         X010
+     FHEADF     UF   E           K DISK
+     FDISP      IF   E           K DISK
+     FSYTR35P   O    F  132        PRINTER OFLIND(*INOF)
+      *
+     D                 DS
+     D  BILAAR                 1      4  0
+     D  BILMND                 5      6  0
+     D  BILDAG                 7      8  0
+     D  IBMDAT                 1      8  0
+     D                UDS
+     D  UFIRMA                 1      2
+     D*--------------------------------------------------------------
+     D* DEFINERER DATASTRUKTURER
+     D*--------------------------------------------------------------
+     D                 DS
+     D  MINPER                 1      6  0
+     D  KOÅCC                  1      2  0
+     D  KOÅÅR                  3      4  0
+     D  KOÅMND                 5      6  0
+     D                 DS
+     D  KNAVN                  1     30
+     D  KNAV18                 1     18
+     D                 DS
+     D  KGENOT                 1     20
+     D  UTL11                  1     11
+     D                 DS
+     D  KGEKON                 1      5  0
+     D  FKONTO                 1      5  0
+     D  SKONTO                 1      5  0
+     D                 DS
+     D  SEKSPN                 1     11  0
+     D  HEAVD                  1      4  0
+     D  PROPD                  5     11  0
+     D*** KG2XX I KODETGE ER TATT I BRUK        23/11-89
+     D*** 4 FØRSTE POSISJON PÅ KG2LEV I KODETGE ER TATT I BRUK
+     D*** SOM PROSENT SATS MEN KG2LEV ER IKKE I BRUK NÅ
+     D                 DS
+     D  KG2LEV                 1      8  0
+     D  KG2PRO                 1      4  4
+     D  KG2BÆR                 5      8  0
+     D                 DS
+     D  FADOCN                 1     11
+s01  D* FADOCN6_10             6     10
+N01  D  FADOCN5_11             5     11
+     D                 DS
+     D  BILTX2                 1     15
+     D  FAVK                   1      3
+     D  SEKSP2                 4     14  0
+     D* HESG                  15     17
+     D                 DS
+     D  TUSONF                 1      5
+     D  TULANF                 1      2
+     D                 DS
+     D  TUSONT                 1      5
+     D  TULANT                 1      2
+     D                 DS
+     D  HEDTOP                 1      8  0
+     D  HEDTÅ                  1      4  0
+     D  HEDTM                  5      6  0
+     D  HEDTD                  7      8  0
+      *
+      * initiering
+      *
+     C                   exsr      init
+      *
+      *PRINTER HEADING
+      *
+     C                   EXCEPT    PHEAD
+     C                   SETOFF                                       33
+     C                   MOVE      'G'           XXOPKO
+     C                   MOVE      'I'           XXSK
+     C*
+     C     KEYFA5        SETLL     FAK5
+     C*
+     C     STAFIR        TAG
+      *
+      * LESER FAKTURTE FAKTURALINJER av type I merket med G
+      *
+     C     KEYFA5        READE     FAK5                                   33
+     C   33              GOTO      SLUTT
+      *
+      *
+      * HAR FUNNET EN I-LINJE SOM SKAL OVERFØRES TIL REGNSKAP
+      * HENT INN DATA FRA BÅDE HOVEDOPPDRAG OG UNDEROPPDRAG FOR Å
+      * KUNNE TREKKE/GODSKRIVE DE TO PARTENE SOM (KAN) INNGÅR
+      *
+     C                   MOVE      FALI          FALIQ
+     C                   MOVE      FAAVD         FAAVDQ
+     C                   MOVE      FAOPD         FAOPDQ
+     C*
+     C     HEAKEY        CHAIN     HEADF                              33
+     c  N33HEUR          IFNE      'H'
+     C     TRSLAG        ANDEQ     *BLANKS
+     C                   MOVE      'HO'          TRSLAG
+     C                   END
+     C                   MOVE      *zeros        WSIAVD            4 0
+     C                   MOVE      *zeros        WSIOPD            7 0
+      * Dersom belastning mot annet oppdrag direkte fra I-linje simuler at I-linja
+      * ligger på UNDEROPPDRAG
+     c     FAAVDR        ifne      *zeros
+s01  c*    FADOCN6_10    andne     *blanks
+N01  c     FADOCN5_11    andne     *blanks
+s01  C*                  TESTN                   FADOCN6_10           34
+N01  C                   TESTN                   FADOCN5_11           34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      FAAVDR        WSIAVD
+S01  C*                  MOVE      FADOCN6_10    WSIOPD
+N01  C                   MOVE      FADOCN5_11    WSIOPD
+     C                   MOVE      'UN'          TRSLAG
+     c                   end
+     c                   end
+      *
+      * KRAV OM AVDELING.....
+     C* HENTER AVDELINGSOPPLYSNINGER OM STED/BÆRER-KONTERING
+      *
+      * test ved prosjektnummer lik  0
+      *
+     C     HEPRO         IFEQ      *ZEROS
+     C                   MOVEL     'V'           KOVUNI
+     C                   MOVE      FAAVD         KOVAVD
+     C     KODVKE        CHAIN     KODTV                              11
+     C     KOVPRO        IFEQ      'J'
+     C                   UPDATE    HEADFR
+     C                   GOTO      STAFIR
+     C                   END
+     C                   END
+     C*
+     C     TRSLAG        IFNE      'HO'
+     C     TRSLAG        andne     'UN'
+     C                   MOVE      'O'           HEST
+     C                   END
+     C                   UPDATE    HEADFR
+      *
+      *
+     C     HEAKEY        CHAIN     DISP                               34
+     C  N34TURKEY        CHAIN     TURER                              34
+     C  N34              MOVE      TURUND        HEPRO             8 0
+     C  N34              MOVE      TUBILK        VABILK            3
+     C  N34              MOVE      TUBILK        STBILK            3
+     C   34              MOVE      *ZEROS        HEPRO             8 0
+     C   34              MOVE      FAVK          VABILK            3
+     C   34              MOVE      FAVK          STBILK            3
+      *
+      * VELGER AVSENDER/MOTTAKERS FAKTURAMOTTAGER
+      *
+     C     HEKNKF        IFNE      *ZEROS
+     C                   MOVE      HEKNKF        KUNDHO            8 0
+     C                   ELSE
+     C                   MOVE      HEKNSF        KUNDHO
+     C                   END
+     C*
+     C* HENTER HOVEDOPPDRAG HVIS DUPLIKATOPPDRAG
+     C*
+     C     TRSLAG        IFEQ      'FF'
+     C     TRSLAG        OREQ      'VF'
+     C     TRSLAG        OREQ      'UN'
+     C     TRSLAG        ifeq      'UN'
+     C                   MOVE      WSIAVD        TRAVD0
+     C                   MOVE      WSIOPD        TROPD0
+     C                   end
+     C                   exsr      under
+     C                   ELSE
+     C                   EXSR      HOV
+     C                   END
+      *
+      *
+     C   33              GOTO      STAFIR
+     C*
+     C* KALLER OPPDATERINGSRUTINEN FOR IBMPOSTERING
+     C*
+     C                   EXSR      HOVED
+      *
+      * NÅ ER BÅDE POST/MOTPOST OPPDATERT. (FØRST POST SÅ MOTPOST)
+      * NØDV. DATA FOR OPPDAT./ SKAPE NY ER BEVART I VARIABLENE:
+      *        LEST LINJE :            LINJE SOM SKAL SKAPES:
+      *                                       MOTAVD
+      *        GMLKTO                         FKONTO
+      *        GMLKON                         KOAKON
+      *        GMLBÆR                         KOABÆR
+      *
+      * OPPDATERER FAKTURAREGISTER
+      *
+     C     KEYFAK        CHAIN     FAKT                               33
+     C     BRBELN        IFNE      *ZEROS
+     C                   Z-ADD     FABELN        FABELU
+     C                   Z-ADD     BRBELV        FABELV
+     C                   Z-ADD     BRBELN        FABELN
+     C                   END
+      *
+      * STATUS T - INNGÅ I STAT-OPPDATERING
+      *
+     C                   MOVE      'T'           FAOPKO
+     C     TRSLAG        IFEQ      'HO'
+     C                   MOVE      KUNDHO        FAKUNR
+     c* når ikke transportdisponering gåes via avdelingens kundenummer i statistikk
+     C     HEUR          IFNE      'H'
+     C                   MOVE      KOAKNR        FAKUNR
+     C                   END
+     C                   ELSE
+     C                   MOVE      KUNDDU        FAKUNR
+s02  c*    TrSlag        ifne      'UN'
+s02  C*                  MOVE      MOTAVD        FAVT
+s02  C*                  end
+     C                   END
+     C                   Z-ADD     BILNR         FAFAKT
+     C                   MOVE      FIJOU3        FAJOUR
+     C                   MOVEL     SÅR           FACC
+     C                   MOVE      SÅR           FAÅR
+     C                   MOVE      SMND          FAMND
+     C                   Z-ADD     IBMDAT        FADATO
+     C                   MOVE      GMLKON        FAAVDR
+     C                   MOVE      GMLBÆR        FABÆR
+     C                   MOVE      GMLKTO        FAACCN
+      *
+      * SNUR BELØP VED HOVEDOPPDRAG
+      *
+     C     TRSLAG        IFEQ      'HO'
+     C     KGIBYT        ANDNE     'N'
+     C                   Z-SUB     FABELN        FABELN
+     C                   Z-SUB     FABELV        FABELV
+     C                   Z-SUB     FABELU        FABELU
+     C                   END
+     c     TrSlag        ifeq      'UN'
+     C                   MOVEL     WSIAVD        FADOCN
+S01  C*                  MOVE      'T'           FADOCN                         Til / mot ...
+     C                   end
+      *
+      * OPPDATERER
+      *
+     C  N33              UPDATE    FAKTR
+      *
+      *
+      * VED DUPOPPDRAG LEGGER UT MOTPOST PÅ HOVED OPPDRAG("OVERORDNET")
+      *(= BELASTNING PÅ HOVEDOPPDRAG (->PÅ FAKTURAMOTTAKER HOVEDOPPDR.)
+      *
+      *
+     C     TRSLAG        IFEQ      'FF'
+     C     TRSLAG        OREQ      'VF'
+     C     TRSLAG        OREQ      'UN'
+     C                   exsr      UNDMOT
+     C                   END
+      *
+      *
+      *  FLYTTER DUMMY-POST VED HOVEDOPPDRAG GENERELLT TIL MOTAVDELING
+      *  HVIS INNEN SAMME AVD. (REN KONTOFLYTT): MOTLINJE PÅ SAMME OPPD
+      *  ULIK AVD: MOTLINJE PÅ OPPDNR 0 (FOR BALANSE VED F.EKS QUERY)
+      *
+     C     TRSLAG        IFEQ      'HO'
+     c                   exsr      HOVMOT
+     C                   END
+      **
+     C                   GOTO      STAFIR
+      **
+     C     SLUTT         TAG
+     C                   EXCEPT    TOTGRA
+      *
+      *
+      * GETS TOTALS FOR THIS FIRM
+     C                   EXSR      TOTSR
+     C*
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C******************************************
+     C     GETSUR        BEGSR
+     C******************************************
+      *
+      * HENT NYTT SURRUGATNR - FRA SYSRF LEGG I "POSLNR"
+      *
+      *
+     C     SYSRKE        CHAIN     SYSRL01                            30
+     C  N30              ADD       1             SISSGT
+     C  N30              UPDATE    SYSRR
+     C                   Z-ADD     SISSGT        POSLNR
+     C                   ENDSR
+     C*
+     C******************************************
+     C     HENTBI        BEGSR
+     C******************************************
+     C*
+     C                   MOVE      'BILS'        NOK1              4
+     C                   MOVE      '    '        NOK2              4
+     C     NUMMKY        CHAIN     NUMML01                            61
+N03  C     *IN61         IFEQ      '1'
+N03  C                   EXSR      GMLNUM
+N03  C                   END
+     C                   ADD       1             SBNRNU
+     C  N61              DO
+     C                   UPDATE    NUMMR
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      SBNRNU        BILNR
+     C                   MOVE      SÅR           PERAAR
+     C                   MOVE      SMND          PERNR
+     C                   MOVE      *BLANKS       VALKOD
+     C                   WRITE     POSAR
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+N03  C******************************************
+N03  C     GMLNUM        BEGSR
+N03  C******************************************
+N03  C     *LIKE         DEFINE    SÅR           TMPÅR
+N03  C                   MOVE      SÅR           TMPÅR
+N03   *
+N03  C     SÅR           DOWGT     2002
+N03  C                   SUB       1             SÅR
+N03  C     NUMMKY        CHAIN     NUMML01                            61
+N03  C  N61              LEAVE
+N03  C                   END
+N03   *
+N03  C                   MOVE      TMPÅR         SÅR
+N03  C                   ENDSR
+     C*
+     C*
+     C*
+     C******************************************
+     C     AVDSR         BEGSR
+     C******************************************
+     C*
+     C* HENTER AVDELINGSOPPLYSNINGER OM STED/BÆRER-KONTERING
+     C                   MOVEL     'A'           KOAUNI
+     C                   MOVE      FAVD          KOAAVD
+     C     KODAKE        CHAIN     KODTA                              11
+     C*
+     C     KGSTBÆ        CHAIN     KODTG2                             11
+     C  N11KG2AVD        IFNE      *ZEROS
+     C                   MOVE      KG2AVD        KOAKON
+     C                   END
+     C  N11KG2BÆR        IFNE      *ZEROS
+     C                   MOVE      KG2BÆR        KOABÆR
+     C                   END
+     C*
+     C*
+     C                   ENDSR
+      *
+     C**************************************************************************
+     C     HOVED         BEGSR
+     C**************************************************************************
+      *
+      * SETTER PERIODE
+      *
+     C                   EXSR      SETTPER
+      *
+      *-----------------------------------------
+      * OPPDTARERER REGNSKAP
+      *-----------------------------------------
+      *
+     C                   Z-ADD     SMND          PMN               2 0
+      *
+      * SKJEKK OM DENNE MÅNED HAR BILAGSNR
+      *
+     C                   MOVE      SÅR           YYÅR
+     C                   Z-ADD     SMND          YYMND
+     C     KEYBI         CHAIN     POSTA1                             44
+     C   44              EXSR      HENTBI
+     C  N44              MOVE      BILNR         SBNRNU
+      *
+      * VIA GEBYRKODE FINN UT OM DETTE ER ET "AVREGN.GEBYR" TYPE T
+      * I SÅ FALL SKAL "BILKODEN" BENYTTES SOM VAREKODE
+      * (I DE TILFELLENE VIL KODTGI'S "BILKODE" (3.FELT I KEY) IKKE
+      *  HA NOEN BETYDNING (ALLTID LIK "GEBYRKODEN"))
+      *
+     C     GEBKEY        CHAIN     KODTGE                             11
+     C  N11GEBKE2        CHAIN     KODTG2                             11
+     C  N11              MOVE      FAVK          KEYGEB                          *FOR KODTGI
+     C  N11              MOVE      VABILK        KEYGE2                          *FOR KODTGI
+     C  N11              MOVE      FAVK          XXVK                            *AVVIK.STED
+      *
+      * VED AVREGNINGSKODE T HENT BILKODENS KONTERING
+      *
+     C     HEUR          IFEQ      'H'
+     C     KGEAVR        IFEQ      'T'
+     C  N11              MOVE      VABILK        TUBILK                          *FOR KODTGE
+     C  N11              MOVE      VABILK        KEYGEB                          *FOR KODTGI
+     C  N11              MOVE      VABILK        KEYGE2                          *FOR KODTGI
+     C  N11              MOVE      VABILK        XXVK                            *AVVIK.STED
+     C  N11GEBKE3        CHAIN     KODTGE                             11
+     C  N11GEBKE4        CHAIN     KODTG2                             11
+     C                   END
+     C                   END
+      *
+      *
+      *HVIS GEBYRERT ER BORTE BENYTTES KONTO 99999
+      *
+     C   11              DO
+     C                   MOVE      99999         KGIINT
+     C                   MOVE      99999         KGIKOS
+     C                   MOVE      99999         KG2KON
+     C                   MOVE      'N'           KGEUTL
+     C                   MOVE      'N'           KGEFRA
+     C                   MOVE      'J'           KGEPR
+     C                   MOVE      *ZEROS        KGEUTK
+     C                   MOVE      *ZEROS        KG2AVD
+     C                   MOVE      *ZEROS        KG2BÆR
+     C                   END
+      *
+      *
+      * HAR ALLTID LEST EN I LINJE.....
+      *
+      * DERSOM DET ER ET HOVEDOPPDRAG SOM ER LEST VIL DET VÆRE
+      *     SNAKK OM EN OVERFØRING AV BELØP (DELER AV EN DØRDØR-FRAKT?)
+      *     TIL EN ANNEN AVDELING.OG ELLER EN ANNEN KONTO.
+      *     OM ØNSKELIG KAN DET PÅ VISSE GEBYR VÆRE SATT SNU-KODE='J"
+      *     DET BETYR AT EN, AV MAKELIGHETSHENSYN, ØNSKER Å SLÅ INN
+      *     TREKKENE MED POSITIVT FORTEGN PÅ OPPDRAGET.
+      *     NÅR HELE OPERASJ. INKL. OVERF. TIL REGNSK. ER FULLFØRT SKAL
+      *     EN ENDE OPP MED AT HOVEDOPPDR. HAR EN "MINUSLINJE" (HVIS
+      *     DET VAR TREKK) MENS ET DUMMY MOTOPPDRAG AVD/OPD:XXXX/00000
+      *     VIL LIGGE MED POSITIVT BELØP.(FOR QUERIER M.M. PÅ AVD.)
+      *
+      * DERSOM DET ER ET UNDEROPPDRAG SOM ER LEST VIL DET VÆRE
+      *     SNAKK OM AT UNDEROPPDRAGET "KREVER ET TREKK AV HOVED.OPPDR"
+      *     VIA V.K./AVD/BILK PÅ DUP.SIDA FINNER EN "GODSKRIV KONTO"
+      *     VIA V.K./AVD/BILK PÅ HOV.SIDA FINNER EN "TREKK FRA KONTO"
+      *
+      *
+      *
+     C     FAAVDR        IFEQ      *ZEROS
+     C                   MOVE      FAAVD         FAAVDR
+     C                   END
+     C                   MOVE      FAAVDR        MOTAVD            4 0
+     C                   MOVE      *ZEROS        BRBELN           15 2
+     C                   MOVE      *ZEROS        BRBELV           15 2
+     C                   MOVE      '   '         DUPOPD            3
+     C                   MOVE      HEOT          PROT              2
+     C                   MOVE      HEOPD         PROPD             7 0
+      *-----------------------------------------------------------
+      * I-LINJE PÅ HOVEDOPPDRAG ER LEST (FLYTT DELER TIL ANNEN AVD.)
+      * (Det er IKKE noe DUP-oppdrag inne i bildet - kun ANNEN AVD.)
+      *-----------------------------------------------------------
+      *
+      * START HOVEDOPPDRAG
+      *
+     C     TRSLAG        IFEQ      'HO'
+      *
+     C                   EXSR      KONTHOV
+     C                   ELSE
+     C                   EXSR      KONTUND
+     C                   END
+     C                   ENDSR
+     C*
+     C******************************************
+     C     IBM           BEGSR
+     C******************************************
+     C*
+     C* HENT OPP STED/BÆRERKONTERING FRA AVD. EVT. OVERSTYRT AV V.KODE
+     C*
+     C                   EXSR      AVDSR
+     C*
+     C* LEGGER OVER DEN AVDELING SOM KONTERES I
+     C* DEN INTERNE SPEDISJONSAVDELING
+     C*
+     C                   MOVE      *ZEROS        PRIPRO            8 0
+     C                   MOVE      'H'           IBMTYP            1
+     C*
+     C*
+     C                   MOVE      FKONTO        WKONTO
+     C     KONTKE        CHAIN     KONTL01                            66
+     C  N66STEDK         IFEQ      'N'
+     C                   MOVE      *ZEROS        KOAKON
+     C                   END
+     C   66              MOVE      99999         FKONTO
+     C   66              MOVE      *ZEROS        KOAKON
+     C*
+     C* ALLTID MOMSKODE 0 VED INTERNE OVERFØRINGER
+     C*
+     C                   Z-ADD     0             IBMMVA            1 0
+     C     KONTY         IFEQ      'I'
+     C                   Z-ADD     4             IBMMVA
+     C                   END
+     C*
+     C                   MOVE      IBMMVA        SMVA
+     C*
+     C* OPPDATERER REGNSKAP HVIS IKKE BELØP = 0
+     C*
+     C     IBMNOK        IFNE      *ZEROS
+     C*
+     C* VANLIG SUMPOST TIL UTGIFTER
+     C*
+     C                   Z-ADD     SMND          SMNPC
+     C     SKEY          CHAIN     POSTB1                             44
+     C*
+     C* HENTER REGLER FRA KONTOPLAN
+     C*
+     C   44              DO
+     C                   MOVE      FKONTO        WKONTO
+     C     KONTKE        CHAIN     KONTL01                            66
+     C                   ADD       1             IBMPNR
+     C                   EXSR      GETSUR
+     C                   EXSR      SRPOST
+     C                   MOVEL     'SAMLEPOS'    BILTXT
+     C                   MOVE      'T      '     BILTXT
+     C                   MOVE      *ZEROS        PROSNR
+     C                   EXSR      STEBAR
+     C                   EXCEPT    IBMNY1
+     C                   END
+     C  N44              ADD       IBMNOK        BBELOP
+     C  N44              UPDATE    POSBR
+     C*
+     C     UTUTL         TAG
+     C*
+     C*
+     C* SKRIVER UT LISTE OVER POSTERING
+     C*
+     C     IBMNOK        COMP      *ZEROS                             66  66
+     C   OF              EXCEPT    PHEAD
+     C   OF              SETOFF                                       OF
+     C   66              ADD       IBMNOK        TOTDEB           11 2
+     C   66              ADD       IBMNOK        GRADEB           11 2
+     C  N66              ADD       IBMNOK        TOTKRE           11 2
+     C  N66              ADD       IBMNOK        GRAKRE           11 2
+     C                   EXSR      KDTFMT
+     C                   EXCEPT    DET
+     C                   EXSR      KDTFMT
+     C*
+     C                   END
+     C*
+     C*
+     C     UTIBM         ENDSR
+     C******************************************
+     C     SRPOST        BEGSR
+     C******************************************
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      SBNRNU        BILNR
+     C                   Z-ADD     IBMPNR        POSNR
+     C                   MOVE      BILAAR        KRDAAR
+     C                   MOVE      BILMND        KRDMND
+     C                   MOVE      BILDAG        KRDDAG
+     C                   MOVE      SÅR           PERAAR
+     C                   MOVE      SMND          PERNR
+     C                   MOVE      IBMTYP        TYPE
+     C                   MOVE      SEKSPN        SEKSP2
+     C                   MOVE      BILTX2        BILTXT
+     C                   MOVE      FKONTO        KONTO
+     C                   MOVE      KOAKON        KSTED
+     C                   MOVE      KOABÆR        KBARER
+     C                   MOVE      IBMMVA        MOMSK
+     C                   Z-ADD     IBMNOK        BBELOP
+     C                   Z-ADD     HEPRO         PROSNR
+     C                   MOVE      'J'           OPDKOD
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KDTFMT        BEGSR
+     C***********************************************
+     C     IBMDAT        IFNE      0
+     C                   MOVE      BILDAG        UDT1              2 0
+     C                   MOVE      BILMND        UDT2              2 0
+     C                   MOVE      BILAAR        UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          BILDAG
+     C                   MOVE      UDT2          BILMND
+     C     UDT3          IFGT      50
+     C     UDT3          ADD       1900          BILAAR
+     C                   ELSE
+     C     UDT3          ADD       2000          BILAAR
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     TOTSR         BEGSR
+     C***********************************************
+     C                   SETOFF                                       33
+     C     *LOVAL        SETLL     POSTB1
+     C     TOTTAG        TAG
+     C                   READ      POSTB1                                 33
+     C  N33              DO
+     C     BBELOP        IFGT      *ZEROS
+     C                   ADD       BBELOP        DEBTOT           11 2
+     C                   ELSE
+     C                   ADD       BBELOP        KRETOT           11 2
+     C                   END
+     C                   GOTO      TOTTAG
+     C                   END
+     C                   EXCEPT    DEBKRE
+     C   OF              EXCEPT    PHEAD
+     C                   EXCEPT    PNYBIH
+     C     *LOVAL        SETLL     POSTA1
+     C     LESA1         TAG
+     C                   READ(N)   POSTA1                                 33
+     C  N33
+     CAN OF              EXCEPT    PHEAD
+     C  N33              MOVE      PERAAR        PERAA2            2 0
+     C  N33              EXCEPT    PNYBI
+     C  N33              GOTO      LESA1
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     PROV          BEGSR
+     C***********************************************
+      * ER BRUTTO DUPPRISING BENYTTET - IKKE PROVISJONSPÅSLAG.
+      * (NÅ HARDKODET TIL N=NETTO, BØR KUNNE SETTES PÅ FIRMANIVÅ,)
+      *  KANSKJE PÅ TRANSAKSJONSNIVÅ / AVDELINGSNIVÅ???)
+     C                   MOVE      'N'           FIBRNT            1
+     C     FIBRNT        IFEQ      'B'
+     C                   GOTO      ENDPRO
+     C                   END
+     C     TRABK         SETLL     TRAB
+     C     YYTNR         READE     TRAB                                   37
+     C     *IN37         DOWEQ     '0'
+     C     YYTNR         IFEQ      *ZEROS                                       KUN VED GENERELL..
+     C     TBTKAT        ANDNE     *BLANKS                                      *KATEGORI
+     C     TBTKAT        ANDNE     VMTKAT                                       (MEDLEM/IKKE
+     C                   GOTO      NESTE                                         M.M....)
+     C                   END
+     C     TBUNIT        IFNE      *BLANKS                                      KUN BILNR...
+     C     TBUNIT        ANDNE     TUBILN
+     C                   GOTO      NESTE
+     C                   END
+     C     TBAVD         IFNE      *ZEROS                                       KUN AVDELING..
+     C     TBAVD         ANDNE     FAAVD
+     C                   GOTO      NESTE
+     C                   END
+     C     TBGEB         IFNE      *BLANKS                                      KUN GEBYR...
+     C     TBGEB         ANDNE     FAVK
+     C                   GOTO      NESTE
+     C                   END
+     C     TBLK          IFNE      *BLANKS                                      KUN LANDKODE..
+     C     TBLK          ANDNE     HELKA                                            FRA
+     C     TBLK          ANDNE     HETRI                                            TIL
+     C                   GOTO      NESTE
+     C                   END
+     C     TBOPTY        IFNE      *BLANKS                                      KUN BILNR...
+     C     TBOPTY        ANDNE     HEOT
+     C                   GOTO      NESTE
+     C                   END
+     C     TBVKTT        IFNE      *ZEROS                                       KUN Vekt T.o.m..
+     C     TBVKTT        ANDLT     HEFBV
+     C                   GOTO      NESTE
+     C                   END
+     C     TBDATE        IFLT      TUDT                                         UTLØPT DATO...
+     C                   GOTO      NESTE
+     C                   END
+     C* OK!! - Er gjennom alle testene - gyldig prov.linje er funnet.....
+     C                   GOTO      ENDPRO
+     C***
+     C* Kommer hit når ett av vilkårene ikke ble oppfylt
+     C     NESTE         TAG
+     C     YYTNR         READE     TRAB                                   37
+     C  N37              END
+     C*
+     C     ENDPRO        ENDSR
+     C*
+     C***********************************************
+     C     STEBAR        BEGSR
+     C***********************************************
+     C     KODIKE        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    KBARER
+     C     KODJKE        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    KSTED
+     C                   MOVE      *BLANKS       GRKOPO
+     C                   MOVE      *BLANKS       GRKODE
+     C     KBARER        IFNE      *ZEROS
+     C     KODIKE        CHAIN     KODIL01                            22
+     C  N22              MOVE      GRKOTI        GRKOPO
+     C                   END
+     C     KSTED         IFNE      *ZEROS
+     C     KODJKE        CHAIN     KODJL01                            22
+     C                   END
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     UNDER         BEGSR
+     C***********************************************
+     C                   MOVE      KUNDHO        KUNDDU            8 0
+     C                   MOVE      HEPRO         HEPROD            8 0
+     C                   MOVE      HEAVD         HEAVDD            4 0
+     C                   MOVE      HEOT          HEOTDU            2
+     C                   MOVE      HEOPD         HEOPDD            7 0
+     C                   MOVE      HESG          HESGDU            3
+     C                   Z-ADD     TUKNT2        TUKNTD            8 0
+     C                   MOVE      TULANF        TULAFD            2
+     C                   MOVE      TULANT        TULATD            2
+     C                   MOVEL     TUBILN        TUBIND            8
+     C                   MOVEL     TUHENG        TUHEND            8
+     C                   MOVE      TUBILK        TUBIKD            3
+      *
+      * FØR BLE IKKE!!! HEADTR(SOM HADDE TRSLAG) FOR HOVEDOPPDRAG LEST,
+      *    DERMED BLE HELLER IKKE "TRSLAG" FRA LEST ILINJE ØDELAGT..
+      * NÅ  NÅR ALLE TR.FELT LIGGER I HEADF MÅ ILINJENS TRSLAG BEVARES:
+      *
+     C                   MOVE      TRSLAG        TMPSLA            2
+     C                   MOVE      HEUR          TMPUR             1
+     C     HEAKE0        CHAIN(N)  HEADF                              33
+     C                   SETOFF                                       34
+     C                   MOVE      HEUR          HOVUR             1
+      *
+      * start transportdisponering
+      *
+     C     HEUR          IFEQ      'H'
+     C     HEAKHO        CHAIN     DISP                               33
+     C     TURKEY        CHAIN     TURER                              34
+     C                   ELSE
+      *
+      * ikke transportduisponering
+      *
+     C                   MOVE      HEPRO         TURUND
+     C                   MOVE      TUBIKD        TUBILK
+     C                   END
+      *
+      *
+     C                   MOVE      TMPSLA        TRSLAG
+     C                   MOVE      TMPUR         HEUR              1
+     C                   MOVE      HEOPD         HEOPHO            7 0
+     C                   MOVE      HEAVD         HEAVHO            4 0
+     C                   MOVE      HEOT          HEOTHO            2
+     C     HEKNKF        IFNE      *ZEROS
+     C                   MOVE      HEKNKF        KUNDHO
+     C                   ELSE
+     C                   MOVE      HEKNSF        KUNDHO
+     C                   END
+     C  N34              MOVE      TURUND        HOPRO             8 0
+     C  N34              MOVE      TUBILK        HOBILK            3
+     C  N34              MOVE      TUBILK        STBILK            3
+     c                   endsr
+     C*
+     C***********************************************
+     C     HOV           BEGSR
+     C***********************************************
+      * DIV BEHANDLING  HOVEDOPPDRAG
+      *
+     C                   MOVE      *ZEROS        HEAVDU            4 0
+     C                   MOVE      *ZEROS        HEOPDU            7 0
+      *
+      * SKJEKK OM KUN ETT DUP OPPDRAG
+      * LEGGER I SÅ FALL MOTPOST PÅ DENNE
+      *
+     C     TRAVD1        IFNE      *ZEROS
+     C     TRAVD2        ANDEQ     *ZEROS
+     C                   MOVE      TRAVD1        HEAVDU
+     C                   MOVE      TROPD1        HEOPDU
+     C                   END
+     C     TRAVD2        IFNE      *ZEROS
+     C     TRAVD1        ANDEQ     *ZEROS
+     C                   MOVE      TRAVD2        HEAVDU
+     C                   MOVE      TROPD2        HEOPDU
+     C                   END
+      *
+     c                   endsr
+     C*
+     C***********************************************
+     C     UNDMOT        BEGSR
+     C***********************************************
+      *
+      * lager motpost til dup oppdrag
+      *
+     C                   MOVE      KUNDHO        FAKUNR
+     C                   MOVE      KOAKON        FAAVDR
+     C                   MOVE      KOABÆR        FABÆR
+     C                   MOVE      FKONTO        FAACCN
+     C                   MOVE      HEAVHO        FAAVD
+     C                   MOVE      HEOPHO        FAOPD
+     C                   Z-SUB     FABELN        FABELN
+     C                   Z-SUB     FABELV        FABELV
+     C                   MOVE      *ZEROS        FABELU
+     C                   MOVE      KUNDDU        FAKUNR
+     C                   MOVE      'I'           FAKDA
+     C                   MOVE      *ZEROS        FALI
+     C                   CALL      'SYGE06'
+     C                   PARM                    FAAVD
+     C                   PARM                    FAOPD
+     C                   PARM                    FALI
+     c     TrSlag        ifeq      'UN'
+     C                   MOVEL     HEAVDD        FADOCN
+s01  C*                  MOVE      HEOPDD        FADOCN6_10
+S01  C*                  MOVE      'F'           FADOCN                         Fra (belastn Fra)
+N01  C                   MOVE      HEOPDD        FADOCN5_11
+     C                   end
+     C                   WRITE     FAKTR
+     c                   endsr
+     C*
+     C***********************************************
+     C     HOVMOT        BEGSR
+     C***********************************************
+      *
+      * lager motpost til hovedoppdrag
+      *
+s02  C*                  MOVE      MOTAVD        FAVT
+     C                   MOVE      KUNDHO        FAKUNR
+     C                   MOVE      KOAKON        FAAVDR
+     C                   MOVE      KOABÆR        FABÆR
+     C                   MOVE      FKONTO        FAACCN
+      *
+      * DERSOM DET ER OVERFØRING INNEN SAMME AVD. ....
+      *          ... PÅ SAMME OPPDRAG ELLERS PÅ DUMMY OPPDRAG 00000
+      *
+     C     FAAVD         IFNE      MOTAVD
+     C                   MOVE      *ZEROS        FAOPD
+     C                   END
+     C                   MOVE      MOTAVD        FAAVD
+      *
+      *
+      * LEGGER I SÅ FALL MOTPOST PÅ DENNE VED KUN EN DUP
+      *
+     C     HEAVDU        IFNE      *ZEROS
+     C     HEOPDU        ANDNE     *ZEROS
+     C                   MOVE      HEAVDU        FAAVD
+     C                   MOVE      HEOPDU        FAOPD
+     C                   END
+      *
+     C                   MOVE      'I'           FAKDA
+     C                   MOVE      *ZEROS        FALI
+     C                   CALL      'SYGE06'
+     C                   PARM                    FAAVD
+     C                   PARM                    FAOPD
+     C                   PARM                    FALI
+     C                   Z-SUB     FABELN        FABELN
+     C                   Z-SUB     FABELV        FABELV
+     C                   Z-SUB     FABELU        FABELU
+     C                   WRITE     FAKTR
+     c                   endsr
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL POST2
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    PERAAR        YYÅR
+     C     *LIKE         DEFINE    PERNR         YYMND
+     C     KEYBI         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    YYÅR
+     C                   KFLD                    YYMND
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODTÅ   ÅPNE PERIODER
+     C*--------------------------------------------------------------
+     C     KODÅKE        KLIST
+     C                   KFLD                    KOÅUNI
+     C                   KFLD                    KOÅCC
+     C                   KFLD                    KOÅÅR
+     C                   KFLD                    KOÅMND
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE A
+     C*--------------------------------------------------------------
+     C     KODAKE        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    KOAAVD
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE V
+     C*--------------------------------------------------------------
+     C     KODVKE        KLIST
+     C                   KFLD                    KOVUNI
+     C                   KFLD                    KOVAVD
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE GE (GEBYRKODER)
+     C*--------------------------------------------------------------
+     C     GEBKEY        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    FAVK
+     C     GEBKE3        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    TUBILK
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE G2 (GEBYRKODER)
+     C*--------------------------------------------------------------
+     C     GEBKE2        KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    FAVK
+     C     GEBKE4        KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    TUBILK
+     C*--------------------------------------------------------------
+     C* HENTE AVVIKENDE STED/BÆRER PÅ GEBYR(BILKODE)-NIVÅ
+     C*--------------------------------------------------------------
+     C     KGSTBÆ        KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    XXVK              3
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL TURER
+     C*--------------------------------------------------------------
+     C     TURKEY        KLIST
+     C                   KFLD                    DITUAV
+     C                   KFLD                    DITUR
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE GI (GEBYRKODER)
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    FAAVD         ZEAVD
+      * KODTGI CHAINES MED KEYER PRIORITERT 1-4
+     C     GIKEY1        KLIST
+     C                   KFLD                    KEYGEB                           GEBYRKODE
+     C                   KFLD                    FAVD                             AVDELING
+     C                   KFLD                    KEYGE2            3              BILKODE
+     C     GIKEY2        KLIST
+     C                   KFLD                    KEYGEB
+     C                   KFLD                    FAVD
+     C                   KFLD                    NULGEB
+     C     GIKEY3        KLIST
+     C                   KFLD                    KEYGEB
+     C                   KFLD                    ZEAVD
+     C                   KFLD                    KEYGE2
+     C     GIKEY4        KLIST
+     C                   KFLD                    KEYGEB
+     C                   KFLD                    ZEAVD
+     C                   KFLD                    NULGEB            3
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KONTL01
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    KONTO         WKONTO
+     C     KONTKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WKONTO
+     C*
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL FAKTURAREGISTER: FAKT
+     C*--------------------------------------------------------------
+     C     KEYFAK        KLIST
+     C                   KFLD                    FAAVDQ
+     C                   KFLD                    FAOPDQ
+     C                   KFLD                    FALIQ
+     C     *LIKE         DEFINE    FALI          FALIQ
+     C     *LIKE         DEFINE    FAAVD         FAAVDQ
+     C     *LIKE         DEFINE    FAOPD         FAOPDQ
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL HEADINGREGISTER  HEAD
+     C*--------------------------------------------------------------
+     C     HEAKEY        KLIST
+     C                   KFLD                    FAAVD
+     C                   KFLD                    FAOPD
+     C*
+     C     HEAKHO        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C*
+     C*--------------------------------------------------------------
+     C* REF FRA DUP-OPPDRAG "OPPAD" TIL OPPHAV (DUP AV...)
+     C*--------------------------------------------------------------
+     C     HEAKE0        KLIST
+     C                   KFLD                    TRAVD0
+     C                   KFLD                    TROPD0
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL POSTERINGSREGISTER POSTB1
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    PERNR         SMNPC
+     C     *LIKE         DEFINE    MOMSK         SMVA
+     C     *LIKE         DEFINE    PROSNR        NULPRO
+     C     SKEY          KLIST
+     C                   KFLD                    SMNPC
+     C                   KFLD                    SÅR
+     C                   KFLD                    SKONTO
+     C                   KFLD                    KOAKON
+     C                   KFLD                    KOABÆR
+     C                   KFLD                    SMVA
+     C                   KFLD                    NULPRO
+     C*
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL FAKTURAREGISTER: FAK5
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    FAOPKO        XXOPKO
+     C     *LIKE         DEFINE    FASK          XXSK
+     C     KEYFA5        KLIST
+     C                   KFLD                    XXOPKO
+     C                   KFLD                    XXSK
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL SYSRL01
+     C*--------------------------------------------------------------
+     C     SYSRKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    REGNA
+     C                   MOVE      'SYS   '      REGNA             6
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL TRAB
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    TBFIRM        YYTNR
+     C     *LIKE         DEFINE    TBLIN         YYLIN
+     C     TRABK         KLIST
+     C                   KFLD                    YYTNR
+     C                   KFLD                    YYLIN
+     C                   MOVE      *ZEROS        YYLIN
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL TRAN
+     C*--------------------------------------------------------------
+     C     TRANKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    TUKNT2
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL NUMML01
+     C*--------------------------------------------------------------
+     C     NUMMKY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    SÅR
+     C                   KFLD                    NOK1
+     C                   KFLD                    NOK2
+     C*
+     C*
+     C* HENT FIRMAPARAMETRE....
+     C                   READ      FIRM                                   33
+     C                   MOVE      FIFIRM        UFIRMA            2
+     C     FITAX         ADD       1             FITAXN            5 4
+     C* HENTER JOURNALNUMMER
+     C*
+     C     FIFIRM        CHAIN     FIRMTEL                            33
+     C                   ADD       1             FIJOU3
+     C  N33              UPDATE    FIRMTR
+     C   33              WRITE     FIRMTR
+     C*
+     C                   READ      FIRTR                                  33
+     C*
+     C                   MOVE      'GE'          KGEUNI
+     C                   MOVEL     'G2'          KG2UNI
+     C                   MOVE      *ZEROS        ZEAVD
+      *
+     C* HENTE SYSTEMDATO OG TID
+     C     UYEAR         IFGT      50
+     C     UYEAR         ADD       1900          BILAAR
+     C                   ELSE
+     C     UYEAR         ADD       2000          BILAAR
+     C                   END
+     C                   MOVE      UMONTH        BILMND
+     C                   MOVE      UDAY          BILDAG
+     C                   MOVE      999999        MINPE2            6 0
+     C                   MOVE      'Å'           KOÅUNI
+     C                   MOVE      *ZEROS        MINPER
+     C     'Å'           SETLL     KODTÅ
+     C     'Å'           READE     KODTÅ                                  33
+     C     *IN33         IFEQ      '1'
+     C     UYEAR         IFGT      50
+     C     UYEAR         ADD       1900          MINPE2
+     C                   ELSE
+     C     UYEAR         ADD       2000          MINPE2
+     C                   END
+     C                   MULT      100           MINPE2
+     C                   MOVE      UMONTH        MINPE2
+     C                   ELSE
+     C                   MOVE      MINPER        MINPE2
+     C                   END
+     C*
+     C                   MOVE      *ZEROS        NULPRO
+     C*
+     C* INITIERING
+     C                   MOVE      *ZEROS        IBMPNR            5 0
+     c                   endsr
+     C*
+     C***********************************************
+     C     SETTPER       BEGSR
+     C***********************************************
+     C*
+     C* FIKSER PERIODEBEGREP
+     C*
+     C     HEUR          IFEQ      'H'
+     C                   MOVE      TURACC        FACC
+     C                   MOVE      TURAAR        FAÅR
+     C                   MOVE      TURMND        FAMND
+     C                   END
+     C     FAMND         IFNE      *ZEROS
+     C                   MOVE      FAMND         KOÅMND
+     C                   MOVE      FAÅR          KOÅÅR
+     C                   MOVE      FACC          KOÅCC
+     C                   ELSE
+     C                   MOVEL     HEDTÅ         KOÅCC
+     C                   MOVE      HEDTÅ         KOÅÅR
+     C                   MOVE      HEDTM         KOÅMND
+     C                   END
+     C*
+     C* SKJEKKER OM PERIODE VARELINJE ER ÅPEN
+     C* I REGNSKAPET
+     C*
+     C     KODÅKE        CHAIN     KODTÅ                              33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      KOÅMND        SMND              2 0
+     C                   Z-ADD     KOÅÅR         SÅR               4 0
+     C                   MOVEL     KOÅCC         SÅR
+     C                   ELSE
+     C                   MOVE      MINPE2        SMND
+     C                   MOVEL     MINPE2        SÅR
+     C                   END
+     C                   MOVE      SÅR           SÅR2              2 0
+     C                   ENDSR
+      *
+     C***********************************************
+     C     KONTHOV       BEGSR
+     C***********************************************
+      *
+      * KONTERING HOVEDOPPDRAG
+      *
+      * TREKK FRA AVD (HOVEDOPPDRAGETS) FØRES.("KOSTNAD")....
+      * (TREKK=DEBET I HOVEDBOK..)
+      * VED BYTT=J :"+BELØP" PÅ LINJA=RIKTIG FOR HBOK (SNUS PÅ FAKT)
+     C                   MOVE      FAAVD         FAVD              4 0
+     C                   MOVE      VABILK        KEYGE2            3
+     C     GIKEY1        CHAIN     KODTGI                             12
+     C   12GIKEY2        CHAIN     KODTGI                             12
+     C   12GIKEY3        CHAIN     KODTGI                             12
+     C   12GIKEY4        CHAIN     KODTGI                             12
+     C     KGIBYT        IFEQ      'N'
+     C                   Z-SUB     FABELN        IBMNOK           11 2
+     C                   ELSE
+     C                   Z-ADD     FABELN        IBMNOK
+     C                   END
+     C                   MOVE      KGIKOS        FKONTO            5 0
+     C                   EXSR      IBM
+      *
+      * MOTPOST
+      *
+     C                   MOVE      KOAKON        GMLKON            4 0
+     C                   MOVE      KOABÆR        GMLBÆR            4 0
+     C                   MOVE      FKONTO        GMLKTO            5 0
+      *
+      * GODSKRIVING TIL "OVERFØR TIL-AVD."("INNTEKT") MOTSATT AV OVER..
+      * (GODSKRIV=KREDIT I HOVEDBOK..)
+      * VED BYTT=N :"-BELØP" PÅ LINJA=RIKTIG FOR HBOK
+      *HVIS OVERFØRING TIL ANNEN AVD. LEGG PÅ OPPDR 00000..
+      *
+     C     FAAVDR        IFNE      FAAVD
+     C                   MOVE      *ZEROS        PROPD
+     C                   END
+     C                   MOVE      FAAVDR        FAVD
+      *
+     C     HEAVDU        IFNE      *ZEROS
+     C     HEOPDU        ANDNE     *ZEROS
+     C                   MOVE      HEAVDU        FAVD
+     C                   MOVE      HEOPDU        PROPD
+     C                   END
+      *
+     C     GIKEY1        CHAIN     KODTGI                             12
+     C   12GIKEY2        CHAIN     KODTGI                             12
+     C   12GIKEY3        CHAIN     KODTGI                             12
+     C   12GIKEY4        CHAIN     KODTGI                             12
+     C     KGIBYT        IFEQ      'N'
+     C                   Z-ADD     FABELN        IBMNOK
+     C                   ELSE
+     C                   Z-SUB     FABELN        IBMNOK           11 2
+     C                   END
+     C                   MOVE      KGIINT        FKONTO            5 0
+     C                   MOVE      *ZEROS        HEPRO
+     C                   EXSR      IBM
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KONTUND       BEGSR
+     C***********************************************
+      *
+      * START UNDEROPPDRAG
+      *-----------------------------------------------------------
+      * I-LINJE PÅ ET UNDEROPPDRAG ER LEST (FLYTT MELLOM HOVED/DUP)
+      * (Flytter både mellom avdelinger OG HOVED/DUP /statistikk...)
+      *-----------------------------------------------------------
+     C     FIBRUT        IFEQ      'N'
+      * HVIS NETTO PRISING, OMREGNER BELØP FOR Å HENTE BRUTTOBELØP
+      * Transp. har egen avtale om prov.sats.....
+     C     TRANKE        CHAIN     TRAN                               37
+     C                   MOVE      TUKNT2        YYTNR
+     C                   EXSR      PROV
+     C     TBPRO         IFEQ      *ZEROS
+     C* ... eller generell prov.sats benyttes ...
+     C                   MOVE      *ZEROS        YYTNR
+     C                   EXSR      PROV
+     C                   END
+     C                   END
+     C     TBPRO         IFNE      *ZEROS
+     C     TBPRO         ANDNE     100
+     C     100           SUB       TBPRO         XXXPRO            5 2
+     C     FABELN        MULT      100           BRBELN
+     C     FABELV        MULT      100           BRBELV
+     C                   DIV(H)    XXXPRO        BRBELN
+     C                   DIV(H)    XXXPRO        BRBELV
+     C                   Z-ADD     BRBELN        FABELN
+     C                   ELSE
+     C                   Z-ADD     FABELN        BRBELN
+     C                   Z-ADD     FABELV        BRBELV
+     C                   END
+     C* OPPDATER SELVE  ILINJA (UNDEROPPDRAGET) -Normalt inntekt=kredit
+     C                   MOVE      VABILK        KEYGEB            3
+     C                   MOVE      VABILK        KEYGE2            3
+     C                   Z-ADD     FAAVD         FAVD
+     C                   Z-ADD     FABELN        IBMNOK
+     C     GIKEY1        CHAIN     KODTGI                             12
+     C   12GIKEY2        CHAIN     KODTGI                             12
+     C   12GIKEY3        CHAIN     KODTGI                             12
+     C   12GIKEY4        CHAIN     KODTGI                             12
+     C                   MOVE      KGIINT        FKONTO            5 0
+     C                   Z-SUB     IBMNOK        IBMNOK                          *KREDIT
+     C                   MOVE      'DUP'         DUPOPD            3
+     C                   MOVE      HEPROD        HEPRO
+     C                   MOVE      HEOTDU        PROT              2
+     C                   MOVE      HEOPDD        PROPD             7 0
+     C                   EXSR      IBM
+      *
+      * MOTPOST
+      *
+     C                   MOVE      KOAKON        GMLKON            4 0
+     C                   MOVE      KOABÆR        GMLBÆR            4 0
+     C                   MOVE      FKONTO        GMLKTO            5 0
+     C* OPPDATER MOTPOSTEN TIL ILINJA(MODEROPPDRAGET) Normalt Kostn=Deb
+     C                   MOVE      '   '         DUPOPD            3
+     C                   Z-ADD     HEAVHO        FAVD
+     C                   MOVE      HOBILK        KEYGEB            3
+     C                   MOVE      HOBILK        KEYGE2            3
+      *
+      * NÅR MODEROPPDRAG IKKE ER TR-MODUL, SETT GEB-KODE TIL ORIGINAL
+      *
+     C     HOVUR         IFNE      'H'
+     C                   MOVE      FAVK          VABILK
+     C                   MOVE      FAVK          XXVK
+     C                   MOVE      FAVK          KEYGEB
+     C                   END
+      *
+     C     GIKEY1        CHAIN     KODTGI                             12
+     C   12GIKEY2        CHAIN     KODTGI                             12
+     C   12GIKEY3        CHAIN     KODTGI                             12
+     C   12GIKEY4        CHAIN     KODTGI                             12
+     C                   MOVE      KGIKOS        FKONTO            5 0
+     C                   Z-SUB     IBMNOK        IBMNOK                          *DEBET
+     C                   MOVE      HOPRO         HEPRO
+     C                   MOVE      HEOTHO        PROT              2
+     C                   MOVE      HEOPHO        PROPD             7 0
+     C                   EXSR      IBM
+     C                   ENDSR
+      *
+      * TIL IBM REGNSKAP    RESKONTO
+      *
+     OPOSBR     EADD         IBMNY1
+     O                       AKTKOD
+     O                       FIRMA
+     O                       BILNR
+     O                       POSNR
+     O                       BILAAR
+     O                       BILMND
+     O                       BILDAG
+     O                       PERAAR
+     O                       PERNR
+     O                       TYPE
+     O                       BILTXT
+     O                       KONTO
+     O                       KSTED
+     O                       KBARER
+     O                       MOMSK
+     O                       BBELOP
+     O                       PROSNR
+     O                       OPDKOD
+     O                       NOKKEL
+     O                       POSLNR
+     O                       GRKODE
+     O                       GRKOPO
+     OSYTR35P   E            PHEAD            01
+     O                       FIFIRM               2
+     O                       FIFT                48
+     O                                           90 'JOURNALNR:'
+     O                       FIJOU3        Z     97
+     O                                          105 'SIDE:'
+     O                       PAGE          Z    111
+     OSYTR35P   E            PHEAD            02
+     O                                           24 'INTERNOVERFØRINGS - J O '
+     O                                           42 'U R N A L         '
+     O                                           56 'DATO:'
+     O                       UDATE         Y     65
+     OSYTR35P   E            PHEAD            03
+     O                                           24 '------------------------'
+     O                       *PLACE              48
+     O                       *PLACE              72
+     O                       *PLACE              96
+     O                       *PLACE             120
+     O                                          132 '------------'
+     O          E            PHEAD            04
+     O                                            6 'BILNR'
+     O                                           12 'AVD.'
+     O                                           20 'OPD.NR.'
+     O                                           29 'STED/BÆR'
+     O                                           35 'KTO'
+     O                                           37 'MK'
+     O                                           51 'D  E  B  E  T'
+     O                                           66 'K R E D I T'
+     O                                           87 'G E B Y R T E K S T'
+     O                                           93 'TYPE'
+     O                                          102 'PROSJEKT'
+     O                                          115 'REF'
+     O                                          132 'PERIODE'
+     OSYTR35P   E            PHEAD          1 05
+     O                                           24 '------------------------'
+     O                       *PLACE              48
+     O                       *PLACE              72
+     O                       *PLACE              96
+     O                       *PLACE             120
+     O                                          132 '------------'
+     OSYTR35P   E            PNYBIH      2  2
+     O                                           24 '** BILAGSNUMMER BENYTTET'
+     OSYTR35P   E            PNYBI       0  1
+     O                       PERNR               10
+     O                                           11 '/'
+     O                       PERAA2              13
+     O                                           15 '='
+     O                       BILNR         Z     24
+     OSYTR35P   E            DET            1
+     O                       BILNR         Z      7
+     O                       FAVD          Z     12
+     O                       PROPD         Z     20
+     O                       KOAKON        Z     25
+     O                       KOABÆR        Z     29
+     O                       FKONTO              35
+     O                       IBMMVA              37
+     O               66      IBMNOK        J     52
+     O              N66      IBMNOK        J     67
+     O                       KGENOT              88
+     O               11                          88 '*** SLETTET KODE  **'
+     O               12N11                       88 '*MANGLER INTERKONTO*'
+     O                       PROT                93
+     O                       PRIPRO        Z    102
+     O                       HESG               115
+     O                       SMND               129
+     O                                          130 '/'
+     O                       SÅR2               132
+     OSYTR35P   E            TOTGRA      2
+     O                                           24 '** DEBET KREDIT KOLONNE-'
+     O                                           34 'TOTAL   **'
+     O                       GRADEB        JB    52
+     O                       GRAKRE        JB    67
+     OSYTR35P   E            DEBKRE      2
+     O                                           24 '** DEB/KRED POSTTOTAL (T'
+     O                                           34 'IL ØKO) **'
+     O                       DEBTOT        JB    52
+     O                       KRETOT        JB    67

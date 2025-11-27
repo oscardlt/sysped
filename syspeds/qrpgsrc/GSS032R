@@ -1,0 +1,291 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 Alltid sammenslåingskode T
+10XXX * 02 YBC PTF10 LOGG OVERFØRINGSTIDSPUNKT
+10XXX * 03 SH  PTF10 Legg til valutatillegg kundnivå
+********************************************************************
+      *
+      *
+      **************************************************************
+      *** PROGRAM SKAL OVERFØRE FAKTURALINJER TIL OPPDRAG
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER
+      *** LEDIGE INDIKATORER 01-26
+      *** LEDIGE INDIKATORER 27-32 35-99
+      **************************************************************
+      *
+N03  FKODTCC    IF   E           K DISK
+     FKODTDIN   IF   E           K DISK
+     FKODTFR    IF   E           K DISK
+     FKODTGE    IF   E           K DISK
+     FVALUL01   IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FFAK5      UF A E           K DISK
+     FFAKT      IF   E           K DISK    RENAME(FAKTR:FAKTR0)
+     FGSSOVL02  UF   E           K DISK
+N02  FGSSLGL01  O  A E             DISK
+     D                UDS
+     D  UFIRM                  1      2
+     D  UCURR                  3      5
+     D  UBIUSI               101    110
+     D  UBICGR               111    112
+     D  UBICNO               113    120  0
+     D  UBIFC                121    123
+     D  UBIPRT               124    133
+     D  UBIPRM               134    143
+N02  D                SDS
+N02  D  WUSER                254    263
+      *
+     C                   EXSR      INIT
+      * Hent siste registrerte fakt.nr.
+     C     FAKTK         SETLL     FAKT                               33
+     C     HEADFK        READPE    FAKT                                   33
+     C  N33              MOVE      FALI          XLI               5 0
+     C   33              MOVE      *ZEROS        XLI
+      * Hent oppdrag og ordne sammeslåings nøkkel
+     C     HEADFK        CHAIN     HEADF                              33
+     C   33              GOTO      SLUTT
+     C     KODFRK        CHAIN     KODTFR                             33
+     C   33              MOVE      'K'           YSK               1
+     C   33              MOVE      HEKNKF        XKUNR             8 0
+     C   33HEVALK        IFEQ      *BLANKS
+     C                   MOVE      UCURR         XVAL              3
+     C                   ELSE
+     C                   MOVE      HEVALK        XVAL
+     C                   END
+     C  N33              SELECT
+     C     KFRCP         WHENEQ    'CC'
+     C     HEVALK        ANDNE     *BLANKS
+     C                   MOVE      'K'           YSK
+     C                   MOVE      HEKNKF        XKUNR
+     C                   MOVE      HEVALK        XVAL
+     C     KFRCP         WHENNE    'CC'
+     C     HEVALS        ANDNE     *BLANKS
+     C                   MOVE      'S'           YSK
+     C                   MOVE      HEKNSF        XKUNR
+     C                   MOVE      HEVALS        XVAL
+     C     HEVALK        WHENNE    *BLANKS
+     C                   MOVE      'K'           YSK
+     C                   MOVE      HEKNKF        XKUNR
+     C                   MOVE      HEVALK        XVAL
+     C                   OTHER
+     C                   MOVE      'S'           YSK
+     C                   MOVE      HEKNSF        XKUNR
+     C                   MOVE      HEVALS        XVAL
+     C                   END
+      * Les gebyrlinjer for å overføres til fakt.register
+     C     GSSOVK        SETLL     GSSOVL02                           33
+     C     START         TAG
+     C     GSSOVK        READE     GSSOVL02                               33
+     C     *IN33         IFEQ      '0'                                          1<-B
+      * Omregn til lokal valuta
+     C     OVCURC        IFEQ      UCURR                                         2<-B
+     C                   Z-ADD     OVAMT         XBELN            13 2
+     C                   MOVE      'N'           XTILB             1
+     C                   ELSE                                                    2
+      * HENT TILLEGG BANKKURS
+     C                   MOVE      'J'           XTILB
+N03   *
+N03   * sjekk kunde om avtale
+N03   *
+N03  C     CCK1          CHAIN     KODTCC                             34
+N03  c  N34              Z-add     KCCVA         KDIPRO
+S03  C*    KODDIK        CHAIN     KODTDINR                           34
+N03  C   34KODDIK        CHAIN     KODTDINR                           34
+     C  N34KDIPRO        DIV       100           XTILBA            5 4
+     C  N34              ADD       1             XTILBA
+     C     KODVAK        CHAIN     VALUL01                            34
+s03  C*    VALKU1        IFEQ      0                                              3<-B
+n03  C     VALKU2        IFEQ      0                                              3<-B
+     C     OVAMT         MULT      VALKU1        XBL              15 5
+     C                   ELSE                                                     3
+     C     OVAMT         MULT      VALKU2        XBL
+     C                   END                                                      3<-E
+     C     XBL           DIV(H)    OMRFAK        XBELN
+     C                   MULT(H)   XTILBA        XBELN
+     C                   END                                                     2<-E
+     C                   SELECT                                                  2<-B
+     C     OVCURC        WHENEQ    XVAL
+      * VALUTAKODE PÅ LINJE = VALUTAKODE TIL FAKTURAMOTTAKER
+     C                   Z-ADD     OVAMT         XBELV            13 2
+     C     UCURR         WHENEQ    XVAL
+      * VALUTAKODE TIL FIRMA = VALUTAKODE TIL FAKTURAMOTTAKER
+     C                   Z-ADD     XBELN         XBELV
+     C                   OTHER
+      * HENT TILLEGG BANKKURS
+     C                   IF        XTILB = 'N'
+N03   *
+N03   * sjekk kunde om avtale
+N03   *
+N03  C     CCK1          CHAIN     KODTCC                             34
+N03  c  N34              Z-add     KCCVA         KDIPRO
+S03  C*    KODDIK        CHAIN     KODTDINR                           34
+N03  C   34KODDIK        CHAIN     KODTDINR                           34
+     C  N34KDIPRO        DIV       100           XTILBA            5 4
+     C  N34              ADD       1             XTILBA
+     C                   END
+      * OMREGN BELØP TIL VALUTAKODE TIL FAKTURAMOTTAKER
+     C     KODV2K        CHAIN     VALUL01                            34
+     C     XBELN         MULT      OMRFAK        XBELV
+     C     VALKU1        IFEQ      0                                              3<-B
+     C                   DIV(H)    VALKU2        XBELV
+     C                   ELSE                                                     3
+     C                   DIV(H)    VALKU1        XBELV
+     C                   END                                                      3<-E
+     C                   IF        XTILB = 'N'
+     C                   MULT(H)   XTILBA        XBELV
+     C                   END
+     C                   ENDSL                                                   2<-E
+      * Hent fakt.linje for summering
+     C     FAK5K         SETLL     FAK5                               34
+     C     START2        TAG
+     C     FAK5K         READE     FAK5                                   34
+      * For å slå samme må følgende felter være like (pluss nøkkelfelt)
+     C  N34FAKDA         IFNE      'T'                                           2<-B
+     C     FAVK          ORNE      OVFEEC
+     C     FAVAL         ORNE      XVAL
+     C     FAKDM         ORNE      OVVAT
+     C     FAKUNR        ORNE      XKUNR
+     C     FABÆR         ORNE      HESTD
+     C                   UPDATE    FAKTR
+     C                   GOTO      START2
+     C                   END                                                     2<-E
+      * Hvis det ikke finnes samslåings linje, lager en ny fakt.linje
+     C     *IN34         IFEQ      '1'                                           2<-B
+     C                   CLEAR                   FAKTR
+     C                   MOVE      HEAVD         FAAVD
+     C                   MOVE      HEOPD         FAOPD
+     C                   MOVE      HESTD         FABÆR
+     C                   MOVE      YSK           FASK
+     C                   MOVE      'T'           FAKDA
+     C                   ADD       1             XLI
+     C                   MOVE      XLI           FALI
+     C                   MOVE      XKUNR         FAKUNR
+     C                   MOVE      OVVAT         FAKDM
+     C                   MOVE      OVFEEC        FAVK
+     C     KODGEK        CHAIN     KODTGE                             35
+     C  N35KGEENT        COMP      OVFT                               3535
+     C   35              MOVEL     OVFT          FAVT
+     C                   MOVE      XVAL          FAVAL
+     C     XVAL          IFNE      UCURR
+     C                   MOVE      XVAL          FACURI
+     C                   END
+     C                   Z-ADD     XBELV         FABELV
+     C                   Z-ADD     XBELN         FABELN
+N01  C                   MOVE      'T'           FACD11
+     C                   WRITE     FAKTR
+     C                   ELSE                                                    2
+      * Hvis de finnes, adderer beløp til.
+     C                   ADD       XBELV         FABELV
+     C                   ADD       XBELN         FABELN
+     C                   UPDATE    FAKTR
+     C                   END                                                     2<-E
+      *
+     C                   MOVE      'F'           OVST
+     C                   UPDATE    GSSOVFR
+N02  C                   EXSR      SRLOGG
+     C                   GOTO      START
+     C                   END                                                    1<-E
+N02   *
+N02  C                   IF        XOPD <> 'J'
+N02  C                   EXSR      SRLOGG2
+N02  C                   END
+      *
+     C     SLUTT         TAG
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+      *
+N02   ***********************************************
+N02  C     SRLOGG        BEGSR
+N02   ***********************************************
+N02  C                   MOVEL     'GSS032R'     LGPGM
+N02  C                   Z-ADD     3             LGNIVÅ
+N02  C                   MOVEL     'TRINV'       LGFTYP
+N02  C                   MOVE      UONO          LGONO
+N02  C                   Z-ADD     OVLNO         LGLN
+N02  C                   Z-ADD     UTNO          LGNNY
+N02  C                   EVAL      LGTXT = 'FEE IS TRANSFERD TO TRIP '
+N02  C                             + %TRIM(%EDITC(HEAVD:'Z')) + '/'
+N02  C                             + %TRIM(%EDITC(HEOPD:'Z'))
+N02  C                   EVAL      LGANY = 'FEECODE=' + %TRIM(OVFEEC)
+N02  C                             + '  CURRENCY=' + %TRIM(OVCURC)
+N02  C                             + '  AMOUNT=' + %TRIM(%EDITC(OVAMT:'3'))
+N02  C                   WRITE     GSSLGFR
+N02  C                   MOVE      'J'           XOPD              1
+N02   *
+N02  C                   ENDSR
+N02   *
+N02   ***********************************************
+N02  C     SRLOGG2       BEGSR
+N02   ***********************************************
+N02  C                   MOVEL     'GSS032R'     LGPGM
+N02  C                   Z-ADD     3             LGNIVÅ
+N02  C                   MOVEL     'TRINV'       LGFTYP
+N02  C                   MOVE      UONO          LGONO
+N02  C                   Z-ADD     0             LGLN
+N02  C                   Z-ADD     UTNO          LGNNY
+N02  C                   EVAL      LGTXT = 'CAN NOT FIND UNTRANSFERED FEE.'
+N02  C                   WRITE     GSSLGFR
+N02   *
+N02  C                   ENDSR
+N02   *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+N03  C     CCK1          KLIST
+N03  C                   KFLD                    UFIRM
+N03  C                   KFLD                    XKUNR
+     C     KODDIK        KLIST
+     C                   KFLD                    XDIUNI
+     C                   MOVE      'DINNF'       XDIUNI            5
+     C     GSSOVK        KLIST
+     C                   KFLD                    YST
+     C                   KFLD                    UONO
+     C                   MOVE      ' '           YST               1
+     C     KODFRK        KLIST
+     C                   KFLD                    KFRUNI
+     C                   KFLD                    HEFR
+     C                   MOVE      'FR'          KFRUNI
+     C     KODGEK        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    FAVK
+     C                   MOVE      'GE'          KGEUNI
+     C     KODVAK        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    OVCURC
+     C     KODV2K        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    XVAL
+     C     HEADFK        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     FAKTK         KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FALI
+     C                   Z-ADD     99999         FALI
+     C     FAK5K         KLIST
+     C                   KFLD                    YOPKO
+     C                   KFLD                    YSK
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   MOVE      *BLANKS       YOPKO             1
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UTNO             11 0
+     C                   PARM                    UONO              7 0
+      *
+     C                   MOVEL     UTNO          HEAVD
+     C                   MOVE      UTNO          HEOPD
+N02  C                   MOVE      WUSER         LGUSER
+N02  C                   CALL      'SYGE15C'
+N02  C                   PARM                    WDT               8
+N02  C                   PARM                    WTM               6
+N02  C                   MOVE      WDT           LGDT
+N02  C                   MOVE      WTM           LGTID
+N02  C                   MOVE      WDT           LGHDT
+N02  C                   MOVEL     WTM           LGHTID
+      *
+     C                   ENDSR
+      *

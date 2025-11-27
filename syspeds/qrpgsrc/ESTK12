@@ -1,0 +1,217 @@
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+      * midlertideige for test..
+     D ADR             s             30A
+     D PNR             s              9A
+     D STD             s             30A
+     D CTR             s              2A
+      *
+     D PONR            s              9A
+     D STED            s             30A
+      * midlertideige for test..
+     D FORMADR         s            200A
+     D BRE             s             15A
+     D LEN             s             15A
+     D BREn            s              8  6
+     D LENn            s              9  6
+
+     C                   EXSR      INIT
+     c     Start         tag
+      *
+     c                   select
+     c     syklus        wheneq    1
+     c                   eval      PONR = PNR
+     c                   eval      STED = *blanks
+     c     syklus        wheneq    2
+     c                   eval      PONR = *blanks
+     c                   eval      STED = STD
+     c     syklus        wheneq    3
+     c                   eval      PONR = *blanks
+     c                   eval      STED = *blanks
+     c                   endsl
+
+      /free
+
+        *inlr = *on;
+        callp HTTP_SetCCSIDs(1208:0);
+        // ****************************************************
+        //  Bygg parametrene...
+        //  System iNetwork to a temporary file in the IFS
+        // ****************************************************
+          Enc = http_url_encoder_new();
+          http_url_encoder_addvar_s(Enc : 'address'
+                                        : %trim(ADR));
+          http_url_encoder_addvar_s(Enc : 'components'
+                                        : 'country:'+CTR
+                                        + '|postal_code:'+%trim(PONR)
+                                        + '|locality'+%trim(STED));
+          http_url_encoder_addvar_s(Enc : 'sensor'
+                                        : 'false');
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+          url = 'http://maps.googleapis.com/maps/api/geocode/xml?'
+               + http_url_encoder_getstr(Enc);
+
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+        // unlink(filename);
+        // dsply result ' ' wait;
+        // return;
+
+      /end-free
+      *  HER KOMMER VURDERING AV RESuLTAT / NYTT FORSØK MM...
+     C*                  MOVE      xxxxx         yyyy
+     C*                  xxxxx
+     c     BRE           ifeq      *blanks
+     c     syklus        iflt      3
+     c                   add       1             syklus
+     c                   goto      Start
+     c                   endif
+     c                   else
+     c                   eval      BREn  =  %float(BRE)
+     c                   eval      LENn  =  %float(LEN)
+     c                   endif
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *entry        plist
+     c                   parm                    ADR
+     c                   parm                    PNR
+     c                   parm                    STD
+     c                   parm                    CTR
+     c                   parm                    FORMADR
+     c                   parm                    BREn
+     c                   parm                    LENn
+     c                   parm                    dummy             1
+     c                   move      *zeros        BREn
+     c                   move      *zeros        LENn
+        // Lat/long-boundaries  - oppgir europa ++  southwest(br,ln) / northeast (br,ln)
+        // Ved å oppgi dette vil den ikke få falske treff i USA / Østen mm
+        // &bounds=30.000000,-16.000000|72.56576,46.98769  (vest for afrika / nord for midtRussland)
+        // &components kan benyttes som tillegg til address-søk
+        // &coponents=coutry:ES|postal_code:5678
+      *
+     c                   z-add     1             syklus            2 0
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+      /free
+
+            select;
+            when name = 'formatted_address';
+              if FORMADR=*blanks;
+                 FORMADR= value;
+              endif;
+
+            when name = 'lat';
+              if BRE=*blanks;
+                 BRE    = value;
+              endif;
+
+            when name = 'lng';
+              if LEN=*blanks;
+                 LEN    = value;
+              endif;
+            endsl;
+
+      /end-free
+     P                 E

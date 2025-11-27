@@ -1,0 +1,240 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVG015R MODULE(*LIBL/TSVG015R *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FSVTHA2    UF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WSUSR4          S             10
+     D WPW             S             10
+     D WPWNEW1         S             10
+     D WPWNEW2         S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      * Test av userid
+     C                   EXSR      TEST
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬usrAS400¬ : ¬'+%trim(WSUSR4)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"tdsAndraLosenord" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Validera userid + password + nytt løsenord
+      *
+     C     Error         ifeq      *blanks
+
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ok¬ : ¬'+'ok'+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     NOREC         TAG
+
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     SVTHA2
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('user')
+     C                   EVAL      WSUSR4  = zhbgetvar('usrAS400')
+     C                   EVAL      WPW = zhbgetvar('pwAS400')
+     C                   EVAL      WPWNEW1 = zhbgetvar('pwAS400N1')
+     C                   EVAL      WPWNEW2 = zhbgetvar('pwAS400N2')
+     C
+     c                   endsr
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C   50              eval      Error = 'Användaridentiteten och/eller'
+     C                                     + ' lösenordet är fel !'
+     C  N50              OPEN      SVTHA2
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVEL     WDT           XDATO             8 0
+
+     c                   endsr
+      *********************************************************
+     C     TEST          Begsr
+      *********************************************************
+      * Finns userid ?
+     C     WSUSR4        CHAIN(N)  SVTHA2                             55
+     C                   IF        *IN55
+     C                   eval      Error = 'Fel TDS Användarid'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Gammalt løsenord saknas
+     C     WPW           IFEQ      *BLANKS
+     C                   eval      Error = 'Gammalt lösenord saknas'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Gammalt løsenord fel !
+     C                   IF        WPW <> SVTH_PWD
+     C                   eval      Error = 'Gammalt lösenord fel'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Låst ?
+     C                   IF        SVTH_LOCK = 'X'
+     C                   eval      Error = 'Användaridentifikationen är låst'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Nytt løsenord saknas
+     C     WPWNEW1       IFEQ      *BLANKS
+     C                   eval      Error = 'Nytt lösenord saknas'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Nytt løsenord, repetition  saknas
+     C     WPWNEW2       IFEQ      *BLANKS
+     C                   eval      Error = 'Nytt lösenord repetition saknas'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Bægge nya løsenorden måste vara lika
+     C     WPWNEW1       IFNE      WPWNEW2
+     C                   eval      Error = 'Nytt lösenord och repetition olika'
+     C                   GOTO      TEST9
+     C                   ENDIF
+      * Kontrollera nytt løsenord i eget program
+     C                   CALL      'SVT063R'
+     C                   PARM                    WPW
+     C                   PARM                    WPWNEW1
+     C                   PARM                    ERR               7
+     C                   SELECT
+     C     ERR           WHENEQ    'SVT0022'
+     C                   eval      Error = 'Fel, minimum 6 tecken'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0023'
+     C                   eval      Error = 'Fel, 6 första tecknen blanka'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0024'
+     C                   eval      Error = 'Fel, 1 tecknet måste vara 1 bokstav'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0025'
+     C                   eval      Error = 'Fel, ogiltiga tecken'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0026'
+     C                   eval      Error = 'Fel, minimum 1 stor bokstav'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0027'
+     C                   eval      Error = 'Fel, minimum 1 liten bokstav'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0028'
+     C                   eval      Error = 'Fel, minimum 1 siffra'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0029'
+     C                   eval      Error = 'Fel, inga repeterbara tecken'
+     C                   GOTO      TEST9
+     C     ERR           WHENEQ    'SVT0030'
+     C                   eval      Error = 'Fel, nytt lösenord likt det gamla'
+     C                   GOTO      TEST9
+     C                   ENDSL
+      * Oppdatere FIL
+     C     WSUSR4        CHAIN     SVTHA2                             53
+     C                   EVAL      SVTH_PWD=WPWNEW1
+     C                   MOVE      WDT           SVTH_PWDD
+     C                   UPDATE    SVTHAR
+     C     TEST9         TAG
+     C                   ENDSR

@@ -1,0 +1,334 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVG012R MODULE(*LIBL/TSVG012R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FSVIH11    IF   E           K DISK    USROPN
+     FSVEH11    IF   E           K DISK    USROPN
+     FSVNH07    IF   E           K DISK    USROPN
+     FSVXH07    IF   E           K DISK    USROPN
+     FSVTHA2    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D AVD             S              4
+     D AVDN            S              4  0
+     D AVDA            S              4
+     D OPDA            S              7
+     D USRAS400        S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D WURL            S            512
+      *   SYEDI data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬usrAS400¬ : ¬'+%trim(USRAS400)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"signeringslista" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     c     Error         ifeq      *blanks
+      * Hæmta SYSPSED Signatur
+     C     USRAS400      CHAIN     SVTHA2
+      * Liste Ærende TDS Import
+     C                   EXSR      TDSIMP
+      * Liste Ærende TDS Export
+     C                   EXSR      TDSEXP
+      * Liste Ærende NCTS Import
+     C                   EXSR      NCTIMP
+      * Liste Ærende NCTS Export
+     C                   EXSR      NCTEXP
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     SVEH11
+     C  N50              CLOSE     SVIH11
+     C  N50              CLOSE     SVNH07
+     C  N50              CLOSE     SVXH07
+     C  N50              CLOSE     SVTHA2
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      USRAS400  = zhbgetvar('USRAS400')
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      SVEH11
+     C  N50              OPEN      SVIH11
+     C  N50              OPEN      SVNH07
+     C  N50              OPEN      SVXH07
+     C  N50              OPEN      SVTHA2
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+
+     c                   endsr
+      *
+      *********************************************************
+     C     TDSIMP        Begsr
+      *********************************************************
+     C     'S'           SETLL     SVIH11
+     C     'S'           READE     SVIH11                                 55
+     C     *IN55         DOWEQ     '0'
+
+     C     SVIH_SYSG     CABNE     SVTH_SYSG     HOPP2
+
+     C                   Add       1             AntLest
+     C                   MOVE      SVIH_SYAV     AVDA
+     C                   MOVE      SVIH_SYOP     OPDA
+     C                   EVAL      WURL = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/SVIU' + AVDA + '-' + OPDA
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ursp¬ : ¬'+'TI'+'¬, '
+          +'¬syav¬ : ¬'+%trim(%editc(SVIH_SYAV:'Z'))+'¬, '
+          +'¬syop¬ : ¬'+%trim(%editc(SVIH_SYOP:'Z'))+'¬, '
+          +'¬sysg¬ : ¬'+%trim(SVIH_SYSG)+'¬, '
+          +'¬syst¬ : ¬'+%trim(SVIH_SYST)+'¬, '
+          +'¬refid¬ : ¬'+%trim(SVIH_TUID)+'¬, '
+          +'¬sydt¬ : ¬'+%trim(%editc(SVIH_SYDT:'Z'))+'¬, '
+          +'¬mtyp¬ : ¬'+%trim(SVIH_MTYP)+'¬, '
+          +'¬namn¬ : ¬'+%trim(SVIH_MONA)+'¬, '
+          +'¬url¬ : ¬'+%trim(WURL)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     HOPP2         TAG
+
+     C     'S'           READE     SVIH11                                 55
+     C                   ENDDO
+     C                   ENDSR
+      *********************************************************
+     C     TDSEXP        Begsr
+      *********************************************************
+     C     'S'           SETLL     SVEH11
+     C     'S'           READE     SVEH11                                 55
+     C     *IN55         DOWEQ     '0'
+
+     C     SVEH_SYSG     CABNE     SVTH_SYSG     HOPP
+
+     C                   Add       1             AntLest
+     C                   MOVE      SVEH_SYAV     AVDA
+     C                   MOVE      SVEH_SYOP     OPDA
+     C                   EVAL      WURL = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/SVEU' + AVDA + '-' + OPDA
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ursp¬ : ¬'+'TE'+'¬, '
+          +'¬syav¬ : ¬'+%trim(%editc(SVEH_SYAV:'Z'))+'¬, '
+          +'¬syop¬ : ¬'+%trim(%editc(SVEH_SYOP:'Z'))+'¬, '
+          +'¬sysg¬ : ¬'+%trim(SVEH_SYSG)+'¬, '
+          +'¬syst¬ : ¬'+%trim(SVEH_SYST)+'¬, '
+          +'¬refid¬ : ¬'+%trim(SVEH_TUID)+'¬, '
+          +'¬sydt¬ : ¬'+%trim(%editc(SVEH_SYDT:'Z'))+'¬, '
+          +'¬mtyp¬ : ¬'+%trim(SVEH_MTYP)+'¬, '
+          +'¬namn¬ : ¬'+%trim(SVEH_AVNA)+'¬, '
+          +'¬url¬ : ¬'+%trim(WURL)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     HOPP          TAG
+
+     C     'S'           READE     SVEH11                                 55
+     C                   ENDDO
+     C                   ENDSR
+      *********************************************************
+     C     NCTIMP        Begsr
+      *********************************************************
+     C     'S'           SETLL     SVNH07
+     C     'S'           READE     SVNH07                                 55
+     C     *IN55         DOWEQ     '0'
+
+     C     TISG          CABNE     SVTH_SYSG     HOPP4
+
+     C                   Add       1             AntLest
+     C                   MOVEL     TITUID        WREFID           35
+     C                   IF        TITRNR <> *BLANKS
+     C                   MOVEL     TITRNR        WREFID
+     C                   ENDIF
+     C                   MOVE      TIAVD         AVDA
+     C                   MOVE      TITDN         OPDA
+     C                   EVAL      WURL = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/SVYU' + AVDA + '-' + OPDA
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ursp¬ : ¬'+'NI'+'¬, '
+          +'¬syav¬ : ¬'+%trim(%editc(TIAVD:'Z'))+'¬, '
+          +'¬syop¬ : ¬'+%trim(%editc(TITDN:'Z'))+'¬, '
+          +'¬sysg¬ : ¬'+%trim(TISG)+'¬, '
+          +'¬syst¬ : ¬'+%trim(TIST)+'¬, '
+          +'¬refid¬ : ¬'+%trim(WREFID)+'¬, '
+          +'¬sydt¬ : ¬'+%trim(%editc(TIDT:'Z'))+'¬, '
+          +'¬mtyp¬ : ¬'+' '+'¬, '
+          +'¬namn¬ : ¬'+' '+'¬, '
+          +'¬url¬ : ¬'+%trim(WURL)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     HOPP4         TAG
+
+     C     'S'           READE     SVNH07                                 55
+     C                   ENDDO
+     C                   ENDSR
+      *********************************************************
+     C     NCTEXP        Begsr
+      *********************************************************
+     C     'S'           SETLL     SVXH07
+     C     'S'           READE     SVXH07                                 55
+     C     *IN55         DOWEQ     '0'
+
+     C     THSG          CABNE     SVTH_SYSG     HOPP3
+
+     C                   Add       1             AntLest
+     C                   MOVEL     THTUID        WREFID
+     C                   IF        THTRNR <> *BLANKS
+     C                   MOVEL     THTRNR        WREFID
+     C                   ENDIF
+     C                   MOVE      THAVD         AVDA
+     C                   MOVE      THTDN         OPDA
+     C                   EVAL      WURL = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/SVXU' + AVDA + '-' + OPDA
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬ursp¬ : ¬'+'NE'+'¬, '
+          +'¬syav¬ : ¬'+%trim(%editc(THAVD:'Z'))+'¬, '
+          +'¬syop¬ : ¬'+%trim(%editc(THTDN:'Z'))+'¬, '
+          +'¬sysg¬ : ¬'+%trim(THSG)+'¬, '
+          +'¬syst¬ : ¬'+%trim(THST)+'¬, '
+          +'¬refid¬ : ¬'+%trim(WREFID)+'¬, '
+          +'¬sydt¬ : ¬'+%trim(%editc(THDT:'Z'))+'¬, '
+          +'¬mtyp¬ : ¬'+' '+'¬, '
+          +'¬namn¬ : ¬'+%trim(THNAS)+'¬, '
+          +'¬url¬ : ¬'+%trim(WURL)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+
+     C     HOPP3         TAG
+
+     C     'S'           READE     SVXH07                                 55
+     C                   ENDDO
+     C                   ENDSR

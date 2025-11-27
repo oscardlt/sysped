@@ -1,0 +1,418 @@
+********************************************************************
+      * Dette programmet PARSER xml via SCOTT KLEMETs HTTPAPI og
+      * legger ut XMLTAGGER / VERDIER mm i nøkkelbaserte DATABASEfiler
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 FEILMELDING DERSOM......
+10XXX * 02 YBC PTF10 ERSTATTE BLANK PÅ LINJE STARTER MED X'05'
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 03 YBC PTF11 LENGDE PÅ VARIABEL
+11XXX * 04 YBC PTF11 BYTT encoding: Windows-1252 til iso-8859-1
+11XXX * 05 YBC PTF11 filename er endret fra 120 lang til 256 lang
+********************************************************************
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+     FXMLRCVF   O  A E             DISK
+     FXMLRCLF   O  A E             DISK
+     FXMLRCAF   O  A E             DISK
+s01  F*EDIC      UF   E             DISK
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D PrintLine       s            132A
+S05  D*filename        s            120A   varying
+N05  D filename        s            256A   varying
+     D XCLIENTID       s             10A
+     D XCLIENTNAME     s             50A
+     D XDEPTH          s              3  0
+     D XVALUE1         S            512A
+     D XVALUE2         S            442A
+     D XATN            S             35A   DIM(30)
+     D XATV            S             70A   DIM(30)
+      *
+
+     C     *ENTRY        PLIST
+     C                   PARM                    UFILNVN         256
+     C                   PARM                    USN               9
+
+n01  C*    1             CHAIN     EDIC                               20
+n01  C*                  ADD       1             CSN
+n01  C*                  UPDATE    EDICR
+n01  C*                  MOVE      CSN           XRSN
+n01  C*                  MOVE      CSN           USN
+N01  C                   MOVE      USN           XRSN
+N02  C                   MOVE      X'05'         XTEGNX051         1
+
+      /free
+
+
+        //
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+            filename = %trim(UFILNVN);
+        //  filename = '/tmp/BLIT1838943.xml';
+        //  filename = '/SYSPEDFX/SYSTEMA_E_TCP/EDISE1K/F0028954.xml';
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+N04   /end-free
+N04  C                   CALL      'SYXML29'
+N04  C                   PARM                    UFILNVN         256
+N04   /free
+N04     if (http_parse_xml_stmf( filename
+N04                            : HTTP_XML_CALC
+N04                            : *null
+N04                            : %paddr(Incoming)
+N04                            : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+
+           *inlr = *on;
+           return;
+N04     endif;
+        endif;
+
+        // ****************************************************
+        //  http_parse-funksjonen er n} vellykket avsluttet
+        // ****************************************************
+           *inlr = *on;
+           return;
+
+      /end-free
+
+      *
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+      *
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+
+     D X               s             10I 0
+     D X2              s              3I 0
+
+      /free
+
+       // Skriv en linje pr attributt for sist behandlede/avsluttede tag
+       //  ved å løse opp "rem-ede linjer" bare ved gitte tag-navn  / gitte attributt-navn
+       // OBS| skal en ha med variablene UT av prosedyr m} variablene defineres globalt (toppen)
+
+           XRNV   = NAME;
+           IF XRNV = 'InvoiceDetails';      // N03
+           XVALUE1 = *BLANKS;               // N03
+           ELSE;                            // N03
+           XVALUE1 = VALUE;
+           ENDIF;                           // N03
+
+      /end-free
+     C                   MOVE      XVALUE1       XVALUE2
+N02  C                   MOVEL     XVALUE1       XTEGNX052         1
+      /free
+           IF (XVALUE2 = *BLANKS);
+           IF (XTEGNX051 = XTEGNX052);             // N02
+           XRVERD = *BLANKS;                       // N02
+           ELSE;                                   // N02
+           IF XRNV = 'InvoiceDetails';             // N03
+           XRVERD = *BLANKS;                       // N03
+           ELSE;                                   // N03
+           XRVERD = VALUE;
+           ENDIF;                                  // N03
+           ENDIF;                                  // N02
+           ELSE;
+           XRVERD = '*EXT, TILLEGGSFIL';
+           ENDIF;
+           XRPATH = PATH;
+           X2     = DEPTH - XDEPTH;
+           select;
+           WHEN (DEPTH  = XDEPTH);
+              select;
+              WHEN (DEPTH  = 1);
+              WHEN (DEPTH  = 2);
+               XRLEV1 = XRLEV1 + 1;
+              WHEN (DEPTH  = 3);
+               XRLEV2 = XRLEV2 + 1;
+              WHEN (DEPTH  = 4);
+               XRLEV3 = XRLEV3 + 1;
+              WHEN (DEPTH  = 5);
+               XRLEV4 = XRLEV4 + 1;
+              WHEN (DEPTH  = 6);
+               XRLEV5 = XRLEV5 + 1;
+              WHEN (DEPTH  = 7);
+               XRLEV6 = XRLEV6 + 1;
+              WHEN (DEPTH  = 8);
+               XRLEV7 = XRLEV7 + 1;
+              WHEN (DEPTH  = 8);
+               XRLEV8 = XRLEV8 + 1;
+              OTHER;
+               XRLEV9 = XRLEV9 + 1;
+              ENDSL;
+           WHEN (DEPTH  > XDEPTH);
+              select;
+              WHEN (DEPTH  = 1);
+               XRLEV1 = 0;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 2);
+               XRLEV1 = XRLEV1 + 1;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 3);
+               XRLEV1 = XRLEV1 + 1;
+               XRLEV2 = XRLEV2 + 1;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 4);
+               IF (X2 > 1);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               XRLEV2 = XRLEV2 + 1;
+               XRLEV3 = XRLEV3 + 1;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 5);
+               IF (X2 > 2);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               XRLEV3 = XRLEV3 + 1;
+               XRLEV4 = XRLEV4 + 1;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 6);
+               IF (X2 > 3);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               XRLEV4 = XRLEV4 + 1;
+               XRLEV5 = XRLEV5 + 1;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 7);
+               IF (X2 > 4);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               XRLEV5 = XRLEV5 + 1;
+               XRLEV6 = XRLEV6 + 1;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 8);
+               IF (X2 > 5);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 4);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV5 = XRLEV5 + 1;
+               ENDIF;
+               XRLEV6 = XRLEV6 + 1;
+               XRLEV7 = XRLEV7 + 1;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 9);
+               IF (X2 > 6);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 5);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 4);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV5 = XRLEV5 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV6 = XRLEV6 + 1;
+               ENDIF;
+               XRLEV7 = XRLEV7 + 1;
+               XRLEV8 = XRLEV8 + 1;
+               XRLEV9 = 0;
+              OTHER;
+               IF (X2 > 7);
+               XRLEV1 = XRLEV1 + 1;
+               ENDIF;
+               IF (X2 > 6);
+               XRLEV2 = XRLEV2 + 1;
+               ENDIF;
+               IF (X2 > 5);
+               XRLEV3 = XRLEV3 + 1;
+               ENDIF;
+               IF (X2 > 4);
+               XRLEV4 = XRLEV4 + 1;
+               ENDIF;
+               IF (X2 > 3);
+               XRLEV5 = XRLEV5 + 1;
+               ENDIF;
+               IF (X2 > 2);
+               XRLEV6 = XRLEV6 + 1;
+               ENDIF;
+               IF (X2 > 1);
+               XRLEV7 = XRLEV7 + 1;
+               ENDIF;
+               XRLEV8 = XRLEV8 + 1;
+               XRLEV9 = XRLEV9 + 1;
+              ENDSL;
+           OTHER;
+              select;
+              WHEN (DEPTH  = 1);
+               XRLEV1 = 0;
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 2);
+               XRLEV2 = 0;
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 3);
+               XRLEV3 = 0;
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 4);
+               XRLEV4 = 0;
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 5);
+               XRLEV5 = 0;
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 6);
+               XRLEV6 = 0;
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 7);
+               XRLEV7 = 0;
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              WHEN (DEPTH  = 8);
+               XRLEV8 = 0;
+               XRLEV9 = 0;
+              OTHER;
+               XRLEV9 = 0;
+              ENDSL;
+           ENDSL;
+
+           WRITE XMLRCVFR;
+
+       // Skriv verdi til tilleggsfil ved verdi er større enn 70 tegn
+           IF (XVALUE2 <> *BLANKS);
+           XRVRD = XVALUE1;
+           WRITE XMLRCLFR;
+           ENDIF;
+           XDEPTH = DEPTH;
+
+       // Skriv parameter av attributt til fil
+            count = 1;
+            dow attrs(count) <> *NULL;
+               attrname = %str(attrs(count));
+               count = count + 1;
+               attrval = %str(attrs(count));
+               count = count + 1;
+               XRATN = ATTRNAME;
+               XRATV = ATTRVAL;
+               WRITE XMLRCAFR;
+            enddo;
+
+      /end-free
+     P                 E
+

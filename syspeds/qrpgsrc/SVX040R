@@ -1,0 +1,278 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 CB  PKI sækerhetskoncept  ikke merket
+     FSVX040D   CF   E             WORKSTN SFILE(SVX040DA:ZRECNO)
+     F                                     USROPN
+     FSVXH      UF   E           K DISK
+     FSVXH11    IF   E           K DISK    RENAME(SVXHR:SVXHR11)
+     FSVTFI     IF   E             DISK
+     FEDIC      UF   E             DISK
+     FEDIM      O  A E             DISK
+     D                UDS
+     D  UAVD                  15     18  0
+     D  USG                   19     21
+     D                 DS
+     D  THTUID                 1     14
+     D  THTUID_2               5     14
+      *   SYEDI data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+
+     D RcvDtaQ         PR                  EXTPGM('QRCVDTAQ')
+     D  dqname                       10A   CONST
+     D  dqLib                        10A   CONST
+     D  dqLen                         5P 0
+     D  dqData                       80A
+     D  dqWait                        5P 0 CONST
+
+     D DQLen           S              5P 0
+     D TimeOut         S              5P 0
+     D DQData          S             80A
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     c                   CLOSE     SVX040D
+     c                   CALLP     RUNCMD('DLTOVR FILE(SVX040D)':200)
+     c                   CALLP     RUNCMD('DLTDTAQ DTAQ(QTEMP/SVX040DQ)':200)
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *________________
+      * Arbetsvariablar
+      *""""""""""""""""
+     C     *LIKE         DEFINE    ZRECNO        WRECNO
+     C     *LIKE         DEFINE    *IN03         WIN03
+     C     *LIKE         DEFINE    *IN03         WIN03
+     C     *LIKE         DEFINE    *IN12         WIN12
+     C     *LIKE         DEFINE    THST          XST
+     C                   EVAL      WSAVD=UAVD
+     C                   EVAL      WSSG=USG
+     C                   EVAL      XST='S'
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEYA          KLIST
+     C                   KFLD                    XST
+     C                   KFLD                    WSAVD
+     C                   KFLD                    WSSG
+     C     KEYB          KLIST
+     C                   KFLD                    THAVD
+     C                   KFLD                    THTDN
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *________________________
+      * Hæmta firmaupplysningar
+      *""""""""""""""""""""""""
+     C     1             CHAIN     SVTFI                              51
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+      * Lage dataq i QTEMP
+     c                   CALLP     RUNCMD('CRTDTAQ DTAQ(QTEMP/SVX040DQ) -
+     c                             MAXLEN(80) SEQ(*FIFO)': 200)
+      * Overstyr skjermbildet til å bruke dataq
+     c                   CALLP     RUNCMD('OVRDSPF FILE(SVX040D) DTAQ(' +
+     c                              'QTEMP/SVX040DQ)': 200)
+      * Åpne skjermbildet
+     c                   OPEN      SVX040D
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Bearbeide Formater                                   SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+
+     C     SRB1          TAG
+      *______________
+      * Tømme Subfile
+      *""""""""""""""
+     C                   EVAL      *IN92=*ON
+     C                   EVAL      *IN93=*ON
+     C                   WRITE     SVX040DB
+     C                   MOVEA     '000'         *IN(93)
+     C                   Z-ADD     *ZERO         ZRECNO
+     C                   Z-ADD     *ZERO         WRECNO
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C     KEYA          SETLL     SVXH11
+     C     KEYA          READE     SVXH11                                 94
+
+     C     *IN94         DOWEQ     '0'
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SVX040DA
+     C     KEYA          READE     SVXH11                                 94
+     C  N94              ENDDO
+
+     C     ZRECNO        IFEQ      0
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SVX040DA
+     C                   ENDIF
+     C                   EVAL      WRECNO=ZRECNO
+     C                   EVAL      ZRECNO=1
+      *_______________
+      * Behandle bilde
+      *"""""""""""""""
+     C     SRB3          TAG
+
+     C                   MOVEA     '11'          *IN(91)
+     C  N30              EVAL      ZMSGNO='SY00000'
+     C                   WRITE     SVX040DØ
+     C                   WRITE     SVX040DC
+     C                   WRITE     SVX040DB
+     C                   EVAL      *IN30=*OFF
+      * Vent på en av to hendelser
+      *    1) En post i dataq
+      *    2) Et tidsavbrudd i vente på dataq
+     c                   EVAL      DQLEN = 5
+     c                   EVAL      TIMEOUT = 1800
+     c                   CALLP     RCVDTAQ('SVX040DQ':'QTEMP': DQLen: DQData:
+     c                                 Timeout)
+      * Vis resultatet  (hvis Len=0, ingen data mottat)
+     c     DQLEN         IFEQ      0
+     C                   EXFMT     SVX040DE
+     C                   EVAL      *IN03 = *ON
+     c                   ELSE
+     c                   READ      SVX040DB                             9999
+     c                   ENDIF
+     C                   EVAL      *IN30=*OFF
+
+     C                   EVAL      *IN30=*OFF
+
+
+     C     *IN03         IFEQ      '0'
+     C     *IN12         ANDEQ     '0'
+
+     C                   MOVEA     '00'          *IN(91)
+      *_____________
+      * F5=Frisk opp
+      *"""""""""""""
+     C     *IN05         CABEQ     '1'           SRB1
+      *_______
+      * Valg ?
+      *"""""""
+     C                   EVAL      *IN52=*OFF
+     C                   EVAL      *IN95=*OFF
+     C     *IN52         DOWEQ     '0'
+
+     C                   READC     SVX040DA                               52
+     C     *IN52         IFEQ      '0'
+     C     ZOP           CASEQ     '4'           SRBD                           Återkalla
+     C     ZOP           CASEQ     '5'           SRBE                           Visa edifact
+     C     ZOP           CASEQ     'S'           SRBS                           Skicka till tullverk
+     C                   ENDCS
+     C                   ENDIF
+      *
+     C  N52              ENDDO
+
+     C     *IN03         CABEQ     '1'           SRB9
+     C     *IN12         CABEQ     '1'           SRB3
+     C                   GOTO      SRB1
+
+     C                   ENDIF
+
+     C     SRB9          ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Återkalla                                           SRBD /
+      *////////////////////////////////////////////////////////////
+     C     SRBD          BEGSR
+      *_____________
+      * Ændra status
+      *"""""""""""""
+     C     KEYB          CHAIN     SVXH                               52
+     C                   EVAL      THST=' '
+     C                   UPDATE    SVXHR
+      *_________________
+      * Oppdatere SUBFIL
+      *"""""""""""""""""
+     C                   CLEAR                   SVX040DA
+     C                   UPDATE    SVX040DA
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Visa edifact                                        SRBE /
+      *////////////////////////////////////////////////////////////
+     C     SRBE          BEGSR
+      *________________________
+      * call på visningsprogram
+      *""""""""""""""""""""""""
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   MOVE      THAVD         WAVD              4
+     C                   MOVE      THTDN         WOPD              7
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + 'SVXU'
+     C                             + WAVD
+     C                             + '-'
+     C                             + WOPD
+      * Vise fil
+     C                   MOVE      *BLANKS       QCMDA           256
+     C                   EVAL      QCMDA = 'DSPF STMF(' + X'7D'
+     C                             + %trimr(WFILNAM)
+     C                             + X'7D'
+     C                             + ')'
+     c                   CALLP     RUNCMD(QCMDA:256)
+      *_________________
+      * Oppdatere SUBFIL
+      *"""""""""""""""""
+     C                   MOVE      *BLANKS       ZOP
+     C                   UPDATE    SVX040DA
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skicka till tullverket                              SRBS /
+      *////////////////////////////////////////////////////////////
+     C     SRBS          BEGSR
+      *_____________
+      * Ændra status
+      *"""""""""""""
+     C     KEYB          CHAIN     SVXH                               52
+     C                   EVAL      THST='A'
+     C                   UPDATE    SVXHR
+      *_____________________________
+      * Hæmta næsta meddelandenummer
+      *"""""""""""""""""""""""""""""
+     C     1             CHAIN     EDIC                               52
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+      *_______________
+      * Skriv til EDIM
+      *"""""""""""""""
+     C                   CLEAR                   EDIMR
+     C                   EVAL      M0004=SVTF_0004
+     C                   EVAL      M0010=SVTF_0010
+     C                   EVAL      M0035=SVTF_0035
+     C                   MOVEL     THAVD         W0062            11
+     C                   MOVE      THTDN         W0062
+     C                   EVAL      M0062=W0062
+     C                   EVAL      M0065='CUSDEC'
+     C                   EVAL      M1001='STE'
+     C                   EVAL      M1004=THTUID
+     C                   EVAL      M0068=THTUID
+     C                   EVAL      M1225=THMF
+     C                   EVAL      M1N07=THMF
+     C                   EVAL      MMN=CMN
+     C                   EVAL      MSR='S'
+     C                   MOVEL     WDT           MDT
+     C                   MOVEL     WTM           MTM
+     C                   EVAL      MAVD=THAVD
+     C                   EVAL      MTDN=THTDN
+
+     C                   WRITE     EDIMR
+      *_________________
+      * Oppdatere SUBFIL
+      *"""""""""""""""""
+     C     SRBS9         TAG
+     C                   CLEAR                   SVX040DA
+     C                   UPDATE    SVX040DA
+     C                   ENDSR

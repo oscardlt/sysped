@@ -1,0 +1,522 @@
+     H debug(*yes)
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/ESKS05 MODULE(*LIBL/ESKS05 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 ekstra felt ............
+11XXX * 02 SH  PTF11 henter epostadresse
+********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    if   e           k disk    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+N02  FCUNDC03   IF   E           K DISK    USROPN
+     FARKLOGH5  IF   E           K DISK    USROPN
+     FARKLOGD   IF   E           K DISK    USROPN
+     FTRACKF    O  A E           K DISK    USROPN
+     FKOSTB     UF   E             DISK    USROPN
+     FKOSTA     IF   E           K DISK    USROPN
+     FFRISOK    IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+      *
+     D WSKABNR         s              7
+     D WBKABNR         s              7  0
+     D*WSRECNO         s              7
+     D*WBRECNO         s              7  0
+     D Wpos            s              4  0
+     D Gmpos           s              4  0
+     D L1              s              4  0
+     D BLF             s              4  0
+     D Tst700          s            700
+      * Definere  hex 0D / 25 (CRLF)
+     D                 DS
+     D CRLF                    1      2
+     D Hex0D                   1      1    inz(x'0D')
+     D Hex25                   2      2    inz(x'25')
+      * Client input variables
+      *Array for fri-tekster
+     D mTxta           S           2160
+     D WSMTxt          S           2160
+     D EPOST           s             70
+     D EPOSTF          s             70
+     D MODE            s              2
+     D user            s             10
+     D under           s             10
+     D KBAVDI          s              4
+     D KBOPDI          s              7
+     D ERECNOI         s              7
+     D KUNDNA          s              8
+     D KNAVN           s             30
+     D EMNE            s             70
+     D KBAVDN          s              4  0
+     D KBOPDN          s              7  0
+     D ERECNON         s              7  0
+     D KUNDNR          s              8  0
+     D OddEven         s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D                 DS
+     D  TEXT                   1   2160
+     D  TX                     1   2160    DIM(2160)
+     D                 DS
+     D  FTX                    1    120
+     D  FT                     1    120    DIM(120)
+     D                 DS
+     D  TX1                    1   2160    DIM(18)
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * File open / keys
+     C                   EXSR      INIT
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+     C                   callp     wrtsection('top')
+      *
+      *
+     c     MODE          IFEQ      'SE'
+     c                   exsr      leshode
+     c                   end
+     c     MODE          IFEQ      'NY'
+     c                   exsr      lageny
+     c                   end
+     C     MODE          ifeq      'SN'
+     C                   callp     wrtsection('epostsendt')
+     c                   end
+     C     MODE          ifeq      'OP'
+     C                   callp     wrtsection('rekoppgjordt')
+     c                   end
+      * Quit
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      ************************************************************************************
+     C     Parse         begsr
+      ************************************************************************************
+      * Parse input / cvt to numeric
+      * Parse variables from QUERY_STRING environment variable
+      * leser EPOST adresse fra skjerm
+     C                   eval      EPOST = zhbgetvar('EPOST')
+     C                   eval      EMNE  = zhbgetvar('EMNE')
+      * innregistreringsnummer
+     C                   eval      WSKABNR  = zhbgetvar('INRNR')
+     C                   EVAL      WBKABNR  = c2n2(WSKABNR)
+      * avdeling
+     C                   eval      KBAVDI = zhbgetvar('KBAVD')
+     C                   EVAL      KBAVDN = c2n2(KBAVDI)
+     C                   MOVE      KBAVDN        KBAVDA            4
+      * recno
+     C                   eval      ERECNOI = zhbgetvar('ERECNO')
+     C                   EVAL      ERECNON = c2n2(ERECNOI)
+     C                   MOVE      ERECNON       ERECNOA           7
+      *
+     C                   eval      KBOPDI = zhbgetvar('KBOPD')
+     C                   EVAL      KBOPDN = c2n2(KBOPDI)
+     C                   MOVE      KBOPDN        KBOPDA            7
+      *
+     C                   eval      KUNDNA = zhbgetvar('KUNDNA')
+     C                   EVAL      KUNDNR = c2n2(KUNDNA)
+     C                   MOVE      KUNDNR        KUNDNRA           8
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      KNAVN = zhbgetvar('KNAVN')
+      * henter kostainfo
+     C     ERECNON       chain(n)  kostb                              33
+     C     KBBNR         chain     kosta                              33
+     C     FRIKEY        chain     frisok                             33
+     C                   eval      EMNE = 'Deres faktura:'
+     C     EMNE          CAT       KAFNR:1       EMNE
+     C     EMNE          CAT       'Sending:':1  EMNE
+     C     EMNE          CAT       FSSOK:1       EMNE
+     C     EMNE          CAT       'Vår ref:':1  EMNE
+     C     EMNE          CAT       KBAVDI:1      EMNE
+     C     EMNE          CAT       '/':0         EMNE
+     C     EMNE          CAT       KBOPDI:0      EMNE
+     C                   eval      MODE = zhbgetvar('MODE')
+      * leser innholdet i epost  18 linjer a 120
+     C                   eval      mTxta  = zhbgetvar('mTxta')
+     C                   eval      WSMtxt  = zhbgetvar('mTxta')
+      * henter avsender epostadresse
+     C                   MOVEL     'HEUMS'       PAID
+     C     UserKey       chain     BRPARF                             33
+     c                   movel     PAVRDA        EPOSTF
+      * hent webbrukers epostadresse
+     C     MODE          ifeq      'SN'
+     C                   EVAL      TEXT = WSMTXT
+     c                   exsr      fixtext
+     c                   exsr      sendep
+     c                   end
+     C     MODE          ifeq      'OP'
+     c                   exsr      oppgjor
+     c                   end
+     C                   endsr
+      *
+      ************************************************************************************
+     C     Exit          begsr
+      ************************************************************************************
+      * Close output html and quit
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     ARKLOGH5
+     C                   CLOSE     TRACKF
+     C                   CLOSE     CUNDL01
+N02  C                   CLOSE     CUNDC03
+     C                   CLOSE     KOSTB
+     C                   CLOSE     KOSTA
+     C                   CLOSE     BRPARF
+     C                   CLOSE     FRISOK
+     C                   CLOSE     ARKLOGD
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESKS05':'/CGITAG/')
+     C                   endsr
+      ************************************************************************************
+     C     SetTop        begsr
+      ************************************************************************************
+      *  Set variable data for section /$top
+      *
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHTMLvar('KBAVD':KBAVDI)
+     C                   callp     updHTMLvar('KBOPD':KBOPDI)
+     C                   callp     updHTMLvar('ERECNO':ERECNOI)
+     C                   callp     updHTMLvar('KUNDNA':KUNDNA)
+     C                   callp     updHTMLvar('KNAVN':KNAVN)
+     C                   callp     updHTMLvar('EMNE':EMNE)
+     C                   callp     updHTMLvar('EPOST':EPOST)
+     C                   callp     updHTMLvar('EPOSTF':EPOSTF)
+     C                   callp     updHTMLvar('MODE':MODE)
+     c                   move      kbavdn        epavd
+     c                   move      kbopdn        epopd
+     c                   move      kundnr        epkund
+      *
+     C                   endsr
+      ************************************************************************************
+     C     Setrow        begsr
+      ************************************************************************************
+      *  Set variable data for section /$row
+     c     OddEven       IFEQ      ODD
+     c                   eval      OddEven = EVEN
+     c                   else
+     c                   eval      OddEven = ODD
+     c                   end
+     C                   callp     updHTMLvar('ODDEVEN':OddEven)
+      *
+     C                   callp     updHTMLvar('EPUSER':EPUSER)
+     C                   callp     updHTMLvar('EPDATE':
+     C                             %trim(%editW(EPDATE:'    .  .  ')))
+     C                   callp     updHTMLvar('EPTIME':
+     C                             %trim(%editW(EPTIME:'    .  .  ')))
+     C                   callp     updHTMLvar('EPTIL':EPTIL)
+      *
+     C                   endsr
+      *
+      ************************************************************************************
+     C     Setrow2       begsr
+      ************************************************************************************
+     C                   callp     updHTMLvar('EPUSER':EPUSER)
+     C                   callp     updHTMLvar('EPDATA':EPDATA)
+      *
+     C                   endsr
+      ****************************************************************************
+     C     INIT          begsr
+      ****************************************************************************
+     C                   eval      user = zhbgetvar('user')
+      *
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C                   OPEN      ARKLOGH5
+     C                   OPEN      TRACKF
+     C                   OPEN      CUNDL01
+N02  C                   OPEN      CUNDC03
+     C                   OPEN      KOSTB
+     C                   OPEN      KOSTA
+     C                   OPEN      BRPARF
+     C                   OPEN      FRISOK
+     C                   OPEN      ARKLOGD
+      *
+      *
+     c     UserKey       klist
+     c                   kfld                    USER
+     c                   kfld                    NULLKU            8 0
+     c                   kfld                    PAID
+     C     Arklogk       klist
+     C                   kfld                    EPAVD
+     C                   kfld                    EPOPD
+     C                   kfld                    EPKUND
+     C                   kfld                    EPAUTO
+     C                   move      'R'           EPAUTO
+     C     Arklogk2      klist
+     C                   kfld                    EPUNIK
+     C     kunkey        klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    KUNDNR
+N02  C     CUKEY         KLIST
+N02  C                   KFLD                    BIFIRM
+N02  C                   KFLD                    TYPE             30
+N02  C                   KFLD                    KUNDNR
+N02  C                   EVAL      type='*Reklamasjon'
+     C     frikey        klist
+     C                   kfld                    KBAVD
+     C                   kfld                    KBOPD
+     C                   kfld                    KODIFB            3
+     C                   move      'IFB'         KODIFB
+     C                   endsr
+      *
+      ****************************************************************************
+     C     LESHODE       begsr
+      ****************************************************************************
+      *
+     c     Arklogk       chain     arklogh5                           33
+     C  N33              callp     wrtsection('rowhead1')
+      *
+     c     Arklogk       setll     arklogh5
+     c     Arklogk       Reade     arklogh5                               33
+     c     *IN33         DOWEQ     '0'
+     C                   exsr      Setrow
+     C                   callp     wrtsection('row')
+     c                   exsr      lesdet
+     c     Arklogk       Reade     arklogh5                               33
+     c                   end
+     C                   callp     wrtsection('rowhead')
+     c                   endsr
+      *
+      ****************************************************************************
+     C     LESDET        begsr
+      ****************************************************************************
+      *
+      *
+      *
+     c     Arklogk2      setll     arklogd
+     c     Arklogk2      Reade     arklogd                                34
+     c     *IN34         DOWEQ     '0'
+     C                   exsr      Setrow2
+     C                   callp     wrtsection('row2')
+     c     Arklogk2      Reade     arklogd                                34
+     c                   end
+     c                   endsr
+      ****************************************************************************
+     C     LAGENY        begsr
+      ****************************************************************************
+     C                   callp     updhtmlvar('WSMtxt':WSMtxt)
+     C                   callp     updhtmlvar('mTxta':mTxta)
+      *
+     c     kunkey        chain     cundl01                            33
+      *
+     C                   callp     updHTMLvar('KUNDNA':KUNDNA)
+     C                   callp     updHTMLvar('KNAVN':KNAVN)
+     c     EPOST         ifeq      *blanks
+N02  c     cukey         chain     cundc03                            33
+N02  c  N33              eval      epost=cemail
+N02  c     EPOST         ifeq      *blanks
+     c                   move      syepos        epost
+N02  c                   end
+     c                   end
+     C                   callp     updHTMLvar('EPOST':EPOST)
+     C                   callp     updHTMLvar('EPOSTF':EPOSTF)
+     C                   callp     updHTMLvar('EMNE':EMNE)
+     C                   callp     wrtsection('nyepost')
+     c                   exsr      lesdet
+     c                   endsr
+      *****************************************************************************************
+     C     FIXTEXT       begsr
+      *****************************************************************************************
+     C                   z-add     1             GMPOS
+     C                   z-add     1             WPOS
+     C                   z-add     0             L1
+      * Neste linje er fram til neste CR/LF eller max 120 tegn
+     c     NextCRLF      Tag
+     C     CRLF          SCAN      TEXT:GMPOS    WPOS                     51
+      *
+      * fant ikke flere CRLF, resten blank? Hopp ut / ellers lagre 70+70.
+      *
+     C     *IN51         IFEQ      *OFF
+     c                   MOVE      *BLANKS       TST700
+     c                   movea     TX(GMpos)     TST700
+      * hopp ut hvis rester er blank
+     C     TST700        CABEQ     *BLANKS       UTSKRIV
+     c                   z-add     9999          Wpos
+     c                   end
+      *
+      * Lagre uansett fra og med start.sted
+     C                   MOVEA     TX(GMPOS)     FT
+      * Finn lengde på siste streng(max 120) - blank resten (fra lengde +1)
+     C                   EVAL      BLF = WPOS - GMPOS + 1
+     C     BLF           IFGT      120
+      *(51 OFF. skal IKKE hoppe over CRLF før neste linje.)
+     C                   MOVE      *OFF          *IN51
+     C                   eval      wpos = GMPOS +120
+     c                   end
+      * BLF mellom 1 og 120
+     C     BLF           IFge      1
+     C     BLF           andle     120
+     C                   MOVEA     *BLANKS       FT(BLF)
+     C                   END
+     C     L1            CABGT     17            UTSKRIV
+     c                   add       1             L1
+     c                   Movea     FT            TX1(L1)
+      *
+      * Finn neste start-posisjon (HVIS CRLF - hopp pver)
+     C                   Z-add     WPOS          GMPOS
+     C     *IN51         IFEQ      *ON
+     C                   ADD       2             GMPOS
+     C                   END
+     C     GMPOS         CABLE     700           NEXTCRLF
+     C
+      *
+     c     UtSKRIV       endsr
+      *
+      ************************************************************************
+     c     sendep        begsr
+      ************************************************************************
+     c                   move      'R'           ukode             1
+     c                   call      'ARC045CLJ'
+     c                   parm                    USER
+     c                   parm                    BIBESK
+     c                   parm                    epostf
+     c                   parm                    epost
+     c                   parm                    emne
+     c                   parm                    TX1(1)
+     c                   parm                    TX1(2)
+     c                   parm                    TX1(3)
+     c                   parm                    TX1(4)
+     C                   parm                    TX1(5)
+     C                   parm                    TX1(6)
+     C                   parm                    TX1(7)
+     C                   parm                    TX1(8)
+     C                   parm                    TX1(9)
+     C                   parm                    TX1(10)
+     C                   parm                    TX1(11)
+     C                   parm                    TX1(12)
+     C                   parm                    TX1(13)
+     C                   parm                    TX1(14)
+     C                   parm                    TX1(15)
+     C                   parm                    TX1(16)
+     C                   parm                    TX1(17)
+     C                   parm                    TX1(18)
+     c                   parm                    kbavda
+     c                   parm                    kbopda
+     c                   parm                    kbtura            8
+     c                   parm                    KUNDNRA
+     c                   parm                    ukode
+     C                   MOVE      'REK'         TTACTI
+     c                   exsr      ttsr
+     c* oppdater linjenummer i kostb
+     c*    WBRECNO       chain     kostb                              34
+     c     ERECNON       chain     kostb                              34
+     c  N34              move      'RS'          kbrekl
+     c  N34              update    kostbr
+     c                   endsr
+      ************************************************************************
+     c     oppgjor       begsr
+      ************************************************************************
+     C                   MOVE      'REK'         TTACTI
+     c                   exsr      ttsr
+     c* oppdater linjenummer i kostb
+     c*    WBRECNO       chain     kostb                              34
+     c     ERECNON       chain     kostb                              34
+     c  N34              move      'RO'          kbrekl
+     c  N34              update    kostbr
+     c                   endsr
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+     C                   MOVE      KBAVDN        TTAVD
+     C                   MOVE      KBOPDN        TTOPD
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      ULDT          TTDATE
+     C                   MOVE      XULTM         TTTIME
+     C                   MOVE      TTDATE        TTDATL
+     C                   MOVE      TTTIME        TTTIML
+     C                   MOVE      USER          TTUSER
+     C                   MOVE      *blanks       TTTEXT
+     c                   move      *blanks       FIFNA             7
+     C                   eval      TTTEXT = 'Complaint:'
+     C     TTTEXT        CAT       KNAVN:1       TTTEXT
+     C                   eval      TTTEXL = 'Reklamasjon:'
+     C     TTTEXL        CAT       KNAVN:1       TTTEXL
+     C                   WRITE     TRACKFR
+     C                   ENDSR
+     C*

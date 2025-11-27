@@ -1,0 +1,459 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/ESHD02 MODULE(*LIBL/ESHD02 *LIBL/INCGI)
+aRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF10 Title sette i RPG
+      * 02 JOV PTF10 eSpedTop/eSpedBot flyttet opp / flere tager i hver...
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FMSGKL01   IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+     D OutType         s              1
+     D LinTXT          s          32000
+     D OddEven         s             10
+     0* Client input variables
+     D user            s             10
+     D FRADAT          s              6
+     D FRADATN         s              6  0
+     D TILDAT          s              6
+     D TILDATN         s              6  0
+     D KUNUSR          s             10
+     D INEXTEXT        s            100
+     D VisKl           s              1
+     D VisAChecked     s             10
+     D VisAlle         s              1
+     D VisOChecked     s             10
+     D VisOnske        s              1
+N01  D Title           S            100
+      *
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D CSV             s              1
+     D CSVFILE         s             50
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D                 DS
+     D  MSGMKO                 1      5
+     D    MSGMKO1              1      1
+     D                 DS
+     D  MSGNAM                 1     30
+     D    MSGNAMxx             1     15
+     D                 DS
+     D  MSGKPE                 1     30
+     D    MSGKPExx             1     15
+     D                 DS
+     D  MSGPRO                 1    512
+     D    MSGPROxx             1    200
+     D                 DS
+     D  MSGLØS                 1    512
+     D    MSGLØSxx             1    200
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+s02  C*                  callp     wrtsection('Stdtop')
+     c                   if        OutType<>'J'
+N02  C                   callp     wrtsection('StdtopTab')
+     C                   callp     wrtsection('top')
+     c                   else
+     C                   callp     wrtsection('top')
+      /free
+        LinTxt='{'
+        +'"user" : " '+%trim(user)+'", '
+        +'"kundeNr" : "'+%trim(%editc(BIKUNR:'Z'))+'", '
+        +'"kundeNavn" : " '+%trim(BIBESK)+'", '
+        +'"hdList" : [';
+      /end-free
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+     c                   endif
+      *
+      * HOVEDRUTINE
+      *
+      * Vis liste over registrete saker
+      *
+     C     MaxSnd        IFEQ      *ZEROS
+     C                   Z-add     500           MaxSnd
+     C                   END
+     C     MaxRcd        IFEQ      *ZEROS
+     C                   Z-add     2000          MaxRcd
+     C                   END
+      *
+     C                   Move      *zeros        AntSnd
+     C                   Move      *zeros        AntRcd
+      *
+     c     *loval        setll     MSGKL01
+     c                   Read      MSGKL01                                35
+      *
+     c     *IN35         doweq     '0'
+     C                   Add       1             AntRcd
+     C     AntRcd        CabGe     MaxRcd        Utles
+      * div filter
+     c     XINTERN       Ifne      'J'
+     C     BIKUNR        CabNe     MSGKNR        NextRec
+     c                   else
+     c     KUNUSR        ifne      *blanks
+     C     KUNUSR        CabNe     MSGSAH        NextRec
+     c                   endif
+     c                   end
+     c     VisAlle       Ifne      'Y'
+     C*    MSGSTA        CabNe     'A  '         NextRec
+      * A=NY , AB = Åpnet av konsulent, AC-Besvart av konsulent (tilbake til 'Eier')
+     c                   movel     MSGSTA        MSGSTA1           1
+     C     MSGSTA1       CabNe     'A'           NextRec
+     c                   endif
+     c     VisOnske      Ifne      'Y'
+     C     MSGMKO1       Cabeq     'O'           NextRec
+     c                   endif
+     c     FRADATN       Ifne      *zeros
+     C     MSGDAT        Cablt     FRADATN       NextRec
+     c                   end
+     c     TILDATN       Ifne      *zeros
+     C     MSGDAT        Cabgt     TILDATN       NextRec
+     c                   end
+      * Ok - skriv
+     C                   exsr      Setrow
+     c                   if        OutType<>'J'
+     C                   callp     wrtsection('row')
+     c                   else
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     c                   endif
+     C                   Add       1             AntSnd
+     C     AntSnd        CabGe     MaxSnd        Utles
+      *
+     c     NextRec       Tag
+     c                   Read      MSGKL01                                35
+     c                   enddo
+      *
+      *
+     C     UTLES         TAG
+     C                   callp     updHTMLvar('ANTSND':
+     C                             %trim(%editc(ANTSND:'3')))
+     C                   callp     updHTMLvar('MaxSnd':
+     C                             %trim(%editc(MaxSnd:'3')))
+     C                   callp     updHTMLvar('ANTRCD':
+     C                             %trim(%editc(ANTRCD:'3')))
+     C                   callp     updHTMLvar('MaxRcd':
+     C                             %trim(%editc(MaxRcd:'3')))
+      * Quit
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     c                   if        OutType<>'J'
+     C                   callp     wrtsection('bot')
+S02  C*                  callp     wrtsection('Stdbot')
+N02  C                   callp     wrtsection('botPoweredBy')
+N02  C                   callp     wrtsection('botStd')
+     c                   else
+     c                   eval      LINTXT =']}'
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+     c                   endif
+      *
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      MAXSN    = zhbgetvar('MaxSn')
+     C                   eval      MaxSnd   = c2n2(MAXSN)
+     C                   eval      MAXRC    = zhbgetvar('MaxRc')
+     C                   eval      MaxRcd   = c2n2(MAXRC)
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      user = uppify(user)
+     C                   eval      VisKl = zhbgetvar('VisKl')
+     C                   eval      CSV  = zhbgetvar('CSV')
+     C                   eval      FRADAT   = zhbgetvar('FRADAT')
+     C                   eval      FRADATN  = c2n2(FRADAT)
+     C                   eval      TILDAT   = zhbgetvar('TILDAT')
+     C                   eval      TILDATN  = c2n2(TILDAT)
+     C                   eval      KUNUSR   = zhbgetvar('KUNUSR')
+     C                   eval      KUNUSR   = uppify(KUNUSR)
+     C                   eval      OutType  = zhbgetvar('OUTTYPE')
+      * CHECKBOX - Y = checked
+     C                   eval      VisAlle  = zhbgetvar('VisAlle')
+     C                   eval      VisOnske = zhbgetvar('VisOnske')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     MSGKL01
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+N02  C*                  eval      IfsMultIndicators = gethtmlifsmult(
+N02  C*                            '/syspeddev/html/Header/eSpedTop.html -
+N02  C*                            /syspeddev/html/ESHD02.html -
+N02  C*                            /syspeddev/html/Footer/eSpedBot.html':
+N02  C*                            '/CGITAG/')
+     c                   if        OutType='J'
+     c                   callp     gethtmlifs(
+cccccC                             '/syspeddev/html/JSON.html':
+cccccC                             '/CGITAG/')
+     c                   else
+N02  C                   eval      IfsMultIndicators = gethtmlifsmult(
+N02  C                             '/syspeddev/html/eSpedTop.html -
+N02  C                             /syspeddev/html/ESHD02.html -
+N02  C                             /syspeddev/html/eSpedBot.html':
+N02  C                             '/CGITAG/')
+     c                   endif
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+N01  c                   eval      Title='SYSTEMA HELPDESK'
+N01  C                   callp     updhtmlvar('TITLE':Title)
+     c
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHTMLvar('BESK':BIBESK)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('KNAVN':BIBESK)
+      * Søkeparam
+     c     FRADATN       ifeq      *zeros
+     C                   callp     updHTMLvar('FRADAT':'')
+     C                   else
+     c                   move      FRADATN       FRADAT
+     C                   callp     updHTMLvar('FRADAT':FRADAT)
+     C                   endif
+     c     TILDATN       ifeq      *zeros
+     C                   callp     updHTMLvar('TILDAT':'')
+     C                   else
+     c                   move      TILDATN       TILDAT
+     C                   callp     updHTMLvar('TILDAT':TILDAT)
+     C                   endif
+     C                   callp     updHTMLvar('VISKL':VISKL)
+     c                   movel     timedata1     time26           26
+     c                   eval      csvfile = %trim(USER)+'_'+Time26
+     C                   callp     updHTMLvar('CSVFILE':CSVFILE)
+     C**                 callp     updHTMLvar('VISAlle':VISAlle)
+     C     VisAlle       Ifeq      'Y'
+     C                   eval      VisAChecked = 'checked'
+     C                   end
+     C                   callp     updHTMLvar('VisAChecked':VisAChecked)
+     C**                 callp     updHTMLvar('VISOnske':VISOnske)
+     C     VisOnske      Ifeq      'Y'
+     C                   eval      VisOChecked = 'checked'
+     C                   end
+     C                   callp     updHTMLvar('VisOChecked':VisOChecked)
+      *
+     C     XINTERN       Ifeq      'J'
+     c                   eval      INEXTEXT ='Kun saksbeh: '
+     c                             +'<input type=text name="KUNUSR" '
+     C                             +'value="'+%trim(KUNUSR)
+     C                             +'" size=10 maxlength=10>'
+     C                   else
+     c                   eval      INEXTEXT ='KUNDENR: <b>'
+     c                             +%trim(%editc(BIKUNR:'Z'))+' '
+     C                             +%trim(BIBESK)+'</B>'
+     C                   endif
+     C                   callp     updHTMLvar('INEXTEXT':INEXTEXT)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+     c     OddEven       IFEQ      ODD
+     c                   eval      OddEven = EVEN
+     c                   else
+     c                   eval      OddEven = ODD
+     c                   end
+     C                   callp     updHTMLvar('ODDEVEN':OddEven)
+      *
+     C                   callp     updHTMLvar('MSGREF':
+     C                             %trim(%editc(MSGREF:'Z')))
+     C                   callp     updHTMLvar('KUNDNR':
+     C                             %trim(%editc(MSGKNR:'Z')))
+     C                   callp     updHTMLvar('KNAVN':MSGNAMxx)
+     C                   callp     updHTMLvar('KPERS':MSGKPExx)
+      *
+     c                   move      *blanks       Status           50
+     c                   select
+     c     MSGSTA        wheneq    'A  '
+     c                   eval      Status = 'Ny'
+     c     MSGEAV        ifne      *blanks                                      Endret av/eier
+     c                   eval      Status = 'Påbegynt'
+     c                   endif
+     c     MSGTBR        ifne      *blanks                                      Endret av/eier
+     c                   eval      Status = 'Videresendt'
+     c                   endif
+     c     MSGSTA        wheneq    'AB '                                        Åpnet av  konsulent
+     c     MSGSTA        oreq      'AC '                                        Tilbake til trond
+     c                   eval      Status = 'Påbegynt'
+     c     MSGSTA        wheneq    'FER'
+     c                   eval      Status = 'Avsluttet'
+     c     MSGSTA        wheneq    '999'
+     c                   eval      Status = 'Slettet'
+     c                   other
+     c                   eval      Status = 'UKJ: '+MSGSTA
+     c                   endsl
+     C     XINTERN       Ifeq      'J'
+     c                   eval      Status = %trim(status)
+     c                             +'<b> '+MSGSAH+'</b>'
+     C                   endif
+     C                   callp     updHTMLvar('STATUS':STATUS)
+      *
+     C                   MOVEL     20            DATO              8 0
+     C                   MOVE      MSGDAT        DATO
+     c     VisKl         ifne      'Y'
+     C                   callp     updHTMLvar('DATO':
+     C                             %trim(%editw(DATO:'    .  .  ')))
+     C                   else
+     c                   movel     MSGTID        TID4              4 0
+     c                   movel     DATO          MSGDATKL         12 0
+     c                   move      TID4          MSGDATKL
+     C                   callp     updHTMLvar('DATO':
+     C                             %trim(%editw(MSGDATKL:'     .  .  _  :  ')))
+     C                   end
+      *
+     c                   move      *blanks       MeldKo           12
+     c                   select
+     c     MSGMKO        wheneq    'FA'
+     c                   eval      MeldKo = 'Feil, Pri A'
+     c     MSGMKO        wheneq    'FB'
+     c                   eval      MeldKo = 'Feil, Pri B'
+     c     MSGMKO        wheneq    'FC'
+     c                   eval      MeldKo = 'Feil, Pri C'
+     c     MSGMKO        wheneq    'OA'
+     c                   eval      MeldKo = 'Ønske, Pri A'
+     c     MSGMKO        wheneq    'OB'
+     c                   eval      MeldKo = 'Ønske, Pri B'
+     c     MSGMKO        wheneq    'OC'
+     c                   eval      MeldKo = 'Ønske, Pri C'
+     c                   other
+     c                   eval      MeldKo = 'UKJ: '+MSGMKO
+     c                   endsl
+     C                   callp     updHTMLvar('MELDKODE':MELDKO)
+     C                   callp     updHTMLvar('DELSYST':MSGDKO)
+     c     'Î|':'  '     xlate     MSGPRO        MSGPRO
+     C                   callp     updHTMLvar('PROBLEM':MSGPROxx)
+     C                   callp     updHTMLvar('LOSNING':MSGLØSxx)
+      *
+     c                   if        OutType='J'
+      /free
+        LinTxt='{'
+          +'"msgNr" : "'+%trim(%editc(MSGREF:'Z'))+'", '
+          +'"dato" : "'+%trim(%editw(DATO:'    .  .  '))+'", '
+          +'"msgKundenr" : "'+%trim(%editc(MSGKNR:'Z'))+'", '
+          +'"msgKundeNavn" : " '+%trim(MSGNAMXX)+'", '
+          +'"kontaktPers" : " '+%trim(MSGKPEXX)+'", '
+          +'"status" : " '+%trim(STATUS)+'", '
+          +'"type" : " '+%trim(MELDKO)+'", '
+          +'"system" : " '+%trim(MSGDKO)+'", '
+          +'"problem" : " '+%trim(MSGPROXX)+'", '
+          +'"losning" : " '+%trim(MSGLØSXX)+'" }, ';
+      /end-free
+     c                   endif
+     C                   endsr
+      *
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C                   eval      rc = docmd('OVRDBF FILE(MSGKL01) +
+     C                             TOFILE(SYHD/MSGKL01)')
+     C                   OPEN      MSGKL01
+      *
+     C                   endsr
+      *

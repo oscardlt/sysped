@@ -1,0 +1,293 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TNOI063R MODULE(*LIBL/TNOI063R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSADSD     IF   E           K DISK    USROPN
+     FKODTS8    IF   E           K DISK    USROPN
+     FCUNDMAF   IF   E           K DISK    USROPN
+     FSADAVGW   UF A E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D SVVNT           S              8
+     D SVVNTN          S              8  0
+     D SIKNK           S              8
+     D SIKNKN          S              8  0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D                 DS
+     D  KS8FTX                 1     52
+     D  KS8MIL                52     52
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬svvnt¬ : ¬'+%trim(SVVNT)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     C                   eval      JSONstring ='"getavgifter" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     c     Error         ifeq      *blanks
+     C                   EXSR      GETAVG
+
+     c                   endif
+     c                   eval      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     KODTS8
+     C  N50              CLOSE     SADSD
+     C  N50              CLOSE     SADAVGW
+     C  N50              CLOSE     CUNDMAF
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      SVVNT   = zhbgetvar('SVVNT')
+     C                   EVAL      SVVNTN  = c2n2(SVVNT)
+     C                   EVAL      SIKNK   = zhbgetvar('SIKNK')
+     C                   EVAL      SIKNKN  = c2n2(SIKNK)
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C     SADSDK        KLIST
+     C                   KFLD                    SVVNTN
+     C     KODTS8K       KLIST
+     C                   KFLD                    SDKDAÆ
+     C                   KFLD                    SDKDSÆ
+     C     CUNDMAFK      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    WCMAKN
+     C                   KFLD                    SDKDAÆ
+     C     *LIKE         DEFINE    CMAKN         WCMAKN
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           USIDT             8 0
+
+     C   50              eval      Error = 'Invalid userID'
+     C                   IF        *IN50=*OFF
+     C                   OPEN      KODTS8
+     C                   OPEN      CUNDMAF
+     C                   OPEN      SADSD
+     C                   EVAL      WCMAKN=SIKNKN
+     C*                  CALL      'TNOI063C'
+     C                   OPEN      SADAVGW
+     C     *LOVAL        SETLL     SADAVGW
+     C                   READ      SADAVGW                                53
+     C     *IN53         DOWEQ     '0'
+     C                   DELETE    SADAVGWR
+     C                   READ      SADAVGW                                53
+     C                   ENDDO
+     C                   ENDIF
+
+     c                   endsr
+      *
+      *_________________________________________________
+      * Hent avgifter                             GETAVG
+      *"""""""""""""""""""""""""""""""""""""""""""""""""
+     C     GETAVG        BEGSR
+     C     SADSDK        SETLL     SADSD
+     C     SADSDK        READE     SADSD                                  51
+     C     *IN51         DOWEQ     '0'
+     C     SDDTF         IFLE      USIDT
+     C     SDDTT         ANDGE     USIDT
+     C     SDAKTK        ANDNE     'I'
+     C     KODTS8K       CHAIN     KODTS8                             52
+     C                   IF        *IN52=*OFF AND KS8MIL='J'
+     C     CUNDMAFK      CHAIN     CUNDMAF                            52
+     C                   ENDIF
+     C                   IF        *IN52=*OFF
+
+     C     SDKDAÆ        CHAIN     SADAVGW                            53
+     C                   IF        *IN53
+     C                   CLEAR                   SADAVGWR
+     C                   EVAL      AWA=SDKDAÆ
+     C                   EVAL      AWB=KS8FTX
+     C                   EVAL      AWC1=SDKDSÆ
+     C                   EVAL      AWD1=SDBLSÆ
+     C                   EVAL      AWE1=SDAKTK
+     C                   WRITE     SADAVGWR
+     C                   ELSE
+     C                   SELECT
+     C     AWC2          WHENEQ    *BLANKS
+     C                   EVAL      AWC2=SDKDSÆ
+     C                   EVAL      AWD2=SDBLSÆ
+     C                   EVAL      AWE2=SDAKTK
+     C     AWC3          WHENEQ    *BLANKS
+     C                   EVAL      AWC3=SDKDSÆ
+     C                   EVAL      AWD3=SDBLSÆ
+     C                   EVAL      AWE3=SDAKTK
+     C     AWC4          WHENEQ    *BLANKS
+     C                   EVAL      AWC4=SDKDSÆ
+     C                   EVAL      AWD4=SDBLSÆ
+     C                   EVAL      AWE4=SDAKTK
+     C     AWC5          WHENEQ    *BLANKS
+     C                   EVAL      AWC5=SDKDSÆ
+     C                   EVAL      AWD5=SDBLSÆ
+     C                   EVAL      AWE5=SDAKTK
+     C     AWC6          WHENEQ    *BLANKS
+     C                   EVAL      AWC6=SDKDSÆ
+     C                   EVAL      AWD6=SDBLSÆ
+     C                   EVAL      AWE6=SDAKTK
+     C     AWC7          WHENEQ    *BLANKS
+     C                   EVAL      AWC7=SDKDSÆ
+     C                   EVAL      AWD7=SDBLSÆ
+     C                   EVAL      AWE7=SDAKTK
+     C     AWC8          WHENEQ    *BLANKS
+     C                   EVAL      AWC8=SDKDSÆ
+     C                   EVAL      AWD8=SDBLSÆ
+     C                   EVAL      AWE8=SDAKTK
+     C     AWC9          WHENEQ    *BLANKS
+     C                   EVAL      AWC9=SDKDSÆ
+     C                   EVAL      AWD9=SDBLSÆ
+     C                   EVAL      AWE9=SDAKTK
+     C                   ENDSL
+     C                   UPDATE    SADAVGWR
+     C                   ENDIF
+
+     C                   ENDIF
+     C                   ENDIF
+     C     SADSDK        READE     SADSD                                  51
+     C                   ENDDO
+
+     C     *LOVAL        SETLL     SADAVGW
+     C                   READ      SADAVGW                                53
+     C     *IN53         DOWEQ     '0'
+     C                   Add       1             AntLest
+
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬awa¬ : ¬'+%trim(AWA)+'¬, '
+          +'¬awb¬ : ¬'+%trim(AWB)+'¬, '
+          +'¬awc1¬ : ¬'+%trim(AWC1)+'¬, '
+          +'¬awc2¬ : ¬'+%trim(AWC2)+'¬, '
+          +'¬awc3¬ : ¬'+%trim(AWC3)+'¬, '
+          +'¬awc4¬ : ¬'+%trim(AWC4)+'¬, '
+          +'¬awc5¬ : ¬'+%trim(AWC5)+'¬, '
+          +'¬awc6¬ : ¬'+%trim(AWC6)+'¬, '
+          +'¬awc7¬ : ¬'+%trim(AWC7)+'¬, '
+          +'¬awc8¬ : ¬'+%trim(AWC8)+'¬, '
+          +'¬awc9¬ : ¬'+%trim(AWC9)+'¬, '
+          +'¬awd1¬ : ¬'+%trim(%editc(AWD1:'4'))+'¬, '
+          +'¬awd2¬ : ¬'+%trim(%editc(AWD2:'4'))+'¬, '
+          +'¬awd3¬ : ¬'+%trim(%editc(AWD3:'4'))+'¬, '
+          +'¬awd4¬ : ¬'+%trim(%editc(AWD4:'4'))+'¬, '
+          +'¬awd5¬ : ¬'+%trim(%editc(AWD5:'4'))+'¬, '
+          +'¬awd6¬ : ¬'+%trim(%editc(AWD6:'4'))+'¬, '
+          +'¬awd7¬ : ¬'+%trim(%editc(AWD7:'4'))+'¬, '
+          +'¬awd8¬ : ¬'+%trim(%editc(AWD8:'4'))+'¬, '
+          +'¬awd9¬ : ¬'+%trim(%editc(AWD9:'4'))+'¬, '
+          +'¬awe1¬ : ¬'+%trim(AWE1)+'¬, '
+          +'¬awe2¬ : ¬'+%trim(AWE2)+'¬, '
+          +'¬awe3¬ : ¬'+%trim(AWE3)+'¬, '
+          +'¬awe4¬ : ¬'+%trim(AWE4)+'¬, '
+          +'¬awe5¬ : ¬'+%trim(AWE5)+'¬, '
+          +'¬awe6¬ : ¬'+%trim(AWE6)+'¬, '
+          +'¬awe7¬ : ¬'+%trim(AWE7)+'¬, '
+          +'¬awe8¬ : ¬'+%trim(AWE8)+'¬, '
+          +'¬awe9¬ : ¬'+%trim(AWE9)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+     C                   READ      SADAVGW                                53
+     C                   ENDDO
+
+     C                   ENDSR

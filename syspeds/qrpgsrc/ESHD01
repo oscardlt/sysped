@@ -1,0 +1,529 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/ESHD01 MODULE(*LIBL/ESHD01 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 parameter AvsKod benyttes som fflakk (hvis alt ok)til HTML /%AVSLUTT%/
+      * 02 JOV PTF10 Title sette i RPG
+********************************************************************
+********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    USROPN
+     FMSGKP     O    E             DISK    USROPN
+     FTREFL01   UF   E           K DISK    USROPN
+     FMSGTL02   IF   E           K DISK    USROPN                               MLD.TYPE/FEIL-KATEG.
+     FDELSL02   IF   E           K DISK    USROPN                               DELSYSTEMS
+     FBRPARF    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FARKIVL11  UF   E           K DISK    USROPN
+     FARKSRC    O    E             DISK    USROPN
+     F                                     RENAME(arksrc:arcdat)
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          S             10
+     D EPOSTADR        S             70
+     D TELEFON         S             21
+     D KPERSON         S             30
+     D WSTK            S             40
+     D WSDS            S             40
+     D SUBMIT          S              1
+     D WUNIK           S              7
+     D WUNIN           S              7  0
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+N02  D Title           S            100
+N01  D AvsKod          S              1
+N01  D Avslutt         S              1
+     D Melding         S            140
+     D EMNE            S             70
+     D Cmd             S           5000
+     D                 DS
+     D  WSMTXT                 1   1000
+     D  WSMTXTa                1    512
+     D  WSMTXTb              513   1000
+     D  T1                     1   1000    DIM(1000)
+     D                 DS
+     D  W2MTXT                 1   1000
+     D  W2MTXTa                1    512
+     D  W2MTXTb              513   1000
+     D  T2                     1   1000    DIM(1000)
+     D                 DS
+     D  MSGKOD                 1      5
+     D  MSGTXT                11     40
+     D  MSGTXT4               13     13
+     D  MSGTXTB               14     40
+     D    MSGKOTX              1     40
+     D                 DS
+     D  DELKOD                 1      5
+     D  DELTXT                11     40
+     D  DELTXT4               14     14
+     D  DELTXTB               15     40
+     D    DELKOTX              1     40
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+      * Definere  hex appostrof
+     D Ap              c                   x'7D'
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+      *
+      ***
+     C                   exsr      Init
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      *------------------
+      * Write sections of HTML.
+      *
+      * Submit-knapp er trykt - test / evt send
+     C     Submit        Ifeq      'Y'
+     c                   exsr      TstHDmsg
+     c                   endif
+      *
+      * Her er HOVED logikk-rutine
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      * VELG FeilKATEGORI
+     C                   EXSR      DSPFK
+      * VELG Delsystem
+     C                   EXSR      DSPDS
+      *
+      *
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+      *
+     C                   close     BRIDF
+     C                   close     MSGTL02
+     C                   close     DELSL02
+     C                   close     MSGKP
+     C                   close     TREFL01
+      *
+     C                   close     BRPARF
+     C                   close     CUNDL01
+     C                   close     ARKIVL11
+      *
+     C     SLUTT         TAG
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *
+      *************************************
+     C     TstHdMsg      begsr
+      *************************************
+N01  c                   move      *blanks       Avslutt
+N01   * delsystem
+N01  c     WSDS          ifeq      *blanks
+N01  c                   eval      Melding = 'Du må velge hvilket '
+N01  c                             + 'SYSPED delsystem meldingen gjelder.'
+N01  c                   goto      UtTstHD
+N01  C                   endif
+     c     EpostAdr      ifeq      *blanks
+     c     WSMtxt        oreq      *blanks
+     c                   eval      Melding = 'Både meldingsboksen '
+     c                             + 'og epostadresse må være fylt ut.'
+     c                   goto      UtTstHD
+     C                   endif
+     c     WSMtxtb       ifne      *blanks
+     c                   eval      Melding = 'Mer en 512 tegn i meldingen. '
+     c                   goto      UtTstHD
+     C                   endif
+      * Send inn HD-melding (max 512 tegn)
+      * Fix CRLF (men kun hvis det ikke medfører samlet lengde over 512)
+     c                   exsr      FixLF
+      * Strip vekk CRLF (erstatt med Èè som er meeeegt lite sansynlig i teksten)
+E01  c     CrLf:'Î|'     xlate     WSMtxt        WSMtxt
+      *
+      * dato
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      * løpenr
+     C     'SS'          CHAIN     TREFL01                            38
+     C     *IN38         IFEQ      *OFF
+     C                   ADD       1             REFNR
+     C                   UPDATE    TREFR
+     C                   ENDIF
+      *
+     c     WSUSER        ifne      'NN'
+     c     WSUSER        andne     'ASSNN'
+     c                   eval      MSGKNR = BIKUNR
+     c     KunKey        chain     cundl01                            38
+     c  N38              eval      MSGNAM = KNAVN
+     c   38              eval      MSGNAM = BIBESK
+     c                   endif
+     c                   eval      MSGREF = REFNR
+     c                   eval      MSGSTA = 'A'
+     c                   move      WDT           MSGDAT
+     c                   move      WTM           MSGTID
+     c                   eval      MSGKOTX= WSTK
+     c                   eval      MSGMKO = MSGKOD                              Meldings kode
+     c                   eval      MSGMTX = MSGTXT                              Meldingstekst
+     c                   eval      DELKOTX= WSDS
+     c                   eval      MSGDKO = DELKOD                              Delsystem kode
+     c                   eval      MSGDTX = DELTXT                              Delsystem tekst
+     c                   eval      MSGPRO = WSMtxt                              Beskrivelse problem
+     c                   eval      MSGFBR = 'WEB  '                             Fra bruker
+     c                   eval      MSGOWN = 'TROND'                             Owner
+     c                   eval      MSGSAH = 'TROND'                             Saken er hos
+     c                   eval      MSGEPO = EPOSTADR                            Epost-adresse
+     c                   eval      MSGTLF = TELEFON                             telefon
+     c                   eval      MSGKPE = KPERSON                             Kontaktperson
+     c                   write     MSGKR
+      *
+     c                   eval      Melding = 'Helpdeskmelding nr '
+     c                             +%trim(%editc(REFNR:'Z'))+ ' er registrert.'
+     c                             + '  Bekreftelsesmail sendes.'
+     c                   exsr      FlyttArk
+      *  send mail
+     c                   exsr      SendMail
+     c                   move      *blanks       WSMtxt
+N01   * sett flagg til HTML for ev avslutning
+N01  c     AvsKod        Ifne      ' '
+N01  c                   move      AvsKod        Avslutt
+N01  c                   endif
+      *
+     C     UtTstHD       endsr
+      *
+      **************************************************************************
+     C     FixLF         begsr
+      **************************************************************************
+      *
+     c                   move      *blanks       W2MTXT
+     c                   move      *zeros        N1                3 0
+     c                   move      *zeros        N2                5 0
+      *
+     C                   DO        900
+     C                   add       1             N1
+     C                   MOVEA     T1(N1)        TSTCRLF           2
+     C     TSTCRLF       ifeq      CrLf
+     c                   add       2             N1                             Skipp CRLF
+     c                   add       80            N2                             Finn starten
+     c     N2            div       80            Ln                3 0          .. av neste
+     c     Ln            mult      80            N2                             .. 80-tegns linje
+     c                   endif
+     C                   add       1             N2
+     c                   move      T1(N1)        T2(N2)
+     c     N2            ifgt      510
+     c                   leave
+     C                   Endif
+     C                   END
+      * Flytt den strippede/rensede teksten inn i varaiabe (men ikke hvis den ble mer enn 512 lang)
+     c     W2MTXTb       ifeq      *blanks
+     c                   move      W2MTXT        WSMTXT
+     c                   endif
+      *
+     C                   endsr
+      *************************************
+     C     FlyttArk      begsr
+      *************************************
+      *
+     c                   move      *zeros        AntVed            5 0
+     c                   movel     'Hd:'         XXUNDE
+     c                   move      WUNIK         XXUNDE
+     c     ArkKey        setll     ARKIVL11
+     c     ArkKey        reade     ARKIVL11                               33
+     c     *in33         doweq     '0'
+     c                   add       1             AntVed
+     c                   move      REFNR         ARUNDE
+     c                   movel     'HD:'         ARUNDE
+     c                   update    ARKIVR
+     c     ArkKey        reade     ARKIVL11                               33
+     c                   enddo
+     c
+      *
+     C                   endsr
+      *************************************
+     C     SendMail      begsr
+      *************************************
+      * add   MMAIL/workfile
+      *
+     C                   eval      cmd = 'ADDPFM FILE(ARKSRC) MBR(W'
+     c                                  + WUNIK +')'
+     C                   eval      rc = docmd(cmd)
+     C                   eval      cmd = 'CLRPFM FILE(ARKSRC) MBR(W'
+     c                                  + WUNIK +')'
+     C                   eval      rc = docmd(cmd)
+     C                   eval      cmd = 'OVRDBF FILE(ARKSRC) TOFILE(ARKSRC) '
+     c                                  +'MBR(W'+ WUNIK +')'
+     C                   eval      rc = docmd(cmd)
+      *
+     C                   open      arksrc
+     c                   move      *zeros        srcseq
+      * erstatt hjelpetegnene fro CrLf med 2 blanke før send av mail
+     c     'Î|':'  '     xlate     WSMtxt        WSMtxt
+     C                   eval      EMNE = 'HD-'+%trim(%editc(REFNR:'Z'))
+     c                                   +'  Melding: '+ WSMtxt
+      *
+     C                   eval      SRCDTA = 'Takk for at du melder inn via web.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = 'Din helpdeskmelding er mottatt og '
+     c                                     +'tildelt HD-nummer '
+     c                                     +%trim(%editc(REFNR:'Z'))
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vennligst oppgi dette nummeret i '
+     c                                     +'evt videre dialog om saken.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = 'Starten av din melding er gjengitt'
+     C                                     +' i emnefeltet.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     c     AntVed        ifgt      *zeros
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = 'Antall vedlegg: '
+     c                                     +%trim(%editc(AntVed:'Z'))
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   endif
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = 'Hilsen '
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     C                   eval      SRCDTA = 'Helpdesk på SYSTEMA AS'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      * close før send for å sikre at buffer er skrevet
+     C                   close     arksrc
+      * Send mail - bodytekst hentes fra ARKSRC..
+     C                   eval      rc = docmd('ADDLIBLE MMAIL')
+     C                   eval      cmd = 'EMLMSG '
+     C                             +'SUBJECT('+ap+%trim(EMNE)+ap+') '
+     c                             +'FROMNAME('+ap+'SYSTEMA Helpdesk'+ap+') '
+     c                             +'FROMADDR('+ap+'helpdesk@systema.no'+ap+') '
+     c                             +'TO('+ap+%trim(EPOSTADR)+ap+'/'
+     c                             +ap+%trim(EPOSTADR)+ap+'/*TO '
+     c                             +ap+'helpdesk@systema.no'+ap+'/'
+     c                             +ap+'helpdesk@systema.no'+ap+'/*TO) '
+     c                             +'TXTF(ARKSRC) TXTMBR(W'+ WUNIK+') '
+     c                             +'EDTMBR(*NO)'
+     C                   eval      rc = docmd(cmd)
+      * fjern MMAIN/workfile
+     C                   eval      rc = docmd('RMVLIBLE MMAIL')
+     C                   eval      cmd = 'RMVM FILE(ARKSRC) MBR(W'
+     c                                  + WUNIK +')'
+     C                   eval      rc = docmd(cmd)
+     C                   endsr
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      WSUSER   = zhbgetvar('USER')
+     C                   eval      WSUSER   = uppify(WSUSER)
+     C                   eval      Submit   = zhbgetvar('SUBMIT')
+     C                   eval      EPOSTADR = zhbgetvar('EPOSTADR')
+     C                   eval      TELEFON  = zhbgetvar('TELEFON')
+     C                   eval      KPERSON  = zhbgetvar('KPERS')
+     C                   eval      WSMtxt  = zhbgetvar('mTxta')
+     C                   eval      WSTK    = zhbgetvar('WSTK')                  Kategori
+     C                   eval      WSDS    = zhbgetvar('WSDS')                  Delsystem
+     C                   eval      WUNIK    = zhbgetvar('WUNIK')
+     C                   eval      WUNIN   = c2n2(WUNIK)
+     C                   IF        WUNIN    = 0
+     C                   eval      WUNIN    = random(1000000:9999999)
+     C                   END
+     C                   MOVE      WUNIN         WUNIK
+N01  C                   eval      AvsKod   = zhbgetvar('AvsKod')
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * EXECUTE LOGIC / Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+     c
+N02  c                   eval      Title='SYSTEMA HELPDESK'
+N02  C                   callp     updhtmlvar('TITLE':Title)
+     c
+     c     BIPO          ifne      *blanks
+     C     EPOSTADR      IFEQ      *blanks
+     C                   MOVEL     'EPOST'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C     *in33         ifeq      *off
+     c                   EVAL      EPOSTADR = PAVRDA
+     C                   endif
+     C                   endif
+     C     TELEFON       IFEQ      *blanks
+     C                   MOVEL     'TLF  '       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C     *in33         ifeq      *off
+     c                   EVAL      TELEFON  = PAVRDA
+     C                   endif
+     C                   endif
+     C     KPERSON       IFEQ      *blanks
+     c                   eval      KPERSON = BIBESK
+     C                   endif
+     C                   endif
+     C                   callp     updhtmlvar('WUNIK':WUNIK)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('EPOSTADR':EPOSTADR)
+     C                   callp     updhtmlvar('TELEFON':TELEFON)
+     C                   callp     updhtmlvar('KPERS':KPERSON)
+     C                   callp     updhtmlvar('User':WSUSER)
+     C                   callp     updhtmlvar('WSMtxt':WSMtxt)
+     C                   callp     updhtmlvar('MELDING':MELDING)
+N01  C                   callp     updhtmlvar('Avslutt':Avslutt)
+N01   * repeat for next invocation
+N01  C                   callp     updhtmlvar('AvsKod':AvsKod)
+      *
+     C                   endsr
+      *
+      *=====================================================================*
+      *  Display Meldingstyper / Feilkategorier
+      *=====================================================================*
+     C     DSPFK         begsr
+     C                   callp     wrtsection('FKtop')
+      *
+     C     *loval        SETLL     MSGTL02
+     C                   READ      MSGTL02                                40
+     c     *in40         doweq     '0'
+     C                   callp     updhtmlvar('KFKOD':MSGKOTX)
+     C                   callp     updhtmlvar('KFTXT':MSGTXTB)
+     C                   callp     wrtsection('FKrow')
+     C                   READ      MSGTL02                                40
+     C                   ENDDO
+      *
+     C                   callp     wrtsection('FKBot')
+      *
+     C                   endsr
+      *=====================================================================*
+      *  Display Delsystemer  - (valgfritt)
+      *=====================================================================*
+     C     DSPDS         begsr
+     C                   callp     wrtsection('DStop')
+      *
+     C                   callp     updhtmlvar('DSKOD':' ')
+     C                   callp     updhtmlvar('DSTXT':' -- Sysped delsystem --')
+     C                   callp     wrtsection('DSrow')
+     C     *loval        SETLL     DELSL02
+     C                   READ      DELSL02                                40
+     c     *in40         doweq     '0'
+     c     DELTXT4       ifeq      ' '                                          kun a la 020 xxxxxx
+     C                   callp     updhtmlvar('DSKOD':DELKOTX)
+     C                   callp     updhtmlvar('DSTXT':DELTXTB)
+     C                   callp     wrtsection('DSrow')
+     c                   endif
+     C                   READ      DELSL02                                40
+     C                   ENDDO
+      *
+     C                   callp     wrtsection('DSBot')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Different User than last invocation
+      *=====================================================================******
+     C     Init          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              30
+      *
+      * En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+      * (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   eval      rc = docmd('OVRDBF FILE(MSGTL02) +
+     C                             TOFILE(SYHD/MSGTL02)')
+     C                   open      MSGTL02
+     C                   eval      rc = docmd('OVRDBF FILE(DELSL02) +
+     C                             TOFILE(SYHD/DELSL02)')
+     C                   open      DELSL02
+     C                   eval      rc = docmd('OVRDBF FILE(MSGKP) +
+     C                             TOFILE(SYHD/MSGKP)')
+     C                   OPEN      MSGKP
+     C                   eval      rc = docmd('OVRDBF FILE(TREFL01) +
+     C                             TOFILE(SYHD/TREFL01)')
+     C                   OPEN      TREFL01
+      *
+     c                   OPEN      BRPARF
+     c                   OPEN      CUNDL01
+     c                   OPEN      ARKIVL11
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVEL     BIBRID        PABRID
+     C                   MOVEL     'EPOST'       PAID
+      *
+     C     Kunkey        klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    BIKUNR
+      *
+     C     ARKKey        klist
+     C                   kfld                    ARSTAT
+     C                   kfld                    XXUNDE           10
+     C                   MOVE      'A'           ARSTAT
+      *
+     c                   movel     Hex0D         CrLf              2
+     c                   move      Hex25         CrLf
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'ESHD01 '
+      *------------------
+     C                   endsr
+      *

@@ -1,0 +1,1498 @@
+      *********************************************************************
+CRTPG+*  CRTPGM SYSPED/TJEOPD6L MODULE(*LIBL/TJEOPD6L *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *********************************************************************
+      * OBS! merk st oppdatering av et oppdrag skjer via flere ajaxkall
+      *      ETTER TJEOPD6l=selve oppdraget (mm) kommer seperate kall for varelinjer/fritekst mm
+      * Kall pÂ TJEOPDZ kommer helt til slutt (for evt avtion etter at alt annet er oppdatert..)
+      *********************************************************************
+      *  01 PTF11 JOV  Beregne tillegskoder  +
+      *  02 PTF11 JOV  sett TRSDFD/TD basert pÂ ETD/ATD - ETA/ATA
+      *  03 PTF11 JOV  close av filer
+      *                FAKTTURABEREGNING FLYTTET TIL TJEOPDZ - MYE SLETTET FYSISK(SE TJEOPD6L.)
+      *  04 PTF11 JOV Brushe opp mode D=Delete / C = Copy / M = Move (NY)
+      *  05 PTF11 JOV Skriv evt kontaktinfo til R38/ oppdater  Tran / merkelappkode mm til dokuf
+      *  06 PTF11 JOV ved vedlikehold av opdrag med sign EDI/DUP/WEB(ekst webbokking) TA OVER
+      *  07 PTF11 JOV TRSLAG kommer blank- DUP(FF/VF)  ble ¯delagt -dropper det som param.
+      *                      dropper param/seter hardkode HO ved NY (=slipper Â endre clientside)
+      *  08 PTF11 JOV Sikre at Bilnr i oppdrag ikke blankes (om oppdrag var udisp- da en gikk inn)
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FFIRM      IF   E             DISK    USROPN
+     FHEADF     UF A E           K DISK    USROPN
+     F                                     PREFIX(X)
+     FHEAD1     IF   E             DISK    USROPN
+     F                                     RENAME(HEADFR:HEADFR1)
+     FDISP      UF A E           K DISK    USROPN
+     FDOKUF     UF A E           K DISK    USROPN
+     FDOKUFE    UF A E           K DISK    USROPN
+N05  FDOK29     UF A E           K DISK    USROPN
+     FTELL      UF   E           K DISK    USROPN
+     FFRISOK    IF A E           K DISK    USROPN
+     FKODFRI    IF   E           K DISK    USROPN
+     FKODTA     IF   E           K DISK    USROPN
+     FKODTV     IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FCUM3LM    IF   E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     FSTED2     IF   E           K DISK    USROPN
+     FSTED2D    IF   E           K DISK    USROPN
+     F                                     RENAME(STED2R:STEDDR)
+     FTRACKT    UF A E           K DISK    USROPN
+     FTRACKL08  UF A E           K DISK    USROPN
+N03  FFAKT      IF   E           K DISK    USROPN
+N03  FAVFRHL01  IF   E           K DISK    USROPN
+N05  FTRAN      IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D P               S              5U 0
+     D WSUSER          S             10
+     D HEAVDA          S              4
+     D NEWSYAVA        S              4
+     D NEWAVD          S              4  0
+     D HEOPDA          S              7
+     D NEWOPD          S              7  0
+     D WMODE           S              2
+     D WHESG           S              3
+     D NEWHESG         S              3
+     D WSSCONT         S             30
+     D WSSTLF          S             30
+     D WSSMAIL         S             70
+     D WSKCONT         S             30
+     D WSKTLF          S             30
+     D WSKMAIL         S             70
+     D WSATAD          S              8  0
+     D WSATAK          S              4  0
+     D WSATDD          S              8  0
+     D WSATDK          S              4  0
+     D WSETAD          S              8  0
+     D WSETAK          S              4  0
+     D WSETDD          S              8  0
+     D WSETDK          S              4  0
+     D HEBODT          S              8  0
+     D WSBOTM          S              4  0
+     D WSTOLL          S              4  0
+N05  D WSTRAN          S              8  0
+N05  D WSKDME          S              1
+     D WA              S             15
+     D JSONstring      S          32000
+     D Error           S            150
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XUL≈≈                 11     14  0
+     D                 DS
+     D  UL≈≈                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+      * tilleggsgebyrer
+n04  D                 DS
+n04  D  WTG                    1      5
+n04  D   XHESTN1               1      1
+n04  D   XHESTN2               2      2
+n04  D   XHESTN3               3      3
+n04  D   XHESTN4               4      4
+n04  D   XHESTN5               5      5
+
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZ∆ÿ≈')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzÊ¯Â')
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utf¯r
+     C  N50              EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¨user¨ : ¨'+%trim(WSUSER)+'¨, '
+        +'¨heavd¨ : ¨'+%trim(%editc(HEAVD:'Z'))+'¨, '
+        +'¨newavd¨ : ¨'+%trim(%editc(NEWAVD:'Z'))+'¨, '
+        +'¨heopd¨ : ¨'+%trim(%editc(HEOPD:'Z'))+'¨, '
+        +'¨newopd¨ : ¨'+%trim(%editc(NEWOPD:'Z'))+'¨, '
+        +'¨hesg¨ : ¨'+%trim(WHESG)+'¨, '
+        +'¨newhesg¨ : ¨'+%trim(NEWHESG)+'¨, '
+        +'¨mode¨ : ¨'+%trim(WMODE)+'¨, '
+        +'¨hefbv¨ : ¨'+%trim(%editc(HEFBV:'Z'))+'¨, '
+        +'¨errMsg¨ : ¨'+%trim(Error)+'¨, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter Â bytte ¨->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     C                   eval      JSONstring ='"orderupdate" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     BRPARF
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     HEAD1
+     C  N50              CLOSE     DISP
+     C  N50              CLOSE     FAKT
+N03  C  N50              CLOSE     DOKUF
+N03  C  N50              CLOSE     DOKUFE
+N05  C  N50              CLOSE     DOK29
+     C  N50              CLOSE     TELL
+     C  N50              CLOSE     FRISOK
+     C  N50              CLOSE     KODFRI
+     C  N50              CLOSE     CUNDL01
+     C  N50              CLOSE     FIRM
+     C  N50              CLOSE     KODTA
+     C  N50              CLOSE     KODTV
+     C  N50              CLOSE     CUM3LM
+     C  N50              CLOSE     TURER14
+     C  N50              CLOSE     STED2
+     C  N50              CLOSE     STED2D
+     C  N50              CLOSE     TRACKT
+     C  N50              CLOSE     TRACKL08
+N03  C  N50              CLOSE     AVFRHL01
+N05  C  N50              CLOSE     TRAN
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      HEAVDA = zhbgetvar('AVD')
+     C                   EVAL      HEAVD  = c2n2(HEAVDA)
+     C                   EVAL      NEWSYAVA = zhbgetvar('NEWAVD')
+     C                   EVAL      NEWAVD  = c2n2(NEWSYAVA)
+     C                   EVAL      HEOPDA = zhbgetvar('OPD')
+     C                   EVAL      HEOPD  = c2n2(HEOPDA)
+     C                   EVAL      WMODE  = zhbgetvar('MODE')
+     C                   EVAL      WHESG  = zhbgetvar('HESG')
+     C                   EVAL      NEWHESG      = zhbgetvar('NEWHESG')
+     C                   EVAL      HEST  = zhbgetvar('HEST')
+     C                   EVAL      HEUR   =zhbgetvar('HEUR')
+     C                   if        HEUR   = ' '
+     C                   EVAL      HEUR   = 'H'
+     C                   endif
+     C                   EVAL      WA     =zhbgetvar('HEDTOP')
+     C                   EVAL      HEDTOP =c2n2(WA)
+     C                   EVAL      HESDFF =zhbgetvar('HESDFF')
+     C     LO:UPC        XLATE     HESDFF        HESDFF
+     C                   EVAL      HESDF  =zhbgetvar('HESDF')
+     C     LO:UPC        XLATE     HESDF         HESDF
+     C                   EVAL      HESDT  =zhbgetvar('HESDT')
+     C     LO:UPC        XLATE     HESDT         HESDT
+     C                   EVAL      HESDVT =zhbgetvar('HESDVT')
+     C     LO:UPC        XLATE     HESDVT        HESDVT
+     C                   EVAL      HEGN   =zhbgetvar('HEGN')
+     C     LO:UPC        XLATE     HEGN          HEGN
+     C                   EVAL      HEGNN  =zhbgetvar('HEGNN')
+     C     LO:UPC        XLATE     HEGNN         HEGNN
+     C                   EVAL      WA     =zhbgetvar('HEPRO')
+     C                   EVAL      HEPRO  =c2n2(WA)
+     C                   EVAL      HEPLAN =zhbgetvar('HEPLAN')
+     C     LO:UPC        XLATE     HEPLAN        HEPLAN
+     C                   EVAL      WA     =zhbgetvar('TRRUND')
+     C                   EVAL      TRRUND =c2n2(WA)
+     C                   EVAL      HEPOS1 =zhbgetvar('HEPOS1')
+     C                   EVAL      WA     =zhbgetvar('HEPOS2')
+     C                   EVAL      HEPOS2 =c2n2(WA)
+N01  C                   EVAL      WA     =zhbgetvar('TRKNFA')
+     C                   EVAL      TRKNFA =c2n2(WA)
+N01  C                   EVAL      HENAO  =zhbgetvar('HENAO')
+     C     LO:UPC        XLATE     HENAO         HENAO
+     C                   EVAL      WA     =zhbgetvar('HEKNA')
+     C                   EVAL      HEKNA  =c2n2(WA)
+     C                   EVAL      HENAA  =zhbgetvar('HENAA')
+     C     LO:UPC        XLATE     HENAA         HENAA
+N01  C                   EVAL      HERFA  =zhbgetvar('HERFA')
+     C     LO:UPC        XLATE     HERFA         HERFA
+     C                   EVAL      HESAML =zhbgetvar('HESAML')
+     C                   EVAL      HEHAWB =zhbgetvar('HEHAWB')
+N01  C                   EVAL      HESDLA =zhbgetvar('HESDLA')
+     C     LO:UPC        XLATE     HESDLA        HESDLA
+     C                   EVAL      HESDL  =zhbgetvar('HESDL')
+     C     LO:UPC        XLATE     HESDL         HESDL
+     C                   EVAL      HEVALT =zhbgetvar('HEVALT')
+     C     LO:UPC        XLATE     HEVALT        HEVALT
+     C                   EVAL      WA     =zhbgetvar('HEVALP')
+     C                   EVAL      HEVALP =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEKNT')
+     C                   EVAL      HEKNT  =c2n2(WA)
+     C                   EVAL      HELKA  =zhbgetvar('HELKA')
+     C     LO:UPC        XLATE     HELKA         HELKA
+     C                   EVAL      WA     =zhbgetvar('HEKNS')
+     C                   EVAL      HEKNS  =c2n2(WA)
+     C                   EVAL      HENAS  =zhbgetvar('HENAS')
+     C     LO:UPC        XLATE     HENAS         HENAS
+     C                   EVAL      HEADS1 =zhbgetvar('HEADS1')
+     C     LO:UPC        XLATE     HEADS1        HEADS1
+     C                   EVAL      HEADS2 =zhbgetvar('HEADS2')
+     C     LO:UPC        XLATE     HEADS2        HEADS2
+N01  C                   EVAL      HEPNS  =zhbgetvar('HEPNS')
+     C                   EVAL      HEADS3 =zhbgetvar('HEADS3')
+     C     LO:UPC        XLATE     HEADS3        HEADS3
+     C                   EVAL      HELKS  =zhbgetvar('HELKS')
+     C     LO:UPC        XLATE     HELKS         HELKS
+N01  C                   EVAL      WA     =zhbgetvar('HEKNH')
+     C                   EVAL      HEKNH  =c2n2(WA)
+N01  C                   EVAL      HENAH  =zhbgetvar('HENAH')
+N01  C                   EVAL      HEADH1 =zhbgetvar('HEADH1')
+N01  C                   EVAL      HEADH2 =zhbgetvar('HEADH2')
+N01  C                   EVAL      HEPNH  =zhbgetvar('HEPNH')
+N01  C                   EVAL      HEADH3 =zhbgetvar('HEADH3')
+N01  C                   EVAL      HELKH  =zhbgetvar('HELKH')
+N01  C                   EVAL      WA     =zhbgetvar('HEHBRE')
+     C                   EVAL      HEHBRE =c2n2(WA)
+N01  C                   EVAL      WA     =zhbgetvar('HEHLEN')
+     C                   EVAL      HEHLEN =c2n2(WA)
+N01  C                   EVAL      HEHBLK =zhbgetvar('HEHBLK')
+     C                   EVAL      HEKDFS =zhbgetvar('HEKDFS')
+     C                   EVAL      HEVALS =zhbgetvar('HEVALS')
+     C                   EVAL      WA     =zhbgetvar('HEKNSF')
+     C                   EVAL      HEKNSF =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEANS')
+     C                   EVAL      HEANS  =c2n2(WA)
+     C                   EVAL      HENASF =zhbgetvar('HENASF')
+     C                   EVAL      WA     =zhbgetvar('HEKNK')
+     C                   EVAL      HEKNK  =c2n2(WA)
+     C                   EVAL      HENAK  =zhbgetvar('HENAK')
+     C     LO:UPC        XLATE     HENAK         HENAK
+     C                   EVAL      HEADK1 =zhbgetvar('HEADK1')
+     C     LO:UPC        XLATE     HEADK1        HEADK1
+     C                   EVAL      HEADK2 =zhbgetvar('HEADK2')
+     C     LO:UPC        XLATE     HEADK2        HEADK2
+N01  C                   EVAL      HEPNK  =zhbgetvar('HEPNK')
+     C                   EVAL      HEADK3 =zhbgetvar('HEADK3')
+     C     LO:UPC        XLATE     HEADK3        HEADK3
+     C                   EVAL      HELKK  =zhbgetvar('HELKK')
+     C     LO:UPC        XLATE     HELKK         HELKK
+N01  C                   EVAL      WA     =zhbgetvar('HEKNL')
+     C                   EVAL      HEKNL  =c2n2(WA)
+N01  C                   EVAL      HENAL  =zhbgetvar('HENAL')
+N01  C                   EVAL      HEADL1 =zhbgetvar('HEADL1')
+N01  C                   EVAL      HEADL2 =zhbgetvar('HEADL2')
+N01  C                   EVAL      HEPNL  =zhbgetvar('HEPNL')
+N01  C                   EVAL      HEADL3 =zhbgetvar('HEADL3')
+N01  C                   EVAL      HELKL  =zhbgetvar('HELKL')
+N01  C                   EVAL      WA     =zhbgetvar('HELBRE')
+     C                   EVAL      HELBRE =c2n2(WA)
+N01  C                   EVAL      WA     =zhbgetvar('HELLEN')
+     C                   EVAL      HELLEN =c2n2(WA)
+N01  C                   EVAL      HELBLK =zhbgetvar('HELBLK')
+     C                   EVAL      HEKDFK =zhbgetvar('HEKDFK')
+     C                   EVAL      HEVALK =zhbgetvar('HEVALK')
+     C                   EVAL      WA     =zhbgetvar('HEKNKF')
+     C                   EVAL      HEKNKF =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEANK')
+     C                   EVAL      HEANK  =c2n2(WA)
+     C                   EVAL      HENAKF =zhbgetvar('HENAKF')
+     C                   EVAL      HEOT   =zhbgetvar('HEOT')
+     C                   EVAL      HEKDPL =zhbgetvar('HEKDPL')
+     C                   EVAL      HEFR   =zhbgetvar('HEFR')
+     C                   EVAL      WA     =zhbgetvar('HENT')
+     C                   EVAL      HENT   =c2n2(WA)
+     C                   EVAL      HEVS1  =zhbgetvar('HEVS1')
+     C     LO:UPC        XLATE     HEVS1         HEVS1
+     C                   EVAL      HEVS2  =zhbgetvar('HEVS2')
+     C     LO:UPC        XLATE     HEVS2         HEVS2
+     C                   EVAL      HEGM1  =zhbgetvar('HEGM1')
+     C     LO:UPC        XLATE     HEGM1         HEGM1
+     C                   EVAL      HEGM2  =zhbgetvar('HEGM2')
+     C     LO:UPC        XLATE     HEGM2         HEGM2
+     C                   EVAL      WA     =zhbgetvar('HEVKT')
+     C                   EVAL      HEVKT  =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HELM')
+     C                   EVAL      HELM   =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEM3')
+     C                   EVAL      HEM3   =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEFBV')
+     C                   EVAL      HEFBV  =c2n2(WA)
+     C                   EVAL      HEKF   =zhbgetvar('HEKF')
+     C                   EVAL      HEKFT1 =zhbgetvar('HEKFT1')
+     C                   EVAL      HEFT1  =zhbgetvar('HEFT1')
+     C                   EVAL      WA     =zhbgetvar('HEDTCP')
+     C                   EVAL      HEDTCP =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEDTAP')
+     C                   EVAL      HEDT≈P =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEDTMP')
+     C                   EVAL      HEDTMP =c2n2(WA)
+     C                   EVAL      HEKDKK =zhbgetvar('HEKDKK')
+     C                   EVAL      WA     =zhbgetvar('HEFNGK')
+     C                   EVAL      HEFNGK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEFNGS')
+     C                   EVAL      HEFNGS =c2n2(WA)
+     C                   EVAL      HEKDTM =zhbgetvar('HEKDTM')
+     C                   EVAL      WA     =zhbgetvar('HETRM')
+     C                   EVAL      HETRM  =c2n2(WA)
+     C                   EVAL      HETRI  =zhbgetvar('HETRI')
+     C                   EVAL      WA     =zhbgetvar('HETRC')
+     C                   EVAL      HETRC  =c2n2(WA)
+     C                   EVAL      HETRCN =zhbgetvar('HETRCN')
+     C                   EVAL      WA     =zhbgetvar('HEFBK')
+     C                   EVAL      HEFBK  =c2n2(WA)
+     C                   EVAL      HETLE  =zhbgetvar('HETLE')
+     C                   EVAL      HETLL  =zhbgetvar('HETLL')
+     C                   EVAL      HETLKU =zhbgetvar('HETLKU')
+     C                   EVAL      WA     =zhbgetvar('HENTVS')
+     C                   EVAL      HENTVS =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEVN')
+     C                   EVAL      HEVN   =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HENTF')
+     C                   EVAL      HENTF  =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEBELT')
+     C                   EVAL      HEBELT =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEBELM')
+     C                   EVAL      HEBELM =c2n2(WA)
+     C                   EVAL      HESGM  =zhbgetvar('HESGM')
+     C                   EVAL      HEDTMO =zhbgetvar('HEDTMO')
+     C                   EVAL      WA     =zhbgetvar('HEKLMO')
+     C                   EVAL      HEKLMO =c2n2(WA)
+     C                   EVAL      HEPK1  =zhbgetvar('HEPK1')
+     C                   EVAL      HEPK2  =zhbgetvar('HEPK2')
+     C                   EVAL      HEPK3  =zhbgetvar('HEPK3')
+     C                   EVAL      HEPK4  =zhbgetvar('HEPK4')
+     C                   EVAL      HEPK5  =zhbgetvar('HEPK5')
+     C                   EVAL      HEPK6  =zhbgetvar('HEPK6')
+     C                   EVAL      HEPK7  =zhbgetvar('HEPK7')
+     C                   EVAL      HEPK8  =zhbgetvar('HEPK8')
+     C                   EVAL      HEPK9  =zhbgetvar('HEPK9')
+     C                   EVAL      HEKDL  =zhbgetvar('HEKDL')
+     C                   EVAL      HELB   =zhbgetvar('HELB')
+     C                   EVAL      HELKFR =zhbgetvar('HELKFR')
+     C                   EVAL      HESDFR =zhbgetvar('HESDFR')
+     C                   EVAL      HESTFR =zhbgetvar('HESTFR')
+     C                   EVAL      HERFK  =zhbgetvar('HERFK')
+     C     LO:UPC        XLATE     HERFK         HERFK
+S07  C*                  EVAL      TRSLAG =zhbgetvar('TRSLAG')
+S07  C*                  IF        TRSLAG = '  ' and HEUR = 'H'
+S07  C*                  EVAL      TRSLAG = 'HO'
+S07  c*                  endif
+     C                   EVAL      WA     =zhbgetvar('TRAVD0')
+     C                   EVAL      TRAVD0 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TROPD0')
+     C                   EVAL      TROPD0 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRAVD1')
+     C                   EVAL      TRAVD1 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TROPD1')
+     C                   EVAL      TROPD1 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRAVD2')
+     C                   EVAL      TRAVD2 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TROPD2')
+     C                   EVAL      TROPD2 =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSFFD')
+     C                   EVAL      TRSFFD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSFFK')
+     C                   EVAL      TRSFFK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSDFD')
+     C                   EVAL      TRSDFD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSDFK')
+     C                   EVAL      TRSDFK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSDTD')
+     C                   EVAL      TRSDTD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSDTK')
+     C                   EVAL      TRSDTK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSVTD')
+     C                   EVAL      TRSVTD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('TRSVTK')
+     C                   EVAL      TRSVTK =c2n2(WA)
+     C                   EVAL      TRKDAK =zhbgetvar('TRKDAK')
+     C                   EVAL      TRKDFF =zhbgetvar('TRKDFF')
+     c     trkdff        ifeq      ' '
+     c     heknsf        ifne      *zeros
+     C                   EVAL      TRKDFF = 'S'
+     c                   else
+     C                   EVAL      TRKDFF = 'K'
+     c                   endif
+     c                   endif
+     c     trkdff        ifeq      'S'
+     c                   move      heknsf        frabet            8 0
+     c                   move      HEVALS        fraktVal          3
+     c                   else
+     c                   move      heknkf        frabet
+     c                   move      HEVALK        fraktVal          3
+     c                   end
+     C                   EVAL      TRVERV =zhbgetvar('TRVERV')
+     C                   EVAL      WA     =zhbgetvar('TRVERB')
+     C                   EVAL      TRVERB =c2n2(WA)
+     C                   EVAL      TRETTV =zhbgetvar('TRETTV')
+     C                   EVAL      WA     =zhbgetvar('TRETTB')
+     C                   EVAL      TRETTB =c2n2(WA)
+     C                   EVAL      TRFRAK =zhbgetvar('TRFRAK')
+     C                   EVAL      TRFRAV =zhbgetvar('TRFRAV')
+     C                   EVAL      WA     =zhbgetvar('TRFRAB')
+     C                   EVAL      TRFRAB =c2n2(WA)
+     C                   EVAL      TRMVA  =zhbgetvar('TRMVA')
+     C                   EVAL      TRFA11 =zhbgetvar('TRFA11')
+     C                   EVAL      TRFA12 =zhbgetvar('TRFA12')
+     C                   EVAL      WA     =zhbgetvar('TRFLP1')
+     C                   EVAL      TRFLP1 =c2n2(WA)
+     C                   EVAL      TRFA21 =zhbgetvar('TRFA21')
+     C                   EVAL      TRFA22 =zhbgetvar('TRFA22')
+     C                   EVAL      WA     =zhbgetvar('TRFLP2')
+     C                   EVAL      TRFLP2 =c2n2(WA)
+     C                   EVAL      TRTSTA =zhbgetvar('TRTSTA')
+     C                   EVAL      TRSTAF =zhbgetvar('TRSTAF')
+     C                   EVAL      TRSTAE =zhbgetvar('TRSTAE')
+     C                   EVAL      TRSTA1 =zhbgetvar('TRSTA1')
+     C                   EVAL      TRSTA2 =zhbgetvar('TRSTA2')
+     C                   EVAL      TRSTA3 =zhbgetvar('TRSTA3')
+     C                   EVAL      TRSTA4 =zhbgetvar('TRSTA4')
+     C                   EVAL      WA     =zhbgetvar('TRKM')
+     C                   EVAL      TRKM   =c2n2(WA)
+     C                   EVAL      HE01   =zhbgetvar('HE01')
+     C                   EVAL      WA     =zhbgetvar('HESTD')
+     C                   EVAL      HESTD  =c2n2(WA)
+     C                   EVAL      HXSNDN =zhbgetvar('HXSNDN')
+     C                   EVAL      WA     =zhbgetvar('HXPALL')
+     C                   EVAL      HXPALL =c2n2(WA)
+     C                   EVAL      HXBLGK =zhbgetvar('HXBLGK')
+     C                   EVAL      HXLKOD =zhbgetvar('HXLKOD')
+     C                   EVAL      HXLLST =zhbgetvar('HXLLST')
+     C                   EVAL      HXEDIK =zhbgetvar('HXEDIK')
+     C                   EVAL      HXTERI =zhbgetvar('HXTERI')
+S01  C                   EVAL      WA     =zhbgetvar('HEHAKN')
+     C                   EVAL      HEHAKN =c2n2(WA)
+S01  C                   EVAL      WA     =zhbgetvar('HEHAAN')
+     C                   EVAL      HEHAAN =c2n2(WA)
+S01  C                   EVAL      WA     =zhbgetvar('HELAKN')
+     C                   EVAL      HELAKN =c2n2(WA)
+S01  C                   EVAL      WA     =zhbgetvar('HELAAN')
+     C                   EVAL      HELAAN =c2n2(WA)
+TMS  C                   EVAL      WA     =zhbgetvar('HELMLA')
+     C                   EVAL      HELMLA =c2n2(WA)
+TMS  C                   EVAL      WA     =zhbgetvar('HEPOEN')
+     C                   EVAL      HEPOEN =c2n2(WA)
+TMS  C                   EVAL      HESTL1 =zhbgetvar('HESTL1')
+TMS  C                   EVAL      HESTL2 =zhbgetvar('HESTL2')
+TMS  C                   EVAL      HESTL3 =zhbgetvar('HESTL3')
+TMS  C                   EVAL      HESTL4 =zhbgetvar('HESTL4')
+TMS  C                   EVAL      HESTN1 =zhbgetvar('HESTN1')
+TMS  C                   EVAL      HESTN2 =zhbgetvar('HESTN2')
+TMS  C                   EVAL      HESTN3 =zhbgetvar('HESTN3')
+TMS  C                   EVAL      HESTN4 =zhbgetvar('HESTN4')
+TMS  C                   EVAL      HESTN5 =zhbgetvar('HESTN5')
+TMS  C                   EVAL      HESTN6 =zhbgetvar('HESTN6')
+TMS  C                   EVAL      HESTN7 =zhbgetvar('HESTN7')
+TMS  C                   EVAL      HESTN8 =zhbgetvar('HESTN8')
+TMS  C                   EVAL      HESTN9 =zhbgetvar('HESTN9')
+TMS  C                   EVAL      HERFED =zhbgetvar('HERFED')
+     C                   EVAL      HELIB  =zhbgetvar('HELIB')
+     C                   EVAL      HEFILE =zhbgetvar('HEFILE')
+     C                   EVAL      HEMBR  =zhbgetvar('HEMBR')
+     C                   EVAL      HETYPE =zhbgetvar('HETYPE')
+     C                   EVAL      HELVL  =zhbgetvar('HELVL')
+     C                   EVAL      WA     =zhbgetvar('HESNN')
+     C                   EVAL      HESNN  =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEUNIK')
+     C                   EVAL      HEUNIK =c2n2(WA)
+     C                   EVAL      HEREFF =zhbgetvar('HEREFF')
+-----C                   EVAL      WSKCONT=zhbgetvar('WSKCONT')
+-----C                   EVAL      WSKTLF =zhbgetvar('WSKTLF')
+-----C                   EVAL      WSKMAIL=zhbgetvar('WSKMAIL')
+-----C                   EVAL      WSSCONT=zhbgetvar('WSSCONT')
+-----C                   EVAL      WSSTLF =zhbgetvar('WSSTLF')
+-----C                   EVAL      WSSMAIL=zhbgetvar('WSSMAIL')
+     C                   EVAL      WA     =zhbgetvar('WSATAD')
+     C                   EVAL      WSATAD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSATAK')
+     C                   EVAL      WSATAK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSATDD')
+     C                   EVAL      WSATDD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSATDK')
+     C                   EVAL      WSATDK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSETAD')
+     C                   EVAL      WSETAD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSETAK')
+     C                   EVAL      WSETAK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSETDD')
+     C                   EVAL      WSETDD =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSETDK')
+     C                   EVAL      WSETDK =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('HEBODT')
+     C                   EVAL      HEBODT =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('WSBOTM')
+     C                   EVAL      WSBOTM =c2n2(WA)
+     C                   EVAL      WA     =zhbgetvar('DFTOLL')
+     C                   EVAL      WSTOLL =c2n2(WA)
+N05  C                   EVAL      WA     =zhbgetvar('DFTRAN')
+N05  C                   EVAL      WSTRAN =c2n2(WA)
+N05  C                   EVAL      WSKDME =zhbgetvar('DFKDME')
+N05  C     LO:UPC        XLATE     WSKDME        WSKDME
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C     HEADKEY       KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     FAKTKEY0      KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    NullLin
+     C     CUNDL01K      KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C     KODTVKEY      KLIST
+     C                   KFLD                    WKOVUNI
+     C                   KFLD                    WKOVAVD
+     C     KODTAKEY      KLIST
+     C                   KFLD                    WKOVUNI
+     C                   KFLD                    WKOVAVD
+     C     WKSDF         KLIST
+     C                   KFLD                    WPLANF
+     C                   KFLD                    DISTEF
+     C     WKSDT         KLIST
+     C                   KFLD                    WPLANT
+     C                   KFLD                    DISTET
+     C     DOKUFKey      KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    DFAVD
+     C                   KFLD                    DFOPD
+     C                   KFLD                    DFFBNR
+N05  C     TRANKEY       KLIST
+N05  C                   KFLD                    BIFIRM
+N05  C                   KFLD                    WSTRAN
+     C     IFBKEY        KLIST
+     C                   KFLD                    FSAVD
+     C                   KFLD                    FSOPD
+     C                   KFLD                    FSKODE
+     C     CONTKEY       KLIST
+     c                   KFLD                    HEAVD
+     c                   KFLD                    HEOPD
+     c                   KFLD                    FE_DFFBNR
+     c                   KFLD                    FE_N3035
+N05  C     DOK29Key      KLIST
+N05  C                   KFLD                    D29AVD
+N05  C                   KFLD                    D29OPD
+N05  C                   KFLD                    D29FNR
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     TRACKTK       klist
+     C                   kfld                    HEAVD
+     C                   kfld                    HEOPD
+     C                   kfld                    WTXFBNR
+     C     KEYTT         KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    WTTACTI
+     C     *LIKE         DEFINE    TTACTI        WTTACTI
+     C     *LIKE         DEFINE    TXFBNR        WTXFBNR
+     C                   EVAL      WTXFBNR=*ZEROS
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+
+     C     *LIKE         DEFINE    KOAAVD        WKOAAVD
+     C     *LIKE         DEFINE    KOAUNI        WKOAUNI
+     C     *LIKE         DEFINE    KOVAVD        WKOVAVD
+     C     *LIKE         DEFINE    KOVUNI        WKOVUNI
+     C     *LIKE         DEFINE    ST2LK         WPLANF
+     C     *LIKE         DEFINE    ST2LK         WPLANT
+     C     *LIKE         DEFINE    XTRFRAK       NYFRAK
+     C     *LIKE         DEFINE    XTRFRAV       NYFRAV
+     C     *LIKE         DEFINE    XTRFRAB       NYFRAB
+     C     *LIKE         DEFINE    FALI          NullLin
+     C                   EVAL      WKOAUNI='A'
+     C                   EVAL      WKOVUNI='V'
+
+     C   50              EVAL      Error = 'Invalid userID'
+     C  N50              OPEN      BRPARF
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      HEAD1
+     C  N50              OPEN      DISP
+     C  N50              OPEN      FAKT
+     C  N50              OPEN      DOKUF
+     C  N50              OPEN      DOKUFE
+N05  C  N50              OPEN      DOK29
+     C  N50              OPEN      TELL
+     C  N50              OPEN      FRISOK
+     C  N50              OPEN      KODFRI
+     C  N50              OPEN      CUNDL01
+     C  N50              OPEN      FIRM
+     C  N50              OPEN      KODTA
+     C  N50              OPEN      KODTV
+     C  N50              OPEN      CUM3LM
+     C  N50              OPEN      TURER14
+     C  N50              OPEN      STED2
+     C  N50              OPEN      STED2D
+     C  N50              OPEN      TRACKT
+     C  N50              OPEN      TRACKL08
+     C  N50              OPEN      AVFRHL01
+N05  C  N50              OPEN      TRAN
+      *_________________________________
+      * HÊmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      * HÊmta firmaopplysninger
+     C  N50              READ      FIRM
+      * DUMMY READ AV HEAD1 FOR ≈ F≈ FELTNAVN
+     C     *IN50         IFEQ      *OFF
+     C     *IN50         ANDEQ     *ON
+     C                   READ      HEAD1
+     C                   ENDIF
+      * HÊmta signatur
+     C     *IN50         IFEQ      *OFF
+S06  C*    WHESG         ANDEQ     *BLANKS
+N06  C                   IF        WHESG=*BLANKS or WHESG='EDI'
+N06  C                             or WHESG='DUP' or WHESG='WEB'
+     C                   MOVE      'ASSIG'       PAID
+     C     BrParKey      CHAIN     BRPARF                             33
+     C   33              MOVEL     'WEB'         WHESG
+     C  N33              MOVEL     PAVRDA        WHESG
+N06  C                   ENDIF
+     C                   ENDIF
+
+     c                   ENDSR
+      *
+      *______________________________________________________
+      * TEST                                             TEST
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     TEST          BEGSR
+      * Hent oppdrag
+     C     WMODE         IFNE      'A'
+     C     HEADKEY       CHAIN     HEADF                              55
+     C                   ENDIF
+      * MODE A=Add  D=Delete  U=Update  C=Copy  M=Move
+     C                   SELECT
+     C     WMODE         WHENEQ    'A'
+     C                   eval      Error = *blanks
+     C                   EXSR      SRA
+     C     WMODE         WHENEQ    'U'
+     C                   IF        *IN55=*ON
+     C                   eval      Error = 'Order not found'
+     C                   ELSE
+     C                   eval      Error = *blanks
+     C                   EXSR      SRU
+     C                   ENDIF
+     C                   OTHER
+     C                   eval      Error = 'Wrong mode'
+     C                   ENDSL
+     C                   ENDSR
+      *______________________________________________________
+      * Add                                               SRA
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRA           BEGSR
+     C                   CLEAR                   HEADFR
+      * HÊmta uppdragsnummer
+     C     HEAVD         CHAIN     TELL                               52
+     C                   EVAL      XHEOPD=TEOPDN
+     C                   ADD       1             TEOPDN
+     C                   UPDATE    TELLR
+     C                   EVAL      XHEAVD=HEAVD
+     C*                  EVAL      XHEOPD=TEOPDN
+     C                   EVAL      XHESG=WHESG
+     C                   EVAL      XHEUR   = 'H'
+     C                   EVAL      HEUR   = 'H'
+     C*                  EVAL      HEOPD=TEOPDN
+     C                   EVAL      HEOPD=XHEOPD
+     C                   MOVEL     WDT           XHEDTOP
+     C                   MOVEL     WDT           XHEDTR
+N07  C                   EVAL      XTRSLAG = 'HO'
+      * Write
+     C                   WRITE     HEADFR
+     C                   ENDSR
+      *______________________________________________________
+      * Update                                            SRU
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRU           BEGSR
+N02   * datorer basert pÂ ETD/ETA - ATD/ATA
+N02  c                   if        WSATDD <> 0
+N02  c                   eval      TRSDFD  = WSATDD
+N02  c                   eval      TRSDFK  = WSATDK
+N02  c                   else
+N02  c                   eval      TRSDFD  = WSETDD
+N02  c                   eval      TRSDFK  = WSETDK
+N02  c                   endif
+N02  c                   if        WSATAD <> 0
+N02  c                   eval      TRSDTD  = WSATAD
+N02  c                   eval      TRSDTK  = WSATAK
+N02  c                   else
+N02  c                   eval      TRSDTD  = WSETAD
+N02  c                   eval      TRSDTK  = WSETAK
+N02  c                   endif
+      * Kortkode for Â lage Dup via faste HUBer ??
+     C                   select
+     c                   when      HELKS ='H1' or HESDFF='H1'                   H1 = SVG
+     c                   eval      HELKS ='NO'
+     c                   eval      HESDFF='4056 '                               Tananger
+     c                   eval      TRSFFD=TRSDFD
+     c                   when      HELKS ='H2' or HESDFF='H2'                   H2 = BGO
+     c                   eval      HELKS ='NO'
+     c                   eval      HESDFF='5918 '                               Frekhaug
+     c                   eval      TRSFFD=TRSDFD
+     c                   when      HELKS ='H3' or HESDFF='H3'                   H3 = KSU
+     c                   eval      HELKS ='NO'
+     c                   eval      HESDFF='6518 '                               Kristiansund
+     c                   eval      TRSFFD=TRSDFD
+     c                   endsl
+     C                   select
+     c                   when      HELKK ='H1' or HESDVT='H1'                   H1 = SVG
+     c                   eval      HELKK ='NO'
+     c                   eval      HESDVT='4056 '                               Tananger
+     c                   eval      TRSVTD=TRSDTD
+     c                   when      HELKK ='H2' or HESDVT='H2'                   H2 = BGO
+     c                   eval      HELKK ='NO'
+     c                   eval      HESDVT='5918 '                               Frekhaug
+     c                   eval      TRSVTD=TRSDTD
+     c                   when      HELKK ='H3' or HESDVT='H3'                   H3 = KSU
+     c                   eval      HELKK ='NO'
+     c                   eval      HESDVT='6518 '                               Kristiansund
+     c                   eval      TRSVTD=TRSDTD
+     c                   endsl
+     C                   EVAL      XHEST   = HEST
+     C                   EVAL      XHEDTOP = HEDTOP
+      *
+     C                   EVAL      XHESDFF = HESDFF
+     C                   EVAL      XHESDF  = HESDF
+     C                   EVAL      XHESDT  = HESDT
+     C                   EVAL      XHESDVT = HESDVT
+     C                   EVAL      XHEGN   = HEGN
+     C                   EVAL      XHEGNN  = HEGNN
+     C                   EVAL      XHEPLAN = HEPLAN
+     C                   EVAL      XHEPOS1 = HEPOS1
+     C                   EVAL      XHEPOS2 = HEPOS2
+N01  C                   EVAL      XTRKNFA = TRKNFA
+N01  C                   EVAL      XHENAO  = HENAO
+     C                   EVAL      XHEKNA  = HEKNA
+     C                   EVAL      XHENAA  = HENAA
+N01  C                   EVAL      XHERFA  = HERFA
+     C                   EVAL      XHESAML = HESAML
+     C                   EVAL      XHEHAWB = HEHAWB
+N01  C                   EVAL      XHESDLA = HESDLA
+     C                   EVAL      XHESDL  = HESDL
+     C                   EVAL      XHEVALT = HEVALT
+     C                   EVAL      XHEVALP = HEVALP
+     C                   EVAL      XHEKNT  = HEKNT
+     C                   EVAL      XHELKA  = HELKA
+     C                   EVAL      XHEKNS  = HEKNS
+     C                   EVAL      XHENAS  = HENAS
+     C                   EVAL      XHEADS1 = HEADS1
+     C                   EVAL      XHEADS2 = HEADS2
+N01  C                   EVAL      XHEPNS  = HEPNS
+     C                   EVAL      XHEADS3 = HEADS3
+     C                   EVAL      XHELKS  = HELKS
+N01  C                   EVAL      XHEKNH  = HEKNH
+N01  C                   EVAL      XHENAH  = HENAH
+N01  C                   EVAL      XHEADH1 = HEADH1
+N01  C                   EVAL      XHEADH2 = HEADH2
+N01  C                   EVAL      XHEPNH  = HEPNH
+N01  C                   EVAL      XHEADH3 = HEADH3
+N01  C                   EVAL      XHELKH  = HELKH
+N01  C                   EVAL      XHEHBRE = HEHBRE
+N01  C                   EVAL      XHEHLEN = HEHLEN
+N01  C                   EVAL      XHEHBLK = HEHBLK
+     C                   EVAL      XHEKDFS = HEKDFS
+     C                   EVAL      XHEVALS = HEVALS
+     C                   EVAL      XHEKNSF = HEKNSF
+     C                   if        XHEKNSF = *zeros  and XHEKDFS = ' '
+     C                   EVAL      XHEKDFS = 'X'
+     c                   endif
+     C                   EVAL      XHEANS  = HEANS
+     C                   EVAL      XHENASF = HENASF
+     C                   EVAL      XHEKNK  = HEKNK
+     C                   EVAL      XHENAK  = HENAK
+     C                   EVAL      XHEADK1 = HEADK1
+     C                   EVAL      XHEADK2 = HEADK2
+N01  C                   EVAL      XHEPNK  = HEPNK
+     C                   EVAL      XHEADK3 = HEADK3
+     C                   EVAL      XHELKK  = HELKK
+N01  C                   EVAL      XHEKNL  = HEKNL
+N01  C                   EVAL      XHENAL  = HENAL
+N01  C                   EVAL      XHEADL1 = HEADL1
+N01  C                   EVAL      XHEADL2 = HEADL2
+N01  C                   EVAL      XHEPNL  = HEPNL
+N01  C                   EVAL      XHEADL3 = HEADL3
+N01  C                   EVAL      XHELKL  = HELKL
+N01  C                   EVAL      XHELBRE = HELBRE
+N01  C                   EVAL      XHELLEN = HELLEN
+N01  C                   EVAL      XHELBLK = HELBLK
+     C                   EVAL      XHEKDFK = HEKDFK
+     C                   EVAL      XHEVALK = HEVALK
+     C                   EVAL      XHEKNKF = HEKNKF
+     C                   if        XHEKNKF = *zeros  and XHEKDFK = ' '
+     C                   EVAL      XHEKDFK = 'X'
+     c                   endif
+     C                   EVAL      XHEANK  = HEANK
+     C                   EVAL      XHENAKF = HENAKF
+     C                   EVAL      XHEOT   = HEOT
+     C                   EVAL      XHEKDPL = HEKDPL
+     C                   EVAL      XHEFR   = HEFR
+     C                   EVAL      XHENT   = HENT
+     C                   EVAL      XHEVS1  = HEVS1
+     C                   EVAL      XHEVS2  = HEVS2
+     C                   EVAL      XHEGM1  = HEGM1
+     C                   EVAL      XHEGM2  = HEGM2
+     C                   EVAL      XHEVKT  = HEVKT
+     C                   EVAL      XHELM   = HELM
+     C                   EVAL      XHEM3   = HEM3
+     C                   EXSR      FINNVK
+     C                   EVAL      XHEFBV  = HEFBV
+     C                   EVAL      XHEKF   = HEKF
+     C                   EVAL      XHEKFT1 = HEKFT1
+     C                   EVAL      XHEFT1  = HEFT1
+     C                   EVAL      XHEDTCP = HEDTCP
+     C                   EVAL      XHEDT≈P = HEDT≈P
+     C                   EVAL      XHEDTMP = HEDTMP
+     C                   EVAL      XHEKDKK = HEKDKK
+     C                   EVAL      XHEFNGK = HEFNGK
+     C                   EVAL      XHEFNGS = HEFNGS
+     C                   EVAL      XHEKDTM = HEKDTM
+     C                   EVAL      XHETRM  = HETRM
+     C                   EVAL      XHETRI  = HETRI
+     C                   EVAL      XHETRC  = HETRC
+     C                   EVAL      XHETRCN = HETRCN
+     C                   EVAL      XHEFBK  = HEFBK
+     C                   EVAL      XHETLE  = HETLE
+     C                   EVAL      XHETLL  = HETLL
+     C                   EVAL      XHETLKU = HETLKU
+     C                   EVAL      XHENTVS = HENTVS
+     C                   EVAL      XHEVN   = HEVN
+     C                   EVAL      XHENTF  = HENTF
+     C                   EVAL      XHEBELT = HEBELT
+     C                   EVAL      XHEBELM = HEBELM
+     C                   EVAL      XHESGM  = HESGM
+     C                   EVAL      XHEDTMO = HEDTMO
+     C                   EVAL      XHEKLMO = HEKLMO
+     C                   EVAL      XHEPK1  = HEPK1
+     C                   EVAL      XHEPK2  = HEPK2
+     C                   EVAL      XHEPK3  = HEPK3
+     C                   EVAL      XHEPK4  = HEPK4
+     C                   EVAL      XHEPK5  = HEPK5
+     C                   EVAL      XHEPK6  = HEPK6
+     C                   EVAL      XHEPK7  = HEPK7
+     C                   EVAL      XHEPK8  = HEPK8
+     C                   EVAL      XHEPK9  = HEPK9
+     C                   EVAL      XHEKDL  = HEKDL
+     C                   EVAL      XHELB   = HELB
+     C                   EVAL      XHELKFR = HELKFR
+     C                   EVAL      XHESDFR = HESDFR
+     C                   EVAL      XHESTFR = HESTFR
+     C                   EVAL      XHERFK  = HERFK
+S07  C*                  EVAL      XTRSLAG = TRSLAG
+     C                   EVAL      XTRAVD0 = TRAVD0
+     C                   EVAL      XTROPD0 = TROPD0
+     C                   EVAL      XTRAVD1 = TRAVD1
+     C                   EVAL      XTROPD1 = TROPD1
+     C                   EVAL      XTRAVD2 = TRAVD2
+     C                   EVAL      XTROPD2 = TROPD2
+     C                   EVAL      XTRSFFD = TRSFFD
+     C                   EVAL      XTRSFFK = TRSFFK
+     C                   EVAL      XTRSDFD = TRSDFD
+     C                   EVAL      XTRSDFK = TRSDFK
+     C                   EVAL      XTRSDTD = TRSDTD
+     C                   EVAL      XTRSDTK = TRSDTK
+     C                   EVAL      XTRSVTD = TRSVTD
+     C                   EVAL      XTRSVTK = TRSVTK
+     C                   EVAL      XTRKDAK = TRKDAK
+     C                   EVAL      XTRKDFF = TRKDFF
+     C                   EVAL      XTRVERV = TRVERV
+     C                   EVAL      XTRVERB = TRVERB
+     C                   EVAL      XTRETTV = TRETTV
+     C                   EVAL      XTRETTB = TRETTB
+N03  C                   MOVE      *BLANKS       FAOPKO
+N03  c     FaktKey0      chain     FAKT                               33
+N03  C                   IF        FAOPKO <= 'C'
+N03   * Evt manuelt satt frakt lagres her / avtalemessig regeregning av Âpen skjer f¯rst i TJEOPDZ
+     C                   EVAL      XTRFRAK = TRFRAK
+     C                   EVAL      XTRFRAV = TRFRAV
+     C                   EVAL      XTRFRAB = TRFRAB
+N03  C                   ENDIF
+     C                   EVAL      XTRMVA  = TRMVA
+     C                   EVAL      XTRFA11 = TRFA11
+     C                   EVAL      XTRFA12 = TRFA12
+     C                   EVAL      XTRFLP1 = TRFLP1
+     C                   EVAL      XTRFA21 = TRFA21
+     C                   EVAL      XTRFA22 = TRFA22
+     C                   EVAL      XTRFLP2 = TRFLP2
+     C                   EVAL      XTRTSTA = TRTSTA
+     C                   EVAL      XTRSTAF = TRSTAF
+     C                   EVAL      XTRSTAE = TRSTAE
+     C                   EVAL      XTRSTA1 = TRSTA1
+     C                   EVAL      XTRSTA2 = TRSTA2
+     C                   EVAL      XTRSTA3 = TRSTA3
+     C                   EVAL      XTRSTA4 = TRSTA4
+     C                   EVAL      XTRKM   = TRKM
+     C                   EVAL      XHE01   = HE01
+     C                   EVAL      XHESTD  = HESTD
+     C                   EVAL      XHXSNDN = HXSNDN
+     C                   EVAL      XHXPALL = HXPALL
+     C                   EVAL      XHXBLGK = HXBLGK
+     C                   EVAL      XHXLKOD = HXLKOD
+     C                   EVAL      XHXLLST = HXLLST
+     C                   EVAL      XHXEDIK = HXEDIK
+     C                   EVAL      XHXTERI = HXTERI
+S01  C                   EVAL      XHEHAKN = HEHAKN
+S01  C                   EVAL      XHEHAAN = HEHAAN
+S01  C                   EVAL      XHELAKN = HELAKN
+S01  C                   EVAL      XHELAAN = HELAAN
+TMS  C                   EVAL      XHELMLA = HELMLA
+TMS  C                   EVAL      XHEPOEN = HEPOEN
+TMS  C                   EVAL      XHESTL1 = HESTL1
+TMS  C                   EVAL      XHESTL2 = HESTL2
+TMS  C                   EVAL      XHESTL3 = HESTL3
+TMS  C                   EVAL      XHESTL4 = HESTL4
+TMS  C                   EVAL      XHESTN1 = HESTN1                             Tillegskode 1
+TMS  C                   EVAL      XHESTN2 = HESTN2                             Tillegskode 2
+TMS  C                   EVAL      XHESTN3 = HESTN3                             Tillegskode 3
+TMS  C                   EVAL      XHESTN4 = HESTN4                             Tillegskode 4
+TMS  C                   EVAL      XHESTN5 = HESTN5                             Tillegskode 5
+TMS  C                   EVAL      XHESTN6 = HESTN6                             P=Protect tillegg
+TMS  C                   EVAL      XHESTN7 = HESTN7
+TMS  C                   EVAL      XHESTN8 = HESTN8
+TMS  C                   EVAL      XHESTN9 = HESTN9
+TMS  C                   EVAL      XHERFED = HERFED
+     C                   EVAL      XHELIB  = HELIB
+     C                   EVAL      XHEFILE = HEFILE
+     C                   EVAL      XHEMBR  = HEMBR
+     C                   EVAL      XHETYPE = HETYPE
+     C                   EVAL      XHELVL  = HELVL
+     C                   EVAL      XHESNN  = HESNN
+     C                   EVAL      XHEUNIK = HEUNIK
+     C                   EVAL      XHEREFF = HEREFF
+      * Oppdragsdato - i utg.pkt sett avs.dato men  Fra utland til NO = Import
+     C                   EVAL      XHEDTOP = TRSDFD
+     C                   IF        HELKA<>FILAND and HETRI=FILAND
+     C                   EVAL      XHEDTOP = TRSDTD
+     C                   END
+N06  C                   EVAL      XHESG=WHESG
+      * Oppdater DISP
+     C                   EXSR      OPDDIS
+      * Oppdater DOKUF
+     C     HEPK1         IFEQ      'J'
+     C                   EXSR      ODOKUF
+     C                   ENDIF
+      * Oppdater DOKUFE (OG DOK29)
+     C                   EXSR      ODOKUFE
+      * Oppdater TRACKT
+     C                   EXSR      OTRACKT
+      * Oppdater TRACKF
+     C                   EXSR      OTRACKF
+
+     C                   UPDATE    HEADFR
+      *
+      * Skal det skapes DUP ?
+     C                   EXSR      OPDDUP
+      *
+     C                   ENDSR
+      *______________________________________________________
+      * Finner fraktbberegningsvekt                    FINNVK
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     FINNVK        BEGSR
+      * Hent avdelingsopplysninger
+     C                   EVAL      WKOVAVD=HEAVD
+     C     KODTVKEY      CHAIN     KODTV                              52
+     C                   IF        *IN52
+     C                   EVAL      WKOVAVD=*ZEROS
+     C     KODTVKEY      CHAIN     KODTV                              52
+     C                   ENDIF
+      * Hent avdelingsopplysninger
+     C                   EVAL      WKOAAVD=HEAVD
+     C     KODTAKEY      CHAIN     KODTA                              52
+     C     KOAPOS        COMP      'J'                                    42
+      * Sjekk avvikende omregning i spesifik kundeavtale
+     C                   MOVE      'N'           AFOMRJN           1
+     C     FaktKey0      CHAIN     FAKT                               33
+     C  N33FAAGRN        IFNE      *ZEROS
+     C     FAAGRN        CHAIN     AVFRHL01                           33
+     c  N33FRABET        IFEQ      AFKUND
+     c     AFLKFR        ANDNE     '%%'
+     C  N33              MOVE      AFOMRM        KOVKKG            5 0
+     C  N33              MOVE      AFOMRL        KOVLKG            5 0
+     C  N33              move      'J'           AFOMRJN
+     C                   ENDIF
+     C                   ENDIF
+      *
+      * skjekk om kunde har avvik generelt (lavere prio enn spesifik postal avtale..)
+      *
+     c     AFOMRJN       IFEQ      'N'
+     C                   MOVE      FRABET        KUNDNR
+     C     CUNDL01K      CHAIN     CUM3LM                             33
+     C                   IF        *IN33=*OFF
+     C     M3M3          IFNE      *ZEROS
+     C                   Z-ADD     M3M3          KOVKKG
+     C                   ENDIF
+     C     MLLM          IFNE      *zeros
+     C                   Z-ADD     MLLM          KOVLKG
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+
+     C     HELM          MULT      KOVLKG        XFBV1             9 0
+     C     HEM3          MULT      KOVKKG        XFBV2             9 0
+     C     HEVKT         IFGE      XFBV1
+     C                   Z-ADD     HEVKT         HEFBV
+     C                   ELSE
+     C                   Z-ADD     XFBV1         HEFBV
+     C                   END
+     C     HEFBV         IFLT      XFBV2
+     C                   Z-ADD     XFBV2         HEFBV
+     C                   ENDIF
+     C                   EVAL      XHEFBV=HEFBV
+     C                   ENDSR
+      *______________________________________________________
+      * Oppdater DISP                                  OPDDIS
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     OPDDIS        BEGSR
+
+     C     HEADKEY       CHAIN     DISP                               34
+
+      * NY
+     C                   IF        *IN34
+     C                   MOVE      HEOPD         DIOPD
+     C                   MOVE      HEAVD         DIAVD
+     C     XHEPRO        IFEQ      *ZEROS
+     C                   MOVE      *ZEROS        DIRUND
+     C                   MOVE      *ZEROS        DITUR
+     C                   MOVE      *ZEROS        DITUAV
+     C                   ELSE
+     C                   Z-ADD     XTRRUND       DIRUND
+     C                   Z-ADD     XHEPRO        DITUR
+     C                   MOVE      HEAVD         DITUAV
+     C                   ENDIF
+     C                   ENDIF
+      * TUR GITT, MEN TURENS AVD UDEFINERT (FRA EDI-PLUKK)
+     C     DITUR         IFNE      *ZEROS
+S08  C*    DITUAV        ANDEQ     *ZEROS
+     C     DITUR         CHAIN     TURER14                            33
+     C  N33              MOVE      TUAVD         DITUAV
+N08  C  N33              MOVEL     TUBILN        XHEHAWB
+N08  C  N33              MOVE      TUKNT2        XHEKNT
+     C                   ENDIF
+
+     C                   MOVE      XHEOT         DIOT
+     C                   MOVE      XHESDF        DISTEF
+     C                   MOVE      XHESDT        DISTET
+     C                   MOVE      XTRSDFD       DIDATF
+     C                   MOVE      XTRSDTD       DIDATT
+     C                   MOVE      XTRSDFK       DITIMF
+     C                   MOVE      XTRSDTK       DITIMT
+     C     XHESDFF       IFNE      *BLANKS
+     C     XTRSTAF       IFEQ      ' '
+     C     XTRSTAF       OREQ      'R'
+     C     XTRSTAF       OREQ      'F'
+     C     XTRSTAF       OREQ      'O'
+     C                   MOVE      XTRSFFD       DIDATF
+     C                   MOVE      XHESDFF       DISTEF
+     C                   MOVE      XTRSFFK       DITIMF
+     C                   END
+     C                   END
+     C     XHESDVT       IFNE      *BLANKS
+     C     XTRSTAE       IFEQ      ' '
+     C     XTRSTAE       OREQ      'R'
+     C     XTRSTAE       OREQ      'F'
+     C     XTRSTAE       OREQ      'O'
+     C                   MOVE      XTRSVTD       DIDATT
+     C                   MOVE      XHESDVT       DISTET
+     C                   MOVE      XTRSVTK       DITIMT
+     C                   END
+     C                   END
+     C                   MOVE      *BLANKS       DISONF
+     C                   MOVE      *BLANKS       DISONT
+     C                   EVAL      WPLANF=XHELKA
+     C                   EVAL      WPLANT=XHETRI
+     C  N42DISTEF        CHAIN     STED2                              33
+     C   42WKSDF         CHAIN     STED2D                             33
+     C  N33              MOVEL     ST2LK         DISONF
+     C  N33              MOVE      ST2SOL        DISONF
+     C  N42DISTET        CHAIN     STED2                              33
+     C   42WKSDT         CHAIN     STED2D                             33
+     C  N33              MOVEL     ST2LK         DISONT
+     C  N33              MOVE      ST2SOL        DISONT
+     C   34              MOVE      ' '           DISTA1
+     C   34              WRITE     DISPR
+     C  N34              UPDATE    DISPR
+     C                   ENDSR
+      ********************************************************
+     C     OPDDUP        BEGSR
+      ********************************************************
+      *
+      * Forfrakt
+     C                   IF        XTROPD1=0 and XHESDFF<>*blanks
+N39  c                   call      'LAGDUP'
+N39  c                   parm      XHEAVD        UAVD              4 0
+N39  c                   parm      XHEOPD        UOPD              7 0
+N39  c                   parm      XHELKS        DUPTELK           2
+N39  c                   parm      XHESDFF       DUPTERM           5
+N39  c                   parm      'FF'          DUPFFVF           2
+N39  c                   parm                    BIBRID
+N39  c                   parm      XHESG         SIGN              3
+N39  c                   parm                    DUPIND            1
+     C                   ENDIF
+      *
+      * Viderefrakt
+     C                   IF        XTROPD2=0 and XHESDVT<>*blanks
+N39  c                   call      'LAGDUP'
+N39  c                   parm      XHEAVD        UAVD              4 0
+N39  c                   parm      XHEOPD        UOPD              7 0
+N39  c                   parm      XHELKK        DUPTELK           2
+N39  c                   parm      XHESDVT       DUPTERM           5
+N39  c                   parm      'VF'          DUPFFVF           2
+N39  c                   parm                    BIBRID
+N39  c                   parm      XHESG         SIGN              3
+N39  c                   parm                    DUPIND            1
+     C                   ENDIF
+      *
+
+     C                   ENDSR
+      ********************************************************
+     C     ODOKUF        BEGSR
+      ********************************************************
+     C                   MOVE      'F'           DFRI
+     C                   MOVE      HEAVD         DFAVD
+     C                   MOVE      HEOPD         DFOPD
+     C                   MOVE      001           DFFBNR
+     C     DOKUFKey      CHAIN     DOKUF                              35
+      *
+     C                   MOVE      ' '           DFST
+     c     FILAND        ifne      'NO'                                         Utenlands - staus U
+     c                   move      'U'           DFST
+     c                   endif
+     C                   MOVE      WHESG         DFSG
+     C                   IF        DF1004 = *BLANKS
+     C                   MOVE      HEAVD         FSAVD
+     C                   MOVE      HEOPD         FSOPD
+     C                   MOVE      'IFB'         FSKODE
+     C     IFBKEY        CHAIN     FRISOK                             33
+     C     *IN33         IFEQ      '0'
+     C                   EVAL      DF1004 = FSSOK
+     C                   ELSE
+     C                   CALL      'SYGE15'
+     C                   PARM                    SNDN20           20
+     C                   EVAL      DF1004 = %SUBST(SNDN20:4)
+     C                   EVAL      FSSOK  = DF1004
+     C                   EVAL      FSDTOP = HEDTOP
+     C     FSKODE        CHAIN     KODFRI                             33
+     C                   EVAL      FSDOKK = KFSODK
+     C                   WRITE     FRISOKR
+     C                   ENDIF
+     C                   ENDIF
+      * Avsender
+     C                   MOVE      HEKNS         DFKNSS
+     C                   MOVE      HENAS         DFNAVS
+     C                   MOVE      HEADS1        DFAD1S
+     C                   MOVE      *BLANKS       DFAD2S
+     C                   MOVEL     HEADS3        TMPPUL            4
+     C                   TESTN                   TMPPUL               34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      TMPPUL        DFPNLS                          LASTESTED
+     C                   eval      DFAD3S  = %subst(HEADS3:6)
+     C                   ELSE
+     C                   MOVE      *ZEROS        DFPNLS
+     C                   MOVEL     HEADS3        DFAD3S
+     C                   ENDIF
+     c                   if        DFST = 'U'                                   utenlands
+     C                   MOVE      HEADS2        DFAD2S
+     C                   MOVEL     FILAND        DFLKS
+     C                   MOVEL     *blanks       DFPNUS
+     C                   MOVEL     HEADS3        DFAD3S
+     c     ' '           scan      HEADS3        xPos              3 0
+     c                   if        xPos > 3 and xPos < 11
+     C                   eval      DFPNUS =%subst(HEADS3:1:xPos)
+     C                   eval      DFAD3S =%subst(HEADS3:xPos+1)
+     C                   endif
+     C                   endif
+      *
+      * Mottaker
+     C                   MOVE      HEKNK         DFKNSM
+     C                   MOVE      HENAK         DFNAVM
+     C                   MOVE      HEADK1        DFAD1M
+     C                   MOVE      *BLANKS       DFAD2M
+     C                   MOVE      HEADK3        DFAD3M
+     c                   if        DFST = 'U'                                   utenlands
+     C                   MOVE      HEADK2        DFAD2M
+     C                   MOVE      HETRI         DFLKM
+     C     ' '           scan      HEADK3        xPos
+     c                   if        xPos <> 0 and xPos < 10
+     C                   eval      DFPNUM = %subst(HEADK3:1:xPos)
+     C                   eval      DFAD3M = %subst(HEADK3:xPos+1)
+     C                   endif
+     C                   endif
+     C*
+      * Lev.adr
+     C                   MOVE      HENAK         DFNAVL
+     C                   MOVE      HEADK1        DFAD1L
+     C                   MOVE      *BLANKS       DFAD2L
+     C                   IF        %SUBST(HEADK3:5:1) = *BLANKS
+     C                   MOVEL     HEADK3        TMPPUL            4
+     C                   TESTN                   TMPPUL               34
+     C                   ELSE
+     C                   EVAL      *IN34 = *OFF
+     C                   END
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      TMPPUL        DFPOUL                          UTL.POSTNR
+     c                   if        %subst(HEADK3:6:1)= ' '
+     C                   eval      DFADUL = %subst(HEADK3:7)
+     c                   else
+     C                   eval      DFADUL = %subst(HEADK3:6)
+     c                   end
+     C                   ELSE
+     C                   MOVE      *ZEROS        DFPOUL
+     C                   MOVEL     HEADK3        DFADUL                          Hele..
+     C                   END
+      *
+     C                   MOVEL     HERFA         DFSREF
+     C                   MOVEL     HERFK         DFMREF
+     C*                  MOVE      HEKNT         DFTRAN
+     C*                  MOVEL     UNAT          DFNAT
+     C*                  MOVE      UKDME         DFKDME
+     C*                  MOVE      UKDE          DFKDE
+N05  C                   if        WSTRAN <> *zeros
+N05  C     TRANKEY       CHAIN     TRAN                               33
+N05  C                   if        *IN33 = '0'
+N05  C                   MOVEL     WSTRAN        DFTRAN
+N05  C                   MOVEL     VMNAVN        DFNAT
+N05  c                   endif
+N05  c                   endif
+N05  c                   if        DFKDME <> 'P'
+N05  C                   MOVE      WSKDME        DFKDME
+N05  c                   endif
+     C                   MOVE      WSTOLL        DFTOLL
+     C                   MOVE      HEVS1         DFVS
+     C                   MOVE      HEVS2         DFVS2
+     C                   MOVEL     HEGM1         DFGM
+     C                   MOVEL     HEGM2         DFGM2
+     C                   MOVE      HENT          DFNT
+     C                   MOVE      HENT          DFNTLA
+     C                   MOVE      HEVKT         DFVKT
+     C                   MOVE      HELM          DFLM
+     C                   MOVE      HEM3          DFM3
+     C                   MOVE      HEFBV         DFVKTF
+      *
+      * V.innland hent betalerkode fra oppdraget.
+     C                   IF        HELKA='NO' and HETRI='NO'
+     C     TRKDFF        ifeq      'S'
+     C                   MOVE      'S'           DFBELA
+     c                   else
+     C                   MOVE      'M'           DFBELA
+     c                   end
+     C                   END
+      *
+     C   35              WRITE     DOKUFR
+     C  N35              UPDATE    DOKUFR
+     C                   ENDSR
+      *______________________________________________________
+      * Oppdater DOKUFE                               ODOKUFE
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     ODOKUFE       BEGSR
+N05  C                   MOVE      HEAVD         D29AVD
+N05  C                   MOVE      HEOPD         D29OPD
+N05  C                   MOVE      001           D29FNR
+N05   * fjern evt tidligere autoskapte 'K.p_Av:' / 'K.p_Mo:'
+N05  C     DOK29Key      setll     DOK29
+N05  C     DOK29Key      reade     DOK29                                  33
+N05  C     *in33         doweq     '0'
+N05  C                   if        %subst(D29TXT:1:4)='K.p_'
+N05  c                   delete    DOK29R
+N05  C                   endif
+N05  C     DOK29Key      reade     DOK29                                  33
+N05  C                   enddo
+N05
+      * Shipper
+     C                   CLEAR                   DOKUFER
+     C                   MOVE      HEAVD         FE_DFAVD
+     C                   MOVE      HEOPD         FE_DFOPD
+     C                   MOVE      001           FE_DFFBNR
+     C                   MOVE      'SH '         FE_N3035
+     C     CONTKEY       CHAIN     DOKUFE                             33
+     C                   MOVEL     WSSCONT       FE_C3412
+     C                   MOVEL     WSSTLF        FE_C3148B
+     C                   MOVEL     WSSMAIL       FE_C3148E
+     C                   IF        *in33=*OFF
+     c                   IF        WSSCONT<>*blanks or WSSTLF <>*blanks
+     c                             or WSSMAIL<>*blanks
+     C                   UPDATE    DOKUFER
+N05  c                   eval      D29TXT = 'K.p_Av: '+%trim(FE_C3412)
+N05  c                             +'/'+%trim(FE_C3148B)+'/'+%trim(FE_C3148E)
+     c                   write     DOK29R
+     c                   ELSE
+     C                   DELETE    DOKUFER
+     c                   ENDIF
+     C                   ELSE
+     c                   IF        WSSCONT<>*blanks or WSSTLF <>*blanks
+     c                             or WSSMAIL<>*blanks
+     C                   WRITE     DOKUFER
+N05  c                   eval      D29TXT = 'K.p_Av: '+%trim(FE_C3412)
+N05  c                             +'/'+%trim(FE_C3148B)+'/'+%trim(FE_C3148E)
+     c                   write     DOK29R
+     c                   ENDIF
+     c                   ENDIF
+      * Receiver
+     C                   CLEAR                   DOKUFER
+     C                   MOVE      HEAVD         FE_DFAVD
+     C                   MOVE      HEOPD         FE_DFOPD
+     C                   MOVE      001           FE_DFFBNR
+     C                   MOVE      'CN '         FE_N3035
+     C     CONTKEY       CHAIN     DOKUFE                             33
+     C                   MOVEL     WSKCONT       FE_C3412
+     C                   MOVEL     WSKTLF        FE_C3148B
+     C                   MOVEL     WSKMAIL       FE_C3148E
+     C                   IF        *in33=*OFF
+     c                   IF        WSKCONT<>*blanks or WSKTLF <>*blanks
+     c                             or WSKMAIL<>*blanks
+     C                   UPDATE    DOKUFER
+N05  c                   eval      D29TXT = 'K.p_Mo: '+%trim(FE_C3412)
+N05  c                             +'/'+%trim(FE_C3148B)+'/'+%trim(FE_C3148E)
+     c                   write     DOK29R
+     c                   ELSE
+     C                   DELETE    DOKUFER
+     c                   ENDIF
+     C                   ELSE
+     c                   IF        WSKCONT<>*blanks or WSKTLF <>*blanks
+     c                             or WSKMAIL<>*blanks
+     C                   WRITE     DOKUFER
+N05  c                   eval      D29TXT = 'K.p_Mo: '+%trim(FE_C3412)
+N05  c                             +'/'+%trim(FE_C3148B)+'/'+%trim(FE_C3148E)
+     c                   write     DOK29R
+     c                   ENDIF
+     c                   ENDIF
+     C                   ENDSR
+      *______________________________________________________
+      * Oppdater TRACKT                               OTRACKT
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     OTRACKT       BEGSR
+
+     C     TRACKTK       CHAIN     TRACKT                             34
+
+      * NY
+     C                   IF        *IN34
+     C                   CLEAR                   TRACKTR
+     C                   MOVE      HEOPD         TXOPD
+     C                   MOVE      HEAVD         TXAVD
+     C                   EVAL      TXFBNR=*ZEROS
+     C                   ENDIF
+
+     C                   MOVE      WSETDD        TXETDD
+     C                   MOVE      WSETDK        TXETDK
+     C                   MOVE      WSETAD        TXETAD
+     C                   MOVE      WSETAK        TXETAK
+     C                   MOVE      WSATDD        TXATDD
+     C                   MOVE      WSATDK        TXATDK
+     C                   MOVE      WSATAD        TXATAD
+     C                   MOVE      WSATAK        TXATAK
+
+     C     *IN34         IFEQ      *ON
+     C                   WRITE     TRACKTR
+     C                   ENDIF
+     C  N34              UPDATE    TRACKTR
+      * Oppdater ev, DISP
+     C     TXATAD        IFNE      0
+     C     XHEUR         ANDEQ     'H'
+     C     XHEPRO        ANDNE     *ZEROS
+     C     HEADKEY       CHAIN     DISP                               34
+     C     *IN34         IFEQ      *OFF
+     C                   EVAL      DISTA1='C'
+     C                   UPDATE    DISPR
+     C                   ENDIF
+     C                   ENDIF
+      * Endre ev. datoer i HEADF
+N05  C                   IF        TXATAD<>0
+N04  C                   MOVE      TXATAD        XTRSDTD
+N04  C                   MOVE      TXATAK        XTRSDTK
+N05  C                   ELSE
+N05  C                   MOVE      TXETAD        XTRSDTD
+N05  C                   MOVE      TXETAK        XTRSDTK
+N05  C                   ENDIF
+
+     C                   ENDSR
+      *______________________________________________________
+      * Oppdater TRACKL08                             OTRACKF
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     OTRACKF       BEGSR
+
+     C                   MOVE      'BOO'         WTTACTI
+     C     KEYTT         CHAIN     TRACKL08                           33
+N28  C                   MOVEL     TTTIME        TTTIME4           4 0
+     c                   if        *in33 = '0'
+     c                             and HEBODT = TTDATE
+     c                             and WSBOTM = TTTIME4
+     c                   update    TRACKFR
+     c                   goto      UtOtrackf
+     c                   endif
+     C                   MOVE      HEAVD         TTAVD
+     C                   MOVE      HEOPD         TTOPD
+     C                   MOVE      WTTACTI       TTACTI
+     C                   MOVE      HEBODT        TTDATE
+     C                   MOVEL     WSBOTM        TTTIME
+      * N≈V∆RENDE TIDSPUNKT
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XUL≈≈         UL≈≈
+     C                   MOVE      ULDT          TTDATL
+     C                   MOVE      XULTM         TTTIML
+     C                   MOVE      WSUSER        TTUSER
+     c                   eval      tttext='Order booked   '
+     c                   eval      tttexl='Ordre bestilt  '
+     C   33              WRITE     TRACKFR
+     C  N33              UPDATE    TRACKFR
+
+     C     UtOtrackf     ENDSR

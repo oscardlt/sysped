@@ -1,0 +1,164 @@
+      *=========================================================================
+      *  RPG ILE PROGRAM UPLOAD
+      *
+      *  It demonstrates the ability of zhbgetinput() to perform file upload
+      *
+CRTPG+*  CRTPGM SYSPED/UPLOADN MODULE(*LIBL/UPLOADN) ACTGRP(CGI) AUT(*USE)
+CRTPGM*
+      *
+      *=========================================================================
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+
+      * retrieve system value QDATFMT
+     D rtvQDATFMT      pr             3
+
+     D ExtHtml         s            500    inz('/syspeddev/html/uploadN.html')
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      *
+     D rrn             s             10u 0
+     D YesNo           s              3
+     D ActVal1Ind      s               n
+     D ActVal2Ind      s               n
+     D alwExtensions   s          10000    varying
+     D nbrAlwExt       s             10i 0
+     D xrequest        s             20
+     D serverName      s             50
+     D datfmt          s              3
+     D stampNow        s               z
+     D deleteTime      s               z
+     D deleteTimeC     s             26
+     D deleteDay       s              8
+     D deleteHour      s              6
+     D cmd             s           1024
+     D PCfile          s           1024    varying
+     D IFSFile         s           1024    varying
+     D IFSobjFound     s               n
+     D NotValidated    s             21    inz('*** NOT VALIDATED ***')
+     D CHKEXTind       s               n
+     D ALWEXTind       s               n
+     D EXITPOINTSind   s               n
+      *=========================================================================
+      * Main processing path
+      *=========================================================================
+      /free
+           //Load the external HTML
+             IfsMultIndicators = getHtmlIfsMult(%trim(exthtml):'/CGITAG/');
+           //Start the HTML response
+             callp wrtsection('top');
+           //Receive the main request
+             nbrVars = zhbgetinput(savedquerystring:qusec);
+             xrequest= zhbgetvarUpper('xrequest');
+           //Examine the main request
+             select;
+             when xrequest=' ';
+                  exsr Init;
+             when xrequest='UPLOAD';
+                  exsr Upload;
+             endsl;
+           //Flush buffer and quit
+             callp wrtsection('*fini');
+             return;
+      /end-free
+      *=========================================================================
+      * The first time this program is called
+      *=========================================================================
+      /free
+             begsr Init;
+             callp updhtmlvar('errmsg':' ');
+             callp wrtsection('fileend');
+             endsr;
+      /end-free
+      *=========================================================================
+      * The file upload was submitted
+      * - the file upload was performed when subprocedure zhbGetInput() was run
+      * - subprocedure zhbGetInput() makes the following input variables available:
+      *     * browserfile             the name of the PC file
+      *     * browserfile_tempfile    the name assigned to the IFS stream file
+      *=========================================================================
+      /free
+            begsr Upload;
+            PCfile  = zhbgetvar('browserfile');
+            IFSfile = zhbgetvar('browserfile_tempfile');
+            if %subst(IFSfile:1:21)=NotValidated;
+               IFSfile=NotValidated;
+            endif;
+            callp updhtmlvar('errmsg':' ');
+            callp updhtmlvar('pcfile':PCfile);
+            callp updhtmlvar('ifsfile':IFSfile);
+            callp wrtsection('filerow');
+            if ifsfile<>NotValidated;
+               callp wrtsection('filerowOK');
+            else;
+               callp wrtsection('filerowNOK');
+            endif;
+            callp wrtsection('fileend');
+
+            // 1- Check file existence
+            //IFSobjFound=chkIFSobj4(%trim(IFSfile));
+            //if IFSobjFound=*off;    // not found
+            //   leavesr;
+            //endif;
+            // 2- Check the name of the uploaded temporary file
+            if %subst(uppify(IFSfile):1:5)<>'/TMP/';
+               leavesr;
+            endif;
+            // 3- Check the name of the server
+            serverName=getenv('SERVER_NAME':qusec);
+            serverName=uppify(serverName);
+            rc=%scan('.EASY400.NET':serverName);
+            if rc=0;
+               leavesr;
+            endif;
+            // 4- Schedule a delete job
+            //exsr SchedDelete;    //schedule a deletion of the uploaded file
+
+            Endsr;
+      /end-free
+      *=========================================================================
+      * Retrieve system value QDATFMT
+     P rtvQDATFMT      b
+     D rtvQDATFMT      pi             3
+
+      * prototype for Retrieve System Values (QWCRSVAL) API
+     D goQWCRSVAL      pr                  extpgm('QWCRSVAL')
+     D                               31
+     D                               10i 0
+     D                               10i 0
+     D                               10
+     D  errCode                            like(qusec)
+      * required parameter group for Retrieve System Values (QWCRSVAL) API
+     D rcvVar          ds
+     D  nbrRetVals                   10i 0
+     D  offsetRetVal                 10i 0
+     D  sysValInf                    23
+     D rcvVarLen       s             10i 0  inz(%size(rcvVar))
+     D nbrSysVals      s             10i 0  inz(1)
+     D sysValName      s             10
+      * Layout of System Value Information Table
+     D sysvalInfTabP   s               *
+     D sysvalInfTab    ds                  based(sysvalInfTabP)
+     D  retSysValName                10
+     D  retSysValDTyp                 1
+     D  retSysValISts                 1
+     D  retSysValLen                 10i 0
+     D  retSysValVal                  3
+      /free
+            sysvalName='QDATFMT';
+            goQWCRSVAL(rcvVar:rcvVarLen:nbrSysVals:sysValName:qusec);
+            sysvalInfTabP=%addr(rcvVar)+offsetRetVal;
+            return retSysValVal;
+
+      /end-free
+     P rtvQDATFMT      e

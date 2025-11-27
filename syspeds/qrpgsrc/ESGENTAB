@@ -1,0 +1,357 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/ESGENTAB MODULE(*LIBL/ESGENTAB
+CRTPGM*        *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FESGENTAB  UF A E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+     D OddEven         s             10
+     0* Client input variables
+     D user            s             10
+     D NewSeq          s              2  0                                      Ant kolonner i STD
+     D NewSeqA         s              2                                         Ant kolonner i STD
+     D Valgt           s              1                                         Ant kolonner i STD
+     D Title           S            100
+     D HEADERS         S           2000
+     D PROG            S             10
+     D UpdSeq          s              1
+     D UpdChUnNr       s              2  0
+     D UpdChUnN        s              2
+     D UpdChUn         s             10                                         checked/unchecked
+     D RESET           s              1
+     D KUNVALGT        s              1
+     D CusHea          S            100
+     D MaxCol          s              2  0                                      Ant kolonner i STD
+     D MaxCo           s              2                                         Ant kolonner i STD
+     D KeyCol          s              2  0                                      STD-col. m/CallbKey
+     D KeyCo           s              2                                         STD-col. m/CallbKey
+     D bruktK          s              2  0                                      Brukt kolonnenr
+     D bruktKa         s              2
+     D wsSekv          s            100
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+
+     D                 DS
+     D  C_Ao                   1   5000
+     D                                     DIM(50)
+     D                 DS
+     D  C_He                   1   5000
+     D                                     DIM(50)
+      * 50 elem=UT-kolonner,-Verdi mellom 01-max.kol->gi ønsket datainnhold i aktuell posisjon
+      * Eks 03 i første element betyr at UTDATA kolonne 1 ønskes hentet fra STD array-elem 3
+     D                 DS
+     D  Seq                    1    100  0
+     D                                     DIM(50)
+     D  GTSEKV                 1    100
+      * Definere  hex appostrof
+     D Ap              c                   x'7D'
+
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      *
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * dato/tid siste vellykkede operasjon.
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * reset til default kolonnevisning
+     c     RESET         ifeq      'Y'
+     c                   exsr      DelUser
+     c                   endif
+      * update checked/unchecked-kolonner
+     C     UpdChUnNr     ifne      *zeros
+     c                   exsr      UPDChUnSR
+     c                   endif
+      * update sequence nbr
+     C     UpdSeq        ifeq      'Y'
+     c                   exsr      UPDSEQSR
+     c                   endif
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+     C* tatt inn i..     callp     wrtsection('StdtopTab')
+     C                   callp     wrtsection('top')                            Programmets html
+      *
+      * HOVEDRUTINE
+      *
+      * colheader - skriv til html
+     c     1             do        MaxCol        Cn                2 0
+     C                   callp     updHTMLvar('StdSeq':%trim(%editc(CN:'Z')))
+     C                   callp     updHTMLvar('ColHea':C_He(cn))
+     C                   callp     updHTMLvar('CusSeq':
+     C                                         %trim(%editc(Seq(CN):'Z')))
+     c                   if        Seq(CN) > MaxCol
+     c     KunValgt      cabeq     'Y'           NextRow
+     c                   eval      CusHea ='99 Ikke i bruk'
+     c                   else
+     c                   add       1             bruktK
+     c                   move      bruktK        bruktKa
+     c                   eval      CusHea = bruktKa + ' ' + C_He(Seq(CN))
+     c                   endif
+     C                   callp     updHTMLvar('CusHea':CusHea)
+      * 99 = ikke i bruk/unselected
+      * OBS!! VED CHECKBOKS PÅ ROW-NIVÅ SÅ MÅÅÅ!  EN HA EN AKTIV VALUE PÅ HVER LINJE
+      * (BLANK VED UNCHECKED VIL IKKE BLI TALT REMED ER EN IKKE 'SYNKRON')
+     c                   if        Seq(CN) = 99
+     C                   callp     updHTMLvar('Valgt':'')
+     C                   callp     updHTMLvar('ValgtYN':'N')
+     c                   else
+     C                   callp     updHTMLvar('Valgt':'checked')
+     C                   callp     updHTMLvar('ValgtYN':'Y')
+     c                   endif
+     C                   callp     wrtsection('row')
+     c     NextRow       tag
+     c                   enddo
+      *
+      *
+      *
+     C                   callp     wrtsection('bot')                            programmets Html
+     C                   callp     wrtsection('Stdbot')
+      *
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      ****************************************
+     C     UPDChUnSR     begsr
+      ****************************************
+      * det er kun mulig å endre checked/unchecked på EN post om gangen
+     c                   if        UpdChUn = 'unchecked'
+     C                   eval      Seq(UpdChUnNr)=99
+     C                   else
+      * i mangel på bedre får en ved 99-> nr tilbake originalen for aktuell kolonne...
+      * det kan fort være at ved tilbakegang så må en heller resete/starte på ny
+     C                   eval      Seq(UpdChUnNr)=UpdChUnNr
+     c                   endif
+      *  update  på fil
+     c                   eval      wsSekv = GTSEKV
+     c     GenTabKey     chain     ESGENTAB                           33
+     c                   eval      GTSEKV = wsSekv
+     c     *in33         ifeq      *off
+     c                   update    ESGENTABR
+     c                   else
+     c                   write     ESGENTABR
+     c                   endif
+     C                   endsr
+      ****************************************
+     C     UPDSEQSR      begsr
+      ****************************************
+      * Ved Hver endring vil ALLE poster bli renummerert
+     C                   eval      ItemCount = ZhbGetVarCnt('NewSeq')
+     C                   eval      i = 1
+     C     i             DOUGT     ItemCount
+     C                   eval      NewSeqA= ZhbGetVar('NewSeq':i)
+     C                   eval      NewSeq   = c2n2(NewSeqA)
+     C                   eval      Seq(i)  = NewSeq
+     C                   eval      i = i +1
+     C                   ENDDO
+      *  update  på fil
+     c                   eval      wsSekv = GTSEKV
+     c     GenTabKey     chain     ESGENTAB                           33
+     c                   eval      GTSEKV = wsSekv
+     c     *in33         ifeq      *off
+     c                   update    ESGENTABR
+     c                   else
+     c                   write     ESGENTABR
+     c                   endif
+     C                   endsr
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      MAXCO    = zhbgetvar('MaxCol')
+     C                   eval      MaxCOL   = c2n2(MAXCO)
+     C                   eval      KEYCO    = zhbgetvar('KeyCol')
+     C                   eval      KEYCOL   = c2n2(KEYCO)
+     C                   eval      PROG     = zhbgetvar('PROG')
+     C                   eval      HEADERS  = zhbgetvar('HEADERS')
+     C                   eval      UpdSeq   = zhbgetvar('UPDSEQ')
+     C                   eval      UpdChUn  = zhbgetvar('UpdChUn')
+     C                   eval      UpdChUnN = zhbgetvar('UpdChUnNr')
+     C                   eval      UpdChUnNr= c2n2(UpdChUnN)
+     C                   eval      KunValgt = zhbgetvar('KUNVALGT')
+     C                   eval      RESET    = zhbgetvar('RESET')
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     ESGENTAB
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     c                   callp     gethtmlifs(
+cccccC                             '/syspeddev/html/EsGenTab.html':
+cccccC                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+     c                   eval      Title='Valg av kolonnevisning/rekkefølge'
+     C                   callp     updhtmlvar('TITLE':Title)
+     c
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHTMLvar('PROG':PROG)
+     C                   callp     updHtmlVar('MAXCOL':
+     C                             %trim(%editc(MAXCOL:'Z')))
+     C                   callp     updHtmlVar('KEYCOL':
+     C                             %trim(%editc(KEYCOL:'Z')))
+     C                   callp     updHTMLvar('HEADERS':HEADERS)
+     C     KunValgt      Ifeq      'Y'
+     C                   callp     updHTMLvar('VisKunValgt':'checked')
+     C                   else
+     C                   callp     updHTMLvar('VisKunValgt':'')
+     C                   end
+      *
+     C                   endsr
+      *
+      ************************************************************
+     C     DelUser       begsr
+      ************************************************************
+      * brukerstyrt sekvensnummerering ? - GTSEKV ulik blank
+     c     GenTabKey     chain     ESGENTAB                           33
+     c  N33              delete    ESGENTABR
+     c     1             do        50            Cn                2 0
+     c                   if        cn<=Maxcol
+     c                   eval      Seq(cn) = Cn
+     c                   else
+     c                   eval      Seq(cn) = 99
+     c                   endif
+     c                   enddo
+     c
+     c                   endsr
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     c     GenTabKey     klist
+     c                   kfld                    GTUSER
+     c                   kfld                    GTPROG
+      *
+     C                   move      BIBRID        GTUSER
+     C                   move      PROG          GTPROG
+     C                   OPEN      ESGENTAB
+      *
+      * brukerstyrt sekvensnummerering ? - GTSEKV ulik blank
+     c     GenTabKey     chain(N)  ESGENTAB                           33
+     c     *in33         ifeq      *on
+     c     1             do        50            Cn                2 0
+     c                   if        cn<=Maxcol
+     c                   eval      Seq(cn) = Cn
+     c                   else
+     c                   eval      Seq(cn) = 99
+     c                   endif
+     c                   enddo
+     c                   endif
+      *
+      * Headers-gjerne slik: <th><font size=2>Op</th> <th><font size=2>PoNo</th> <th><...
+     c                   z-add     1             s                 5 0
+     c                   move      *zeros        f                 5 0
+     c     1             do        MaxCol        Cn                2 0
+     C     '</th>'       SCAN      HEADERS:s     f
+     C     f             ifeq      *zeros                                       ikke flere...
+     c                   leave
+     c                   else
+     C                   eval      C_He(Cn)= %SUBST(HEADERS:s:f+5-s)
+     c                   eval      C_He(Cn)=%replace ('    ':C_He(Cn):
+     c                                      %scan('<th>':C_He(Cn)))
+     c                   eval      C_He(Cn)=%replace ('     ':C_He(Cn):
+     c                                      %scan('</th>':C_He(Cn)))
+     c                   eval      s = f+5
+     c                   endif
+     c                   enddo
+     c
+     c                   movel     Hex0D         CrLf              2
+     c                   move      Hex25         CrLf
+     C                   endsr
+      *

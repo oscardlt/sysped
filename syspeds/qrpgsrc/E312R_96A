@@ -1,0 +1,1782 @@
+EL    * 1. SEND KUNDEREF (BESTILLINGSNR)
+EL    * 2. SLÅ SAMME ALLE FRAKTSONETILLEGG
+EL    * 3. FRAKT FLYTTES FRA LINJE TIL HODE
+      * L1-SYEDI For EILAG INVOIC D.93A
+      *
+      * 1. L1 Fakturering legger ut poster i EDISF hvis styringsfilen
+      *    ESTYF inneholder en samsvarende post på kundenivå.
+      *
+      * 2. Dette programmet leser fra EDISF, men kun de kundenummer som
+      *    er  hardkodet i dette program.
+      *    OBS ! Kundenummer må rettes for hver installasjon
+      *
+      * 3. Dette programmet legger ut til EDI-filer i SYEDI.
+      *
+      * 4. SYEDI lager automatisk EDIFACT utifra EDI-filene.
+      *
+     FEDISF     UF   E             DISK
+     FSSTAL02   IF   E           K DISK    PREFIX(Z_)
+     FKUNDL01   IF   E           K DISK    PREFIX(X_)
+     FVADRL01   IF   E           K DISK    PREFIX(Å_)
+     FHORDL06   IF   E           K DISK    PREFIX(Y_)
+     FKODAL01   IF   E           K DISK    PREFIX(Æ_)
+     FKHEAL01   IF   E           K DISK    PREFIX(Ø_)
+     FVAREL01   IF   E           K DISK    PREFIX(Q_)
+     FKODML01   IF   E           K DISK    PREFIX(Q_)
+     FKODNL01   IF   E           K DISK    PREFIX(Q_)
+EL   F*ELFVARE   IF   E           K DISK    PREFIX(Y_)
+EL   F*                                    RENAME(elf.vare:elfvarer)
+     FKOMML01   IF   E           K DISK    PREFIX(V_)
+     FFSUML02   IF   E           K DISK    PREFIX(F_)
+     FECMSG     IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEUNH      O  A E             DISK
+     FEDIM      O  A E             DISK
+     FKUNKO     IF   E           K DISK
+     FEALC96A   O  A E             DISK
+     FECNT96A   O  A E             DISK
+     FECTA96A   O  A E             DISK
+     FECUX96A   O  A E             DISK
+     FEDTM96A   O  A E             DISK
+     FEFTX96A   O  A E             DISK
+     FEIMD96A   O  A E             DISK
+     FELIN96A   O  A E             DISK
+     FEMOA96A   O  A E             DISK
+     FENAD96A   O  A E             DISK
+     FEPAT96A   O  A E             DISK
+     FEPCD96A   O  A E             DISK
+     FEPIA96A   O  A E             DISK
+     FEPRI96A   O  A E             DISK
+     FEQTY96A   O  A E             DISK
+     FERFF96A   O  A E             DISK
+     FETAX96A   O  A E             DISK
+     FETDT96A   O  A E             DISK
+     FEUNS      O  A E             DISK
+      *___________________________
+      * Arrays for string handling
+      *"""""""""""""""""""""""""""
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  WDATO                  1      8  0
+     D  WÅ                     1      4  0
+     D  WM                     5      6  0
+     D  WD                     7      8  0
+     D                 DS
+     D  FAKDAT                 1      8
+     D  FAKAAR                 1      4  0
+     D  FAKMND                 5      6  0
+     D  FAKDAG                 7      8  0
+     D                 DS
+     D  FFDDAT                 1      8
+     D  FFDAAR                 1      4  0
+     D  FFDMND                 5      6  0
+     D  FFDDAG                 7      8  0
+     D                 DS
+     D  RENDAT                 1      8
+     D  KAARFS                 1      4  0
+     D  KMNDFS                 5      6  0
+     D  KDAGFS                 7      8  0
+     D                 DS
+     D  ZRDDAT                 1      8
+     D  Z_ORDAAR               1      4  0
+     D  Z_ORDMND               5      6  0
+     D  Z_ORDDAG               7      8  0
+     D                 DS
+     D  ZAKDAT                 1      8
+     D  Z_PAKAAR               1      4  0
+     D  Z_PAKMND               5      6  0
+     D  Z_PAKDAG               7      8  0
+     D                 DS
+     D  Y_F00001               1     50
+     D  Y_DSVGRP              34     37
+      *____________________________________
+      * DS for leftjustify numericel fields
+      *""""""""""""""""""""""""""""""""""""
+     D                 DS
+     D  ØN153                  1     15  3
+     D  ØA153H                 1     12
+     D  ØA153X                 5     12
+     D  ØA153D                13     15
+     D                 DS
+     D  ØA12                   1     12
+     D  Ø12                    1     12
+     D                                     DIM(12)
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+     C                   EXSR      SRINIT
+     C                   EXSR      SRA
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  ALC15 /
+      *////////////////////////////////////////////////////////////
+     C     ALC15         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+EL   C                   Z-ADD     0             XAVBEL           11 2
+      *____________
+      * Ordrerabatt
+      *""""""""""""
+     C     ORBEL         IFNE      0
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C                   MOVEL     'A'           A5463
+     C                   MOVEL     'DI'          A7161
+     C*                  MOVEL     'ORDRERAB'    A7160
+     C*    A7160         CAT       'ATT':0       A7160
+     C                   WRITE     ALCR
+     C                   EXSR      MOA19A
+     C                   ENDIF
+      *___________
+      * Avrundning
+      *"""""""""""
+     C     AVRUFS        IFNE      0
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVRUFS        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'IA'          A7161
+     C*                  EVAL      A7160 = 'AVRUNDNINGSBELØP'
+     C                   WRITE     ALCR
+     C                   EXSR      MOA19B
+     C                   ENDIF
+     C                   GOTO      ALC15A
+      *______________
+      * Avgiftskode-1
+      *""""""""""""""
+     C     AVG1          IFNE      *BLANKS
+     C     AVBEL1        ANDNE     0
+     C                   MOVEL(P)  AVG1          WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVBEL1        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVBEL1        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVBEL1        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Avgiftskode-2
+      *""""""""""""""
+     C     AVG2          IFNE      *BLANKS
+     C     AVBEL2        ANDNE     0
+     C                   MOVEL(P)  AVG2          WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVBEL2        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVBEL2        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVBEL2        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Avgiftskode-3
+      *""""""""""""""
+     C     AVG3          IFNE      *BLANKS
+     C     AVBEL3        ANDNE     0
+     C                   MOVEL(P)  AVG3          WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVBEL3        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVBEL3        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVBEL3        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Avgiftskode-4
+      *""""""""""""""
+     C     AVG4ED        IFNE      *BLANKS
+     C     AVB4ED        ANDNE     0
+     C                   MOVEL(P)  AVG4ED        WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVB4ED        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVB4ED        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVB4ED        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Avgiftskode-5
+      *""""""""""""""
+     C     AVG5ED        IFNE      *BLANKS
+     C     AVB5ED        ANDNE     0
+     C                   MOVEL(P)  AVG5ED        WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVB5ED        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVB5ED        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVB5ED        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *______________
+      * Avgiftskode-6
+      *""""""""""""""
+     C     AVG6ED        IFNE      *BLANKS
+     C     AVB6ED        ANDNE     0
+     C                   MOVEL(P)  AVG6ED        WAVG
+     C     AVGKEY        CHAIN     KHEAL01                            52
+     C     *IN52         IFEQ      *OFF
+EL   C                   MOVEL     Ø_AVGTXT      XAN16            16
+EL   C                   IF        XAN16 = 'FRAKTSONETILLEGG'
+EL   C                   ADD       AVB6ED        XAVBEL
+EL   C                   ELSE
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C     AVB6ED        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   MOVEL     'FS'          A7161
+     C*                  MOVEL     Ø_AVGTXT      A7160
+     C                   WRITE     ALCR
+     C                   Z-ADD     AVB6ED        WAVBEL
+     C                   EXSR      MOA19C
+
+EL   C                   END
+     C                   ENDIF
+     C                   ENDIF
+     C     ALC15A        TAG
+     C     *LIKE         DEFINE    WREP0         ALCREP0
+     C                   Z-ADD     WREP0         ALCREP0
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 ALC15F /
+      *////////////////////////////////////////////////////////////
+     C     ALC15F        BEGSR
+     C                   ADD       1             ALCREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+      *_________________
+      * Fraktsonetillegg
+      *"""""""""""""""""
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     15            AGN
+     C                   Z-ADD     ALCREP0       AREP0
+EL   C*                  MOVEL     'C'           A5463
+EL   C     XAVBEL        IFGT      0
+EL   C                   MOVEL     'C'           A5463
+EL   C                   ELSE
+EL   C                   MOVEL     'A'           A5463
+EL   C                   ENDIF
+     C                   MOVEL     'FC'          A7161
+     C*                  EVAL      A7160='FRAKTSONETILLEGG'
+     C                   WRITE     ALCR
+     C                   EXSR      MOA19F
+     C                   ENDSR
+EL    *////////////////////////////////////////////////////////////
+EL    * SR                                                ALC15EL /
+EL    *////////////////////////////////////////////////////////////
+EL   C     ALC15EL       BEGSR
+EL   C                   ADD       1             ALCREP0
+EL   C                   Z-ADD     0             WREP1
+EL   C                   Z-ADD     0             WREP2
+EL    *______
+EL    * Frakt
+EL    *""""""
+EL   C                   CLEAR                   ALCR
+EL   C                   Z-ADD     WMN           AMN
+EL   C                   Z-ADD     15            AGN
+EL   C                   Z-ADD     ALCREP0       AREP0
+EL   C                   IF        Z_BELOP <> 0
+EL   C                   EVAL      ØN153=Z_BELOP
+EL   C                   ELSE
+EL   C                   EVAL      ØN153=(Z_LEVERT*Z_PRIS)-Z_RABBEL
+EL   C                   IF        Z_PRKOSS = 'C'
+EL   C                   EVAL      ØN153=ØN153 * 0.01
+EL   C                   ENDIF
+EL   C                   ENDIF
+EL   C                   IF        ØN153 > 0
+EL   C                   MOVEL     'C'           A5463
+EL   C                   ELSE
+EL   C                   MOVEL     'A'           A5463
+EL   C                   ENDIF
+EL   C                   MOVEL     'FC'          A7161
+EL   C*                  EVAL      A7160='FRAKT'
+EL   C                   WRITE     ALCR
+EL   C                   EXSR      MOA19EL
+EL   C                   EXSR      TAX20EL
+EL   C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  ALC38 /
+      *////////////////////////////////////////////////////////////
+     C     ALC38         BEGSR
+     C                   Z-ADD     0             WREP1
+      *____________
+      * Ordrerabatt
+      *""""""""""""
+     C     Z_RABBEL      IFNE      0
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     38            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C                   Z-ADD     WREP1         AREP1
+     C                   MOVEL     'A'           A5463
+     C                   MOVEL     'OTE'         A7161
+     C*                  MOVEL     'RABATT'      A7160
+     C                   WRITE     ALCR
+     C                   EXSR      PCD40
+     C                   ENDIF
+      *___________
+      * Miljøgebyr
+      *"""""""""""
+     C     Q_VAV4VR      IFEQ      'UU'
+     C     Q_VAV4VR      OREQ      'UX'
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     38            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C                   Z-ADD     WREP1         AREP1
+     C                   MOVEL     'C'           A5463
+     C                   MOVEL     'ZZE'         A7161
+     C*                  MOVEL     'MILJØGEBYR'  A7160
+     C                   WRITE     ALCR
+     C                   EXSR      PCD40U
+     C                   EXSR      MOA41U
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  ALC51 /
+      *////////////////////////////////////////////////////////////
+     C     ALC51         BEGSR
+      *____________
+      * Ordrerabatt
+      *""""""""""""
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   ALCR
+     C                   Z-ADD     WMN           AMN
+     C                   Z-ADD     51            AGN
+     C                   Z-ADD     WREP0         AREP0
+     C                   Z-ADD     MVABEL        WAVBEL
+     C                   SUB       ORBEL         WAVBEL
+     C                   ADD       SDBEL         WAVBEL
+     C                   SUB       SVRAB         WAVBEL
+     C                   ADD       AVRUFS        WAVBEL
+     C     WAVBEL        IFGT      0
+     C                   MOVEL     'C'           A5463
+     C                   ELSE
+     C                   MOVEL     'A'           A5463
+     C                   ENDIF
+     C                   WRITE     ALCR
+     C                   EXSR      MOA51
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  CNT00 /
+      *////////////////////////////////////////////////////////////
+     C     CNT00         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   CNTR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     0             CGN
+     C                   Z-ADD     WREP0         CREP0
+     C                   MOVEL     '2'           C6069
+     C                   MOVEL     '0'           C6066
+     C                   WRITE     CNTR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 CTA05A /
+      *////////////////////////////////////////////////////////////
+     C     CTA05A        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   CTAR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     5             CGN
+     C                   Z-ADD     WREP0         CREP0
+     C                   Z-ADD     WREP1         CREP1
+      *___________________________________
+      * "Deres referanse fra bestillingen"
+      *"""""""""""""""""""""""""""""""""""
+     C                   MOVEL     'PD'          C3139
+     C                   MOVEL     Y_KUNREF      C3412
+     C                   WRITE     CTAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 CTA05B /
+      *////////////////////////////////////////////////////////////
+     C     CTA05B        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   CTAR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     5             CGN
+     C                   Z-ADD     WREP0         CREP0
+     C                   Z-ADD     WREP1         CREP1
+      *_________________________________
+      * "Vår referanse fra bestillingen"
+      *"""""""""""""""""""""""""""""""""
+     C                   MOVEL     'SR'          C3139
+     C                   MOVEL     Y_SELGER      C3412
+     C                   WRITE     CTAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  CUX07 /
+      *////////////////////////////////////////////////////////////
+     C     CUX07         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   CUXR
+     C                   Z-ADD     WMN           CMN
+     C                   Z-ADD     7             CGN
+     C                   Z-ADD     WREP0         CREP0
+     C                   MOVEL     '2'           C6347A
+     C                   MOVEL     'NOK'         C6345A
+     C                   MOVEL     '11'          C6343A
+     C                   WRITE     CUXR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  DTM00 /
+      *////////////////////////////////////////////////////////////
+     C     DTM00         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   DTMR
+     C                   Z-ADD     WMN           DMN
+     C                   Z-ADD     0             DGN
+     C                   Z-ADD     WREP0         DREP0
+      *____________
+      * Fakturadato
+      *""""""""""""
+     C                   MOVEL     '137'         D2005
+     C                   MOVEL     FAKDAT        D2380
+     C                   MOVEL     '102'         D2379
+     C                   WRITE     DTMR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  DTM01 /
+      *////////////////////////////////////////////////////////////
+     C     DTM01         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   DTMR
+     C                   Z-ADD     WMN           DMN
+     C                   Z-ADD     1             DGN
+     C                   Z-ADD     WREP0         DREP0
+     C                   Z-ADD     WREP1         DREP1
+      *_________________
+      * Ekspedisjonsdato
+      *"""""""""""""""""
+     C                   MOVEL     '171'         D2005
+     C     Z_PAKDAG      IFGT      0
+     C                   MOVEL     ZAKDAT        D2380
+     C                   ELSE
+     C                   MOVEL     ZRDDAT        D2380
+     C                   END
+     C                   MOVEL     '102'         D2379
+     C                   WRITE     DTMR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 DTM08A /
+      *////////////////////////////////////////////////////////////
+     C     DTM08A        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   DTMR
+     C                   Z-ADD     WMN           DMN
+     C                   Z-ADD     8             DGN
+     C                   Z-ADD     WREP0         DREP0
+     C                   Z-ADD     WREP1         DREP1
+      *_____________
+      * Forfallsdato
+      *"""""""""""""
+     C                   MOVEL     '13'          D2005
+     C                   MOVEL     FFDDAT        D2380
+     C                   MOVEL     '102'         D2379
+     C                   WRITE     DTMR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 DTM08B /
+      *////////////////////////////////////////////////////////////
+     C     DTM08B        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   DTMR
+     C                   Z-ADD     WMN           DMN
+     C                   Z-ADD     8             DGN
+     C                   Z-ADD     WREP0         DREP0
+     C                   Z-ADD     WREP1         DREP1
+      *____________________________
+      * Rentedato ved kontantrabatt
+      *""""""""""""""""""""""""""""
+     C                   MOVEL     '167'         D2005
+     C                   MOVEL     RENDAT        D2380
+     C                   MOVEL     '102'         D2379
+     C                   WRITE     DTMR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * EDIM0                                                EDIM0/
+      *////////////////////////////////////////////////////////////
+     C     EDIM0         BEGSR
+     C                   CLEAR                   EDIMR
+     C                   MOVEL     ECIIDI        M0004
+     C                   MOVEL     ECIIDC        M0010
+     C*                  MOVE      '1'           M0035
+     C                   MOVEL     U0062A        M0062
+     C                   MOVEL     U0065         M0065
+     C                   MOVEL     U1004         M0068
+     C                   MOVEL     U1001         M1001
+     C                   MOVEL     U1004         M1004
+     C                   Z-ADD     WMN           MMN
+     C                   MOVE      'S'           MSR
+     C                   MOVEL     WDATO         MDT
+     C                   MOVEL     WTID          MTM
+     C                   WRITE     EDIMR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  FTX25 /
+      *////////////////////////////////////////////////////////////
+     C     FTX25         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   FTXR
+     C                   Z-ADD     WMN           FMN
+     C                   Z-ADD     25            FGN
+     C                   Z-ADD     WREP0         FREP0
+     C                   Z-ADD     WREP1         FREP1
+     C                   MOVEL     'OSI'         F4451
+     C                   MOVEL     ' '           F4440A
+     C                   WRITE     FTXR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  IMD25 /
+      *////////////////////////////////////////////////////////////
+     C     IMD25         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   IMDR
+     C                   Z-ADD     WMN           IMN
+     C                   Z-ADD     25            IGN
+     C                   Z-ADD     WREP0         IREP0
+     C                   Z-ADD     WREP1         IREP1
+     C                   MOVEL     'F'           I7077
+     C                   MOVEL     'ZZ'          I7009
+
+     C     KOMMKEY       CHAIN     KOMML01                            52
+     C                   IF        *IN52=*OFF AND V_UTSKDF='J'
+     C                   MOVEL     V_OTBKOM      I7008A
+     C     25            SUBST     V_OTBKOM:36   I7008B
+     C                   ELSE
+
+     C     VARKEY        CHAIN     VAREL01                            52
+     C                   IF        *IN52
+     C                   EVAL      I7008A = 'FRAKTSONETILLEGG'
+     C                   IF        L7140  = 'UU'
+     C                   EVAL      I7008A = 'MILJØGEBYR      '
+     C                   ENDIF
+     C                   ELSE
+     C                   MOVEL     Q_VARTE1      I7008A
+     C                   MOVEL     Q_VARTE2      I7008B
+     C                   ENDIF
+     C                   ENDIF
+     C                   WRITE     IMDR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  LIN25 /
+      *////////////////////////////////////////////////////////////
+     C     LIN25         BEGSR
+     C                   Z-ADD     0             WREP0
+      * Første record fra SSTAL02 er allerede lest i init av dette pgm.
+     C     *IN53         DOWEQ     *OFF
+EL   C                   IF        Z_VARENR = 'FRA'
+EL   C                   EXSR      ALC15EL
+EL   C                   ELSE
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   LINR
+     C                   Z-ADD     WMN           LMN
+     C                   Z-ADD     25            LGN
+     C                   Z-ADD     WREP0         LREP0
+     C                   Z-ADD     WREP0         ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           L7140
+     C                   EVAL      L7140 = %TRIML(Z_VARENR)
+     C                   MOVEL     'SA'          L7143
+     C                   MOVEL     '91'          L3055
+      * Ikke skriv Miljøgebyr som egen linje, Koder = UU og UX
+      * Heller ikke fraktsonetillegg
+     C     VARKEY        CHAIN     VAREL01                            52
+     C                   IF        *IN52 = *OFF
+     C                   WRITE     LINR
+EL   C*                  EXSR      PIA25
+EL   C*                  EXSR      IMD25
+     C                   EXSR      QTY25
+EL   C*  53              EXSR      FTX25
+     C                   EXSR      MOA26
+     C                   EXSR      PRI28
+EL   C*                  EXSR      TAX33
+EL   C*                  EXSR      ALC38
+     C                   ELSE
+      * Fraktsonetillegg opp på ALC 14 nivå.
+     C     L7140         IFNE      'UU'
+     C     L7140         ANDNE     'UX'
+EL   C*                  EXSR      ALC14F
+EL   C                   IF        Z_BELOP <> 0
+EL   C                   EVAL      ØN153=Z_BELOP
+EL   C                   ELSE
+EL   C                   EVAL      ØN153=(Z_LEVERT*Z_PRIS)-Z_RABBEL
+EL   C                   IF        Z_PRKOSS = 'C'
+EL   C                   EVAL      ØN153=ØN153 * 0.01
+EL   C                   ENDIF
+EL   C                   ENDIF
+EL   C                   ADD       ØN153         XAVBEL
+     C                   ENDIF
+     C                   ENDIF
+EL   C                   END
+
+     C     SSKEY         READE     SSTAL02                                53
+     C                   ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 MOA19A /
+      *////////////////////////////////////////////////////////////
+     C     MOA19A        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     19            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '8'           M5025
+     C                   Z-ADD     ORBEL         ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 MOA19B /
+      *////////////////////////////////////////////////////////////
+     C     MOA19B        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     19            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '8'           M5025
+     C     AVRUFS        IFGT      0
+     C                   Z-ADD     AVRUFS        ØN153
+     C                   ELSE
+     C                   Z-SUB     AVRUFS        ØN153
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 MOA19C /
+      *////////////////////////////////////////////////////////////
+     C     MOA19C        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     19            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '8'           M5025
+     C     WAVBEL        IFGT      0
+     C                   Z-ADD     WAVBEL        ØN153
+     C                   ELSE
+     C                   Z-SUB     WAVBEL        ØN153
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 MOA19F /
+      *////////////////////////////////////////////////////////////
+     C     MOA19F        BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     19            MGN
+     C                   Z-ADD     ALCREP0       MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '8'           M5025
+EL   C*    Z_BELOP       IFGT      0
+EL   C*                  Z-ADD     Z_BELOP       ØN153
+EL   C*                  ELSE
+EL   C*                  Z-SUB     Z_BELOP       ØN153
+EL   C*                  ENDIF
+EL   C     XAVBEL        IFGT      0
+EL   C                   Z-ADD     XAVBEL        ØN153
+EL   C                   ELSE
+EL   C                   Z-SUB     XAVBEL        ØN153
+EL   C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+EL    *////////////////////////////////////////////////////////////
+EL    * SR                                                MOA19EL /
+EL    *////////////////////////////////////////////////////////////
+EL   C     MOA19EL       BEGSR
+EL   C                   Z-ADD     1             WREP1
+EL   C                   Z-ADD     0             WREP2
+EL   C                   CLEAR                   MOAR
+EL   C                   Z-ADD     WMN           MMN
+EL   C                   Z-ADD     19            MGN
+EL   C                   Z-ADD     ALCREP0       MREP0
+EL   C                   Z-ADD     WREP1         MREP1
+EL   C                   MOVEL     '8'           M5025
+EL   C                   IF        ØN153 < 0
+EL   C                   Z-SUB     ØN153         ØN153
+EL   C                   ENDIF
+EL   C                   EXSR      SRNE
+EL   C                   MOVEL     ØAN           M5004
+EL   C                   WRITE     MOAR
+EL   C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  MOA26 /
+      *////////////////////////////////////////////////////////////
+     C     MOA26         BEGSR
+     C                   Z-ADD     0             WREP1
+      *______________________
+      * Linjebeløp nettobeløp
+      *""""""""""""""""""""""
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     26            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '125'         M5025
+     C                   IF        Z_BELOP <> 0
+     C                   EVAL      ØN153=Z_BELOP
+     C                   ELSE
+     C                   EVAL      ØN153=(Z_LEVERT*Z_PRIS)-Z_RABBEL
+     C                   IF        Z_PRKOSS = 'C'
+     C                   EVAL      ØN153=ØN153 * 0.01
+     C                   ENDIF
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+      *___________________________________________
+      * Linjebeløp (Ink rabatt/gebyr og exl. mva.)
+      *"""""""""""""""""""""""""""""""""""""""""""
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     26            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C*                  MOVEL     '66'          M5025
+     C                   MOVEL     '203'         M5025
+     C                   IF        Z_BELOP <> 0
+     C                   EVAL      ØN153=Z_BELOP
+     C                   ELSE
+     C                   EVAL      ØN153=(Z_LEVERT*Z_PRIS)
+     C                   IF        Z_PRKOSS = 'C'
+     C                   EVAL      ØN153=ØN153 * 0.01
+     C                   ENDIF
+
+     C                   IF        Z_VRAB1 <> 0
+     C                   EVAL      W_ØN153=(ØN153*Z_VRAB1)/100
+     C                   EVAL      ØN153= ØN153-W_ØN153
+     C                   ENDIF
+
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C     *LIKE         DEFINE    ØN153         LINSUM
+     C                   EVAL      LINSUM=ØN153
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  MOA48 /
+      *////////////////////////////////////////////////////////////
+     C     MOA48         BEGSR
+      *_____________
+      * Fakturabeløp
+      *"""""""""""""
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     48            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   MOVEL     '86'          M5025
+     C                   Z-ADD     FTOTN         ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+      *______________________________________________________
+      * Sum totalt  varelinjebeløp, inklusive rab/geb og avg.
+      *""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     48            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C*                  MOVEL     '39'          M5025
+     C                   MOVEL     '79'          M5025
+     C                   EVAL      ØN153=FTOTN-MVABEL
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+      *________________________________________
+      * Sum varelinjebeløp exl. fradrag/tillegg
+      *""""""""""""""""""""""""""""""""""""""""
+     C*                  ADD       1             WREP0
+     C*                  Z-ADD     0             WREP1
+     C*                  Z-ADD     0             WREP2
+     C*                  CLEAR                   MOAR
+     C*                  Z-ADD     WMN           MMN
+     C*                  Z-ADD     48            MGN
+     C*                  Z-ADD     WREP0         MREP0
+     C*                  MOVEL     '79'          M5025
+     C*    SVBEL         SUB       SVRAB         ØN153
+     C*                  EXSR      SRNE
+     C*                  MOVEL     ØAN           M5004
+     C*                  WRITE     MOAR
+      *________________________________________
+      * Sum varelinjebeløp ink. fradrag/tillegg
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     48            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C*                  MOVEL     '125'         M5025
+     C                   MOVEL     '79'          M5025
+     C                   Z-ADD     SVBEL         ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  MOA33 /
+      *////////////////////////////////////////////////////////////
+     C     MOA33         BEGSR
+     C                   Z-ADD     1             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     33            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   Z-ADD     WREP2         MREP2
+     C                   MOVEL     '204'         M5025
+     C                   Z-ADD     Z_RABBEL      ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 MOA41U /
+      *////////////////////////////////////////////////////////////
+     C     MOA41U        BEGSR
+     C                   Z-ADD     1             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     41            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   Z-ADD     WREP2         MREP2
+     C                   MOVEL     '8'           M5025
+     C     LINSUM        MULT      0.015         ØN153
+     C                   IF        Q_VAV4VR='UX'
+     C     LINSUM        MULT      0.04          ØN153
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  MOA50 /
+      *////////////////////////////////////////////////////////////
+     C     MOA50         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     50            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C*                  MOVEL     '176'         M5025
+     C                   MOVEL     '125'         M5025
+     C                   Z-ADD     MVABEL        ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  MOA51 /
+      *////////////////////////////////////////////////////////////
+     C     MOA51         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   MOAR
+     C                   Z-ADD     WMN           MMN
+     C                   Z-ADD     51            MGN
+     C                   Z-ADD     WREP0         MREP0
+     C                   Z-ADD     WREP1         MREP1
+     C                   MOVEL     '131'         M5025
+     C     WAVBEL        IFGT      0
+     C                   Z-ADD     WAVBEL        ØN153
+     C                   ELSE
+     C                   Z-SUB     WAVBEL        ØN153
+     C                   ENDIF
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           M5004
+     C                   WRITE     MOAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  NAD02 /
+      *////////////////////////////////////////////////////////////
+     C     NAD02         BEGSR
+     C                   Z-ADD     0             WREP0
+      *________________
+      * Fakturamottaker
+      *""""""""""""""""
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     2             NGN
+     C                   Z-ADD     WREP0         NREP0
+
+     C                   MOVEL     'IV'          N3035
+     C                   Z-ADD     WUNDNR        W_KUKUN2
+     C     KOVKEY        CHAIN     KUNKO                              52
+     C                   IF        *IN52
+     C                   IF        WUNDNR <> 0
+     C                   Z-ADD     WUNDNR        ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           N3039
+     C                   MOVEL     '9'           N3055
+     C                   ENDIF
+     C                   ELSE
+     C                   MOVEL     KUINTN        N3039
+     C                   MOVEL     '9'           N3055
+     C                   ENDIF
+     C                   IF        N3039 = *BLANKS
+     C                   MOVEL     '680023'      N3039
+     C                   ENDIF
+     C                   Z-ADD     WUNDNR        WUNDN2
+     C     KUNKEY        CHAIN     KUNDL01                            52
+     C                   MOVEL     X_KNAVN       N3036A
+     C                   MOVEL     X_ADR1        N3042A
+     C                   MOVEL     X_ADR3        N3164
+     C                   MOVEL     X_POSTNR      N3251
+     C                   WRITE     NADR
+      *_______
+      * Kjøper
+      *"""""""
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     2             NGN
+     C                   Z-ADD     WREP0         NREP0
+
+     C                   MOVEL     'BY'          N3035
+     C                   Z-ADD     KUNDNR        W_KUKUN2
+     C     KOVKEY        CHAIN     KUNKO                              52
+     C                   IF        *IN52
+     C                   Z-ADD     KUNDNR        ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           N3039
+     C                   ELSE
+     C                   MOVEL     KUINTN        N3039
+     C                   ENDIF
+     C                   MOVEL     '9'           N3055
+     C                   Z-ADD     KUNDNR        WUNDN2
+     C     KUNKEY        CHAIN     KUNDL01                            52
+     C                   MOVEL     X_KNAVN       N3036A
+     C                   MOVEL     X_ADR1        N3042A
+     C                   MOVEL     X_ADR3        N3164
+     C                   MOVEL     X_POSTNR      N3251
+     C                   WRITE     NADR
+     C     Y_KUNREF      IFNE      *BLANKS
+     C                   EXSR      CTA05A
+     C                   ENDIF
+      *___________________________________
+      * Mottaker (hvis forskjellig fra BY)
+      *"""""""""""""""""""""""""""""""""""
+      * Hent vareadresse
+     C     VADKEY        CHAIN     VADRL01                            52
+     C     *IN52         IFEQ      *OFF
+     C     Å_VADRNA      IFNE      X_KNAVN
+     C     Å_VADRN1      ORNE      X_ADR1
+     C     Å_VADRN3      ORNE      X_ADR3
+     C     Å_VPOSTN      ORNE      X_POSTNR
+
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     2             NGN
+     C                   Z-ADD     WREP0         NREP0
+
+     C                   MOVEL     'DP'          N3035
+     C                   MOVEL     Å_VADRNA      N3036A
+     C                   MOVEL     Å_VADRN1      N3042A
+     C                   MOVEL     Å_VADRN3      N3164
+     C                   MOVEL     Å_VPOSTN      N3251
+     C                   WRITE     NADR
+
+     C                   ENDIF
+     C                   ENDIF
+      *_______
+      * Selger
+      *"""""""
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   NADR
+     C                   Z-ADD     WMN           NMN
+     C                   Z-ADD     2             NGN
+     C                   Z-ADD     WREP0         NREP0
+
+EL   C                   MOVEL     'NOELI101'    N3039
+     C                   MOVEL     'SU'          N3035
+EL   C                   MOVEL     'ELEKTRO-'    N3036A
+EL   C                   CAT       'ARMATU':0    N3036A
+EL   C                   CAT       'R A/S':0     N3036A
+EL   C                   MOVEL     'SOLHEIMS'    N3042A
+EL   C                   CAT       'VEIEN':0     N3042A
+EL   C                   CAT       ' 10':0       N3042A
+EL   C                   MOVEL     'SKÅRER'      N3164
+EL   C                   MOVEL     '1471'        N3251
+EL   C                   WRITE     NADR
+EL   C*                  EXSR      RFF03
+EL   C*    Y_SELGER      IFNE      *BLANKS
+EL   C*                  EXSR      CTA05B
+EL   C*                  ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  PAT08 /
+      *////////////////////////////////////////////////////////////
+     C     PAT08         BEGSR
+      *_____________
+      * Forfallsdato
+      *"""""""""""""
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   PATR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     8             PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   MOVEL     '3'           P4279
+     C                   WRITE     PATR
+     C                   EXSR      DTM08A
+      *____________________________
+      * Renetdato ved kontantrabatt
+      *""""""""""""""""""""""""""""
+     C     KAARFS        IFGT      0
+     C                   ADD       1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   PATR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     8             PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   MOVEL     '20'          P4279
+     C                   WRITE     PATR
+     C                   EXSR      DTM08B
+     C                   EXSR      PCD08
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  PCD08 /
+      *////////////////////////////////////////////////////////////
+     C     PCD08         BEGSR
+     C     BETKEY        CHAIN     KODAL01                            52
+     C     *IN52         IFEQ      *OFF
+     C     Æ_KONRAB      ANDNE     0
+
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   PCDR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     8             PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   MOVEL     '15'          P5245
+     C                   Z-ADD     Æ_KONRAB      ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           P5482
+     C                   WRITE     PCDR
+
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  PCD40 /
+      *////////////////////////////////////////////////////////////
+     C     PCD40         BEGSR
+     C     Z_VRAB1       IFNE      0
+     C     Z_RTYPSS      ANDEQ     '4'
+
+     C                   Z-ADD     1             WREP2
+     C                   CLEAR                   PCDR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     40            PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   Z-ADD     WREP2         PREP2
+     C                   MOVEL     '1'           P5245
+     C                   Z-ADD     Z_VRAB1       ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           P5482
+     C                   WRITE     PCDR
+
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                 PCD40U /
+      *////////////////////////////////////////////////////////////
+     C     PCD40U        BEGSR
+
+     C                   Z-ADD     1             WREP2
+     C                   CLEAR                   PCDR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     40            PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   Z-ADD     WREP2         PREP2
+     C                   MOVEL     '1'           P5245
+     C     Q_VAV4VR      IFEQ      'UU'
+     C                   MOVEL     '1'           P5482
+     C                   ELSE
+     C                   MOVEL     '5'           P5482
+     C                   ENDIF
+     C*                  MOVEL     '13'          P5249
+     C                   WRITE     PCDR
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  PIA25 /
+      *////////////////////////////////////////////////////////////
+     C     PIA25         BEGSR
+     C                   Z-ADD     0             WREP1
+      *______________________________________
+      * Elektroforeningens Artikkel/Gruppenr.
+      *""""""""""""""""""""""""""""""""""""""
+EL   C*                  EVAL      W_K00001 = %TRIML(Z_VARENR)
+EL   C*    W_K00001      CHAIN     ELFVARE                            52
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   PIAR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     25            PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C                   MOVEL     '1'           P4347
+EL   C*                  MOVEL     Y_DSVGRP      P7140A
+     C                   MOVEL     'EFO'         P7143A
+     C                   WRITE     PIAR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  PRI28 /
+      *////////////////////////////////////////////////////////////
+     C     PRI28         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   PRIR
+     C                   Z-ADD     WMN           PMN
+     C                   Z-ADD     28            PGN
+     C                   Z-ADD     WREP0         PREP0
+     C                   Z-ADD     WREP1         PREP1
+     C*                  MOVEL     'AAB'         P5125
+     C                   MOVEL     'AAA'         P5125
+     C                   Z-ADD     Z_PRIS        ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           P5118
+     C                   MOVEL     '1'           P5284
+     C                   MOVEL     'PCE'         P6411
+     C                   WRITE     PRIR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  QTY25 /
+      *////////////////////////////////////////////////////////////
+     C     QTY25         BEGSR
+     C                   Z-ADD     0             WREP1
+      *_________________
+      * Fakturert mengde
+      *"""""""""""""""""
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   QTYR
+     C                   Z-ADD     WMN           QMN
+     C                   Z-ADD     25            QGN
+     C                   Z-ADD     WREP0         QREP0
+     C                   Z-ADD     WREP1         QREP1
+     C                   MOVEL     '47'          Q6063
+     C                   Z-ADD     Z_LEVERT      ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           Q6060
+     C                   MOVEL     'PCE'         Q6411
+     C                   WRITE     QTYR
+      *______________
+      * Levert mengde
+      *""""""""""""""
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   QTYR
+     C                   Z-ADD     WMN           QMN
+     C                   Z-ADD     25            QGN
+     C                   Z-ADD     WREP0         QREP0
+     C                   Z-ADD     WREP1         QREP1
+     C                   MOVEL     '46'          Q6063
+     C                   Z-ADD     Z_LEVERT      ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           Q6060
+     C                   MOVEL     'PCE'         Q6411
+     C                   WRITE     QTYR
+      *________________
+      * Bestillt mengde
+      *""""""""""""""""
+     C                   ADD       1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   QTYR
+     C                   Z-ADD     WMN           QMN
+     C                   Z-ADD     25            QGN
+     C                   Z-ADD     WREP0         QREP0
+     C                   Z-ADD     WREP1         QREP1
+     C                   MOVEL     '21'          Q6063
+     C                   Z-ADD     Z_BESTIL      ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           Q6060
+     C                   MOVEL     'PCE'         Q6411
+     C                   WRITE     QTYR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  RFF01 /
+      *////////////////////////////////////////////////////////////
+     C     RFF01         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     1             RGN
+     C                   Z-ADD     WREP0         RREP0
+EL    *____________________
+EL    * Kjøpersordrenummer
+EL    *""""""""""""""""""""
+EL   C                   MOVEL     'ON'          R1153
+EL   C                   IF        Y_KUNREF = *BLANKS
+EL   C                   MOVEL     'MANGEL REF.' R1154
+EL   C                   ELSE
+EL   C                   MOVEL     Y_KUNREF      R1154
+EL   C                   END
+EL   C                   WRITE     RFFR
+EL   C                   MOVE      *BLANKS       R1154
+EL   C                   ADD       1             RREP0
+      *____________________
+      * Selgers Ordrenummer
+      *""""""""""""""""""""
+     C                   MOVEL     'VN'          R1153
+     C                   Z-ADD     Z_ORDNR       ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           R1154
+     C                   WRITE     RFFR
+     C                   EXSR      DTM01
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  RFF03 /
+      *////////////////////////////////////////////////////////////
+     C     RFF03         BEGSR
+      *____________________
+      * Organisasjonsnummer
+      *""""""""""""""""""""
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   Z-ADD     WREP0         RREP0
+     C                   Z-ADD     WREP1         RREP1
+     C                   MOVEL     'XA'          R1153
+     C                   MOVEL     'NO'          R1154
+     C     R1154         CAT       '941863':0    R1154
+     C     R1154         CAT       '116':0       R1154
+     C     R1154         CAT       'MVA':0       R1154
+     C                   WRITE     RFFR
+      *____________________
+      * Organisasjonsnummer
+      *""""""""""""""""""""
+     C                   Z-ADD     2             WREP1
+     C                   CLEAR                   RFFR
+     C                   Z-ADD     WMN           RMN
+     C                   Z-ADD     3             RGN
+     C                   Z-ADD     WREP0         RREP0
+     C                   Z-ADD     WREP1         RREP1
+     C                   MOVEL     'PQ'          R1153
+     C                   MOVEL     F_FKIDFS      R1154
+     C                   WRITE     RFFR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for init                                        SRINIT /
+      *////////////////////////////////////////////////////////////
+     C     SRINIT        BEGSR
+      * HENTE DAGENS DATO OG TID
+     C                   TIME                    WTIME
+     C                   Z-ADD     WÅÅ           WÅ
+     C                   Z-ADD     WDD           WD
+     C                   Z-ADD     WMM           WM
+      * INIT AV ARBEIDSFELT
+     C     *LIKE         DEFINE    DREP0         WREP0
+     C     *LIKE         DEFINE    DREP1         WREP1
+     C     *LIKE         DEFINE    DREP2         WREP2
+     C     *LIKE         DEFINE    ECSR          WCSR
+     C     *LIKE         DEFINE    EC0065        WC0065
+     C     *LIKE         DEFINE    KUNDNR        WUNDNR
+     C     *LIKE         DEFINE    KUNDNR        WUNDN2
+     C     *LIKE         DEFINE    Ø_AVG         WAVG
+     C     *LIKE         DEFINE    AVBEL1        WAVBEL
+     C     *LIKE         DEFINE    KUKUN1        W_KUKUN1
+     C     *LIKE         DEFINE    KUKUN2        W_KUKUN2
+     C     *LIKE         DEFINE    UMN           WMN
+EL   C*    *LIKE         DEFINE    Y_K00001      W_K00001
+     C     *LIKE         DEFINE    V_OTBKOD      W_OTBKOD
+     C     *LIKE         DEFINE    V_LNRKOM      W_LNRKOM
+     C                   MOVE      'S'           WCSR
+     C                   MOVEL     'INVOIC'      WC0065
+     C                   Z-ADD     0             ØX                2 0
+     C                   MOVE      *BLANKS       ØAN              12
+     C                   Z-ADD     7000          W_KUKUN1
+     C                   MOVE      'O'           W_OTBKOD
+     C                   Z-ADD     0             W_LNRKOM
+     C                   Z-ADD     0             W_ØN153          15 3
+      * DEF AV KEYS
+     C     ECMKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    WUNDNR
+     C                   KFLD                    WCSR
+     C                   KFLD                    WC0065
+     C     SSKEY         KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    FAKAAR
+     C                   KFLD                    FAKTNR
+     C     KUNKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    WUNDN2
+     C     KOVKEY        KLIST
+     C                   KFLD                    W_KUKUN1
+     C                   KFLD                    W_KUKUN2
+     C     VADKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    KUNDNR
+     C                   KFLD                    Y_VADRNR
+     C     HORKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    Z_ORDAAR
+     C                   KFLD                    Z_ORDMND
+     C                   KFLD                    Z_ORDDAG
+     C                   KFLD                    Z_ORDNR
+     C     BETKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    BETBET
+     C     AVGKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    WAVG
+     C     VARKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    Z_VARENR
+     C     KOMKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    Y_LEVBET
+     C     KONKEY        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    Y_LEVMAT
+     C     KOMMKEY       KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    W_OTBKOD
+     C                   KFLD                    Z_ORDAAR
+     C                   KFLD                    Z_ORDNR
+     C                   KFLD                    Z_LNRORD
+     C                   KFLD                    W_LNRKOM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                    SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Les faktura fra L1
+      *"""""""""""""""""""
+     C                   READ      EDISF                                  51
+     C     *IN51         DOWEQ     '0'
+     C     AKTKOD        IFEQ      'A'
+      *_________________________
+      * Hente riktig kundenummer
+      *"""""""""""""""""""""""""
+     C                   Z-ADD     KUNDNR        WUNDNR
+     C     FMOT          IFGT      0
+     C                   Z-ADD     FMOT          WUNDNR
+     C                   ENDIF
+EL   C     WUNDNR        IFEQ      2792
+     C     FTOTN         IFNE      0
+      *_______________________
+      * Hente ordreinformasjon
+      *"""""""""""""""""""""""
+     C     SSKEY         CHAIN     SSTAL02                            53
+     C     HORKEY        CHAIN     HORDL06                            52
+     C     SSKEY         CHAIN     FSUML02                            52
+      *________________________
+      * Hente partID og release
+      *""""""""""""""""""""""""
+     C     ECMKEY        CHAIN     ECMSG                              52
+      *________________________
+      * Retreive message number
+      *""""""""""""""""""""""""
+     C     1             CHAIN     EDIC                               52
+     C                   ADD       1             CMN
+     C                   UPDATE    EDICR
+     C                   Z-ADD     CMN           WMN
+     C                   MOVE      '1'           *IN41
+      *_________________
+      * EDIFACT Detaljer
+      *"""""""""""""""""
+     C                   EXSR      SRB
+      *____________________________
+      * Oppdater status på fakturan
+      *""""""""""""""""""""""""""""
+     C                   ENDIF
+     C                   MOVE      'D'           AKTKOD
+     C                   UPDATE    EDISR
+     C                   ENDIF
+     C                   ENDIF
+      *__________________
+      * Les neste faktura
+      *""""""""""""""""""
+     C                   READ      EDISF                                  51
+     C                   ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                    SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+      *_____________
+      * ADD SEGMENTS
+      *"""""""""""""
+     C                   EXSR      DTM00
+     C                   EXSR      RFF01
+     C                   EXSR      NAD02
+EL   C*                  EXSR      CUX07
+EL   C*                  EXSR      PAT08
+EL   C*                  EXSR      TDT09
+EL   C*                  EXSR      ALC15
+     C                   EXSR      LIN25
+EL   C*                  IF        XAVBEL <> 0
+EL   C*                  EXSR      ALC14F                                       FRAKTSONETILLEGG
+EL   C*                  END
+     C                   EXSR      UNS00
+     C                   EXSR      CNT00
+     C                   EXSR      MOA48
+     C                   EXSR      TAX50
+EL   C*                  EXSR      ALC51
+      *_____________
+      * WRITE TO UNH
+      *"""""""""""""
+     C                   EXSR      UNH00
+      *______________
+      * WRITE TO EDIM
+      *""""""""""""""
+     C                   EXSR      EDIM0
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Leftjustify num.fields                              SRNE /
+      *////////////////////////////////////////////////////////////
+     C     SRNE          BEGSR
+      * Remove neg sign.
+     C                   IF        ØN153 < 0
+     C                   Z-SUB     ØN153         ØN153
+     C                   ENDIF
+      * Move correct value into alpha 12-field
+     C                   MOVE      *ZEROS        ØA12
+     C     ØA153D        IFEQ      '000'
+     C                   MOVE      ØA153H        ØA12
+     C                   ELSE
+     C                   MOVEL     ØA153X        ØA12
+     C                   MOVE      ',   '        ØA12
+     C                   MOVE      ØA153D        ØA12
+     C                   END
+      * search from left and find first sign over 0
+     C     1             DO        11            ØX
+     C     Ø12(ØX)       IFNE      '0'
+     C                   GOTO      SRNE1
+     C                   END
+     C                   END
+     C     SRNE1         TAG
+      * Leftjustify to a new field
+     C     ØA153D        IFNE      '000'
+     C     ØA153X        IFEQ      '00000000'
+     C                   SUB       1             ØX
+     C                   ENDIF
+     C     Ø12(12)       IFEQ      '0'
+     C                   MOVE      ' '           Ø12(12)
+     C     Ø12(11)       IFEQ      '0'
+     C                   MOVE      ' '           Ø12(11)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+     C                   MOVE      *BLANKS       ØAN
+     C                   MOVEA     Ø12(ØX)       ØAN
+
+     C                   ENDSR
+EL    *////////////////////////////////////////////////////////////
+EL    * SR                                                TAX20EL /
+EL    *////////////////////////////////////////////////////////////
+EL   C     TAX20EL       BEGSR
+EL   C                   Z-ADD     1             WREP1
+EL   C                   Z-ADD     0             WREP2
+EL   C                   CLEAR                   TAXR
+EL   C                   Z-ADD     WMN           TMN
+EL   C                   Z-ADD     20            TGN
+EL   C                   Z-ADD     ALCREP0       TREP0
+EL   C                   Z-ADD     WREP1         TREP1
+EL   C                   MOVEL     '7'           T5283
+EL   C                   MOVEL     'E'           T5305
+EL   C                   WRITE     TAXR
+EL   C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  TAX33 /
+      *////////////////////////////////////////////////////////////
+     C     TAX33         BEGSR
+     C                   Z-ADD     1             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   TAXR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     33            TGN
+     C                   Z-ADD     WREP0         TREP0
+     C                   Z-ADD     WREP1         TREP1
+     C                   MOVEL     '7'           T5283
+     C                   MOVEL     'E'           T5305
+     C                   WRITE     TAXR
+     C                   IF        *IN51 AND *IN51=*OFF
+     C                   EXSR      MOA33
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  TAX50 /
+      *////////////////////////////////////////////////////////////
+     C     TAX50         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   TAXR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     50            TGN
+     C                   Z-ADD     WREP0         TREP0
+     C                   MOVEL     '7'           T5283
+     C                   MOVEL     'VAT'         T5153
+     C                   Z-ADD     MVAGFS        ØN153
+     C                   EXSR      SRNE
+     C                   MOVEL     ØAN           T5286
+     C                   WRITE     TAXR
+     C                   EXSR      MOA50
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  TDT09 /
+      *////////////////////////////////////////////////////////////
+     C     TDT09         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   TDTR
+     C                   Z-ADD     WMN           TMN
+     C                   Z-ADD     9             TGN
+     C                   Z-ADD     WREP0         TREP0
+     C                   MOVEL     '20'          T8051
+     C     KOMKEY        CHAIN     KODML01                            52
+     C     *IN52         IFEQ      *OFF
+     C                   MOVEL     Q_KODTXT      T8178
+     C                   ENDIF
+     C     KONKEY        CHAIN     KODML01                            52
+     C     *IN52         IFEQ      *OFF
+     C                   MOVEL     Q_KODTXT      T3128
+     C                   ENDIF
+     C                   WRITE     TDTR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * UNH00                                               UNH00 /
+      *////////////////////////////////////////////////////////////
+     C     UNH00         BEGSR
+     C                   CLEAR                   UNHR
+     C                   Z-ADD     WMN           UMN
+     C                   MOVEL     WMN           U0062A
+     C                   MOVEL     EC0065        U0065
+     C                   MOVEL     'D'           U0052
+     C                   MOVEL     '93A'         U0054
+     C                   MOVEL     'UN'          U0051
+     C                   MOVEL     'EAN007'      U0057
+     C                   Z-ADD     FAKTNR        ØN153
+     C                   EXSR      SRNE
+     C     FAKTYP        IFEQ      'F'
+     C                   MOVEL     '380'         U1001
+     C                   MOVEL     ØAN           U1004
+     C                   ELSE
+     C                   MOVEL     '381'         U1001
+     C                   MOVEL     ØAN           U1004
+     C                   ENDIF
+     C                   MOVEL     U0062A        U0062B
+     C                   WRITE     UNHR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR                                                  UNS00 /
+      *////////////////////////////////////////////////////////////
+     C     UNS00         BEGSR
+     C                   Z-ADD     1             WREP0
+     C                   Z-ADD     0             WREP1
+     C                   Z-ADD     0             WREP2
+     C                   CLEAR                   UNSR
+     C                   Z-ADD     WMN           UMN
+     C                   Z-ADD     50            UGN
+     C                   Z-ADD     WREP0         UREP0
+     C                   MOVEL     'S'           U0081
+     C                   WRITE     UNSR
+     C                   ENDSR

@@ -1,0 +1,276 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 CB  PTF10 Skriv i tilleg til TVINF
+11XXX * 02 CB  PTF11 Ændra status på varupost till 'M'
+11XXX * 03 CB  PTF11 søk på edifact linjenr
+********************************************************************
+     FEDIM      IF   E           K DISK
+     FEERC96B   IF   E           K DISK
+     FEERP96B   IF   E           K DISK
+     FSVTERR    IF   E           K DISK
+     FSVIH      UF   E           K DISK
+     FSVEH      UF   E           K DISK
+S04  F*VIV      UF   E           K DISK
+N04  FSVIV4     UF   E           K DISK
+S04  F*VEV      UF   E           K DISK
+N04  FSVEV4     UF   E           K DISK
+     FSVIHH     O  A E             DISK
+     FSVEHH     O  A E             DISK
+N01  FTVINF     O  A E             DISK
+     D A               S              1    DIM(79)
+     D B               S              1    DIM(18)
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  WMN2                   1      9  0
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * CONVERT
+      *""""""""
+     C  N51              EXSR      SRA
+
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     KEYMS0        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN0
+     C     KEYMS1        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN1
+     C                   KFLD                    ZREPB0
+
+     C     *LIKE         DEFINE    EMN           ZMN
+     C     *LIKE         DEFINE    EGN           ZGN0
+     C     *LIKE         DEFINE    EGN           ZGN1
+     C     *LIKE         DEFINE    EREP0         ZREPB0
+     C     *LIKE         DEFINE    SVER_KOD      WVER_KOD
+     C     *LIKE         DEFINE    SVIH_SYAV     WVIH_SYAV
+     C     *LIKE         DEFINE    SVIH_SYOP     WVIH_SYOP
+S04  C*    *LIKE         DEFINE    SVIV_SYLI     WVIH_SYLI
+N04  C     *LIKE         DEFINE    SVIV_VANO     WVIH_VANO
+      * INIT WORKFIELDS
+
+     C     *ENTRY        PLIST
+     C                   PARM                    WMN1              9
+     C                   MOVEL     WMN1          WMN2
+     C                   Z-ADD     WMN2          ZMN
+      * Definiere Nøkkler
+     C     SVIH_KEY      KLIST
+     C                   KFLD                    WVIH_SYAV
+     C                   KFLD                    WVIH_SYOP
+      * Get msg and interchange values
+     C     ZMN           CHAIN     EDIM                               51
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Vilken typ av svar ?                                  SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *_________________
+      * Finnes ærendet ?
+      *"""""""""""""""""
+     C                   MOVEL     M0062         WVIH_SYAV
+     C     7             SUBST     M0062:5       M0062B            7
+     C                   MOVE      M0062B        WVIH_SYOP
+     C     SVIH_KEY      CHAIN(N)  SVIH                               51
+     C                   IF        *IN51 = *OFF
+     C                   EXSR      SRAI
+     C                   ELSE
+     C     SVIH_KEY      CHAIN(N)  SVEH                               51
+     C                   IF        *IN51 = *OFF
+     C                   EXSR      SRAE
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Import                                               SRAI /
+      *////////////////////////////////////////////////////////////
+     C     SRAI          BEGSR
+      *_______________________
+      * Læs alla fel ERP + ERC
+      *"""""""""""""""""""""""
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     4             ZGN0
+     C     KEYMS0        SETLL     EERP96B
+     C     KEYMS0        READE     EERP96B                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   EXSR      ERCI
+      *
+     C     KEYMS0        READE     EERP96B                                51
+     C  N51              ENDDO
+      *__________________
+      * Uppdatera ærendet
+      *""""""""""""""""""
+     C     SVIH_KEY      CHAIN     SVIH                               61
+     C                   IF        *IN61 = *OFF
+     C                   EVAL      SVIH_SYST='M'
+     C                   UPDATE    SVIHR
+     C                   ENDIF
+      *__________________________________________
+      * Skriv ut ærendet (felmeddelande lista A4)
+      *""""""""""""""""""""""""""""""""""""""""""
+     C                   CALL      'SVI012R'
+     C                   PARM                    SVIH_SYAV
+     C                   PARM                    SVIH_SYOP
+     C                   PARM                    SVIHH_DTH
+     C                   PARM                    SVIHH_TMH
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Export                                               SRAE /
+      *////////////////////////////////////////////////////////////
+     C     SRAE          BEGSR
+      *_______________________
+      * Læs alla fel ERP + ERC
+      *"""""""""""""""""""""""
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     4             ZGN0
+     C     KEYMS0        SETLL     EERP96B
+     C     KEYMS0        READE     EERP96B                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   EXSR      ERCE
+      *
+     C     KEYMS0        READE     EERP96B                                51
+     C  N51              ENDDO
+      *__________________
+      * Uppdatera ærendet
+      *""""""""""""""""""
+     C     SVIH_KEY      CHAIN     SVEH                               61
+     C                   IF        *IN61 = *OFF
+     C                   EVAL      SVEH_SYST='M'
+     C                   UPDATE    SVEHR
+     C                   ENDIF
+      *__________________________________________
+      * Skriv ut ærendet (felmeddelande lista A4)
+      *""""""""""""""""""""""""""""""""""""""""""
+     C                   CALL      'SVE012R'
+     C                   PARM                    SVEH_SYAV
+     C                   PARM                    SVEH_SYOP
+     C                   PARM                    SVEHH_DTH
+     C                   PARM                    SVEHH_TMH
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Læs ERC - Felinformation Import                      ERCI /
+      *////////////////////////////////////////////////////////////
+     C     ERCI          BEGSR
+     C                   Z-ADD     EREP0         ZREPB0
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     4             ZGN1
+     C     KEYMS1        SETLL     EERC96B                                20
+     C     KEYMS1        READE     EERC96B                                52
+     C     *IN52         DOWEQ     '0'
+
+      * Skriv til historikfil
+     C                   CLEAR                   SVIHHR
+     C                   EVAL      SVIHH_SYA = SVIH_SYAV
+     C                   EVAL      SVIHH_SYO = SVIH_SYOP
+     C                   MOVEL     MDT           SVIHH_DTH
+     C                   MOVEL     MTM           SVIHH_TMH
+     C                   EVAL      SVIHH_SR  = 'R'
+     C                   EVAL      SVIHH_TXH  = 'CUSRES-KV FEL'
+     C                   CAT       E1049:1       SVIHH_TXH
+     C                   CAT       E1052:1       SVIHH_TXH
+     C     E1131         CAT       E9321:0       WVER_KOD
+     C     WVER_KOD      CHAIN     SVTERR                             53
+     C     E1131         CAT       E9321:0       SVIHH_TX1
+     C  N53              CAT       SVER_TXT:1    SVIHH_TX1
+     C                   WRITE     SVIHHR
+N01   * Skriv til TVINF
+N01  C                   CLEAR                   TVINFF
+N01  C                   EVAL      FMN = ZMN
+N01  C                   EVAL      FLN = 1
+N01  C                   EVAL      F0078A = SVIHH_TXH
+N01  C                   EVAL      F0078B = SVIHH_TX1
+N01  C                   WRITE     TVINFF
+N02   * Uppdatera varuposten med statuskod=M
+      /free
+
+         monitor;
+           wvih_vano = %dec(E1052:5:0);
+           on-error 105;
+         endmon;
+
+           if wvih_vano > 0;
+           chain (wvih_syav : wvih_syop: wvih_vano) sviv4;
+             if %found;
+               sviv_err='M';
+               update svivr %fields(sviv_err);
+             endif;
+           endif;
+
+      /end-free
+
+     C  N52KEYMS1        READE     EERC96B                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Læs ERC - Felinformation Export                      ERCE /
+      *////////////////////////////////////////////////////////////
+     C     ERCE          BEGSR
+     C                   Z-ADD     EREP0         ZREPB0
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     4             ZGN1
+     C     KEYMS1        SETLL     EERC96B                                20
+     C     KEYMS1        READE     EERC96B                                52
+     C     *IN52         DOWEQ     '0'
+
+      * Skriv til historikfil
+     C                   CLEAR                   SVEHHR
+     C                   EVAL      SVEHH_SYA = SVEH_SYAV
+     C                   EVAL      SVEHH_SYO = SVEH_SYOP
+     C                   MOVEL     MDT           SVEHH_DTH
+     C                   MOVEL     MTM           SVEHH_TMH
+     C                   EVAL      SVEHH_SR  = 'R'
+     C                   EVAL      SVEHH_TXH  = 'CUSRES-KV FEL'
+     C                   CAT       E1049:1       SVEHH_TXH
+     C                   CAT       E1052:1       SVEHH_TXH
+     C     E1131         CAT       E9321:0       WVER_KOD
+     C     WVER_KOD      CHAIN     SVTERR                             53
+     C     E1131         CAT       E9321:0       SVEHH_TX1
+     C  N53              CAT       SVER_TXT:1    SVEHH_TX1
+     C                   WRITE     SVEHHR
+N01   * Skriv til TVINF
+N01  C                   CLEAR                   TVINFF
+N01  C                   EVAL      FMN = ZMN
+N01  C                   EVAL      FLN = 1
+N01  C                   EVAL      F0078A = SVEHH_TXH
+N01  C                   EVAL      F0078B = SVEHH_TX1
+N01  C                   WRITE     TVINFF
+N02   * Uppdatera varuposten med statuskod=M
+      /free
+
+           monitor;
+              wvih_vano = %dec(E1052:5:0);
+           on-error 105;
+           endmon;
+
+           if wvih_vano > 0;
+           chain (wvih_syav : wvih_syop: wvih_vano) svev4;
+             if %found;
+               svev_err='M';
+               update svevr %fields(svev_err);
+             endif;
+           endif;
+
+      /end-free
+
+     C  N52KEYMS1        READE     EERC96B                                52
+     C  N52              ENDDO
+
+     C                   ENDSR

@@ -1,0 +1,237 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVG023R MODULE(*LIBL/TSVG023R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FSVTX04L1  IF   E           K DISK    USROPN
+     FBRIDF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+      * Varible for
+     D WSUSER          S             10
+     D WIE             S              1
+     D WSOK            S             10
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D Kap             S              4
+     d myrows          s             10i 0
+     d  X              S              5  0
+     d wtm             s              6
+     d W10             S             10
+     d  WERR           S              1
+     D                 DS
+     D  WDT                    1      8
+     D  WDTY                   1      4
+     D  WDTM                   5      6
+     D  WDTD                   7      8
+     D                 DS
+     D  WD                     1     10
+     D  WDY                    1      4
+     D  WD1                    5      5
+     D  WDM                    6      7
+     D  WD2                    8      8
+     D  WDD                    9     10
+     d MyPoDS          ds                  Qualified  dim(30000)
+     d  w01                          10
+     d  w31                         256
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬ie¬ : ¬'+%trim(WIE)+'¬, '
+        +'¬sok¬ : ¬'+%trim(WSOK)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"ttaxalfasok" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     c     Error         ifeq      *blanks
+      * Hæmta varukod vi alafa del - 1
+     C                   EXSR      SOK
+      * Hæmta varukod vi alafa del - 2
+     C                   EXSR      LESARR
+
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     SVTX04L1
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WIE = zhbgetvar('IE')
+     C                   EVAL      WSOK = zhbgetvar('SOK')
+     C
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C  N50              OPEN      SVTX04L1
+     C   50              eval      Error = 'Invalid userID'
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+         /free
+         syge15c ( wdt : wtm );
+         wd1='-';
+         wd2='-';
+         wdy=wdty;
+         wdm=wdtm;
+         wdd=wdtd;
+      /end-free
+
+     c                   endsr
+        /free
+        // __________________________________________________
+        // Kør SQL in i array                             SOK
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sok;
+
+          exec sql declare  A33  cursor for
+          select SVTX10_01, SVTX10_31
+          from SVTX10F
+          where svtx10_31 like '%' concat trim(:wsok) concat '%';
+        //AND SVTX10_02 >= WD
+        //AND SVTX10_03 <= WD;
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                   LESARR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr lesarr;
+
+               werr='X';
+
+       for x = 1 to myrows;
+
+        // Ær varukoden import eller export ?
+
+         if wie = 'I';
+           w10 = mypods(x).w01;
+         endif;
+         if wie = 'E';
+           w10 = %subst(mypods(x).w01:1:8);
+         endif;
+           chain (wie : w10) svtx04l1;
+
+             if %found;
+
+           kap = %subst(mypods(x).w01:1:4);
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬svvs_vata¬ : ¬'+%trim(svtx04_02)+'¬, '
+          +'¬svvs_vatak¬ : ¬'+%trim(Kap)+'¬, '
+          +'¬svvs_txtk¬ : ¬'+%trim(mypods(x).w31)+'¬}';
+      /end-free
+         /free
+         jsonfix (JSONstring);
+      /end-free
+         updhtmlvar ('JSONstring':jsonstring);
+         wrtsection ('JSONlin');
+
+             endif;
+        endfor;
+
+       endsr;
+      /end-free

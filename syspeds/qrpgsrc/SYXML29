@@ -1,0 +1,136 @@
+
+     h option( *srcstmt ) dftactgrp( *no ) bnddir( 'QC2LE' )
+     ‚*-- Global variables: --------------------------------------------**
+     d file_i          s               *
+     d file_o          s               *
+     d errtxt          s            128a
+     d string          s          32000a
+     d xn              s              1  0
+     d rc              s             10i 0
+     d pos             s              5s 0
+     d pos2            s              5s 0
+     d cmdline         s            512
+     d cmdlen          s             15  5
+     d filnam_i        s            256                                         Original fil
+     d filnam_o        s            256                                         Arbeids fil
+     d filnam          s            256                                         Filnavn uten mappe
+     ‚*-- Global constants: --------------------------------------------**
+     ‚*-- Error identIFication: ----------------------------------------**
+     d errno           pr            10i 0
+
+     d strerror        pr           128a   varying
+     ‚*-- IFS stream file functions: -----------------------------------**
+     dopen             pr              *   extproc( '_C_IFS_fopen' )
+     d                                 *   value options( *string )
+     d                                 *   value options( *string )
+
+     dfgets            pr              *   extproc( '_C_IFS_fgets' )
+     d                                 *   value
+     d                               10i 0 value
+     d                                 *   value
+
+     dfputs            pr            10i 0 extproc( '_C_IFS_fputs' )
+     d                                 *   value options( *string )
+     d                                 *   value
+
+     dclose            pr            10i 0 extproc( '_C_IFS_fclose' )
+     d                                 *   value
+     ‚*  Prototype for syxml29
+     d syxml29         pr
+     d ufilnam                             like(ufilnam)
+     ‚*  *ENTRY Interface for Main Procedure
+     d syxml29         pi
+     d ufilnam                      256
+     ‚*  Prototype for 'QCMDEXC'
+     d qcmdexc_001     pr                  extpgm('QCMDEXC')
+     d cmdline_                            like(cmdline)
+     d cmdlen_                             like(cmdlen)
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      /free
+       // Original filnavn = inngående filnavn
+       filnam_i = ufilnam;
+       // Arbeidsfils navn = inngående filnavn + 'x'
+       filnam_o = %trim(ufilnam) + 'x';
+
+       // Åpne original fil
+       file_o = open( %trimr( filnam_o ) : 'w, codepage=1252' );
+       rc = close( file_o );
+       file_o = open( %trimr( filnam_o ) : 'w' );
+
+       // Åpne arbeidsfil
+       file_i = open( %trimr( filnam_i ) : 'r' );
+       if file_i = *null;
+         errtxt = %char( errno ) + ': ' + strerror;
+       else;
+         xn = 1;
+       // Les original fil
+         dow fgets( %addr( string ) : %size( string )
+           : file_i ) <> *null;
+           if xn = 1;
+             xn = 2;
+       // Bytt encoding
+       //    string = %ScanRpl( 'Windows-1252': 'iso-8859-1': string );
+             string = %ScanRpl( 'UNB': 'x': string );
+           endif;
+       // Skriv til arbeidsfil
+           rc = fputs( %str( %addr( string )) : file_o );
+         enddo;
+         rc = close( file_i );
+       endif;
+       rc = close( file_o );
+
+       // Finn siste / for å finne filnavn uten mappe
+       pos = %scan('/' : filnam_i);
+       dow pos > 0;
+         pos2 = pos;
+         pos = %scan('/' : filnam_i : pos2+1);
+       enddo;
+
+       // Filnavn uten mappe lagres i filnam
+       filnam = %trim(%subst(filnam_i:pos2+1:%len(%trim(filnam_i))-pos2));
+
+       // slett orignal
+       CmdLine = 'RMVLNK OBJLNK(' + X'7D' + %trim(filnam_i) + X'7D' + ')';
+       CmdLen = %len(%trim(CmdLine));
+       qcmdexc_001 ( cmdline : cmdlen );
+
+       // rename arbeidsfil til orignal fil
+       CmdLine = 'RNM OBJ(' + X'7D' + %trim(filnam_o) + X'7D' + ') NEWOBJ('
+                 + X'7D' + %trim(filnam) + X'7D' + ')';
+       CmdLen = %len(%trim(CmdLine));
+       qcmdexc_001 ( cmdline : cmdlen );
+
+       *inlr = *on;
+       return;
+
+       //-- Get runtime error number: ------------------------------------**
+      /end-free
+     p errno           b
+     d                 pi            10i 0
+     d sys_errno       pr              *    extproc( '__errno' )
+
+     d error           s             10i 0  based( perror ) noopt
+
+      /free
+       perror = sys_errno;
+       return error;
+
+      /end-free
+     p errno           e
+     ‚*-- Get runtime error text: --------------------------------------**
+     p strerror        b
+     d                 pi           128a   varying
+     d sys_strerror    pr              *   extproc( 'strerror' )
+     d                               10i 0 value
+
+      /free
+       return %str( sys_strerror( errno ));
+
+      /end-free
+     p strerror        e

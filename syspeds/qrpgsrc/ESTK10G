@@ -1,0 +1,361 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK10G MODULE(*LIBL/ESTK10G *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10
+      * 02 JOV PTF10 - liste over tr-planleggingsavdelinger
+      * 03 JOV PTF10 - versj.nr
+      * 04 JOV PTF10 - internal og viewOneTruck  med verdier true/false
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTKAREA    IF   E           K DISK    USROPN
+     FUNITl01   IF   E           K DISK    USROPN
+     FDRIV      IF   E           K DISK    USROPN
+N02  FBRPARF    IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+     D SJ              S             50    DIM(1000)
+     D UT              S              4    DIM(100)
+      * Client input variables
+     D user            s             10
+     D CallBack        s           1000
+     D Data            s           1000
+     D LINTXT          s            256
+N03  D VERSJ           s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D                 DS
+     D  UNRETU                 1     30
+     D  UNPDA                  1      4
+     D  UNSJNR                 5     12
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      CallBack = zhbgetvar('CallBack')
+N03   * versjonsnr av klientprogramvare
+N03  C                   eval      VERSJ = zhbgetvar('V')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     TKAREA
+     C                   CLOSE     UNITL01
+     C                   CLOSE     DRIV
+N02  C                   CLOSE     BRPARF
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESTK11G':'/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+      * cross domain oppkall ??
+     c                   eval      Data=%trim(CallBack)+'('
+     C                   callp     updHTMLvar('LINTXT':Data)
+     C                   callp     wrtsection('lin')
+      *  1 = OMRÅDER  - start JSON-obj
+     C                   eval      Lintxt='{"parameters": {"areaCode":  ['
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   move      *Blanks       OMKODE
+     C                   move      *zeros        AntCount          5 0
+     C     OMKODE        setgt     TKAREA
+     C                   READ      TKAREA                                 35
+     C     *IN35         DOWEQ     *OFF
+     C                   add       1             AntCount
+     C                   eval      LinTxt = *blanks
+     c     AntCount      ifgt      1
+     C                   eval      LinTxt = ','
+     c                   endif
+     C                   eval      LinTxt = %trim(LinTxt)
+     C                             +'{"value":"'+%trim(OMKode)+'",'
+     C                             +' "text":"'+%trim(OMBesk)+'"}'
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C     OMKODE        setgt     TKAREA
+     C                   READ      TKAREA                                 35
+     C                   END
+      * avsl. JSON-obj areaCode-del  (komma ... ], = her kommer flere lister ...)
+     C                   callp     updHTMLvar('LINTXT':'],')
+     C                   callp     wrtsection('lin')
+      **
+      *  2 = BILNUMMER (Start JSON-object)
+     C                   eval      Lintxt='"carNr":  ['
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   move      *zeros        AntCount
+     C     *LOVAL        setLL     UNITL01
+     C                   READ      UNITL01                                35
+     C     *IN35         DOWEQ     *OFF
+     C     UNPDA         IFEQ      'PDA:'
+     C                   TESTN                   UNSJNR               33
+     C     *IN33         IFEQ      *ON
+     C                   MOVE      *BLANKS       DRNAVN
+     C                   MOVE      UNSJNR        DRANSA
+     C     DRANSA        CHAIN     DRIV                               33
+      * PDA/SJÅF VIA ARRAY (skrives sortert lenger nede...)
+     C                   ADD       1             Snr               5 0
+     C                   eval      SJ(Snr) = 'PD'+UNSJNR+' '+ DRNAVN
+     C                   add       1             AntCount
+     C                   eval      LinTxt = *blanks
+     c     AntCount      ifgt      1
+     C                   eval      LinTxt = ','
+     c                   endif
+     C                   eval      LinTxt = %trim(LinTxt)
+     C                             +'{"value":"'+%trim(SJ(Snr))+'",'
+     C                             +' "text":"'+%trim(UNBILN)+' '
+     C                             +%trim(SJ(Snr))+'"}'
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+      * BILTYPE - KUN EN POST PR...    (skrives sortert lenger nede...)
+     C     UNUNTY        IFNE      *BLANKS
+     C     UNUNTY        LOOKUP    UT                                     41
+     C  N41              ADD       1             Unr               5 0
+     C  N41              MOVE      UNUNTY        UT(Unr)
+     C                   END
+     C                   END
+     C                   END
+     C                   READ      UNITL01                                35
+     C                   END
+      * Avslutt JSON-obj carNr-del
+     C                   callp     updHTMLvar('LINTXT':'],')
+     C                   callp     wrtsection('lin')
+      *
+      * 3 - SJÅFØRER  (sorter= alle blanke kommer først...)
+      *     start JSON-obj
+     C                   eval      Lintxt='"driverNr":  ['
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   move      *zeros        AntCount
+     C                   SORTA     SJ
+     C                   EVAL      Snr  = 1001 - Snr
+     C     Snr           DOWLE     1000
+     C                   callp     updHTMLvar('LINTXT':SJ(Snr))
+     C                   add       1             AntCount
+     C                   eval      LinTxt = *blanks
+     c     AntCount      ifgt      1
+     C                   eval      LinTxt = ','
+     c                   endif
+     c                   movel     SJ(Snr)       XXSJAF           10
+     c                   move      XXSJAF        DRANSA
+     c                   move      SJ(Snr)       XXSJBesk         39
+     C                   eval      LinTxt = %trim(LinTxt)
+     C                             +'{"value":"'+%trim(XXSJAF)+'",'
+     C                             +' "text":"'+%trim(%editc(DRANSA:'Z'))+' '
+     C                             +%trim(XXSJBesk)+'"}'
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   ADD       1             Snr               5 0
+     C                   END
+      * Avslutt JSON-obj driverNr-del
+     C                   callp     updHTMLvar('LINTXT':'],')
+     C                   callp     wrtsection('lin')
+      *
+      * 4 - UNITTYPE  (sorter= alle blanke kommer først...)
+     C                   eval      Lintxt='"carType":  ['
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   move      *zeros        AntCount
+     C                   SORTA     UT
+     C                   EVAL      Unr  = 101 - Unr
+     C     Unr           DOWLE     100
+     C                   add       1             AntCount
+     C                   eval      LinTxt = *blanks
+     c     AntCount      ifgt      1
+     C                   eval      LinTxt = ','
+     c                   endif
+     C                   eval      LinTxt = %trim(LinTxt)
+     C                             +'{"value":"'+%trim(UT(Unr))+'",'
+     C                             +' "text":"'+%trim(UT(Unr))+'"}'
+     C                   callp     updHTMLvar('LINTXT':LINTXT)
+     C                   callp     wrtsection('lin')
+     C                   ADD       1             Unr               5 0
+     C                   END
+      * Avslutt JSON-obj carType-del
+s02  C*                  callp     updHTMLvar('LINTXT':']}}')
+N02  C                   callp     updHTMLvar('LINTXT':'],')
+     C                   callp     wrtsection('lin')
+      *
+N02
+N02   *  5 = AVDELINGER- start JSON-obj
+N02  C                   eval      Lintxt='"departmentNr":  ['
+N02  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+N02  C                   MOVE      'LTAVD'       PAID
+N02  C                   move      *zeros        AntCount          5 0
+N02  C     BrParKey      setll     BRPARF
+N02  C     BrParKey      READE     BRPARF                                 35
+N02  C     *IN35         DOWEQ     *OFF
+N02  C                   add       1             AntCount
+N02  C                   eval      LinTxt = *blanks
+N02  c     AntCount      ifgt      1
+N02  C                   eval      LinTxt = ','
+N02  c                   endif
+N02  c                   z-add     PAVRDN        AvdN              4 0
+N02  c                   move      AvdN          AvdA              4
+N02  C                   eval      LinTxt = %trim(LinTxt)
+N02  C                             +'{"value":"'+%trim(AVDA)+'",'
+N02  C                             +' "text":"'+%trim(PAVRDA)+'"}'
+N02  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+N02  C     BrParKey      READE     BRPARF                                 35
+N02  C                   END
+N02  c     AntCount      ifgt      1
+N02  C                   eval      LinTxt = ','
+N02  C                             +'{"value":"0000",'
+N02  C                             +' "text":"Alle dine avdelinger"}'
+N02  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+     c                   endif
+N02   * Avslutt JSON-obj department-del
+N02  C                   callp     updHTMLvar('LINTXT':'],')
+N02  C                   callp     wrtsection('lin')
+N04   *
+N04   *  6 viweOneCar / internal - styrer menyvisning
+N04  C                   eval      Lintxt='"viewOneTruck":'
+N04  C                             +%trim(View1TF)+','
+N04  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N04  C                   callp     wrtsection('lin')
+N04   *
+N04  C                   eval      Lintxt='"internal":'
+N04  C                             +%trim(interTF)+','
+N04  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N04  C                   callp     wrtsection('lin')
+N04   *
+N02   *  7 = quick-LINKS       start JSON-obj
+N02  C                   eval      Lintxt='"quicklinks":  ['
+N02  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+N02  C                   MOVE      'TKLIN'       PAID
+N02  C                   move      *zeros        AntCount          5 0
+N02  C     BrParKey      setll     BRPARF
+N02  C     BrParKey      READE     BRPARF                                 35
+N02  C     *IN35         DOWEQ     *OFF
+N02  C                   add       1             AntCount
+N02  C                   eval      LinTxt = *blanks
+N02  c     AntCount      ifgt      1
+N02  C                   eval      LinTxt = ','
+N02  c                   endif
+N02  c                   z-add     PAVRDN        AvdN              4 0
+N02  c                   move      AvdN          AvdA              4
+N02  C                   eval      LinTxt = %trim(LinTxt)
+N02  C                             +'{"value":"'+%trim(AVDA)+'",'
+N02  C                             +' "text":"'+%trim(PAVRDA)+'"}'
+N02  C                   callp     updHTMLvar('LINTXT':LINTXT)
+N02  C                   callp     wrtsection('lin')
+N02  C     BrParKey      READE     BRPARF                                 35
+N02  C                   END
+N02   * avsl. JSON-obj links -del - samt totalt (... ]} = avlutning av lister/parameters)
+N02  C                   callp     updHTMLvar('LINTXT':']}}')
+N02  C                   callp     wrtsection('lin')
+      *
+      * cross domain call ( svaret er pakket inn i funksjon, sett sluttparantes )
+     C                   callp     updHTMLvar('LINTXT':')')
+     C                   callp     wrtsection('lin')
+     C
+     C                   endsr
+     C
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * Ugyldig userID
+NUSR c     *in50         ifeq      '1'
+NUSR C                   callp     gethtml('HTMLSRC':'*LIBL':'ERRUSR':
+NUSR c                             '/CGITAG/')
+NUSR C                   callp     updhtmlvar('User':USER)
+NUSR C                   callp     wrtsection('all')
+NUSR C                   callp     wrtsection('*fini')
+NUSR C                   close     BRIDF
+NUSR C                   eval      *inlr = *on
+NUSR C                   return
+NUSR c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      TKAREA
+     C                   OPEN      UNITL01
+     C                   OPEN      DRIV
+N02  C                   OPEN      BRPARF
+N02   *
+N02  C     BrParKey      klist
+N02  C                   kfld                    PABRID
+N02  C                   kfld                    PAKUNR
+N02  C                   kfld                    PAID
+N02  C                   MOVE      BIBRID        PABRID
+N02  C                   MOVE      *zeros        PAKUNR
+      *
+N04   *  Intern?
+N04  C                   movel     'false'       InterTF           5
+N04  C                   MOVE      'INTER'       PAID
+N04  C     BrParKey      chain     BRPARF                             33
+N04  C  N33              if        %subst(PAVRDA:1:1)='J'
+N04  C                   movel     'true '       InterTF
+N04  C                   endif
+N04   *  View one car - bevegelse over tid..
+N04  C                   movel     'false'       View1TF           5
+N04  C                   MOVE      'TKF1B'       PAID
+N04  C     BrParKey      chain     BRPARF                             33
+N04  C  N33              if        %subst(PAVRDA:1:1)='J'
+N04  C                   movel     'true '       View1TF
+N04  C                   endif
+     C     UtInit        endsr

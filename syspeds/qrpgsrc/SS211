@@ -1,0 +1,427 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SS211 MODULE(*LIBL/SS211
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FGSSTWL01  IF   E           K DISK    USROPN
+     F                                     RENAME(GSSTWFR:GSSTWFR1)
+     FGSSTWL02  UF   E           K DISK    USROPN
+     FGSSTRF    IF   E           K DISK    USROPN
+     FGSSORL21  IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      *
+      * Client input variables
+     D user            s             10
+     D UsrSpcName      s             10
+     D Frames          s              1
+     D WSTNO           s             11
+     D WBTNO           s             11  0
+     D EMNE            S             44
+     D SENDER          S             17
+     D CMD             S           5000
+     D MELD            S           5000
+     D XEPMOTT         S             50    DIM(5)
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      * For xlate mellom Upper Case og Lower Case
+     D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LC              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      *
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+      * dato/tid siste vellykkede operasjon.
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      *
+     C                   IF        WBTNO <> 0
+     C                   EXSR      CONFIRM
+     C                   END
+      *
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+      * Frames = Y = init / første runde
+     C     FRAMES        IFeq      'Y'
+     C                   callp     wrtsection('all')
+     c                   goto      slutt
+     C                   END
+      *
+     C                   callp     wrtsection('stdtop')
+     C                   callp     wrtsection('top')
+      * HOVEDRUTINE
+      * Vis ordre på trip.
+     C     TWLC          SETLL     GSSTWL01
+     C     TWLC          READE     GSSTWL01                               35
+     C                   DOW       *IN35 = *OFF
+     C                   EXSR      SRFILTER
+     C                   IF        XVIS = 'J'
+     C                   EXSR      SETROW
+     C                   callp     wrtsection('row')
+     C                   END
+     C     TWLC          READE     GSSTWL01                               35
+     C                   ENDDO
+      *
+     C                   callp     wrtsection('bot')
+      *
+      * Quit
+     c     Slutt         tag
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      user     = zhbgetvar('user')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSTNO    = zhbgetvar('WSTNO')
+     C                   EVAL      WBTNO    = c2n2(WSTNO)
+     C                   eval      FRAMES   = zhbgetvar('FRAMES')
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     BRPARF
+     C                   CLOSE     GSSTWL01
+     C                   CLOSE     GSSTWL02
+     C                   CLOSE     GSSTRF
+     C                   CLOSE     GSSORL21
+     C                   CLOSE     HEADF
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   IF        FRAMES = 'Y'
+     C                   eval      IfsMultIndicators = gethtmlifsmult(
+     C                             '/syspeddev/html/Header/eSpedTop.html -
+     C                             /syspeddev/html/SS210F.html -
+     C                             /syspeddev/html/Footer/eSpedBot.html':
+     C                             '/CGITAG/')
+     C                   ELSE
+     C                   eval      IfsMultIndicators = gethtmlifsmult(
+     C                             '/syspeddev/html/Header/eSpedTop.html -
+     C                             /syspeddev/html/SS211.html -
+     C                             /syspeddev/html/Footer/eSpedBot.html':
+     C                             '/CGITAG/')
+     C                   END
+     C                   endsr
+      *=====================================================================
+      *  TEST OM TUR SKAL VISES
+      *=====================================================================
+     C     SRFILTER      begsr
+      *
+     C                   MOVE      'N'           XVIS              1
+     C                   MOVE      'J'           XVIS
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('FRAMES':FRAMES)
+      *
+     C                   endsr
+      *
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+      *
+     C     TWTNO         CHAIN     GSSTRF                             33
+     C                   callp     updHTMLvar('TRTNO':
+     C                             %trim(%editc(TRTNO:'Z')))
+     C                   MOVE      TRTNO         TRTNO2           11
+     C                   callp     updHTMLvar('TRTNO2':TRTNO2)
+     C                   callp     updHTMLvar('TRAD1':TRAD1)
+     C                   callp     updHTMLvar('TRBCD':TRBCD)
+     C                   callp     updHTMLvar('TRDTL':
+     C                             %trim(%editW(TRDTL:'    .  .  ')))
+     C                   callp     updHTMLvar('TRDTS':
+     C                             %trim(%editW(TRDTS:'    .  .  ')))
+     C                   callp     updHTMLvar('TRLOCT':TRLOCT)
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  CONFIRM TRIP
+      *=====================================================================******
+     C     CONFIRM       begsr
+     C     WBTNO         CHAIN     GSSTRF                             33
+     C  N33              IF        TRST = '3'                                   1<-B
+     C     TRTNO         CHAIN     GSSORL21                           33
+      *
+      * KUN CONFIRM TRIP MED MINST ET ORDRE
+     C                   IF        *IN33 = *OFF                                  2<-B
+      * ALLE ORDRE PÅ TRIP MÅ VÆRE SAMME BÅTKODE OG LIK MED TRIP SIN
+     C                   DOW       *IN33 = *OFF                                   3<-B
+     C                   IF        ORBCD <> TRBCD                                  4<-B
+     C                   GOTO      SLCONF
+     C                   END                                                       4<-E
+     C                   IF        ORCLNF = 0                                      4<-B
+     C                   GOTO      SLCONF
+     C                   END                                                       4<-E
+     C     TRTNO         READE     GSSORL21                               33
+     C                   ENDDO                                                    3<-E
+      *
+      * CONFIRM PLUKKLISTE
+     C                   IF        ORLC <> 'ONWAY'                                3<-B
+     C                   EXSR      CONFIRMPL
+     C                   END                                                      3<-E
+      *
+      * CONFIRM PROFORMA INVOICE
+     C                   EXSR      CONFIRMIN
+      *
+      * SEND E-MAIL TO USER
+     C                   IF        XEPMOTT(1) <> *BLANKS                          3<-B
+     C                   EXSR      SNDEMAIL
+     C                   END                                                      3<-E
+      *
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     SLCONF        ENDSR
+      *
+      *=====================================================================******
+      *  CONFIRM PLUKKLISTE
+      *=====================================================================******
+     C     CONFIRMPL     begsr
+     C                   MOVE      WBTNO         WSTNO
+     C                   MOVE      'CFM'         UTYPE             3
+     C                   CALL      'GSS022R'
+     C                   PARM                    WSTNO
+     C                   PARM                    UTYPE
+     C                   PARM                    UCPY              1
+     C                   PARM                    WSPRT            10
+     C                   PARM                    WSFAX             1
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  CONFIRM PROFORMA INVOICE
+      *=====================================================================******
+     C     CONFIRMIN     begsr
+     C                   MOVE      WBTNO         WSTNO
+     C                   MOVE      'CFW'         UTYPE             3
+     C                   MOVE      'N'           WSCOMM            1
+     C                   CALL      'GSS031R'
+     C                   PARM                    WSTNO
+     C                   PARM                    UTYPE
+     C                   PARM                    WSPRT            10
+     C                   PARM                    WSCUR             3
+     C                   PARM                    UCPY              1
+     C                   PARM                    WSFAX             1
+     C                   PARM                    WSCOMM
+     C                   PARM                    UKNC              8
+     C                   PARM                    UQJOB            10
+     C                   PARM                    UQUSER           10
+     C                   PARM                    UQNBR             6
+     C                   PARM                    WSPOS1            5
+     C                   PARM                    WSPOS2            5
+     C                   PARM                    WSPOS3            5
+     C     WBTNO         CHAIN     GSSTWL02                           33
+     C  N33              MOVE      '4'           TWST
+     C  N33              UPDATE    GSSTWFR
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      * Send MEDLING TIL BRUKER
+      *=====================================================================******
+     C     SNDEMAIL      begsr
+      *
+     C                   Z-ADD     1024          CMDL             15 5
+     C                   EVAL      SENDER = '*CURRENT'
+     C                   MOVE      TRTNO         XTRTNO           11
+     C                   MOVE      TRTNO         HEOPD
+     C                   MOVEL     TRTNO         HEAVD
+     C     HEADFK        CHAIN     HEADF                              33
+      *
+     C     1             DO        5             XN                3 0
+     C                   IF        XEPMOTT(XN) <> *BLANKS
+      * Emne
+     C                   Eval      EMNE = 'Confirm trip '
+     C                                    + %trim(XTRTNO)
+     C                                    + ' is finished '
+      *
+     C                   EVAL      MELD = 'This trip is confirmed by '
+     C                             + %trim(BIBRID) + '/' + %trim(BIBESK)
+     C                             + ':/NAWB No. ' + %trim(HEGN)
+     C                             + ':/PColli: ' + %trim(%editc(HENT:'Z'))
+     C                             + ':/NWeight: ' + %trim(%editc(HEVKT:'Z'))
+     C                             + ':/NM3: ' + %trim(%editc(HEM3:'4'))
+     C                             + ':/P:/PThis message is created '
+     C                             + 'automaticly by the booking system.'
+     C                             + ':/NPlease do not reply!'
+      *
+      * param for tointnet og longmsg må være i apostrofer ( hex 7D )
+      * (strenger i single-parametere som inneholder blank el. spesialtegn)
+     C                   eval      cmd = 'SNDDST TYPE(*LMSG) TOINTNET('
+     C                             +'('+ X'7D' +%trim(XEPMOTT(XN))+ X'7D' +')) +
+     C                             DSTD('+ X'7D' + %trim(EMNE) + X'7D' + ') +
+     C                             LONGMSG('+ X'7D' + %trim(MELD) + X'7D' +') +
+     C                             USRID('+  %trim(SENDER) +') SNDFMT(*NOCHG)'
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    CMD
+     C                   PARM                    CMDL
+      *
+     C                   END
+     C                   ENDDO
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      * HENTER PARAMETER
+     C                   CALL      'ESGETOS'
+     C                   parm                    BIBRID
+     C                   parm                    BIFIRM
+     C                   parm                    BIKUNR
+     C                   parm                    BIKNG
+     C                   parm                    ParmOS1        1024
+      *
+     C                   OPEN      BRPARF
+     C                   OPEN      GSSTWL01
+     C                   OPEN      GSSTWL02
+     C                   OPEN      GSSTRF
+     C                   OPEN      GSSORL21
+     C                   OPEN      HEADF
+      *
+     C     HEADFK        klist
+     C                   kfld                    HEAVD
+     C                   kfld                    HEOPD
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     BrParKeyK     klist
+     C                   kfld                    XFIRMADFT        10
+     C                   kfld                    BIKUNR
+     C                   kfld                    PAID
+     C     BrParKeyF     klist
+     C                   kfld                    XFIRMADFT        10
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * Brukeren kan kun jobbe for følgende Attestasjonskode.
+     C                   MOVE      'SSLOC'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        TWLC
+      *
+     C                   MOVE      'EPOST'       PAID
+     C                   Z-ADD     0             XN
+     C     BrParKey      chain     BRPARF                             33
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN
+     C                   MOVEL     PAVRDA        XEPMOTT(XN)
+     C     XN            COMP      5                                      33
+     C  N33BrParKey      READE     BRPARF                                 33
+     C                   ENDDO
+      *
+     C                   MOVE      'SSFIN'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C   33              Eval      XFIRMADFT = '*KUNDFT*'+BIFIRM
+     C   33BrParKeyK     chain     BRPARF                             33
+     C   33BrParKeyF     chain     BRPARF                             33
+     C  N33              IF        ((PAVRDA = 'J') OR (PAVRDA = 'j'))
+     C                   MOVE      'J'           XFINISH           1
+     C                   END
+      *
+     C                   BITON     '123457'      GRAAPP            1
+     C                   BITOFF    '06'          GRAAPP
+      *
+     C                   endsr
+      *

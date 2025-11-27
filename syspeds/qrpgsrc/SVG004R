@@ -1,0 +1,131 @@
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_i          s               *
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s          10000a   Varying
+     D Codepage        s              5a   Varying
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     Dfgets            Pr              *   ExtProc( '_C_IFS_fgets' )
+     D                                 *   Value
+     D                               10i 0 Value
+     D                                 *   Value
+
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *____________________
+      * DS for input string
+      *""""""""""""""""""""
+     D                 DS
+     D  A                      1    256
+     D                                     DIM(256)                             Input string
+     D  ADS                    1    256
+      *_____________________
+      * DS for output string
+      *"""""""""""""""""""""
+     D                 DS
+     D  B                      1    128
+     D                                     DIM(128)                             Output string
+     D  BDS                    1    128
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   EXSR      SRC
+     C                   EXSR      SRD
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+      *_____________
+      * Init av felt
+      *"""""""""""""
+     C                   MOVE      X'7D'         WAPO              1
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    UFILI           128
+     C                   PARM                    UFILO           128
+     C*                  PARM                    UCHKSUM         128
+     C                   PARM                    UCHKSUM          64
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Lag checksumfil                                      SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+
+     C                   MOVE      *BLANKS       WCMD1            40
+     C                   EVAL      WCMD1 = 'QSH CMD(' + WAPO + 'openssl d'
+     C                             + 'gst -sha256 -c -out'
+
+     C                   MOVE      *BLANKS       WCMD2             2
+     C                   EVAL      WCMD2 = WAPO + ')'
+
+     C                   MOVE      *BLANKS       WCMD3           300
+     C                   EVAL      WCMD3 = WCMD1
+     C                             + ' '
+     C                             + %trimr(UFILO)
+     C                             + ' '
+     C                             + %trimr(UFILI)
+     C                             + %trimr(WCMD2)
+
+     C                   CALLP     RUNCMD(WCMD3:300)
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Les checksumfil                                      SRC /
+      *////////////////////////////////////////////////////////////
+     C     SRC           BEGSR
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_i = open( %TrimR( UFILO ) : 'r' )
+
+
+     C                   DOW       fgets( %Addr( String ) : %Size( String )
+     C                             : FILE_i ) <> *Null
+     C                   ENDDO
+
+     C                   EVAL      rc = close( FILE_i )
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Extraher checksum fra fil                            SRD /
+      *////////////////////////////////////////////////////////////
+     C     SRD           BEGSR
+     C                   Z-ADD     1             Y                 3 0
+     C                   EVAL      ADS=String
+     C     '='           SCAN      ADS           X                 3 0    52
+     C     X             ADD       97            Z                 3 0
+     C                   ADD       2             X
+     C     X             DO        Z             X                 3 0
+     C                   MOVE      A(X)          WCHAR             1
+     C                   IF        WCHAR <> ':'
+     C                   MOVE      WCHAR         B(Y)                                         I
+     C                   ADD       1             Y
+     C                   ENDIF
+     C                   ENDDO
+     C                   EVAL      UCHKSUM=BDS
+     C
+     C                   ENDSR

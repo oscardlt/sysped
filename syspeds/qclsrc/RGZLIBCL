@@ -1,0 +1,108 @@
+/*                                        */
+/* FJERNER SLETTEDE POSTER I ET BIBLIOTEK */
+/*                                        */
+                     PGM        PARM(&LIB &INDAT &INTIM)
+                     DCLF       FILE(QAFDMBR)
+                     DCL        VAR(&LIB) TYPE(*CHAR) LEN(10)
+                     DCL        VAR(&INTIM) TYPE(*CHAR) LEN(6)
+                     DCL        VAR(&TIME) TYPE(*CHAR) LEN(6)
+                     DCL        VAR(&DATE) TYPE(*CHAR) LEN(6) VALUE('000000')
+                     DCL        VAR(&INDAT) TYPE(*CHAR) LEN(6)
+                     DCL        VAR(&ENDTIM) TYPE(*CHAR) LEN(6) VALUE('000000')
+                     DCL        VAR(&ENDDAT) TYPE(*CHAR) LEN(6) +
+                                  VALUE('000000')
+                     DCL        VAR(&MSG) TYPE(*CHAR) LEN(80)
+                     DCL        VAR(&QYEAR) TYPE(*CHAR) LEN(2)
+                     DCL        VAR(&QMONTH) TYPE(*CHAR) LEN(2)
+                     DCL        VAR(&QDAY) TYPE(*CHAR) LEN(2)
+
+        /* MAKE SURE LIBRARY EXISTS */
+
+                     CHKOBJ     OBJ(QSYS/&LIB) OBJTYPE(*LIB)
+                     MONMSG     MSGID(CPF0000) EXEC(DO)
+                     CHGVAR     VAR(&MSG) VALUE('''LIBRARY'' *BCAT &LIB +
+                                  *BCAT ''NOT FOUND''')
+                     SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGDTA(&MSG) +
+                                  MSGTYPE(*ESCAPE)
+                     GOTO       CMDLBL(EOF)
+                     ENDDO
+
+        /* CREATE A FILE CONTAINING ALL FILES FROM THE REQUESTED LIBRARY */
+                     DLTF       FILE(QTEMP/DELREC)
+                     MONMSG     MSGID(CPF2105)
+                     DSPFD      FILE(&LIB/*ALL) TYPE(*MBR) OUTPUT(*OUTFILE) +
+                                  FILEATR(*PF) OUTFILE(QTEMP/DELREC) +
+                                  OUTMBR(*FIRST)
+
+                     CHGVAR     VAR(&ENDTIM) VALUE(&INTIM)
+
+                     IF         COND(&INDAT = '000000') THEN(DO)
+                     RTVSYSVAL  SYSVAL(QYEAR) RTNVAR(&QYEAR)
+                     RTVSYSVAL  SYSVAL(QMONTH) RTNVAR(&QMONTH)
+                     RTVSYSVAL  SYSVAL(QDAY) RTNVAR(&QDAY)
+                     CHGVAR     VAR(%SST(&ENDDAT 1 2)) VALUE(&QYEAR)
+                     CHGVAR     VAR(%SST(&ENDDAT 3 2)) VALUE(&QMONTH)
+                     CHGVAR     VAR(%SST(&ENDDAT 5 2)) VALUE(&QDAY)
+                     ENDDO
+                     ELSE       CMD(CHGVAR VAR(&ENDDAT) VALUE(&INDAT))
+
+       /*  IF NO END TIME WAS ENTERED - RUN TILL ALL FILES ARE REORGANIZED */
+                     IF         COND(&INTIM = '000000') THEN(CHGVAR +
+                                  VAR(&ENDTIM) VALUE('999999'))
+
+        /* USE OPNQRYF TO ONLY SELECT FILES WITH AT LEAST ONE DELETED RECORD */
+        /* AND REORGANIZE BASED ON THE MOST DISK SPACE BEING CONSUMED        */
+                     OVRDBF     FILE(QAFDMBR) TOFILE(QTEMP/DELREC) SHARE(*YES)
+                     OPNQRYF    FILE((DELREC)) QRYSLT('MBNDTR *NE 0') +
+                                  KEYFLD((*MAPFLD/MBDSSZ *DESCEND)) +
+                                  MAPFLD((MBDSSZ 'MBMXRL * MBNDTR'))
+
+        READ:
+        /* GET CURRENT SYSTEM TIME */
+                     RTVSYSVAL  SYSVAL(QTIME) RTNVAR(&TIME)
+                     RTVSYSVAL  SYSVAL(QYEAR) RTNVAR(&QYEAR)
+                     RTVSYSVAL  SYSVAL(QMONTH) RTNVAR(&QMONTH)
+                     RTVSYSVAL  SYSVAL(QDAY) RTNVAR(&QDAY)
+
+        /* COMPARE CURRENT DATE/TIME TO TIME YOU WANT THE JOB TO END */
+                     CHGVAR     VAR(%SST(&DATE 1 2)) VALUE(&QYEAR)
+                     CHGVAR     VAR(%SST(&DATE 3 2)) VALUE(&QMONTH)
+                     CHGVAR     VAR(%SST(&DATE 5 2)) VALUE(&QDAY)
+                     IF         COND(&TIME *GT &ENDTIM *AND &DATE *GE +
+                                  &ENDDAT) THEN(GOTO CMDLBL(EOF)) /* IF +
+                                  PAST END TIME, END JOB */
+/* READ NEXT RECORD FROM OUTPUT FILE OF "DSPFD" */
+                     RCVF       RCDFMT(QWHFDMBR)
+                     MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(EOF)) /* IF +
+                                  END OF FILE ERROR, END PROGRAM */
+
+                     RGZPFM     FILE(&MBLIB/&MBFILE) MBR(&MBNAME) +
+                                  KEYFILE(*FILE)
+                     MONMSG     MSGID(CPF2981) EXEC(DO)
+                     RGZPFM     FILE(&MBLIB/&MBFILE) MBR(&MBNAME)
+
+             MONMSG     MSGID(CPF0000) EXEC(DO) /* IF THE REORGANIZE +
+                          FAILED, PUT AN ERROR MESSAGE IN THE JOBLOG */
+
+                     CHGVAR     VAR(&MSG) VALUE('FILE' *BCAT &MBFILE *BCAT +
+                                  'COULD NOT BE REORGANIZED.')
+                     SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGDTA(&MSG) +
+                                  MSGTYPE(*STATUS)
+
+                     ENDDO
+
+                     ENDDO
+
+                     GOTO       CMDLBL(READ) /* READ NEXT RECORD */
+
+        EOF:
+
+                     CLOF       OPNID(DELREC)
+
+
+                     DLTOVR     FILE(QAFDMBR)
+
+
+                     RCLRSC
+
+                     ENDPGM

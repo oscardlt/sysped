@@ -1,0 +1,191 @@
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D FILE_i          s               *
+     D ErrTxt          s            128a
+     D String          s          30000a
+     D String2         s            128a
+     D rc              s             10i 0
+     D SRCDTA          S          30000
+     D INHEX           S            512
+     D len             s              4  0
+N02  D Data            s          30000a   Varying
+     D Codepage        s              5a   Varying
+      *_________________
+      * Feildefinisjoner
+      *"""""""""""""""""
+     D errno           Pr            10i 0
+
+     D strerror        Pr           128a   Varying
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfgets            Pr              *   ExtProc( '_C_IFS_fgets' )
+     D                                 *   Value
+     D                               10i 0 Value
+     D                                 *   Value
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                 DS
+     D  B                      1    256    DIM(256)
+     D  SVSIGND                1    256
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+      *______
+      * Input
+      *""""""
+     C     *ENTRY        PLIST
+     C                   parm                    FilNam          256
+     C                   parm                    result           20
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_i = open( %TrimR( FilNam ) : 'r' )
+
+     C                   IF        FILE_i = *Null
+     C                   EVAL      ErrTxt = %Char( Errno ) + ': ' + Strerror
+     C                   ELSE
+
+     C                   DOW       fgets( %Addr( String ) : %Size( String )
+     C                             : FILE_i ) <> *Null
+     C                   ENDDO
+
+     C                   EVAL      rc = close( FILE_i )
+      * Overstyr CURDIR
+     C                   EXSR      CURDIR
+      * Hent ut UNH-UNT
+     C                   EXSR      UNH
+      * Beregn CHKSUM
+     C                   EXSR      CALCCHK
+      * Hent ut CHKSUM edifact
+     C                   EXSR      ZS3
+     C                   ENDIF
+      * Sammenlign de begge summene
+     C                   EXSR      COMP
+
+     C                   EVAL      *INLR = *On
+
+      *_____________________________________________________
+      * Skriv UNH-UNT i IFS-fil                          UNH
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     UNH           BEGSR
+     C                   EVAL      SRCDTA=*BLANKS
+     C     'UNH+'        SCAN      string        pos1              5 0
+     C     'AUTACK'      SCAN      string        pos2              5 0
+     C                   SUB       4             pos2
+     C                   EVAL      len=pos2-pos1
+     C                   EVAL      SRCDTA = %SUBST(string:pos1:len)
+      * Lag streng for katalognavn/filnavn
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/TDS/unh'
+      * Lag fil og set codepage (pc)
+     C                   EVAL      Codepage = '819'
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w, codepage=' + Codepage )
+
+     C                   EVAL      rc = close( FILE_o )
+      * Åpne fil, med tegnkonvertering for jobb
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w' )
+
+     C                   IF        FILE_o <> *Null
+     C                   EVAL      Data = %trimr(SRCDTA)
+     C                   EVAL      rc = fputs(Data : File_o)
+     C                   EVAL      rc = close( FILE_o )
+     C                   ENDIF
+     C                   ENDSR
+      *_____________________________________________________
+      * hent CHKSUM fra Edifact                          ZS3
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     ZS3           BEGSR
+     C                   MOVE      *BLANKS       INCHK            64
+     C     'ZS3:'        SCAN      string        pos               5 0
+     C                   ADD       4             pos
+     C                   if        pos > 4
+     C                   EVAL      INCHK = %SUBST(string:pos:64)
+     C                   endif
+     C                   ENDSR
+      *_____________________________________________________
+      * Beregne CHKSUM                               CALCCHK
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     CALCCHK       BEGSR
+     C                   MOVE      *BLANKS       WFILI           128
+     C                   MOVE      *BLANKS       WFILO           128
+     C                   MOVE      *BLANKS       WCHKSUM          64
+     C                   EVAL      WFILI = '/' + %trimr(UELIBF)
+     C                             + '/TDS/unh'
+     C                   EVAL      WFILO = '/' + %trimr(UELIBF)
+     C                             + '/TDS/chk'
+     C                   CALL      'SVG004R'
+     C                   PARM                    WFILI           128
+     C                   PARM                    WFILO           128
+     C                   PARM                    WCHKSUM          64
+     C                   ENDSR
+      *_____________________________________________________
+      * Sammenlign CHK summene                          COMP
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     COMP          BEGSR
+     C                   IF        WCHKSUM = INCHK
+     C                   EVAL      Result='CHKSUM OK           '
+     C                   ELSE
+     C                   EVAL      Result='CHKSUM ERROR        '
+     C                   ENDIF
+     C                   ENDSR
+      *_____________________________________________________
+      * Overstyr CURDIR                               CURDIR
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     CURDIR        BEGSR
+      * Init av felt
+     C                   MOVE      X'7D'         WAPO              1
+     C                   MOVE      *BLANKS       WCURDIR          64
+
+     C                   EVAL      WCURDIR = '/' + %trimr(UELIBF) + '/TDS'
+
+     C                   MOVE      *BLANKS       WCMD9           128
+     C                   EVAL      WCMD9 = 'CHGCURDIR DIR(' + WAPO
+     C                             + %trimr(WCURDIR) + WAPO + ')'
+
+     C                   CALLP     RUNCMD(WCMD9:128)
+
+     C                   ENDSR
+      *_________________
+      * Hente feilnummer
+      *"""""""""""""""""
+     P Errno           B
+     D                 PI            10i 0
+     D sys_errno       PR              *    ExtProc( '__errno' )
+
+     D Error           S             10i 0  Based( pError ) NoOpt
+
+     C                   EVAL      pError = sys_errno
+     C                   RETURN    Error
+
+     P Errno           E
+      *________________
+      * Hente feiltekst
+      *""""""""""""""""
+     P Strerror        B
+     D                 PI           128a   Varying
+     D sys_strerror    PR              *   ExtProc( 'strerror' )
+     D                               10i 0 Value
+
+     C                   RETURN    %Str( sys_strerror( Errno ))
+
+     P Strerror        E

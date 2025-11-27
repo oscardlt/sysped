@@ -1,0 +1,320 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 TEST OM BRUTTO BELØP ER 0
+11XXX * 02 SH  PTF10 brukerid i egen fil
+11XXX * 03 SH  PTF10 parameter produktkode
+11XXX * 04 SH  PTF11 byttet parameter brutto netto
+********************************************************************
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+N02  FTGUSER    IF   E           K DISK
+S02  F*RSTTG    IF   E           K DISK
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s             50A
+     D wait            s              1A
+
+     D                 DS
+     D  BRUBEL                 1     11  2
+     D  BRUBELA                1      9
+     D                 DS
+     D  NETBEL                 1     11  2
+     D  NETBELA                1      9
+     D                 DS
+     D  RABATT                 1      3  1
+     D  RABATTA                1      3
+s02  D*                DS
+s02  D* TGNA                   1     25
+s02  D* TGNA1                  1      8
+s02  D* TGNA2                 16     25
+s02  D*                DS
+s02  D* TGEK                   1     15
+s02  D* TGEK1                  6     12
+
+     C                   EXSR      INIT
+
+s02  C*    *LOVAL        SETLL     FRSTTG
+s02  C*                  READ      FRSTTG                                 33
+      *
+N02  C     KEYTG         CHAIN     TGUSER                             33
+      *
+      * 0000000 ER FIRMASTANDARD
+      * OG DA LIGGER KUNDENUMMER I START AV FRITEKST
+      *
+N02  C     *in33         ifeq      '1'
+N02  C                   MOVE      *ZEROS        UKS7
+N02  C     KEYTG         CHAIN     TGUSER                             33
+N02  C  N33              MOVEL     TGFRI         TGKUNR
+N02  C                   END
+     C                   IF        *IN33
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   END
+      *
+S02  C*                  MOVEL     TGNA1         UKNT
+S02  C*                  MOVEL     TGEK1         XAVSID            7
+N02  C                   MOVEL     TGKUNR        XAVSID            7
+     C                   MOVE      UVKT          XVKT              9 0
+     C                   MOVE      UNT           XNT               7 0
+     C                   IF        UM3 = *ZEROS
+     C                   MOVE      '0000001'     XDM3              7 0
+     C                   ELSE
+     C                   MOVE      UM3           XDM3              7 0
+     C                   END
+     C                   MOVE      *BLANKS       XBSC             20
+     C                   IF        XNT = 1
+     C                   EVAL      XBSC = 'Groupage'
+     C                   ELSE
+     C                   EVAL      XBSC = 'PartLoad'
+     C                   END
+N03  C     uprod         ifeq      'TG7  '
+n03  c                   eval      XBSC = 'ServiceParcel'
+n03  c                   end
+N03  C     uprod         ifeq      'TG8  '
+N03  C                   EVAL      XBSC = 'Groupage'
+n03  c                   end
+N03  C     uprod         ifeq      'TG9  '
+n03  C                   EVAL      XBSC = 'PartLoad'
+n03  c                   end
+     C                   MOVE      *BLANKS       XUSRID           20
+S02  C*                  EVAL      XUSRID = TGEK
+N02  C                   EVAL      XUSRID = TGUSR
+S02  C*                  MOVE      TGNA2         XPASWRD          10
+N02  C                   MOVEL     TGPWD         XPASWRD          10
+     C                   MOVE      *ZEROS        BRUBEL
+     C                   MOVE      *ZEROS        NETBEL
+
+      /free
+
+        *inlr = *on;
+
+        // ****************************************************
+        //  Bygg parametrene...
+        //  System iNetwork to a temporary file in the IFS
+        // ****************************************************
+          Enc = http_url_encoder_new();
+
+          http_url_encoder_addvar_s(Enc : 'Action'
+                                        : 'get');
+          http_url_encoder_addvar_s(Enc : 'Type'
+                                        : 'RequestForQuote');
+          http_url_encoder_addvar_s(Enc : 'TermsOfDelivery.TODConditionCode'
+                                        : 'DDP');
+          http_url_encoder_addvar_s(Enc : 'Consignor.PartyID'
+                                        : %TRIM(XAVSID));
+          http_url_encoder_addvar_s(Enc : 'Consignee.PartyID'
+                                        : '.');
+          http_url_encoder_addvar_s(Enc : 'Consignor.PostalCode'
+                                        : %TRIM(UPNF));
+          http_url_encoder_addvar_s(Enc : 'Consignee.PostalCode'
+                                        : %TRIM(UPNT));
+          http_url_encoder_addvar_s(Enc : 'Consignment.TotalGrossWeight'
+                                        : %TRIM(%EDITC(XVKT:'Z')));
+          http_url_encoder_addvar_s(Enc : 'Consignment.TotalVolume'
+                                        : %TRIM(%EDITC(XDM3:'Z')));
+          http_url_encoder_addvar_s(Enc : 'Consignment.NumberOfPackages'
+                                        : %TRIM(%EDITC(XNT:'Z')));
+          http_url_encoder_addvar_s(Enc : 'Consignment.BasicServiceCode'
+                                        : %TRIM(XBSC));
+          http_url_encoder_addvar_s(Enc : 'Username'
+                                        : %TRIM(XUSRID));
+          http_url_encoder_addvar_s(Enc : 'Password'
+                                        : %TRIM(XPASWRD));
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+          url = 'http://www.tollpost.no/XMLServer/handler?'
+               + http_url_encoder_getstr(Enc);
+
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           uflagg = '1';
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           uflagg = '1';
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+           unlink(filename);
+        // N01 START
+           IF BRUBEL = 0;
+           RABATT = 0;
+           ELSE;
+        // N01 SLUTT
+           RABATT = ((BRUBEL - NETBEL) / BRUBEL) * 100;
+        // N01 START
+           ENDIF;
+        // N01 SLUTT
+           result = 'Brutto: ' +%trim(%editc(BruBel:'J'))
+                  + '  Netto: '+%trim(%editc(NetBel:'J'))
+                  + '  Rabatt: '+%trim(%editc(Rabatt:'J'));
+        // dsply result ' ' wait;
+           UNETBL = NETBELA;
+           UBRTBL = BRUBELA;
+           URABAT = RABATTA;
+           uflagg = '0';
+           return;
+
+      /end-free
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UPNF              4
+     C                   PARM                    UPNT              4
+     C                   PARM                    UNT               7
+     C                   PARM                    UVKT              9
+     C                   PARM                    UM3               7
+     C                   PARM                    UKNT              8
+s04  C*                  PARM                    UNETBL            9
+     C                   PARM                    UBRTBL            9
+n04  C                   PARM                    UNETBL            9
+     C                   PARM                    URABAT            3
+     C                   PARM                    UFLAGG            1
+     C                   PARM                    UAVD              4
+     C                   PARM                    UOPD              7
+     C                   PARM                    UKN               8
+N02  C                   PARM                    UKS              12
+N02  C                   PARM                    UTRAN             8
+N02  C                   PARM                    UPROD             5
+N02  C                   MOVEL     UKS           UKS7
+N02  C                   MOVEL     UTRAN         UTRAN80           8 0
+N02  C     KEYTG         KLIST
+N02  C                   KFLD                    UTRAN80
+N02  C                   KFLD                    UKS7              7
+      *
+     C                   IF        UFLAGG <> '2'
+      *  UFLAGG SOM UT-PARAM:  0 = FANT PRIS,   1 = FANT IKKE PRIS
+      *
+     C                   MOVE      UAVD          U2AVD             4 0
+     C                   MOVE      UOPD          U2OPD             7 0
+     C                   MOVE      UKN           U2KN              8 0
+     C                   MOVE      *BLANKS       UUVAL             3
+     C                   MOVE      'FRA'         UGEB              3
+     C                   MOVE      'TGI'         UGEBKO            3
+     C                   MOVE      *ZEROS        UUBELØ           13 2
+     C* LEGGER INN DUMMY "S" FOR PART (ULIK A=OPPDATER FR.BER.VEKT)
+     C                   MOVE      'A'           USKA              1
+     C                   CALL      'SYGE04'
+     C                   PARM                    UGEBKO
+     C                   PARM                    UGEB
+     C                   PARM                    U2AVD
+     C                   PARM                    U2OPD
+     C                   PARM                    U2KN
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    UAVNR             9 0
+     C                   PARM                    UAVMSG           50
+     C                   PARM                    USKA
+     C                   IF        UUBELØ = 0
+     C                   Z-ADD     UUBELØ        UBEL2             9 0
+     C                   MOVE      UBEL2         UNETBL
+     C                   MOVE      UBEL2         UBRTBL
+     C                   MOVE      '0'           UFLAGG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   END
+      *
+     C                   END
+      *
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+      /free
+
+            select;
+            when name = 'GrossAmount';
+               BruBel  = BruBel + %float(value);
+            when name = 'NetAmount';
+               NetBel  = NetBel + %float(value);
+            endsl;
+
+      /end-free
+     P                 E

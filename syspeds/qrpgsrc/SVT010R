@@ -1,0 +1,147 @@
+     H DFTACTGRP(*NO)
+     FSVTX08F2  IF   E           K DISK
+     ‚*  Prototype for svt010r
+     d svt010r         pr
+     d uie_                                like(uie)
+     d uvtx15_01_                          like(uvtx15_01)
+     d ulk_                                like(ulk)
+     d uvtx15_33_                          like(uvtx15_33)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d svt010r         pi
+     d uie                            1
+     d uvtx15_01                     10
+     d ulk                            2
+     d uvtx15_33                      4
+     d  WERR           S              1
+     d  WULK           S              4
+     d  X              S              2  0
+     d wtm             s              6
+     d A1              S             10
+     d A2              S             10
+     d A3              S             10
+     d A4              S             10
+     d A5              S             10
+     d myrows          s             10i 0
+     d wlk             s              4
+     d wrg             s              4
+
+     d MyPoDS          ds                  Qualified  dim(99)
+     d  w02                           4
+     d  w10                          10
+     d  w11                          10
+     d  w33                           4
+     D                 DS
+     D  WDT                    1      8
+     D  WDTY                   1      4
+     D  WDTM                   5      6
+     D  WDTD                   7      8
+     D                 DS
+     D  WD                     1     10
+     D  WDY                    1      4
+     D  WD1                    5      5
+     D  WDM                    6      7
+     D  WD2                    8      8
+     D  WDD                    9     10
+
+        /free
+       exsr sra;
+       exsr srb;
+       exsr src;
+       *inlr = *on;
+
+        // __________________________________________________
+        // Init                                           SRA
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sra;
+
+        // Fixa arbetsvariablar
+           WULK=ULK;
+           uvtx15_33 = *blanks;
+
+        // Fixa søkning på 5 nivåer
+         A1=%subst(UVTX15_01:1:10);
+         A2=%subst(UVTX15_01:1:8) + '00';
+         A3=%subst(UVTX15_01:1:6) + '0000';
+         A4=%subst(UVTX15_01:1:4) + '000000';
+         A5=%subst(UVTX15_01:1:2) + '00000000';
+
+         // Hent dagens dato
+         syge15c ( wdt : wtm );
+         wd1='-';
+         wd2='-';
+         wdy=wdty;
+         wdm=wdtm;
+         wdd=wdtd;
+
+       endsr;
+
+        // __________________________________________________
+        // Kør SQL in i array                             SRB
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr srb;
+
+          exec sql declare  A33  cursor for
+          select SVTX15_02, SVTX15_10, SVTX15_11, SVTX15_33
+          from SVTX15F
+          where SVTX15_01 IN (:A1, :A2, :A3, :A4, :A5) AND
+                SVTX15_04 IN ('109', '110', '111') AND
+                SVTX15_33<>' ';
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                      SRC
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr src;
+
+       for x = 1 to 90;
+
+           werr=' ';
+
+         // Stæmmer datum ?
+
+         if mypods(x).w11 > wd;
+           werr='X';
+         endif;
+
+         if mypods(x).w10 < wd;
+           werr='X';
+         endif;
+
+       // Er landkoden riktig ?
+
+         if werr=*blanks;
+           if mypods(x).w02 <> wulk;
+             werr='X';
+
+           // Eller stæmmer regionen ?
+
+           chain (wulk : mypods(x).w02) svtx08f2;
+             if %found;
+               werr=' ';
+             endif;
+
+           endif;
+         endif;
+
+       // Allt stæmmer, flytta til outputparametrar
+
+         if werr=*blanks;
+
+           uvtx15_33 = mypods(x).w33;
+           leave;
+
+         endif;
+        endfor;
+
+       endsr;
+
+      /end-free

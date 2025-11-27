@@ -1,0 +1,111 @@
+/* *********************************************************************   */
+/*   TA IMOT  EDI  VIA SMTP                                                */
+/*   EDI-PART SOM "LYTTER" PÅ EN GITT USER/ADRESS MÅ VÆRE INTERN (I/6)     */
+/*   FOR AT EDI-DRIVER 6 SKAL STARTE MÅ MINST EN EKSTERN PART FINNES (E/6) */
+/*   OPPRETT OM NØDVENDIG DUMMYSMTP (E/6) M/TXT: "DUMMY FRO Å STARTE SMTP" */
+/*                                                                         */
+/*OBS!ENKLEST Å HA SY400USR SOM MOTTAKER-DETTE ER OGSÅ USER I DELSYSTEMJOB */
+/*      DERSOM EN ANNEN (EKS: SKANNER S4466644) ER MAILMOTTAKER SÅ MÅ      */
+/*      DELSYSTEM-USER (SY400USR) HA TILLATELSE TIL Å JOBBE FOR DENNE:     */
+/*        "GRTUSRPMN TOUSER(SY400USR) FORUSER(SKANNER)"   FIKSER DETTE     */
+/*   MAPPE MÅ FINNES PR MOTTAKER:  CRTFLR FLR(SKANNER) AUT(*ALL)           */
+/* (KUNNE VÆRT LØST VIA FELLES MAPPE SY400USR, MEN SÅ LENGE DOKNAV ER      */
+/*  HARDKODET E101C SÅ MÅ MAPPE VÆRE INDIVIDUELLE FOR Å UNNGÅ OMSKRIVING.) */
+/* *********************************************************************   */
+/* N01 - HALVFABRIKATA FOR TKPDFHADLER (TILPASN=HARDKOD &SKANUSR/&SKANFLR) */
+/* N02 - VED EDI - IKKE KEEP/IKKE KVITTERING (OGSÅ ENDRET I BODY-DEL      */
+             PGM        PARM(&USER &ADR)
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&ADR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&MEMBER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&DATE) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&JUL) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&TIME) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&STMF) TYPE(*CHAR) LEN(80)
+/*N01 */     DCL        VAR(&DLSF) TYPE(*CHAR) LEN(80)
+/*S01        DCL        VAR(&LINSNOA) TYPE(*CHAR) LEN(2)      */
+/*N01 */     DCL        VAR(&LINSNOA) TYPE(*CHAR) LEN(6)
+/*N01 */     DCL        VAR(&LINDEXA) TYPE(*CHAR) LEN(2)
+/*N01 */     DCL        VAR(&SKANUSR) TYPE(*CHAR) LEN(8) +
+                          VALUE('XXXXSKAN')
+/*N01 */     DCL        VAR(&SKANFLR) TYPE(*CHAR) LEN(80) +
+                          VALUE('/SYSCA/INNTKPDF/')
+             DCL        VAR(&FILIBF) TYPE(*CHAR) LEN(10)
+             DCLF       FILE(E101CQ)
+             RTVDTAARA  DTAARA(EDIDTA (171 10)) RTNVAR(&FILIBF)
+/*_______________________*/
+/* HENTE ID TIL DOCUMENT */
+/*"""""""""""""""""""""""*/
+             QRYDST     USRID(&USER &ADR) OUTFILE(E101CQ) +
+                          STATUS(*NEW)
+/*____________________*/
+/* HENTE DOC TIL FILE */
+/*""""""""""""""""""""*/
+ START:      RCVF
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+ /*N01  *START* HALVFABRIKATA SKANN-DOKUMENT TIL PDF-HANDLER...*/
+ /*ALLITD FLERE SEKVENSER 01 ER BODY(14) 02,03..ER VEDLEG(14)               */
+ /*MOTTA ALLE (=UT AV POSTLOGGEN) MEN BEVAR KUN TYPE 14 OG IKKE DEN FØRSTE  */
+              IF         COND(&USER *EQ &SKANUSR) THEN(DO)
+              DLTDLO     DLO(E101C) FLR(&USER)
+              MONMSG     MSGID(CPF0000)
+              RCVDST     DSTID(&LINDID) USRID(&USER &ADR) DOC(E101C) +
+                           FLR(&USER) ACKRCV(*NO) DSTIDEXN(&LINDEX)
+              CHGVAR     VAR(&LINDEXA) VALUE(&LINDEX)
+              IF         COND(&LINDTP = 14) THEN(DO)
+              IF         COND(&LINDEXA *NE '01') THEN(DO)
+              CHGVAR     VAR(&STMF) VALUE(&SKANFLR *TCAT &LINDID *CAT +
+                          '_' *CAT &LINDEXA *CAT '.PDF')
+              CHGVAR     VAR(&DLSF) VALUE('/QDLS/' *TCAT &SKANUSR *TCAT +
+                          '/E101C')
+              MOV        OBJ(&DLSF) TOOBJ(&STMF)
+                         ENDDO
+                         ENDDO
+              GOTO       CMDLBL(START)
+                         ENDDO
+ /*N01  *SLUTT* SKANN-DOKUMENT TIL PDF-HANDLER...*/
+ /*N01  FORBI DETTE PUNKT = ORDINÆR EDI..........*/
+
+ /* DOKUMENTTYPE 14 - = PC-DOK = VEDLEGG... */
+             IF         COND(&LINDTP = 14) THEN(DO)
+             DLTDLO     DLO(E101C) FLR(&USER)
+             MONMSG CPF0000
+/*S02        RCVDST     DSTID(&LINDID) USRID(&USER &ADR) DOC(E101C) +
+                          FLR(&USER) DSTIDEXN(&LINDEX) KEEP(*YES)   */
+/*N02*/      RCVDST     DSTID(&LINDID) USRID(&USER &ADR) DOC(E101C) +
+                          FLR(&USER) ACKRCV(*NO) DSTIDEXN(&LINDEX)
+             CHGVAR     VAR(&LINSNOA) VALUE(&LINSNO)
+             CHGVAR     VAR(&STMF) VALUE('/' *CAT &FILIBF *CAT 'X/' *CAT +
+                                   &USER *CAT '/EDIRE/' *CAT &LINDID +
+                                   *CAT '_' *CAT &LINSNOA)
+             MOV        OBJ('/QDLS/SYEDIUSR/E101C') +
+                          TOOBJ(&STMF)
+                        ENDDO
+
+             GOTO       CMDLBL(START)
+
+ /* ANNET ENN 14  =   BODYTEKST - KONVERTERES RETT INN I EBCDIC-FIL */
+ /* (TANKE!!! KAN EN MOTTA OGSÅ BODYTEKST SOM DOK->IFS??? ENKLERE..)*/
+ BODY:       RCVDST     DSTID(&LINDID) USRID(&USER &ADR) +
+                          OUTFILE(E101CR) OUTMBR(*FIRST) +
+                          OUTDTATYP(*DOC) ACKRCV(*NO) +
+                          DSTIDEXN(&LINDEX)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+/*________________*/
+/* CVT TO RECL=80 */
+/*""""""""""""""""*/
+             CLRPFM     FILE(E101C)
+             CALL       PGM(EDI73R)
+
+             CHGJOB     DATFMT(*JUL)
+             RTVJOBA    DATE(&DATE)
+             CHGJOB     DATFMT(*SYSVAL)
+             RTVSYSVAL  SYSVAL(QTIME) RTNVAR(&TIME)
+             CHGVAR     VAR(&JUL) VALUE(%SST(&DATE 3 3))
+             CHGVAR     VAR(&MEMBER) VALUE('X' *CAT &JUL *CAT &TIME)
+             CPYF       FROMFILE(E101C) TOFILE(EDI79F) +
+                          TOMBR(&MEMBER) MBROPT(*ADD) +
+                          FMTOPT(*NOCHK)
+
+             GOTO       CMDLBL(START)
+END:         ENDPGM

@@ -1,0 +1,446 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 YBC PTF11 OPPDATER PRIS PÅ LLLINE
+      *              1. ENHETSPRIS LAGRES I LLEPR MED OPPBLÅST 100 GANGER
+      *              2. LINJEPRIS LAGRES I LLPRI
+      *              3. VALUTAKODE LAGRES I LHELM
+11XXX * 02 YBC PTF11 ved eksport er det unitPrice som benyttes - ikke unitCostPrice
+********************************************************************
+      *
+      ***********************************************************
+      *** PROGRAM SKAL KONVERTER XML-FIL TIL LOGISTIKKSYSTEM  ***
+      *** Kingsrød DK - Vareutgang                            ***
+      ***********************************************************
+      *
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCAF   IF   E           K DISK                                         Attributter
+      *
+     FFIRM      IF   E           K DISK
+     FLLHEAD    UF A E           K DISK
+     FLLLINE    IF A E             DISK
+     FLLLINEE1  UF A E           K DISK
+     FLLTELL    UF   E             DISK
+     D xxTDTA          S              8A
+     D xxSHPM          S             10A
+     D xxItem          S             25A
+     D xxTARno         S             15A
+S01  D*xxUnCost        S              9  2
+S01  D*xxUnVal         S              3
+     D xxNetV          S              7  2
+     D xxNetVcust      S              7  2
+     D xxGrosV         S              7  2
+     D xxGrosVcust     S              7  2
+     D xxEnhM3         S              7  4
+     D xxStkKRT        S              7  0
+     D xxKRTVkt        S              7  2
+      *
+     C                   EXSR      INIT
+      *
+     C                   EXSR      SRXML1
+      *
+     C                   EXSR      SRSUML
+      *
+     C                   EXSR      SROPDPLK
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     SRXML1        BEGSR
+      ***********************************************
+      * Les EN OG EN TAG ("Nøstede tager" kommer nå i "rett rekkefølge" )
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   EXSR      SRXML2
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRXML2        BEGSR
+      ***********************************************
+      * Handling utfra tag-navn
+      *    ( ekstra tester dersom samme tagnavn fins på flere nivå                     )
+      *    ( les i filene XMLRCAF (attributt-verdier)+ XMLRCLF ("Extras") om nødvendig )
+     C                   SELECT                                                 1<-B
+      * Start Pakseddel-header
+     C                   WHEN      XRNV = 'Header'                              1
+     c                   clear                   LLHEADR
+      * DIV REFFELT:
+      *  LHFLN           LISTE NR(SAMLE-REF)    - EDI-NR INN (KEY FOR XMLRCVF )
+      *  LHORDR          KUNDES ORDRENR         - ORDRENR DEN ENKELT DEL-ORDRE
+      *  LHPAK           PAKKSEDDELNR           - FAKTURANUMMER
+      *
+      * Ordrenummr
+     C                   WHEN      XRNV = 'OrderNo'                             1
+     c                   eval      LHORDR = XRVERD
+      * Shipment nr
+     C                   WHEN      XRNV = 'ShipmentNo'                          1
+     c                   eval      xxSHPM = XRVERD
+     C* FAKTURANr......
+     C                   WHEN      XRNV = 'InvoiceNo'                           1
+     c                   eval      LHPAK  = XRVERD
+     C* Navn/adr / LANDKODE mottaker
+     C                   WHEN      XRNV = 'Name'                                1
+     c                   eval      LHBNA  = XRVERD
+     C                   WHEN      XRNV = 'Address'                             1
+     c                   eval      LHBA1  = XRVERD
+     C                   WHEN      XRNV = 'AdditionalAddress'                   1
+     c                   eval      LHBA2  = XRVERD
+     C                   WHEN      XRNV = 'CountryCode'                         1
+     c                   eval      LHBLK  = XRVERD
+     C                   WHEN      XRNV = 'PostCode'                            1
+     c                   eval      LHBPU  = XRVERD
+     C                   WHEN      XRNV = 'City'                                1
+     c                   eval      LHBA3  = XRVERD
+      * Dato er siste element i header  format: 2014-06-10
+     C                   WHEN      XRNV = 'WarehouseDate'                       1
+     c                   eval      xxtdtA = %subst(XRVERD:1:4)
+     c                             +%subst(XRVERD:6:2)+%subst(XRVERD:9:2)
+     c                   movel     xxTDTA        LHTDT
+      ***
+     C                   EXSR      SRHEAD
+      ***
+      * Start Pakseddel-linjer (Kun tollager-linjer skrives til LLINE )
+     C                   WHEN      XRNV = 'Line'                                1
+     c                   move      'J'           OKlinje           1
+     c                   move      *blanks       Bonded            5
+     C                   clear                   LLLINEER
+     C
+      * ItemNo
+      * Ta vare på ItemNo = fullt varenr (stylenr + farge/size)..
+     C                   WHEN      XRNV = 'ItemNo'                              1
+     c                   eval      xxItem = XRVERD
+      * artnr
+     C                   WHEN      XRNV = 'StyleNo'                             1
+     c                   eval      LLANR  = XRVERD
+      * Tariffnr (benyttes kun ved framtidig fortolling UTENOM tollager)
+     C                   WHEN      XRNV = 'TariffNo'                            1
+     c                   eval      xxTARno = XRVERD
+      * Beskrivelse
+     C                   WHEN      XRNV = 'Description'                         1
+     c                   eval      LLVB   = XRVERD
+      * Tollagerlinje ??
+     C                   WHEN      XRNV = 'BondedWarehouse'                     1
+     c                   eval      Bonded = XRVERD
+     c     Bonded        IFne      'true'                                        2<-B
+     c                   EVAL      ELBOND = 'N'
+     c                   move      'N'           OKlinje
+     c                   ELSE                                                    2
+     c                   EVAL      ELBOND = 'J'
+     c                   end                                                     2<-E
+      * mengde (dersom 0 - skipp )
+     C                   WHEN      XRNV = 'CustomsQuantity'                     1
+     c                   eval(H)   ELANT0 = %float(XRVERD)
+     c     ELANT0        ifeq      0                                             2<-B
+     c                   move      'N'           OKlinje
+     c                   end                                                     2<-E
+      * Kostpris  (Kun for framtidig bruk - direktefortolling utenom tollager)
+      *  - punktum som desimal..eks:  22.38
+S02  C*                  WHEN      XRNV = 'UnitCostPrice'                       1
+N02  C                   WHEN      XRNV = 'UnitPrice'                           1
+S01  c*                  eval(H)   xxUnCost = %float(XRVERD)
+N01  C                   EVAL      ELEPR114 = %float(XRVERD)
+      * valuta ligger som attributt (ogs enhet , men ds SKAL være PCS..)
+     C     XMLKEY01      setll     XMLRCAF
+     C     XMLKEY01      reade     XMLRCAF                                33
+     C     *IN33         doweq     *off                                          2<-B
+     c                   if        XRATN  = 'CurrencyCode'                        3<-B
+S01  c*                  eval      xxUnVal= XRATV
+N01  C                   EVAL      ELVAL = XRATV
+     c                   leave
+     c                   endif                                                    3<-E
+     C     XMLKEY01      reade     XMLRCAF                                33
+     C                   enddo                                                   2<-E
+      * Enh.Netto vekt
+     C                   WHEN      XRNV = 'UnitNetWeight'                       1
+     c                   eval(H)   xxNetV = %float(XRVERD)
+     C                   WHEN      XRNV = 'CustomsNetWeight'                    1
+     c                   eval(H)   xxNetVCust = %float(XRVERD)
+      * Enh.Brutto vekt
+     C                   WHEN      XRNV   = 'UnitGrossWeight'                   1
+     c                   eval(H)   xxGrosV= %float(XRVERD)
+     C                   WHEN      XRNV   = 'CustomsGrossWeight'                1
+     c                   eval(H)   xxGrosVcust= %float(XRVERD)
+      * enhets M3
+     C                   WHEN      XRNV = 'UnitCubage'                          1
+     c                   eval(H)   xxEnhM3= %float(XRVERD)
+      * ant stk pr kartong
+     C                   WHEN      XRNV = 'QuantityPerParcel'                   1
+     c                   eval(H)   xxStkKRT = %float(XRVERD)
+      * kartong-vekt
+     C                   WHEN      XRNV = 'ParcelWeight'                        1
+     c                   eval(H)   xxKrtVkt = %float(XRVERD)
+      *<ParcelWeight> er siste Tag - skriv linje
+     C                   EXSR      SREDIL
+      *
+     C                   ENDSL                                                  1<-E
+      *
+     C                   ENDSR
+      ***********************************************
+     C     SRhead        BEGSR
+      ***********************************************
+     C                   MOVE      XKJED         LHGRP
+     C                   MOVE      XPNR          LHPNR
+      * LØPENR HEADER
+     C     1             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        LHMN
+      * PLUKKLISTENR TILDELES UMIDDELBART
+     C     2             CHAIN     LLTELL                             33
+     C                   ADD       1             LLREC1
+     C                   UPDATE    LLTELLR
+     C                   MOVE      LLREC1        LHALN
+      * sett plukkstatus overført umiddelbart (Syxm17Cx kjøres rett etterpå og tar ut..)
+     C                   MOVE      ' '           LHSTA
+     C                   MOVE      'E'           LHOPR
+      *Lagrer EDIsendnr i LHFLN  på paskseddelhaeder
+     c                   eval      LHFLN  = USN
+      *
+     C                   MOVEL     'NAVXML'      LHUSR
+     C                   MOVE      WDT           LHRDT
+     C                   MOVE      WTM           LHRTD
+     C                   WRITE     LLHEADR
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SREDIL        BEGSR
+      ***********************************************
+      *
+     C                   EVAL      LLMN   = LHMN
+     C                   EVAL      ELPAK  = LHPAK
+     C                   EVAL      ELTAR  = XXTARNO
+     C                   EVAL      ELITEM = XXITEM
+     C                   EVAL      ELSN   = XRSN
+     C                   EVAL      ELTYPE = 'D'
+     C                   MOVEL     'XMLNAV'      ELBUSE
+     C                   MOVE      WDT           ELBDAT
+     C                   MOVE      WTM           ELBKL
+      *
+     C                   WRITE     LLLINEER
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SRSUML        BEGSR
+      ***********************************************
+     C                   EVAL      XXLLVN = 0
+     C     LLLINEE1K     SETLL     LLLINEE1
+     C     LLLINEE1K     READE     LLLINEE1                               33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   IF        ELBOND = 'J' AND ELTYPE = 'D' AND LLVN = 0    2<-B
+     C                   EVAL      X1LLANR  = LLANR
+     C                   EVAL      X1LLVB   = LLVB
+     C                   EVAL      X1ELANT0 = ELANT0
+N02  C                   EVAL      X1PR114  = ELEPR114
+     C                   SELECT                                                   3<-B
+     C                   WHEN      XXLLANR  = *BLANKS                             3
+N02  C                   EVAL      XXLLANR  = LLANR
+N02  C                   EVAL      XXLLVB   = LLVB
+     C                   EVAL      XXLLVN = XXLLVN + 1
+     C                   EVAL      LLVN   = XXLLVN
+     C                   EVAL      XXELANT0 = X1ELANT0
+N02  C                   EVAL      XXPR114  = X1PR114
+     C                   WHEN      XXLLANR  = LLANR                               3
+     C                   EVAL      LLVN   = XXLLVN
+     C                   EVAL      XXELANT0 = XXELANT0 + ELANT0
+     C                   WHEN      XXLLANR  <> LLANR                              3
+     C                   EVAL      LLVN   = XXLLVN
+     C                   EVAL      LLANR  = XXLLANR
+     C                   EVAL      LLVB   = XXLLVB
+     C                   EVAL      ELANT0 = XXELANT0
+N02  C                   EVAL      ELEPR114 = XXPR114
+     C                   EVAL      ELTYPE = 'A'
+     c                   EVAL      ELBOND = 'J'
+     C                   WRITE     LLLINEER
+     C                   EVAL      XXLLVN = XXLLVN + 1
+     C                   EVAL      LLVN   = XXLLVN
+     C                   EVAL      LLANR  = X1LLANR
+     C                   EVAL      LLVB   = X1LLVB
+     C                   EVAL      ELANT0 = X1ELANT0
+N02  C                   EVAL      ELEPR114 = X1PR114
+     C                   EVAL      ELTYPE = 'D'
+     C                   EVAL      XXELANT0 = X1ELANT0
+N02  C                   EVAL      XXPR114  = X1PR114
+     C                   ENDSL                                                    3<-E
+     C                   EVAL      XXLLANR  = X1LLANR
+     C                   EVAL      XXLLVB   = X1LLVB
+     C                   UPDATE    LLLINEER
+     C                   ELSE                                                    2
+     C                   UPDATE    LLLINEER
+     C                   END                                                     2<-E
+     C     LLLINEE1K     READE     LLLINEE1                               33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   IF        XXLLANR <> *BLANKS                           1<-B
+     C                   EVAL      LLVN   = XXLLVN
+     C                   EVAL      LLANR  = XXLLANR
+     C                   EVAL      LLVB   = XXLLVB
+     C                   EVAL      ELANT0 = XXELANT0
+N02  C                   EVAL      ELEPR114 = X1PR114
+     C                   EVAL      ELTYPE = 'A'
+     c                   EVAL      ELBOND = 'J'
+     C                   WRITE     LLLINEER
+     C                   END                                                    1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     SROPDPLK      BEGSR
+      ***********************************************
+      *
+     C     LLLINEE1K     SETLL     LLLINEE1
+     C     LLLINEE1K     READE(N)  LLLINEE1                               33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     C                   IF        ELBOND = 'J' AND ELTYPE = 'A'                 2<-B
+     C                   Z-ADD     9             UFLAGG            1 0
+     C                   MOVE      ELANT0        LLANT0
+     C                   MOVE      ELANT0        LLWNT0
+N01  C                   EVAL      LLEPR = ELEPR114 * 100
+N01  C                   EVAL(H)   LLPRI = ELEPR114 * LLWNT0
+     C                   MOVE      *ZEROS        LLWNT3
+     C                   MOVE      *ZEROS        LLWNT2
+     C                   MOVE      *ZEROS        LLWNT1
+     C                   MOVE      *ZEROS        LLWNTL
+     C                   MOVE      *ZEROS        LLWVEK
+     C                   MOVE      *ZEROS        LLWKUB
+     C                   MOVE      *BLANKS       LLLOK
+      *
+     C                   move      *zeros        UNTLK             3 0
+     C     *LIKE         DEFINE    LHGRP         UGRP
+     C     *LIKE         DEFINE    LLWNT0        UWNT0
+     C     *LIKE         DEFINE    LLWNTL        UWNTL
+     C     *LIKE         DEFINE    LLWNT1        UWNT1
+     C     *LIKE         DEFINE    LLWNT2        UWNT2
+     C     *LIKE         DEFINE    LLWNT3        UWNT3
+     C                   CALL      'LL022R'
+     C                   PARM      XKJED         UGRP
+     C                   PARM                    XPNR
+     C                   PARM                    LLANR
+     C                   PARM                    LLSER
+     C                   PARM                    UPRDT             8
+     C                   PARM                    LLMN
+     C                   PARM                    LLVN
+     C                   PARM      LLWNT0        UWNT0
+     C                   PARM                    UWNTL
+     C                   PARM                    UWNT1
+     C                   PARM                    UWNT2
+     C                   PARM                    UWNT3
+     C                   PARM                    UWVEK             7 2
+     C                   PARM                    UWKUB             7 4
+     C                   PARM                    LLLOK
+     C                   PARM                    UNTLK             3 0
+     C                   PARM                    UFLAGG
+      *
+     C     UFLAGG        IFEQ      0
+     C                   MOVE      UWNT0         LLWNT0
+     C                   MOVE      UWNTL         LLWNTL
+     C                   MOVE      UWNT1         LLWNT1
+     C                   MOVE      UWNT2         LLWNT2
+     C                   MOVE      UWNT3         LLWNT3
+     C                   MOVE      UNTLK         LLNTLK
+     C                   MOVE      UWVEK         LLWVEK
+     C                   MOVE      UWKUB         LLWKUB
+     C                   ELSE
+     C                   MOVE      *ZEROS        LLWNT0
+     C                   MOVE      *ZEROS        LLWNT3
+     C                   MOVE      *ZEROS        LLWNT2
+     C                   MOVE      *ZEROS        LLWNT1
+     C                   MOVE      *ZEROS        LLWNTL
+     C                   MOVE      *ZEROS        LLWVEK
+     C                   MOVE      *ZEROS        LLWKUB
+     C                   END
+      *
+     C                   MOVE      'ESK'         LLAEH1
+     C                   MOVE      'KRT'         LLAEH2
+     C                   MOVE      'PAL'         LLAEH3
+     C*                  eval      LLEFT = xxItem                               fullt Item i EDI ftx
+      *
+     C                   WRITE     LLLINER
+      *
+     c     LHMN          chain     LLHEAD                             33
+     c     *in33         ifeq      '0'
+     c                   add       LLWNT0        LHKLL
+     c                   add       LLWVEK        LHWVEK
+N01  C                   IF        LHELM = *BLANKS
+N01  C                   EVAL      LHELM = ELVAL
+N01  C                   END
+     C                   UPDATE    LLHEADR
+     c                   endif
+     C                   END                                                     2<-E
+      *
+     C     LLLINEE1K     READE(N)  LLLINEE1                               33
+     C                   ENDDO                                                  1<-E
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+      *
+      * for henting av attributt på samme nivå
+     C     XMLKEY01      KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    XRLEV1
+     C                   KFLD                    XRLEV2
+     C                   KFLD                    XRLEV3
+     C                   KFLD                    XRLEV4
+     C                   KFLD                    XRLEV5
+     C                   KFLD                    XRLEV6
+     C                   KFLD                    XRLEV7
+     C                   KFLD                    XRLEV8
+     C                   KFLD                    XRLEV9
+     C     LLLINEE1K     KLIST
+     C                   KFLD                    LHMN
+      *
+      *
+     C     *LIKE         DEFINE    LLVN          XXLLVN
+     C     *LIKE         DEFINE    LLANT0        XXELANT0
+     C     *LIKE         DEFINE    LLANR         XXLLANR
+     C     *LIKE         DEFINE    LLVB          XXLLVB
+     C     *LIKE         DEFINE    LLANT0        X1ELANT0
+     C     *LIKE         DEFINE    LLANR         X1LLANR
+     C     *LIKE         DEFINE    LLVB          X1LLVB
+N02  C     *LIKE         DEFINE    ELEPR114      XXPR114
+N02  C     *LIKE         DEFINE    ELEPR114      X1PR114
+     C                   MOVE      USN           XRSN
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     21453         XPNR              8 0
+      *
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           WDT08             8 0
+      *
+      *
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+      *
+      * Det må finnes MINST EN med BondedWarehouse = true dersom filens skal behanldes
+      * (kunne her lest på key med fila er ikke større enn at det enkle er det beste..)
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   If        XRNV = 'BondedWarehouse'
+     c                             and  XRVERD = 'true'
+     c                   leave
+     c                   endif
+     C     XRSN          reade     XMLRCVF                                94
+     C                   enddo
+      * 94 on = fant ingen true ...
+     C     *In94         ifeq      *ON
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   endif
+      *
+     C                   ENDSR
+      *

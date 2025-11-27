@@ -1,0 +1,456 @@
+      *********************************************************************
+      * Add/upfdate/delete av fakturapost
+      * OBS!!!  foreløpig tar den ikke gøude for valutaomregn. mm !!!!!
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE26R MODULE(*LIBL/TJGE26R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+11XXX * 01 JOV PTF11
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFAKT      UF A E           K DISK    USROPN
+     F                                     PREFIX(X)
+     FFAK2      if   E             DISK    USROPN
+     F                                     RENAME(FAKTR:FAK2R)
+     FHEADF     UF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     F                                     RENAME(KUNDR:CUNDR)
+     FLEVEL01   IF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WMODE           S              2
+     D JSONstring      S          32000
+     D Error           S            150
+     D WA              S             15
+     D AVD             S              4  0
+     D OPD             S              7  0
+     D LIN             S              5  0
+     D WTnr            S              1                                         Tabelnr brt
+     D WKomp           S              1  0                                      Komplett-kode
+     D WAntall         S              5  2                                      ant st v manuell
+     D WKurs           S              7  4                                      manuell kurs
+     D NUM7            S              7  0                                      manuell kurs
+     D                 DS
+     D  FADOCN                 1     11
+N04  D  FADOCNA                1      4    Inz(*zeros)
+N04  D  FADOCNB                5     11
+     D                 DS
+     D XFADOCN                 1     11
+N04  D XFADOCNB                5     11
+
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+     ICUNDR
+     I              BANKG                       SYBAGI
+     I              POSTG                       SYPOGI
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      * Teste input og utfør
+     C                   EXSR      TEST
+
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+          +'¬avd¬ : ¬'+%trim(%editc(avd:'Z'))+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(opd:'Z'))+'¬, '
+          +'¬lin¬ : ¬'+%trim(%editc(lin:'Z'))+'¬, '
+          +'¬mode¬ : ¬'+%trim(WMODE)+'¬, '
+          +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"invoiceLineUpdate" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FAKT
+     C  N50              CLOSE     HEADF
+     C  N50              CLOSE     CUNDL01
+     C  N50              CLOSE     LEVEL01
+     C  N50              CLOSE     FIRM
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WA         = zhbgetvar('AVD')
+     C                   EVAL      AVD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('OPD')
+     C                   EVAL      OPD        = c2n2(WA)
+     C                   EVAL      WA         = zhbgetvar('LIN')
+     C                   EVAL      LIN        = c2n2(WA)
+     C                   EVAL      WMODE  = zhbgetvar('MODE')
+     C                   EVAL      FASK       = zhbgetvar('FASK')
+     C                   EVAL      FAVK       = zhbgetvar('FAVK')
+     C     LO:UPC        XLATE     FAVK          FAVK
+     C                   EVAL      WTnr    = zhbgetvar('WTnr')
+     C                   EVAL      WA      = zhbgetvar('FABELV')
+     C                   EVAL      FABELV  = c2n2(WA)
+     C                   EVAL      FAVAL      = zhbgetvar('FAVAL')
+     C                   EVAL      FAKDM      = zhbgetvar('FAKDM')
+     C     LO:UPC        XLATE     FAKDM         FAKDM
+     C                   EVAL      FAVT       = zhbgetvar('FAVT')
+     C     LO:UPC        XLATE     FAVT          FAVT
+     C                   EVAL      WA      = zhbgetvar('WAntall')
+     C                   EVAL      WAntall = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FALEVN')
+     C                   EVAL      FALEVN  = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('WKurs')
+     C                   EVAL      WKurs   = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FAAVDR')
+     C                   EVAL      FAAVDR  = c2n2(WA)                           Internbel. Avd r
+     C                   EVAL      WA      = zhbgetvar('FADOCNB')               Internbel. Oppdr
+     C                   EVAL      Num7    = c2n2(WA)
+     c                   MOVE      Num7          FADOCNB
+     C                   EVAL      FAKDUK     = zhbgetvar('FAKDUK')
+     C                   EVAL      FACU33     = zhbgetvar('FACU33')             Valuta Utgift
+     C                   EVAL      WA      = zhbgetvar('FABELU')
+     C                   EVAL      FABELU  = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('FAKUNR')
+     C                   EVAL      FAKUNR  = c2n2(WA)
+     C                   EVAL      WA      = zhbgetvar('WKomp')
+     C                   EVAL      WKomp   = c2n2(WA)
+     C                   EVAL      FACD11  = zhbgetvar('FACD11')                SammenslåingsKode
+     C     LO:UPC        XLATE     FACD11        FACD11
+     C                   ENDSR
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+     C     HeadfKey      KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+      *
+     C     FAKKEY        KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C                   KFLD                    LIN
+     C     CUNDL01K      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    FAKUNR
+     C     LEVEL01K      KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    FALEVN
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      FAKT
+     C  N50              OPEN      HEADF
+     C  N50              OPEN      CUNDL01
+     C  N50              OPEN      LEVEL01
+     C  N50              OPEN      FIRM
+      * dummy for å få feltnavn som arbeids/inputvariable
+     C     *IN50         IFEQ      *OFF
+     C     *IN50         ANDEQ     *ON
+     C                   OPEN      FAK2
+     C                   READ      FAK2
+     C                   ENDIF
+      * hent info om fakt.mottaker mm
+     C     HeadfKey      CHAIN(N)  HEADF
+     c     *loval        setll     firm
+     c                   read      firm
+     c                   endsr
+      *
+      *********************************************************
+     C     TEST          BEGSR
+      *********************************************************
+      * ved update/delet må linja fins og ha åpen status
+     C     WMODE         IFNE      'A'
+     C     FakKey        CHAIN     FAKT                               55
+     C                   IF        *IN55=*ON
+     C                   eval      Error = 'Fakturalinjen finnes ikke'
+     c                   goto      UtTest
+     C                   ENDIF
+     C                   IF        XFAOPKO > 'C'
+     C                   eval      Error = 'Fakturalinjen har feil status'
+     c                   goto      UtTest
+     C                   ENDIF
+     C                   ENDIF
+      * div tester som er felles for update/add
+     C     WMODE         IFEQ      'A'
+     C     WMODE         OREQ      'U'
+      * kan ikke ha annet enn FRA på liNje 0
+     C     WMODE         IFEq      'U'
+     c                   IF        LIN=0 AND FAVK <> 'FRA'
+     C                   eval      Error = 'Linje 0 er reservert for "FRA"'
+     c                             +'/FRAKT  (Kan ikke endres)'
+     c                   goto      UtTest
+     c                   ENDIF
+     c                   ENDIF
+      * kunde
+     c                   if        FASK = 'K'
+     c                   eval      FAKUNR  =  HEKNKF
+     c                   endif
+     c                   if        FASK = 'S'
+     c                   eval      FAKUNR  =  HEKNSF
+     c                   endif
+     c     CUNDL01K      CHAIN     CUNDl01                            33
+     C                   IF        *IN33 = *on
+     C                   eval      Error = 'Ugyldig kundenummer'
+     c                   goto      UtTest
+     C                   ELSE
+     C                   IF        AKTKOD<>'A'
+     C                   eval      Error = 'Kundenummeret er medlt inaktivt '
+     c                             + '(m.h.t. fakturering.)'
+     c                   goto      UtTest
+     C                   ENDIF
+     C                   ENDIF
+      * leverandør
+     C     FALEVN        ifne      *zeros
+     c     LEVEL01K      CHAIN     LEVEL01                            33
+     C                   IF        *IN33 = *on
+     C                   eval      Error = 'Ugyldig leverandørnummer'
+     c                   goto      UtTest
+     C                   ENDIF
+     C                   ENDIF
+      * beløp utgift/budsjett  (om beløp ikke finnes..)
+     C*    FAKDUK        ifeq      'B'
+     c*    FABELU        andeq     *zeros
+     c*                  exsr      finnBud
+     C*                  ENDIF
+     C     FAKDUK        ifeq      'B'
+     c     FABELU        andeq     *zeros
+     C                   eval      Error = 'Ved utgiftskode B må budsjettert '
+     c                             + 'kostnad angis (kode N=Nei/Overstyr)'
+     c                   goto      UtTest
+     C                   ENDIF
+      *
+     C                   ENDIF
+      *
+      *
+      * MODE A=Add   U=Update   D=Delete
+     C                   SELECT
+     C     WMODE         WHENEQ    'A'
+     C     WMODE         OREQ      'U'
+     C                   EXSR      SRAU
+     C     WMODE         WHENEQ    'D'
+     C                   EXSR      SRD
+     C                   OTHER
+     C                   eval      Error = 'Wrong mode'
+     C                   ENDSL
+      *
+     C     UtTest        ENDSR
+      *
+      *********************************************************
+     C     SRAU          BEGSR
+      *********************************************************
+      * forberede visse felter
+     c                   exsr      FixData
+      * Add/update
+     C     WMODE         ifeq      'A'
+     C                   EVAL      XFAAVD=AVD
+     C                   EVAL      XFAOPD=OPD
+     C                   CALL      'SYGE06'
+     C                   PARM                    AVD
+     C                   PARM                    OPD
+     C                   PARM                    XFALI
+     c                   endif
+     C                   EVAL      XFASK    = FASK
+     C                   EVAL      XFAVK    = FAVK
+     C                   EVAL      XFAVAL   = FAVAL
+     C                   EVAL      XFABELV  = FABELV
+OBS  C                   EVAL      XFABELN  = FABELN
+     C                   EVAL      XFAKDM   = FAKDM
+     C                   EVAL      XFAVT    = FAVT
+     C                   EVAL      XFALEVN  = FALEVN
+     C                   EVAL      XFAAVDR  = FAAVDR
+     C                   EVAL      XFADOCNB = FADOCNB
+     C                   EVAL      XFAKDUK  = FAKDUK
+     C                   EVAL      XFACU33  = FACU33
+     C                   EVAL      XFABELU  = FABELU
+     C                   EVAL      XFAKUNR  = FAKUNR
+
+     C     WMODE         ifeq      'A'
+     C                   WRITE     FAKTR
+     C                   else
+     C                   UPDATE    FAKTR
+     C                   end
+      *
+     C     FALI          ifeq      0
+     C     HeadfKey      CHAIN     HEADF                              33
+     C     *in33         ifeq      *off
+     C     FASK          IFEQ      'E'
+     C                   eval      TRFRAK = 'E'
+     C                   ELSE
+     C                   eval      TRFRAK = 'A'
+     C                   END
+     C                   eval      TRFRAB = FABELV
+     C                   eval      TRMVA  = FAKDM
+     C                   endif
+     C                   endif
+
+     C                   ENDSR
+      *********************************************************
+     C     FixData       BEGSR
+      *********************************************************
+      *
+      * antall.. vis forklarende fritekst  /  Gang opp beløp
+     c                   if        WAntall <> 0
+     C     FAVT          IFEQ      *BLANKS
+     c                   move      WAntall       wsant             5 2
+     c                   move      WAntall       wsantd            2 0
+     c                   movel     WAntall       wsanth            3 0
+     c                   move      FAbelv        wsbeld            2 0
+     c                   movel     FAbelv        wsbelh           11 0
+     C                   Movel     'Stk'         enh               7
+      * begrenset plass - vis desimaler kun hvis nødvendig
+     c     wsbeld        ifne      0
+     C     WSANTD        IFNE      0
+     C                   EVAL      FAVT =
+     C                                %trim(%editc(WSANT:'4'))
+     C                             +  ' '
+     C                             +  %trim( enh )
+     C                             +  ' a '
+     C                             + %trim(%editc(FABELV:'4'))
+     C                   ELSE
+     C                   EVAL      FAVT =
+     C                                %trim(%editc(WSANTH:'Z'))
+     C                             +  ' '
+     C                             +  %trim( enh )
+     C                             +  ' a '
+     C                             + %trim(%editc(FABELV:'4'))
+     C                   END
+     c                   else
+     C     WSANTD        IFNE      0
+     C                   EVAL      FAVT =
+     C                                %trim(%editc(WSANT:'4'))
+     C                             +  ' '
+     C                             +  %trim( enh )
+     C                             +  ' a '
+     C                             + %trim(%editc(WSBELH:'4'))
+     C                   ELSE
+     C                   EVAL      FAVT =
+     C                                %trim(%editc(WSANTH:'Z'))
+     C                             +  ' '
+     C                             +  %trim( enh )
+     C                             +  ' a '
+     C                             + %trim(%editc(WSBELH:'Z'))
+     c                   ENDIF
+     c                   endif
+     C                   ENDIF
+      * Gang opp beløp
+     c                   eval(h)   FABELV = FABELV * WAntall
+     c                   eval(h)   FABELN = FABELN * WAntall
+     c                   endif
+      *
+      * FABELV/ FABELN- Valuta  foreløpig kun hjemmevaluta
+     c                   eval      FABELN = FABELV
+     c**                 exsr      VALUTA
+     c                   exsr      DECI
+     c
+      *
+
+     C                   ENDSR
+      *
+      ***********************************************
+     C     DECI          BEGSR
+      ***********************************************
+      * TEST FIRMS NUMBER OF DECIMALS
+      *
+      * NO DECIMALS
+     C     FIDECI        IFEQ      0
+     C                   Z-ADD(H)  FABELN        FABEL0           11 0
+     C                   Z-ADD     FABEL0        FABELN
+     C                   Z-ADD(H)  FABELU        FABEL0           11 0
+     C                   Z-ADD     FABEL0        FABELU
+     C                   ELSE
+      * 1 DECIMAL
+     C     FIDECI        IFEQ      1
+     C                   Z-ADD(H)  FABELN        FABEL1           12 1
+     C                   Z-ADD     FABEL1        FABELN
+     C                   Z-ADD(H)  FABELU        FABEL1           12 1
+     C                   Z-ADD     FABEL1        FABELU
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *********************************************************
+     C     SRD           BEGSR
+      *********************************************************
+      * Delet
+     C                   DELETE    FAKTR
+      *
+     C     FALI          ifeq      0
+     C     HeadfKey      CHAIN     HEADF                              33
+     C     *in33         ifeq      *off
+     C                   eval      TRFRAK = 'N'
+     C                   eval      TRFRAB = *zeros
+     C                   endif
+     C                   endif
+     C                   ENDSR

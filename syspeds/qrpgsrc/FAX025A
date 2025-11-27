@@ -1,0 +1,427 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 eksport har eksterdef fil
+10XXX * 02 YBC PTF10 IMPORT har eksterdef fil
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 03 YBC PTF11 MIDLERTIDIG ENDRING. SH MÅ KLARGJØRE FOR ALLE MED 70 LANG
+********************************************************************
+      *
+      ***********************************************************
+      * BESTILLING AV TOLLLDEK PÅ FAX
+      *** PROGRAM SKAL SKRIVE UT KOPI AV KJØREKVITTERING      ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 04-26                      ***
+      *** LEDIGE INDIKATORER 27-29 31 32 35 38 51-56 58-69    ***
+      ***                    74-78 80-87 89-99                ***
+      ***********************************************************
+     FCUNDC     IF   E             DISK
+     FFAXLK     IF   E           K DISK
+     FSADH      IF   E           K DISK
+     FSAeH      IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFAXSEN    IF   E           K DISK
+     FCUNDL01   UF   E           K DISK
+     FKUNDL01   UF   E           K DISK
+     F                                     RENAME(KUNDR:KUNDR2)
+     FFAX025FA  CF   E             WORKSTN
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                UDS
+     D  UFIRM                  1      2
+     D  UAVD                  15     18  0
+     D  USG                   19     21
+     D                 DS
+     D  F1                     1     21
+     D                                     DIM(21)
+     D  FAXNRP                 1     21
+     D                 DS
+     D  F2                     1     15
+     D                                     DIM(15)
+     D  FAXNR                  1     15
+     D  FAX05A                 1      4
+     D                 DS
+     D  F3                     1      6
+     D                                     DIM(6)
+     D  FAXRET                 1      6
+     D  FAX05B                 1      4
+     D                 DS
+     D  USØKKN                 1     30
+     D  USØKKO                 1      2
+     D  URRN                   3     12
+     D  epofax                13     13
+     D                 DS
+     D EMNEDS          C                   CONST('Sending av tolldekl.-
+     D                                     opplysninger')
+     D UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyz')
+     D epotxtI         C                   CONST('SAD-import via epost-
+     D                                     . Ref.')
+     D epotxtE         C                   CONST('SAD-eksport via epos-
+     D                                     t. Ref.')
+     IKUNDR
+     I              BANKG                       SYBAGI
+     I              POSTG                       SYPOGI
+     C*
+     C                   EXSR      INIT
+     C*
+     C     START         TAG
+     C                   EXFMT     BILDE
+     C                   EXSR      KDTFMT
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   SETOFF                                       30
+     C   03              GOTO      SLUTT
+     C   04              DO
+     C     LINNBR        IFeq      14
+     C     LO:UP         XLATE     EPOST         usok
+     C                   CALL      'VCUNDC2R'
+     C                   PARM                    FIFIRM
+     C                   PARM                    USOK             30
+     C                   PARM                    URRN2            10 0
+     c                   parm                    epofax            1
+     C     URRN2         IFNE      *ZEROS
+     C                   MOVE      URRN2         URRN
+     C                   MOVE      'KP'          USØKKO
+     C                   END
+     C                   ELSE
+     C                   MOVE      *BLANKS       FAXNR
+     C                   MOVE      *BLANKS       USØKKN           30
+     C                   CALL      'SOEKKUN'
+     C                   PARM                    KUNDNR
+     C                   PARM                    FIFIRM
+     C                   PARM                    USØKKN           30
+     c                   end
+     C* RETUR MED KONTAKTPERS
+     C     USØKKO        IFEQ      'KP'
+     C                   MOVE      URRN          RRN              10 0
+     C     RRN           CHAIN     CUNDC                              31
+     c     epofax        ifne      'E'
+     C  N31              MOVEL     CFAX          FAXNR
+     c                   else
+     c                   move      *blanks       faxnr
+     c                   end
+     c     epofax        ifne      'F'
+     C  N31              MOVEL     CEMAIL        EPOST
+     c                   else
+     c                   move      *blank        epost
+     c                   end
+     C  N31              MOVE      CCOMPN        KUNDNR
+     C                   END
+     C                   END
+     C                   EXSR      TEST
+     C   30              GOTO      START
+     C*
+     C* OPPDATERER KUNDEREGISTER
+     C*
+     C     FAXNR         IFNE      *BLANKS
+     C     TFAXNR        IFEQ      *BLANKS
+     C     KUKEY         CHAIN     CUNDL01                            33
+     C  N33              MOVE      FAXNR         TFAXNR
+     C  N33              EXCEPT    UPD
+     C     KUKEY         CHAIN     KUNDL01                            33
+     C  N33              MOVE      FAXNR         TFAXNR
+     C  N33              EXCEPT    UPD2
+     C                   END
+     C                   END
+     C   10              EXSR      SNDFAX
+     C                   GOTO      START
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     TEST          BEGSR
+     C***********************************************
+     C                   Z-ADD     1             XN                2 0
+     C                   MOVEA     '00'          *IN(96)
+     C                   MOVEA     '0'           *IN(66)
+     C*
+     C                   Z-ADD     WSFN1         SIOPD
+     C     SADHFK        CHAIN     SADH                               30
+     c   30              do
+     C     SADHFK        CHAIN     SAeH                               30
+     c  n30              seton                                        66
+     c                   enddo
+     C   30              MOVE      'YBC0047'     MSGNR
+     C   30              GOTO      SLTB
+     C*
+     C** TESTER KUNDENUMMER FRA OPPDRAG
+     C**
+     C**
+     C     KUNDNR        IFEQ      *ZEROS
+     C     KNAVN         ANDEQ     *BLANKS
+     C                   MOVE      SIKNK         KUNDNR
+     C   66              MOVE      SeKNK         KUNDNR
+     C                   END
+     C*
+     C     KUKEY         CHAIN(N)  CUNDL01                            31
+     C  N31WSLAND        IFEQ      *BLANKS
+     C                   MOVE      SYLAND        WSLAND
+     C                   END
+     C*
+     C  N31FAXNR         IFEQ      *BLANKS
+     C     EPOST         ANDEQ     *BLANKS
+     C                   MOVE      TFAXNR        FAXNR
+     c                   movel     syepos        epost
+     C                   END
+     C*
+     C*
+     C     FAXNR         IFEQ      *BLANKS
+     C     EPOST         ANDEQ     *BLANKS
+     C                   SETON                                        30
+     C   30              MOVE      'SHU0350'     MSGNR
+     C   30              GOTO      SLTB
+     C                   END
+     C*
+      *
+     C     WSTIME        IFNE      *ZEROS
+     C     WSDATE        ANDEQ     *ZEROS
+     C                   MOVE      'SHU0388'     MSGNR
+     C                   SETON                                        3097
+     C                   GOTO      SLTB
+     C                   END
+     C*
+     C     WSTIME        IFEQ      *ZEROS
+     C     WSDATE        ANDNE     *ZEROS
+     C                   MOVE      'SHU0388'     MSGNR
+     C                   SETON                                        3097
+     C                   GOTO      SLTB
+     C                   END
+     C*
+     C     WSTIME        IFLT      0
+     C     WSTIME        ORGT      235959
+     C                   MOVE      'SHU0389'     MSGNR
+     C                   SETON                                        3097
+     C                   GOTO      SLTB
+     C                   END
+     C*
+     C*** TEST DATO
+     C     WSDATE        IFNE      *ZEROS
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        COMP      1                                      96
+     C   96
+     CANN30              MOVE      'SPD0001'     MSGNR
+     C   96              SETON                                        30
+     C   30              GOTO      SLTB
+     C                   END
+     C*
+      * BÅDE FAX OG EPOST-ADRESSE LAGT INN
+     C     FAXNR         IFNE      *BLANKS
+     C     EPOST         ANDNE     *BLANKS
+     C                   SETON                                        3071
+     C   30              MOVE      'SHU0538'     MSGNR
+     C   30              GOTO      SLTB
+     C                   END
+     C*
+     C     WSLAND        IFNE      *BLANKS
+     C     WSLAND        CHAIN     FAXLK                              33
+     C     FAX05A        IFEQ      FAX05B
+     C                   MOVE      *BLANKS       FAXRET
+     C                   END
+     C                   END
+     C*
+     C     SLTB          ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    UUAVD             4 0
+     C                   PARM                    UUOPD             7 0
+     C                   READ      FIRM                                   44
+     C                   READ      FAXSEN                                 44
+     C     UUAVD         IFNE      *ZEROS
+     C                   MOVE      UUAVD         UAVD
+     C                   END
+     C     UUOPD         IFNE      *ZEROS
+     C                   Z-ADD     UUOPD         WSFN1
+     C                   END
+     C     UUOPD         IFNE      *ZEROS
+     C                   EXSR      TEST
+     C                   END
+     C     SADHFK        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    SIOPD
+     C     KUKEY         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     SNDFAX        BEGSR
+     C***********************************************
+     c                   move      'N'           covp
+     c*
+     C     FAXRET        IFNE      *BLANKS
+     C                   EXSR      FAXFIX
+     C                   ELSE
+     C                   MOVEL     FAXNR         FAXNRP
+     C                   END
+     C*
+     C                   MOVE      '*CURRENT'    PTIME             8
+     C                   MOVE      '*CURRENT'    PDATE             8
+     C     WSTIME        IFNE      *ZEROS
+     C     WSDATE        IFNE      *ZEROS
+     C                   MOVE      *BLANKS       PTIME
+     C                   MOVEL     *BLANKS       PDATE
+     C                   MOVEL     WSTIME        PTIME
+     C                   MOVEL     WSDATE        PDATE
+     C                   END
+     C                   END
+     C                   MOVE      'I'           UUKODE            1
+     C   66              MOVE      'E'           UUKODE            1
+     C                   MOVEL     'TOLLDEK.'    DOKNAV           12
+     C                   MOVE      'IMP '        DOKNAV           12
+     C   66              MOVE      'EXP '        DOKNAV           12
+     C                   MOVE      SIAVD         FAXAVD            4
+     C                   MOVE      SITDN         FAXOPD            7
+     C   66              MOVE      SEAVD         FAXAVD            4
+     C   66              MOVE      SETDN         FAXOPD            7
+S02  C*                  MOVEL     'TOLLDEK'     FILEN            10
+N02  C                   MOVEL     'SAD61PF'     FILEN            10
+N01  C   66              MOVEL     'SAD52PF'     FILEN            10
+     C     EPOST         IFne      *BLANKS
+     c                   move      'J'           wscvrp
+     c                   end
+     C     WSCVRP        IFEQ      'J'
+     C     WSCVRP        OREQ      'Y'
+     C                   MOVE      'J'           COVP
+     C     EPOST         IFEQ      *BLANKS
+     C                   MOVEL     FIFT          COV05
+     C                   MOVE      *BLANKS       COV01
+     C                   MOVE      *BLANKS       COV03
+     C                   MOVE      *BLANKS       COV04
+     C                   MOVE      *BLANKS       COV07
+     C                   MOVE      *BLANKS       COV08
+     C                   CALL      'SYGE12CL'
+     C                   PARM                    USE              10
+     C                   PARM                    NVN              40
+     C                   MOVEL     NVN           COV06
+     C                   MOVEL     KNAVN         COV02
+     C                   MOVEL     ADR1          COV03
+     C                   CALL      'FAXCVP'
+     C                   PARM                    COV01            40
+     C                   PARM                    COV02            40
+     C                   PARM                    COV03            40
+     C                   PARM                    COV04            40
+     C                   PARM                    COV05            40
+     C                   PARM                    COV06            40
+     C                   PARM                    COV07            40
+     C                   PARM                    COV08            40
+     C                   PARM                    FUNK              1
+     C*EPOST COVERPAGE
+     C                   ELSE
+     C  N66              EVAL      COV01 = EPOTXTI
+     C   66              EVAL      COV01 = EPOTXTE
+     C                   CAT       FAXAVD:1      COV01
+     C                   CAT       '/':0         COV01
+     C                   CAT       FAXOPD:0      COV01
+N03  C                   EVAL      COV01_70 = COV01
+     C                   CALL      'EPOCVP'
+S03  C*                  PARM                    COV01            40
+N03  C                   PARM                    COV01_70         70
+     C                   PARM                    COV02            40
+     C                   PARM                    COV03            40
+     C                   PARM                    COV04            40
+     C                   PARM                    COV05            40
+     C                   PARM                    COV06            40
+     C                   PARM                    COV07            40
+     C                   PARM                    COV08            40
+     C                   PARM                    FUNK              1
+N03  C                   EVAL      COV01 = COV01_70
+     C                   END
+     C     FUNK          IFEQ      'A'
+     C                   GOTO      SRFEIL
+     C                   END
+     C                   END
+     C                   MOVEL     EMNEDS        EMNE             40
+     C     EPOST         IFNE      *BLANKS
+     C                   MOVE      'J'           EPOSTJ            1
+     C                   END
+     C                   CALL      'FAX025CL'
+     C                   PARM                    FAXNRP
+     C                   PARM                    FILEN
+     C                   PARM                    PTIME
+     C                   PARM                    PDATE
+     C                   PARM                    KNAVN
+     C                   PARM                    FAXAVD
+     C                   PARM                    FAXOPD
+     C                   PARM                    UUKODE
+     C                   PARM                    DOKNAV
+     C                   PARM                    COV01            40
+     C                   PARM                    COV02            40
+     C                   PARM                    COV03            40
+     C                   PARM                    COV04            40
+     C                   PARM                    COV05            40
+     C                   PARM                    COV06            40
+     C                   PARM                    COV07            40
+     C                   PARM                    COV08            40
+     C                   PARM                    FAXFBN            3
+     C                   PARM                    COVP              1
+     C                   PARM                    EPOST
+     C                   PARM                    EPOSTJ
+     C                   PARM                    EMNE
+     C                   PARM                    KUNDNR
+     C*
+     C                   MOVE      *BLANKS       WSLAND
+     C                   MOVE      *BLANKS       FAXRET
+     C                   MOVE      *BLANKS       KNAVN
+     C                   MOVE      *BLANKS       FAXNR
+     C                   MOVE      *ZEROS        KUNDNR
+     C                   MOVE      *BLANKS       epost
+     C                   MOVE      *ZEROS        wsfn1
+     C                   z-add     7             LINNBR
+     C                   z-add     16            POSNBR
+     C     SRFEIL        ENDSR
+     C*****************************************************
+     C     FAXFIX        BEGSR
+     C*****************************************************
+     C                   Z-ADD     1             A1                2 0
+     C                   Z-ADD     1             A2                2 0
+     C                   Z-ADD     1             A3                2 0
+     C                   DO        6
+     C     F3(A3)        IFNE      *BLANKS
+     C                   MOVEL     F3(A3)        F1(A1)
+     C                   ADD       1             A1
+     C                   END
+     C                   ADD       1             A3
+     C                   END
+     C                   DO        15
+     C     F2(A2)        IFNE      *BLANKS
+     C                   MOVEL     F2(A2)        F1(A1)
+     C                   ADD       1             A1
+     C                   END
+     C                   ADD       1             A2
+     C                   END
+     C                   ENDSR
+     C***********************************************
+     C     KDTFMT        BEGSR
+     C***********************************************
+     C                   MOVE      WSDATE        XDTFMT            4 0
+     C                   MOVEL     WSDATE        UDT1              2 0
+     C                   MOVEL     XDTFMT        UDT2              2 0
+     C                   MOVE      XDTFMT        UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C*
+     C                   ENDSR
+     C*
+     OKUNDR     E            UPD
+     O                       TFAXNR
+     OKUNDR2    E            UPD2
+     O                       TFAXNR

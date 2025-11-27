@@ -1,0 +1,1096 @@
+*****H**************************************************************
+      * RETTINGER I DETTE PROGRAM:
+      * motta invoice fra Postnord
+PTFnrH* Sekv  Sig  Beskrivelse...........................
+"""""H*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 SH  PTF10 fakturagebyr JN i egen mvalinje
+      * 02 SH  PTF10 tar høyde for å skrive kopi
+10XXX * 03 SH  PTF10 ARKIVER UTSKRIFT
+10XXX * 04 SH  PTF10 MANGLEY KEY PÅ KOSTA
+      *-----------------------------------------------------------------
+11XXX * 05 SH  PTF11 skriv til track and trace
+11XXX * 06 SH  PTF11 endre ptf 05
+11XXX * 07 SH  PTF11 feil i test lengde felt
+11XXX * 08 SH  PTF11 finpuss navn etc
+*****H**************************************************************
+     H DATEDIT(*YMD)
+N03  FFIRMARC   IF   E           K DISK
+N03  FARKIVP    O  A E             DISK
+N03  FARKTXT    IF   E           K DISK
+N03  FARKEXT    IF   E           K DISK
+     FFIRMTP    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FEUNH      IF   E           K DISK
+     FEDIM      UF   E           K DISK
+     FEDTM921   IF   E           K DISK
+     FELIN921   IF   E           K DISK
+     FEMOA921   IF   E           K DISK
+     FEMEA921   IF   E           K DISK
+     FEQTY921   IF   E           K DISK
+     FENAD921   IF   E           K DISK
+     FERFF921   IF   E           K DISK
+     FECNT921   IF   E           K DISK
+     FEALC921   IF   E           K DISK
+     FFRISOL01  IF   E           K DISK
+     F                                     RENAME(FRISOKR:FRISOKL)
+     FHEADF     IF   E           K DISK
+     FFAKT      IF   E           K DISK
+     FKOSTT     UF   E           K DISK
+s03  F*OSTA     O  A E             DISK
+S04  F*OSTA     IF A E             DISK
+N04  FKOSTA     IF A E           K DISK
+N05  FTRACKF    O  A E           K DISK
+     FKOSTB     O  A E             DISK
+     FTP123P    O    E             PRINTER
+     FTP123PB   O    E             PRINTER
+     FINV921F   IF A E           K DISK
+     D A               S              1    DIM(79)
+     D B               S              1    DIM(18)
+     D TABA            S              3    DIM(34) CTDATA PERRCD(1)
+     D TABB            S             35    DIM(34) ALT(TABA)
+      *___________________________
+      * Finner username
+      *"""""""""""""""""""""""""""
+     D                SDS
+     D  UUSER                254    263
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTM                    1      6  0
+     D  XDG                    7      8  0
+     D  XMN                    9     10  0
+     D  XÅR                   11     14  0
+     D  XÅRTO                 13     14  0
+     D                 DS
+     D  KADTE                  1      8  0
+     D  KAÅRE                  1      4  0
+     D  KAMNE                  5      6  0
+     D  KADGE                  7      8  0
+     D                 DS
+     D  HEDTOP                 1      8  0
+     D  HEDTÅ                  3      4  0
+     D  HEDTM                  5      6  0
+     D  HEDTD                  7      8  0
+     D                 DS
+     D  KABDT                  1      8  0
+     D  KABA                   3      4  0
+     D  KABM                   5      6  0
+     D  KABD                   7      8  0
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  R1154                  1     35
+     D  R11540                 1     10
+     D                 DS
+     D  DSMNN                  1      9  0
+     D                 DS
+     D  WFSSOK                 1     15
+     D  WFSSO0                 1      9
+     D  WFSSO1                 1      4
+     D  WFSSO2                 5      9
+     D                 DS
+     D  XXAVD                  1      4
+     D  SLASJ1                 5      5
+     D  XXOPD                  6     12
+     D  XXOPD5                 6     10
+     D  SLASJ25               11     11
+     D  SLASJ2                13     13
+     D  COTEST                 1     17
+     D                 DS
+     D  F1                     1     13
+     D                                     DIM(13)                              KAFNR I KOSTA
+     D  KAFNR                  1     13
+     D                 DS
+     D  F2                     1     13
+     D                                     DIM(13)                              KRNR  I POSTB0
+     D  KAFNRN                 1     13
+     D                 DS            10
+     D DIGITS          C                   CONST('0123456789')
+N05  D                 DS
+N05  D  XULTID                 1     14  0
+N05  D  XULTM                  1      6  0
+N05  D  XULDD                  7      8  0
+N05  D  XULMM                  9     10  0
+N05  D  XULÅÅ                 11     14  0
+N05  D                 DS
+N05  D  ULÅÅ                   1      4  0
+N05  D  ULMM                   5      6  0
+N05  D  ULDD                   7      8  0
+N05  D  ULDT                   1      8  0
+     IEDIMR
+     I              MMN                         TVIMMN
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * CONVERT
+      *""""""""
+     C  N20              EXSR      RTVD
+      *___________
+      * UPDATE LOG
+      *"""""""""""
+     C                   MOVE      'C'           MST
+     C                   UPDATE    EDIMR
+     C                   SETON                                        LR
+     C                   RETURN
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+N03  C     ARKEXTK       KLIST
+N03  C                   KFLD                    FIFIRM
+N03  C                   KFLD                    ARKLAG
+     C     KEYMS0        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN0
+     C     KEYMS1        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN1
+     C                   KFLD                    ZREPB0
+     C     KEYMS2        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN2
+     C                   KFLD                    ZREPC0
+     C                   KFLD                    ZREPC1
+     C     KEYMS3        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN3
+     C                   KFLD                    ZREPD0
+     C                   KFLD                    ZREPD1
+     C                   KFLD                    ZREPD2
+     C     KEYMS4        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN4
+     C                   KFLD                    ZREPE0
+     C                   KFLD                    ZREPE1
+     C                   KFLD                    ZREPE2
+     C                   KFLD                    ZREPE3
+     C     KEYMS5        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN5
+     C                   KFLD                    ZREPF0
+     C                   KFLD                    ZREPF1
+     C                   KFLD                    ZREPF2
+     C                   KFLD                    ZREPF3
+     C                   KFLD                    ZREPF4
+     C     FRIKEY        KLIST
+     C                   KFLD                    FSKODE
+     C                   KFLD                    FSSOK
+     C     FRIKE2        KLIST
+     C                   KFLD                    FSAVD
+     C                   KFLD                    FSOPD
+     C                   KFLD                    FSKODE
+     C     HEAKEY        KLIST
+     C                   KFLD                    KBAVD
+     C                   KFLD                    KBOPD
+     C     *LIKE         DEFINE    TVIMMN        ZMMN
+     C     *LIKE         DEFINE    NMN           ZMN
+     C     *LIKE         DEFINE    NGN           ZGN0
+     C     *LIKE         DEFINE    NGN           ZGN1
+     C     *LIKE         DEFINE    NGN           ZGN2
+     C     *LIKE         DEFINE    NGN           ZGN3
+     C     *LIKE         DEFINE    NGN           ZGN4
+     C     *LIKE         DEFINE    NGN           ZGN5
+     C     *LIKE         DEFINE    NREP0         ZREPB0
+     C     *LIKE         DEFINE    NREP0         ZREPC0
+     C     *LIKE         DEFINE    NREP1         ZREPC1
+     C     *LIKE         DEFINE    NREP0         ZREPD0
+     C     *LIKE         DEFINE    NREP1         ZREPD1
+     C     *LIKE         DEFINE    NREP2         ZREPD2
+     C     *LIKE         DEFINE    NREP0         ZREPE0
+     C     *LIKE         DEFINE    NREP1         ZREPE1
+     C     *LIKE         DEFINE    NREP2         ZREPE2
+     C     *LIKE         DEFINE    NREP3         ZREPE3
+     C     *LIKE         DEFINE    NREP0         ZREPF0
+     C     *LIKE         DEFINE    NREP1         ZREPF1
+     C     *LIKE         DEFINE    NREP2         ZREPF2
+     C     *LIKE         DEFINE    NREP3         ZREPF3
+     C     *LIKE         DEFINE    NREP4         ZREPF4
+     C     *LIKE         DEFINE    NREP0         ZREPG0
+     C     *LIKE         DEFINE    NREP1         ZREPG1
+     C     *LIKE         DEFINE    NREP2         ZREPG2
+     C     *LIKE         DEFINE    NREP3         ZREPG3
+     C     *LIKE         DEFINE    NREP4         ZREPG4
+     C     *LIKE         DEFINE    NREP5         ZREPG5
+     C     *LIKE         DEFINE    NREP0         ZREPH0
+     C     *LIKE         DEFINE    NREP1         ZREPH1
+     C     *LIKE         DEFINE    NREP2         ZREPH2
+     C     *LIKE         DEFINE    NREP3         ZREPH3
+     C     *LIKE         DEFINE    NREP4         ZREPH4
+     C     *LIKE         DEFINE    NREP5         ZREPH5
+     C     *LIKE         DEFINE    NREP6         ZREPH6
+     C     *LIKE         DEFINE    NREP0         ZREPI0
+     C     *LIKE         DEFINE    NREP1         ZREPI1
+     C     *LIKE         DEFINE    NREP2         ZREPI2
+     C     *LIKE         DEFINE    NREP3         ZREPI3
+     C     *LIKE         DEFINE    NREP4         ZREPI4
+     C     *LIKE         DEFINE    NREP5         ZREPI5
+     C     *LIKE         DEFINE    NREP6         ZREPI6
+     C     *LIKE         DEFINE    NREP7         ZREPI7
+     C     *LIKE         DEFINE    NREP0         ZREPJ0
+     C     *LIKE         DEFINE    NREP1         ZREPJ1
+     C     *LIKE         DEFINE    NREP2         ZREPJ2
+     C     *LIKE         DEFINE    NREP3         ZREPJ3
+     C     *LIKE         DEFINE    NREP4         ZREPJ4
+     C     *LIKE         DEFINE    NREP5         ZREPJ5
+     C     *LIKE         DEFINE    NREP6         ZREPJ6
+     C     *LIKE         DEFINE    NREP7         ZREPJ7
+     C     *LIKE         DEFINE    NREP8         ZREPJ8
+     C                   MOVE      *ZEROS        HEDTOP
+     C     *ENTRY        PLIST
+     C                   PARM                    DSMNA             9
+     C                   PARM                    KOPI              1
+N03  C                   PARM                    UINFOP            1
+N03  C                   PARM                    UBANEA           70
+N03  C                   PARM                    UBANEB           70
+     C                   MOVE      DSMNA         DSMNN
+     C                   Z-ADD     DSMNN         ZMN
+     C     ZMN           CHAIN     EUNH                               20
+     C  N20              Z-ADD     ZMN           ZMMN
+     C  N20ZMMN          CHAIN     EDIM                               20
+      *DELAY THIS JOB
+     C                   MOVEL(P)  'DLYJOB D'    QCMDR            15
+     C                   CAT       'LY(060':0    QCMDR
+     C                   CAT       ')':0         QCMDR
+     C                   Z-ADD     15            QCMDLE           15 5
+     C                   CALL      'QCMDEXC'                            3131
+     C                   PARM                    QCMDR
+     C                   PARM                    QCMDLE
+     C                   READ      FIRM                                   33
+     C     FIFIRM        CHAIN     FIRMTP                             33
+     C                   MOVE      FITAX         FITAXI            5 4
+N03  C     FIFIRM        CHAIN     FIRMARC                            33
+N03  C  N33              IF        ((TPDTDO <> *BLANKS) OR (TPDTKL <> *BLANKS))
+N03   * Faktura
+N03  C                   IF        TPDTDO <> *BLANKS
+N03  C                   MOVE      TPDTDO        XARTYPEDO         2
+N03  C     XARTYPEDO     CHAIN     ARKTXT                             33
+N03  C                   IF        ARKLAG <> *BLANKS
+N03  C     ARKEXTK       CHAIN     ARKEXT                             33
+N03  C                   END
+N03  C                   MOVE      ARCANE        XARCANEDO        30
+N03  C                   END
+N03   * KONTROLLISTE
+N03  C                   IF        TPDTKL <> *BLANKS
+N03  C                   MOVE      TPDTKL        XARTYPEKL         2
+N03  C     XARTYPEKL     CHAIN     ARKTXT                             33
+N03  C                   IF        ARKLAG <> *BLANKS
+N03  C     ARKEXTK       CHAIN     ARKEXT                             33
+N03  C                   END
+N03  C                   MOVE      ARCANE        XARCANEKL        30
+N03  C                   END
+N03   *
+N03  C                   EVAL      UINFOP = ARCINF
+N03  C                   EVAL      ARSTAT = 'A'
+N03  C                   EVAL      ARFIRM = FIFIRM
+N03  C                   EVAL      ARUNDE = 'KL:'
+N03  C                   EVAL      ARUSER = UUSER
+N03  C                   CALL      'SYGE15C'
+N03  C                   PARM                    WDT               8
+N03  C                   PARM                    WTM               6
+N03  C                   MOVE      WDT           ARDATE
+N03  C                   MOVE      WTM           ARTIME
+N03  C                   END
+N03   *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED400     RTVD /
+      *////////////////////////////////////////////////////////////
+     C     RTVD          BEGSR
+      *___________________________
+      * INIT AV FELT I PRINTERFILE
+      *"""""""""""""""""""""""""""
+     C                   CLEAR                   RCD000
+     C                   MOVEL     U1004         X1004
+      *
+      * finnes samme fakturanr fra før!!! - i så fall skipp (forutsetter at kun TP I fila)
+      * ikke test hvis kopi='J'
+      *
+     c     X1004         chain     INV921F                            33
+N03  C  N33KABNR         chain     KOSTA                              33
+N02  c  N33              move      kabnr         kabnrp            7 0
+N02  c  N33              move      kabnr2        kabnr2p           7 0
+     c     *IN33         ifeq      *off
+N02  C     KOPI          andne     'J'
+     C                   WRITE     RCD000BF
+     c                   goto      UtRTVD
+     c                   end
+      *______________
+      * INIT AV KOSTA
+      *""""""""""""""
+     C                   CLEAR                   KOSTAR
+N02  c  N33              move      kabnrp        kabnr
+N02  c  N33              move      kabnr2p       kabnr2            7 0
+     C                   TIME                    XTIME
+     C                   MOVE      UUSER         KAUSER
+     C                   MOVE      XTM           KATME
+     C                   MOVE      XDG           KADGE
+     C                   MOVE      XMN           KAMNE
+     C                   MOVE      XÅR           KAÅRE
+     C                   MOVE      'NOK'         KAVAL
+     C                   Z-ADD     100           KAVKU
+     C                   Z-ADD     100           KAOMRF
+     C                   MOVE      TPGEB1        KAVK
+      * FAKTURANUMMER
+     C                   MOVEL     U1004         KAFNR
+     C                   MOVE      *blanks       KAFNRN
+     C                   Z-ADD     1             N1                2 0
+     C                   Z-ADD     1             N2                2 0
+     C     N1            DOWNE     13
+     C     F1(N1)        IFNE      '0'
+     C     KAFNRN        ORNE      *BLANKS
+     C                   MOVE      F1(N1)        F2(N2)                          * F2=KRNR
+     C                   ADD       1             N2
+     C                   END
+     C                   ADD       1             N1
+     C                   END
+     C                   MOVEL     KAFNRN        KAFNR
+     C                   MOVE      'EDI'         KASG
+N01  C     TPMVAF        IFNE      'J'
+     C                   MOVE      'P'           KAMVA
+     C                   ELSE
+     C                   MOVE      'F'           KAMVA
+     C                   END
+      *___________________
+      * HENTE INNREGNR
+      *"""""""""""""""""""
+N02  C     KOPI          IFNE      'J'
+     C     'Ø'           CHAIN     KOSTT                              20
+     C     *IN20         IFEQ      '0'
+     C                   Z-ADD     KTNR          KABNR
+     C                   ADD       1             KTNR
+     C                   UPDATE    KOSTTR
+     C                   ENDIF
+      *___________________
+      * HENTE BILAGSNUMMER
+      *"""""""""""""""""""
+     C     TPSERI        CHAIN     KOSTT                              20
+     C     *IN20         IFEQ      '0'
+     C                   Z-ADD     KTNR          KABNR2
+     C                   ADD       1             KTNR
+     C                   UPDATE    KOSTTR
+     C                   ENDIF
+N02  C                   END
+      *___________________
+      * READ MAIN SEGMENTS
+      *"""""""""""""""""""
+      * CNT00
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     0             ZGN0
+     C     KEYMS0        CHAIN     ECNT921                            51
+     C     *IN51         IFEQ      '0'
+     C                   MOVEA     C6066         A
+     C                   EXSR      GETNUM
+     C     ZNUM          DIV       32            XDIV              4 1
+     C                   ADD       1             XDIV
+     C                   Z-ADD     XDIV          XPAG2
+     C                   ENDIF
+      * DTM00
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     0             ZGN0
+     C     KEYMS0        SETLL     EDTM921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EDTM921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     D2380         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     D2005         WHENEQ    '3  '
+     C                   Z-ADD     ZNUM          KAFDT
+     C                   Z-ADD     ZNUM          KABDT
+     C                   Z-ADD     20            KAPCC
+     C                   Z-ADD     KABM          KAPMN
+     C                   Z-ADD     KABA          KAPÅR
+     C*
+     C                   MOVE      FITAXI        FITAX
+     C     FITAXD        IFNE      *ZEROS
+     C     FITAX2        ANDNE     *ZEROS
+     C     KABDT         ANDLE     FITAXD
+     C                   MOVE      FITAX2        FITAX
+     C                   END
+     C     FITAX         ADD       1             FITAXN            5 4
+      *
+     C                   MOVEL     D2380         X2380
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     EDTM921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      * RFF01
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     1             ZGN0
+     C     KEYMS0        SETLL     ERFF921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ERFF921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     R1153         WHENEQ    'SS '
+     C                   MOVEL     R1154         KALKID
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     ERFF921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      * NAD02
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     2             ZGN0
+     C     KEYMS0        SETLL     ENAD921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ENAD921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     N3039         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     N3035         WHENEQ    'SE '
+     C                   Z-ADD     ZNUM          KALNR
+     C                   Z-ADD     TPLEVN        KALNR
+     C                   MOVEL     N3039         Z3039
+     C                   MOVEL     N3036A        Z3036
+S08  C*                  MOVEL(P)  'TOLLPOST'    Z3036
+S08  C*                  CAT       ' GLOBE':0    Z3036
+     C                   MOVEL     N3251         Z3251
+     C                   MOVEL     N3124A        Z3124             3
+     C     Z3124         LOOKUP    TABA          TABB                     20
+     C                   MOVEL     TABB          Z3042
+     C                   MOVEL     N3164         Z3164
+      *
+      * X + kundenummer transportør til KATXT
+      *
+     C     N3035         WHENEQ    'BY '
+     c                   movel     'X0'          KATXT
+     c     KATXT         CAT       N3039:0       KATXT
+      *
+     C                   MOVEL     N3039         Å3039
+N08  c                   eval      MNAVN=N3036A
+N08  c                   eval      MADR=N3042A
+N08  C                   eval      MSTED=N3251 + ' '
+N08  C                             + %trim(N3164)
+     C     N3035         WHENEQ    'IV '
+     C                   MOVEL     N3039         Å3039
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     ENAD921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      * DTM08
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     8             ZGN0
+     C     KEYMS0        SETLL     EDTM921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EDTM921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     D2380         A
+     C                   EXSR      GETNUM
+     C     D2005         IFEQ      '13 '
+     C                   Z-ADD     ZNUM          KAFFDT
+     C                   MOVEL     D2380         X2380B
+     C                   ENDIF
+      *
+     C     KEYMS0        READE     EDTM921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      * MOA45
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     45            ZGN0
+     C     KEYMS0        SETLL     EMOA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EMOA921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     M5004         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     M5025         WHENEQ    '77 '
+     C                   Z-SUB     ZNUM          KABL
+     C                   MOVEL     M5004         X5004
+     C     M5025         WHENEQ    'DI '
+     C                   Z-SUB     ZNUM          KADIES            9 2
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     EMOA921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      * MOA47 momspostering
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     47            ZGN0
+     C     KEYMS0        SETLL     EMOA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EMOA921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     M5004         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     M5025         WHENEQ    '150'
+N01  C     TPMVAF        IFEQ      'J'
+N01  C                   CLEAR                   KOSTBR
+N01  C                   Z-ADD     KABNR         KBBNR
+N01  C                   MOVE      TPGEB4        KBVK
+N01  C                   MOVE      'F'           KBKDPF
+N01  C                   Z-ADD     ZNUM          KBBLHB
+N01  C                   Z-ADD     9             KBKDM
+N01  C                   Z-ADD     18            KBKN
+N02  C     KOPI          IFNE      'J'
+N01  C                   WRITE     KOSTBR
+N01  C                   END
+N01  C                   END
+     C                   MOVEL     M5004         X5004M
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     EMOA921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      *
+      *
+      * MOA48 fakturagebyr
+      *
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     48            ZGN0
+     C     KEYMS0        SETLL     EMOA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EMOA921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEA     M5004         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+      * fakturagebyr
+     C     M5025         WHENEQ    '24 '
+N01  C                   CLEAR                   KOSTBR
+N01  C                   Z-ADD     KABNR         KBBNR
+N01  C                   MOVE      TPGEB3        KBVK
+N01  C                   Z-ADD     ZNUM          KBBLHB
+N01  C     TPMVAF        IFNE      'J'
+N01  C                   MOVE      'P'           KBKDPF
+N01  C                   MULT      FITAXN        KBBLHB
+N01  C                   Z-ADD     1             KBKDM
+N01  C                   ELSE
+N01  C                   MOVE      'F'           KBKDPF
+N01  C                   Z-ADD     0             KBKDM
+N01  C                   END
+N01  C                   Z-ADD     18            KBKN
+N02  C     KOPI          IFNE      'J'
+N01  C                   WRITE     KOSTBR
+N02  C                   END
+     C                   ENDSL
+      *
+     C     KEYMS0        READE     EMOA921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      *___________
+      * LAGE KOSTA
+      *"""""""""""
+N02  C     KOPI          IFNE      'J'
+     C                   WRITE     KOSTAR
+     C                   WRITE     INV921FR
+N03  C                   ELSE
+N03  C                   exsr      skrivark
+N02  C                   END
+      *______________________
+      * SKRIV FAKTURA HEADING
+      *""""""""""""""""""""""
+     C                   Z-ADD     1             XPAG1
+     C                   Z-ADD     0             XLIN              2 0
+     C                   WRITE     RCD000
+     C                   WRITE     RCD000B
+      *_________
+      * READ LIN
+      *"""""""""
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     22            ZGN0
+     C     KEYMS0        SETLL     ELIN921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ELIN921                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   EXSR      RTVDB
+      *
+     C     KEYMS0        READE     ELIN921                                51
+     C  N51              ENDDO
+     C                   ENDIF
+     c     UtRTVD        tag
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED400    RTVDB /
+      *////////////////////////////////////////////////////////////
+     C     RTVDB         BEGSR
+      *__________
+      * INZ KOSTB
+      *""""""""""
+     C                   CLEAR                   KOSTBR
+     C                   Z-ADD     KABNR         KBBNR
+     C                   MOVE      TPGEB2        KBVK
+N01  C     TPMVAF        IFNE      'J'
+     C                   MOVE      'P'           KBKDPF
+     C                   Z-ADD     1             KBKDM
+N01  C                   ELSE
+N01  C                   MOVE      'F'           KBKDPF
+     C                   Z-ADD     0             KBKDM
+N01  C                   END
+      *__________________
+      * READ ALL SEGMENTS
+      *""""""""""""""""""
+     C                   Z-ADD     LREP0         ZREPB0
+     C                   EXSR      MEA22
+     C                   EXSR      QTY22
+     C                   EXSR      MOA23
+     C                   EXSR      RFF26
+     C                   EXSR      NAD31
+     C                   EXSR      ALC35
+     C*
+      *___________________
+      * WRITE TO SYSPED400
+      *"""""""""""""""""""
+     C                   Z-ADD     9             KBNØKK
+     C     KBAVD         IFNE      *ZEROS
+     C     KBOPD         ANDNE     *ZEROS
+     C                   Z-ADD     0             KBNØKK
+     C                   END
+N02  C     KOPI          IFNE      'J'
+     C                   WRITE     KOSTBR
+N05  C     KBAVD         IFNE      *ZEROS
+N05  C     KBOPD         ANDNE     *ZEROS
+N05  C                   exsr      TTSR
+N05  C                   end
+N02  C                   END
+      *____________________
+      * SKRIV FAKTURA LINJE
+      *""""""""""""""""""""
+     C                   WRITE     RCD001                               99
+     C     *IN99         IFEQ      '1'
+     C                   ADD       1             XPAG1
+     C                   Z-ADD     0             XLIN
+     C                   SETOFF                                       99
+     C                   WRITE     RCD000
+     C                   END
+     C                   WRITE     RCD001B                              99
+     C     *IN99         IFEQ      '1'
+     C                   SETOFF                                       99
+     C                   WRITE     RCD000B
+     C                   END
+     C                   CLEAR                   RCD001
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * MOA23                                               MOA23 /
+      *////////////////////////////////////////////////////////////
+     C     MOA23         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     23            ZGN1
+     C     KEYMS1        SETLL     EMOA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EMOA921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   MOVEA     M5004         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     M5025         WHENEQ    '38 '
+     C                   Z-ADD     ZNUM          KBBLHB
+N01  C     TPMVAF        IFNE      'J'
+     C                   MULT      FITAXN        KBBLHB
+N01  C                   END
+     C                   MOVEL     M5004         X5004C
+     C     M5025         WHENEQ    '203'
+     C                   MOVEL     M5004         X5004A
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     EMOA921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * MOA38                                               MOA38 /
+      *////////////////////////////////////////////////////////////
+     C     MOA38         BEGSR
+     C                   MOVE      '0'           *IN53
+     C                   Z-ADD     38            ZGN2
+     C     KEYMS2        SETLL     EMOA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS2        READE     EMOA921                                53
+     C     *IN53         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     M5025         WHENEQ    '52 '
+     C                   MOVEL     M5004         X5004B
+     C                   ENDSL
+      *
+     C     KEYMS2        READE     EMOA921                                53
+     C  N53              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * MEA22                                               MEA22 /
+      *////////////////////////////////////////////////////////////
+     C     MEA22         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     22            ZGN1
+     C     KEYMS1        SETLL     EMEA921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EMEA921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     M6311         WHENEQ    'AAU'
+     C                   MOVEL     M6314         X6314A
+     C     M6311         WHENEQ    'WT '
+     C                   MOVEL     M6314         X6314B
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     EMEA921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * QTY22                                               QTY22 /
+      *////////////////////////////////////////////////////////////
+     C     QTY22         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     22            ZGN1
+     C     KEYMS1        SETLL     EQTY921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EQTY921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     Q6063         WHENEQ    '100'
+     C                   MOVEL     Q6060         X6060A
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     EQTY921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RFF26                                               RFF26 /
+      *////////////////////////////////////////////////////////////
+     C     RFF26         BEGSR
+     C                   MOVE      *ZEROS        FASUM             7 2
+     C                   MOVE      *ZEROS        UFASUM            7 2
+     C                   MOVE      *ZEROS        FADIF             7 2
+     C                   SUB       *ZEROS        UFADIF            7 2
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     26            ZGN1
+     C     KEYMS1        SETLL     ERFF921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ERFF921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+      * TESTER PÅ FRAKTBREVNUMMER
+      *
+     C                   SELECT
+     C     R1153         WHENEQ    'AAM'
+     C                   MOVEL     R1154         FSSO17           17
+     C                   MOVE      FSSO17        FSSO7             7
+S07  C*    FSSO7         IFEQ      *BLANKS
+N07  C     FSSO7         IFNE      *BLANKS
+     C                   MOVEL     FSSO17        FSSOK
+     C                   MOVEL     FSSO17        KBBILT
+     C                   ELSE
+     C                   MOVE      FSSO17        FSSO10           10
+     C                   MOVEL     FSSO10        FSSOK
+     C                   MOVEL     FSSO10        KBBILT
+     C                   END
+     C                   MOVE      'IFB'         FSKODE
+     C     FRIKEY        CHAIN     FRISOL01                           20
+     C     *IN20         IFEQ      '0'
+     C                   MOVE      FSAVD         KBAVD
+     C                   MOVE      FSOPD         KBOPD
+     C     HEAKEY        CHAIN     HEADF                              20
+     C     *IN20         IFEQ      '0'
+     C                   EXSR      FAKTSR
+     C     HEKDFK        IFNE      'X'
+     C                   MOVE      HEKNKF        KBKN
+     C                   ELSE
+     C                   MOVE      HEKNSF        KBKN
+     C                   END
+     C                   ELSE
+     C                   Z-ADD     0             HEAVD
+     C                   Z-ADD     0             HEOPD
+     C                   MOVE      *BLANKS       HESG
+     C                   ENDIF
+     C                   ENDIF
+     C                   MOVEL     R1154         X1154B
+     C                   Z-ADD     RREP0         ZREPC0
+     C                   Z-ADD     RREP1         ZREPC1
+     C                   EXSR      DTM26
+      *
+      * TESTER PÅ KUNDES REF
+      *
+     C     R1153         WHENEQ    'CO '
+     C                   MOVEL     R1154         X1154
+     C     KBBILT        IFEQ      *BLANKS
+     C                   MOVEL     R1154         KBBILT
+     C                   END
+     C                   MOVEL     R1154         COTEST
+     C     HEAVD         IFEQ      *ZEROS
+     C     SLASJ1        ANDEQ     '/'
+     C     SLASJ2        IFEQ      '/'
+     C                   MOVE      XXAVD         KBAVD
+     C                   MOVE      XXOPD         KBOPD
+     C                   else
+     c     slasj25       ifeq      '/'
+     C                   MOVE      XXAVD         KBAVD
+     c                   move      xxopd5        KBOPD
+     C                   end
+     c                   end
+     C     HEAKEY        CHAIN     HEADF                              20
+      * START 20
+     C     *IN20         IFEQ      '0'
+     C                   EXSR      FAKTSR
+     C     HEKDFK        IFNE      'X'
+     C                   MOVE      HEKNKF        KBKN
+     C                   ELSE
+     C                   MOVE      HEKNSF        KBKN
+     C                   END
+     C                   END
+     C                   END
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     ERFF921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * NAD31                                               NAD31 /
+      *////////////////////////////////////////////////////////////
+     C     NAD31         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     31            ZGN1
+     C     KEYMS1        SETLL     ENAD921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ENAD921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     N3035         WHENEQ    'DP '
+     C                   MOVEL     N3036A        X3036A
+     C                   MOVEL     N3164         X3164
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     ENAD921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * ALC35                                               ALC35 /
+      *////////////////////////////////////////////////////////////
+     C     ALC35         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     35            ZGN1
+     C     KEYMS1        SETLL     EALC921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EALC921                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   Z-ADD     AREP0         ZREPC0
+     C                   Z-ADD     AREP1         ZREPC1
+     C                   EXSR      MOA38
+      *
+     C     KEYMS1        READE     EALC921                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * DTM26                                               DTM26 /
+      *////////////////////////////////////////////////////////////
+     C     DTM26         BEGSR
+     C                   MOVE      '0'           *IN53
+     C                   Z-ADD     26            ZGN2
+     C     KEYMS2        SETLL     EDTM921                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS2        READE     EDTM921                                53
+     C     *IN53         DOWEQ     '0'
+      *
+     C*                    MOVELD2380     X2380C
+      *
+     C     KEYMS2        READE     EDTM921                                53
+     C  N53              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Get numerical value                               GETNUM /
+      *////////////////////////////////////////////////////////////
+     C     GETNUM        BEGSR
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * FAKTSR                                              ALC35 /
+      *////////////////////////////////////////////////////////////
+     C     FAKTSR        BEGSR
+     C                   SETOFF                                       33
+     C     HEAKEY        SETLL     FAKT
+     C     *IN33         DOWEQ     '0'
+     C     HEAKEY        READE     FAKT                                   33
+     C     *IN33         IFEQ      '0'
+     C     FAKDA         ANDNE     'K'
+     C     FAOPKO        ANDNE     'D'
+     C     FAVK          IFEQ      '03 '
+     C     FAVK          OREQ      'TGI'
+     C     FAVK          OREQ      'FRA'
+     C     FAVK          OREQ      '07 '
+     C*
+     C     FAOPKO        IFGT      'C'
+     C                   ADD       FABELN        FASUM
+     C                   ELSE
+     C                   ADD       FABELN        UFASUM
+     C                   END
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDDO
+     C     FASUM         SUB       KBBLHB        FADIF
+     C     UFASUM        SUB       KBBLHB        UFADIF
+     C                   ENDSR
+N03   ****************************************************
+N03  C     skrivark      begsr
+N03   ****************************************************
+N03   * FAKTURA
+N03  C                   IF        XARTYPEDO <> *BLANKS
+N03  C                   EVAL      ARAVD = 0
+N03  C                   EVAL      AROPD = 0
+N03  C                   MOVE      KABNR         ARUNDE
+N03  C                   EVAL      ARTYPE = XARTYPEDO
+N03  C                   EVAL      ARLINK = XARTYPEDO
+N03  C                   MOVEL     ARDATE        AAR               4
+N03  C                   CAT       AAR:0         ARLINK
+N03  C                   MOVE      KABNR         XAN07             7
+N03  C                   CAT       XAN07:0       ARLINK
+N03  C                   CALL      'ARCRAN'
+N03  C                   PARM                    XAN10            10
+N03  C                   CAT       XAN10:0       ARLINK
+N03  C                   CAT       '.pdf':0      ARLINK
+N03  C                   WRITE     ARKIVR
+N03  C                   EVAL      UBANEA = '/'
+N03  C                             + %TRIM(XARCANEDO) + '/'
+N03  C                             + %TRIM(ARLINK)
+N03  C                   END
+N03   * KONTROLLISTE
+N03  C                   IF        XARTYPEKL <> *BLANKS
+N03  C                   EVAL      ARAVD = 0
+N03  C                   EVAL      AROPD = 0
+N03  C                   MOVE      KABNR         ARUNDE
+N03  C                   EVAL      ARTYPE = XARTYPEKL
+N03  C                   EVAL      ARLINK = XARTYPEKL
+N03  C                   MOVEL     ARDATE        AAR               4
+N03  C                   CAT       AAR:0         ARLINK
+N03  C                   MOVE      KABNR         XAN07             7
+N03  C                   CAT       XAN07:0       ARLINK
+N03  C                   CALL      'ARCRAN'
+N03  C                   PARM                    XAN10            10
+N03  C                   CAT       XAN10:0       ARLINK
+N03  C                   CAT       '.pdf':0      ARLINK
+N03  C                   WRITE     ARKIVR
+N03  C                   EVAL      UBANEB = '/'
+N03  C                             + %TRIM(XARCANEKL) + '/'
+N03  C                             + %TRIM(ARLINK)
+N03  C                   END
+N03  C                   ENDSR
+N05  C***********************************************
+N05  C     TTSR          BEGSR
+N05  C***********************************************
+     c                   move      kabnr2        kabnrx            7
+N05  C                   MOVE      KBAVD         TTAVD
+N05  C                   MOVE      KBOPD         TTOPD
+N05  C                   TIME                    XULTID
+N05  C                   MOVE      XULDD         ULDD
+N05  C                   MOVE      XULMM         ULMM
+N05  C                   MOVE      XULÅÅ         ULÅÅ
+N05  C                   MOVE      'INC'         TTACTI
+N05  C                   MOVE      ULDT          TTDATE
+N05  C                   MOVE      XULTM         TTTIME
+N05  C                   MOVE      TTDATE        TTDATL
+N05  C                   MOVE      TTTIME        TTTIML
+N05  C                   MOVE      UUSER         TTUSER
+N05  C                   MOVE      *blanks       TTTEXT
+N05  C                   movel     'FV:'         depxx            10
+s06  C*                  move      X6314B        depxx
+n06  C                   move      X6060A        depxx
+N05  c                   move      depxx         TTDEPO
+N06  C                   movel     'NV:'         namxx            10
+n06  C                   move      X6314B        namxx
+n06  c                   move      namxx         TTNAME
+N05  C                   eval      TTTEXT = 'Ino:'
+N05  C     TTTEXT        CAT       KAFNR:1       TTTEXT
+N05  C     TTTEXT        CAT       'Vno:':1      TTTEXT
+N05  C     TTTEXT        CAT       KABNRX:1      TTTEXT
+N05  C     TTTEXT        CAT       Z3036:1       TTTEXT
+N05  C                   eval      TTTEXL = 'Fnr:'
+N05  C     TTTEXL        CAT       KAFNR:1       TTTEXL
+N05  C     TTTEXL        CAT       'Bnr:':1      TTTEXL
+N05  C     TTTEXL        CAT       KABNRX:1      TTTEXL
+N05  C     TTTEXL        CAT       Z3036:1       TTTEXL
+N05   * VEKT TIL DEPO
+N05  C                   WRITE     TRACKFR
+N05  C                   ENDSR
+     C*
+N03   *
+** TABELL FOR AVDELINGER INNOM TOLLPOST GLOBE
+001OSLO
+002ÅNDALSNES
+003DRAMMEN
+004STAVANGER
+005BERGEN
+006ÅLESUND
+007TRONDHEIM
+008BODØ
+009SKIEN
+016FREDRIKSTAD
+022KONGSVINGER
+023MJØSTERMINALEN
+024ELVERUM
+027OTTA
+031SEM
+038GOL
+046KRISTIANSAND
+051FØRDE
+055HAUGESUND
+057VOSS
+058SOGNDAL
+059STRYN
+064MOLDE
+065KRISTIANSUND
+077STEINKJER
+081STOKMARKNES
+086MO I RANA
+087MOSJØEN
+089TANA BRU
+090TROMSØ
+093FINNSNES
+094HARSTAD
+095ALTA
+096HAMMERFEST

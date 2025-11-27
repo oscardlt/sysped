@@ -1,0 +1,137 @@
+     FSVEH      UF   E           K DISK
+     FSVEHE     UF   E           K DISK
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   EXSR      SRC
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+     C     *LIKE         DEFINE    SVEH_SYAV     UVEH_SYAV
+     C     *LIKE         DEFINE    SVEH_SYOP     UVEH_SYOP
+     C     *LIKE         DEFINE    SVEH_BYTE     UVEH_BYTE
+     C     *LIKE         DEFINE    SVEH_SGDK     UVEH_SGDK
+     C     *LIKE         DEFINE    SVEH_SGUT     UVEH_SGUT
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     UKEY          KLIST
+     C                   KFLD                    UVEH_SYAV
+     C                   KFLD                    UVEH_SYOP
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+N01  C                   CALL      'SYGE15C'
+N01  C                   PARM                    WDT               8
+N01  C                   PARM                    WTM               6
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  slett gammel edifact                                 SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+     C     UKEY          SETLL     SVEHE
+     C     UKEY          READE     SVEHE                                  51
+     C     *IN51         DOWEQ     *OFF
+     C                   DELETE    SVEHER
+     C     UKEY          READE     SVEHE                                  51
+     C                   ENDDO
+
+     C     SRB9          ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Lag edifact                                          SRC /
+      *////////////////////////////////////////////////////////////
+     C     SRC           BEGSR
+      * Sigilleringsdatum + tid
+     C     UKEY          CHAIN     SVEH                               51
+     C                   MOVEL     WDT           SVEH_SGDT
+     C     4             SUBST     WTM:1         WTM2              4
+     C                   MOVE      WTM2          SVEH_SGDT
+     C                   UPDATE    SVEHR
+
+      * Lag edifact
+     C                   SELECT
+     C     SVEH_MTYP     WHENEQ    'UBK'
+     C                   CALL      'SVE022RK'
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+     C                   PARM                    UVEH_SGDK
+     C                   PARM                    UVEH_SGUT
+     C     SVEH_MTYP     WHENEQ    'UGO'
+     C     SVEH_MTYP     OREQ      'UKO'
+     C                   CALL      'SVE022RH'
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+     C                   PARM      '000000'      UVEH_SGDK
+     C                   PARM      '000000'      UVEH_SGUT
+     C                   OTHER
+     C                   CALL      'SVE022RN'
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+     C                   PARM      '000000'      UVEH_SGDK
+     C                   PARM      '000000'      UVEH_SGUT
+     C                   ENDSL
+      * Tell antall tegn(bytes)
+     C                   CALL      'SVE023R'
+     C                   PARM                    UVEH_SYAV
+     C                   PARM                    UVEH_SYOP
+     C                   PARM                    UVEH_BYTE
+      * Beregn dokumentsigill
+     C                   EXSR      SRCC
+      * Oppdater
+     C     UKEY          CHAIN     SVEH                               51
+     C                   EVAL      SVEH_SGDK=UVEH_SGDK
+     C                   EVAL      SVEH_SGUT='      '
+
+     C                   EVAL      SVEH_SYST='S'
+
+     C                   EVAL      SVEH_BYTE=UVEH_BYTE
+
+     C                   UPDATE    SVEHR
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Berækna dokumentsigill                              SRCC /
+      *////////////////////////////////////////////////////////////
+     C     SRCC          BEGSR
+      * Send oppdrag til sigillering
+     C                   MOVEL     UVEH_SYAV     QTFIEL
+     C                   MOVE      UVEH_SYOP     QTFIEL
+     C                   CALL      'QSNDDTAQ'
+     C                   PARM      'SVGSRQ'      QTNAME           10
+     C                   PARM      '*LIBL'       QTLIB            10
+     C                   PARM      11            QTLEN             5 0
+     C                   PARM                    QTFIEL           11
+      * Sigillering
+     C                   CALL      'SEALCTL'
+     C                   PARM      'SVG002RE  '  QPARM            10
+      * Retur fra sigillering
+     C                   MOVEL     UVEH_SYAV     QKEY
+     C                   MOVE      UVEH_SYOP     QKEY
+     C                   CALL      'QRCVDTAQ'
+     C                   PARM      'SVGSSQ'      QRNAME           10
+     C                   PARM      '*LIBL'       QRLIB            10
+     C                   PARM      6             QRLEN             5 0
+     C                   PARM                    UVEH_SGDK
+     C                   PARM      99            QWAIT             5 0
+     C                   PARM      'EQ'          QORDER            2
+     C                   PARM      11            QKILEN            3 0
+     C                   PARM                    QKEY             11
+     C                   PARM      10            QSNDRL            3 0
+     C                   PARM                    QSNDR            10
+      * Timeout
+     C     QRLEN         IFEQ      0
+     C                   ENDIF
+     C                   ENDSR

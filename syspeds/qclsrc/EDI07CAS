@@ -1,0 +1,105 @@
+/* *********************************************************************   */
+/*       * RETTINGER I DETTE PROGRAM:                                      */
+/* PTFnr:*Sek Sig Vers  Beskrivelse..........................              */
+/* """"""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""    */
+/* 10018 * 01 CB  PTF10 SENDE DIREKTE FRA IFS                              */
+/* 10XXX * 02 CB  PTF10 RPG ISTEDEN FOR CPYTOSTMF                          */
+/* 10XXX * 02 CB  PTF10 FJERNET ALL MERKING                                */
+/* 10XXX * 03 CB  PTF10 ENDA EN STATUS FRA EVRY                            */
+/* ********************************************************************    */
+             PGM        PARM(&LIB &FILE &MBR &IID &OK &SSN)
+             /*_____________________*/
+             /* Deklarere Variabler */
+             /*"""""""""""""""""""""*/
+             DCL        VAR(&LIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FILE) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MBR) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IID) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&RMTSYS) TYPE(*CHAR) LEN(64)
+             DCL        VAR(&STS1) TYPE(*CHAR) LEN(27) VALUE('226 +
+                          Transfer complete.     ')
+/*N03*/      DCL        VAR(&STS6) TYPE(*CHAR) LEN(27) VALUE('226 +
+                          Transfer complete      ')
+             DCL        VAR(&STS4) TYPE(*CHAR) LEN(27) VALUE('226 +
+                          transfer complete      ')
+             DCL        VAR(&STS2) TYPE(*CHAR) LEN(27) VALUE('250 +
+                          File transfer completed')
+             DCL        VAR(&STS5) TYPE(*CHAR) LEN(27) VALUE('226 +
+                          Transfer complete      ')
+             DCL        VAR(&STS3) TYPE(*CHAR) LEN(27)
+             DCL        VAR(&OK) TYPE(*CHAR) LEN(2) VALUE('  ')
+             DCL        VAR(&TIL) TYPE(*CHAR) LEN(256) VALUE('  ')
+             DCL        VAR(&TIL256B) TYPE(*CHAR) LEN(256) VALUE('  ')
+             DCL        VAR(&SSN) TYPE(*DEC) LEN(9 0)
+             /*_______________*/
+             /* Deklarere Fil */
+             /*"""""""""""""""*/
+             DCLF       FILE(EDI07CAS)
+             /*____________________________________*/
+             /* Hvilket bibliotek ligger filen i ? */
+             /*""""""""""""""""""""""""""""""""""""*/
+             IF         COND(&LIB *EQ '*LIBL     ' *AND &FILE *EQ +
+                          'EDISE     ') THEN(DO)
+             RTVDTAARA  DTAARA(EDIDTA (171 10)) RTNVAR(&LIB)
+             ENDDO
+             IF         COND(&LIB *EQ '*LIBL     ' *AND &FILE *EQ +
+                          'EDISE1K   ') THEN(DO)
+             RTVDTAARA  DTAARA(EDIDTA (171 10)) RTNVAR(&LIB)
+             ENDDO
+             /*_________________*/
+             /* Lage streamfile */
+             /*"""""""""""""""""*/
+             IF         COND(&FILE *NE '*IFS      ') THEN(DO)
+             CHGVAR     VAR(&TIL) VALUE(&LIB *TCAT '/' *TCAT &FILE +
+                          *TCAT '/' *TCAT &MBR)
+             CHGVAR     VAR(&TIL256B) VALUE('/' *TCAT &LIB *TCAT '/' +
+                          *TCAT &FILE *TCAT '/BACKUP/' *TCAT &MBR)
+             RMVLNK     OBJLNK(&TIL256B)
+             MONMSG CPF0000
+             IF         COND(&FILE *NE 'EDISE     ') THEN(DO)
+             CALL       PGM(E093R31K) PARM(&IID &MBR &TIL)
+             ENDDO
+             IF         COND(&FILE *EQ 'EDISE     ') THEN(DO)
+             CALL       PGM(E093R3) PARM(&IID &MBR &TIL)
+             ENDDO
+             CALL       PGM(EDISXR3) PARM(&MBR &TIL)
+             ENDDO
+             /*_____________________________________________*/
+             /* Generere fil for tcpip kommandoer og output */
+             /*"""""""""""""""""""""""""""""""""""""""""""""*/
+             CLRPFM     FILE(EDI07CAR)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(EDI07CAS)
+             MONMSG     MSGID(CPF0000)
+             CALL       PGM(EDI07CASR) PARM(&LIB &FILE &MBR &IID &RMTSYS &SSN)
+             /*_______________*/
+             /* Send over fil */
+             /*"""""""""""""""*/
+             OVRDBF     FILE(INPUT) TOFILE(EDI07CAR)
+             OVRDBF     FILE(OUTPUT) TOFILE(EDI07CAS)
+             STRTCPFTP  RMTSYS(&RMTSYS)
+             /*__________________*/
+             /* Slett streamfile */
+             /*""""""""""""""""""*/
+             IF         COND(&FILE *NE '*IFS      ') THEN(DO)
+             MOV        OBJ(&TIL) TOOBJ(&TIL256B)
+             MONMSG     MSGID(CPF0000)
+             CALL       PGM(EDISXR3) PARM(&MBR &TIL256B)
+             ENDDO
+             /*_____________________*/
+             /* Status for sendning */
+             /*"""""""""""""""""""""*/
+             CHGVAR     VAR(&OK) VALUE('  ')
+ READ:       RCVF       RCDFMT(*FILE)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(EXIT))
+             CHGVAR     VAR(&STS3) VALUE(%SUBSTRING(&EDI07CAS 1 27))
+/*N03*/      IF         COND((&STS3 *EQ &STS1) *OR (&STS3 *EQ &STS2) +
+                          *OR (&STS3 *EQ &STS4) *OR (&STS3 *EQ +
+                          &STS5) *OR (&STS3 *EQ &STS6)) THEN(DO)
+             CHGVAR     VAR(&OK) VALUE('OK')
+             GOTO       CMDLBL(EXIT)
+             ENDDO
+             GOTO       CMDLBL(READ)
+ EXIT:       IF         COND(&OK *EQ 'OK') THEN(DO)
+             ENDDO
+             ENDPGM

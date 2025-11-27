@@ -1,0 +1,196 @@
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+     D Add_LogonHead   PR
+     D   Header                    1024A   varying
+     D   UserData                      *   value
+
+     D FUNCTION        s             35A
+     D POKUNR          s             15A
+     D PONR            s             35A
+     D CTPOOK          s              1A
+     D CTPOMELD        s             35A
+     D Uid             s             35A
+     D Key             s             35A
+
+     D msg             s             50A
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+
+     C                   EXSR      INIT
+
+      /free
+        http_debug(*ON);
+        *inlr = *on;
+
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+          url = 'https://api.qa.bring.com/po/api/v1/'
+               + %trim(FUNCTION)+'/'                                  //PARM 1
+               + %trim(POKUNR)+'/'                                    //PARM 2
+               + %trim(PONR);                                         //PARM 3
+        // ****************************************************
+        //  Definer temporær IFS fil, KJØR URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.xml';
+
+       // Pålogging sendes som Headerifo først
+        Uid     = 'testuser@bring.com';
+        Key     = 'test-key';
+        http_xproc( HTTP_POINT_ADDL_HEADER
+                  : %paddr(Add_LogonHead) );
+
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   parse the XML from the temp file.  (hopp ut ved feil)
+        // ****************************************************
+
+        if (http_parse_xml_stmf( filename
+                               : HTTP_XML_CALC
+                               : *null
+                               : %paddr(Incoming)
+                               : *null ) < 0 );
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //  Slett responsfila
+        // ****************************************************
+        // unlink(filename);
+        // dsply result ' ' wait;
+        // return;
+
+      /end-free
+      *  HER KOMMER VURDERING AV RESuLTAT / NYTT FORSØK MM...
+     C*                  MOVE      xxxxx         yyyy
+     C*                  xxxxx
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      *
+     c*    *entry        plist
+     c*                  parm                    PONR
+     c*                  parm                    POKUNR
+     c*                  parm                    CTPOOK
+     c*                  parm                    CTPOMELD
+     c                   eval      Function = 'order'                           alternat:'items'
+     c                   eval      CTPOOK   = 'N'                               Ikke OK=dft
+     c                   eval      CTPOMELD = *blanks
+      * GET /po/api/v1/items/8436383671001/4502632816 HTTP/1.1
+     c                   eval      PONR     = '4502632816'
+     c                   eval      POKUNR   = '8436383671001'
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132
+
+      *
+      *  The DEPTH parameter indicates the nesting depth of the
+      *  element received.  In the above example, the "item" tag
+      *  would be found at depth=3, since it's inside the "rss"
+      *  and "channel" tags.
+      *
+      *  The NAME parameter is the name of the XML element that
+      *  has been received.  It might be something like "channel"
+      *  or "title" or "link".
+      *
+      *  Note that in the above example, there are two different
+      *  depths that have "title" and "link".  They are featured
+      *  inside the "channel" tag, and also inside the "item" tag.
+      *  the "path" parameter will help us sort that out.
+      *
+      *  The PATH indicates the elements that the current element
+      *  is found inside. So, the channel title is found when the
+      *  path is "/rss/channel" and the name of the element is "title".
+      *  the article titles, however, have a path of "/rss/channel/item"
+      *  and a name of "title".
+      *
+      *  The VALUE parameter gives us the text that's inside that
+      *  element.
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Incoming        B
+     D Incoming        PI
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+     D count           s             10I 0
+     D attrname        s            100A   varying
+     D attrval         s            100A   varying
+      /free
+
+            select;
+            when name = 'ReferenceNo';
+               if value = PONR;
+                  CTPOOK='J';
+               endif;
+            endsl;
+
+      /end-free
+     P                 E
+
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      * HTTPAPI will call this (because we set it with http_xproc)
+      * just before sending the HTTP headers to the remote server.
+      * This procedure lets us add any header we like to the
+      * HTTP request.
+      *
+      * In this example, I'll use it to supply the LogonHead
+      * This way, I can supply a HEADER     that's up to
+      * 1024 characters long.
+      *
+      * NOTE: Make sure you leave off the SOAPAction header on the
+      *       HTTP_url_post_xml, above, otherwise you'll send two
+      *       of them¤
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     P Add_LogonHead   B
+     D Add_LogonHead   PI
+     D   Header                    1024A   varying
+     D   UserData                      *   value
+      /free
+         Header = 'X-Purchaseorder-API-Uid:'
+                + %trim(Uid)
+                + x'0d25'
+                + 'X-Purchaseorder-API-Key:'
+                + %trim(Key)
+                + x'0d25';
+      /end-free
+     P                 E

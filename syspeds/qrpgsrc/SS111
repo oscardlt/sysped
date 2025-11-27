@@ -1,0 +1,603 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SS111 MODULE(*LIBL/SS111
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FGSSORL09  IF   E           K DISK    USROPN
+     FGSSORL10  IF   E           K DISK    USROPN
+     F                                     RENAME(GSSORFR:GSSORFR10)
+     FGSSORF    UF   E           K DISK    USROPN
+     F                                     RENAME(GSSORFR:GSSORFRU)
+     FGSSPOF    IF   E           K DISK    USROPN
+     FGSSRFF    IF   E           K DISK    USROPN
+     FGSSLGF    O    E             DISK    USROPN
+     FKUFAST    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FDOKUF     IF   E           K DISK    USROPN
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSNA            S             30
+     D CURTUR          S             11
+     D CURTURN         S             11  0
+     D KunITur         S              1
+     D KUNDE           S              8
+     D KUNDEN          S              8  0
+     D ORNO            S              7
+     D ORNON           S              7  0
+     D STATUS          S              1
+     D AREA            S              2
+     D TotCol          S              5  0
+     D TotVkt          S              7  1
+     D TotM3           S              7  2
+     D TotLM           S              7  2
+     D GrpNr           s              8
+     D TRIPCOL         s              8
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     D XXTXT01         C                   CONST('Ready for pickup.')
+     D XXTXT02         C                   CONST('Picked up to trip at')
+     D XXTXT03         C                   CONST('Removed from trip at')
+      * Number of records matching search criteria
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      * MIDLERTIDIG - LÅNER FRITEKST 2 FOR AREA
+     D                 DS
+     D  ORFT4                  1     30
+     D  ARTXT                  1      2
+     D  ORLMA                 11     14
+     D                 DS
+     D WKEY                    1    256
+     D WPUNKT                  1      1
+     D WCURTUR                 2     12
+     D WKUNITUR               13     13
+     D WAREA                  14     15
+     D WSTATUS                16     16
+     D WKUNDE                 17     24
+     D WXXLEVERT             256    256
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      * Hvis arbeide med gitt tur, oppdater select/remove
+     c     CURTURN       ifne      *zeros
+     c                   exsr      SelRem
+     c                   end
+      *------------------                                                   ******
+      * 3-Section /$tablestr
+     C                   callp     wrtsection('tablestr1')
+     C     curturn       ifne      *zeros
+     C                   callp     wrtsection('tablestr2')
+     c                   end
+     C                   callp     wrtsection('tablestr3')
+      * 4-Sections /$tablerow
+     C                   z-add     0             round             3 0
+     C                   z-add     0             bseq              3 0
+     C                   z-add     0             TotCol
+     C                   z-add     0             TotVkt
+     C                   z-add     0             TotM3
+     C                   z-add     0             TotLM
+     c                   move      'J'           KllVktOK          1
+      *
+     c     strles        tag
+     c                   add       1             round
+      *
+      * STATUS <option value="">IPR In PRoduct & RFP Released
+      *        <option value="R">Only RFP Released From Prod.
+     C     STATUS        IFEQ      'R'
+     C     GSSOR9K       SETLL     GSSORL09
+     C     GSSOR9K       READE     GSSORL09                               50
+     C                   ELSE
+     C     SHIPFROM      SETLL     GSSORL10
+     C     SHIPFROM      READE     GSSORL10                               50
+     C                   END
+      *
+     C     *IN50         DOWEQ     '0'
+      * Når turnr gitt: først kun de som ER på turen, så "udisponerte"
+     c     CURTURN       IFNE      *ZEROS
+     c     Round         Ifeq      1
+     c     ORTNO         CABNE     CURTURN       NextRec
+     c                   else
+     c     ORTNO         CABNE     *zeros        NextRec
+     c                   end
+     c                   end
+      * Når Kun de som ikke er på tur er valgt ...
+     c     KunITur       IFEQ      'Y'
+     c     ORTNO         CABNE     *zeros        NextRec
+     c                   end
+      *
+      * Når Kun kundenr xxx er valgt ...
+     c     KUNDEN        IFNE      *ZEROS
+     c     KUNDEN        CABNE     ORCNO         NextRec
+     c                   end
+      *
+      * filter på areakode skal kun utføres på udisponerte.
+     c     CURTURN       IFEQ      *zeros
+     c     Round         OREQ      2
+     c     AREA          IFNE      *BLANKS
+     c     AREA          CABNE     ARTXT         NextRec
+     c                   end
+     c                   end
+      *
+     C                   IF        ORLMA = *BLANKS
+     C                   MOVE      *ZEROS        ORLM              4 2
+     C                   ELSE
+     C                   MOVE      ORLMA         ORLM
+     C                   END
+      *
+     C     ORONO         SETLL     GSSPOF
+     C     ORONO         READE     GSSPOF                                 33
+     C   33              MOVE      *BLANKS       POCONO
+     C     ORONO         SETLL     GSSRFF
+     C     ORONO         READE     GSSRFF                                 33
+     C     *IN33         DOWEQ     '0'
+     C     RFKD          IFEQ      'CPO'
+     C                   LEAVE
+     C                   ENDIF
+     C     ORONO         READE     GSSRFF                                 33
+     C  N33              ENDDO
+     C   33              MOVE      *BLANKS       RFREF
+     C     CUNDL1K       CHAIN     CUNDL01                            33
+     C   33              EVAL      KNAVN = '*UNKNOW'
+      *
+     C                   eval      bseq=bseq + 1
+     C                   exsr      SetTabRow
+      * Tabelrow er delt i mange ledd avhengig av .....
+     C                   callp     wrtsection('tablerow1')
+     C     ORTNO         ifne      *zeros
+      * På  trip - Rent antalls-felt
+     C                   callp     wrtsection('tablerow1MTR')
+     c                   else
+      * Ikke på trip - frie-labels-button vises i ant.kll.feltet
+     C                   callp     wrtsection('tablerow1UTR')
+     c                   end
+     C                   callp     wrtsection('tablerow1E')
+      *
+     C     curturn       ifne      *zeros
+     C                   eval      Totcol=totcol + ORCLI
+     C                   eval      TotVkt=totvkt + ORWT
+     C                   eval      TotM3 =totm3  + ORVOL
+     C                   eval      TotLM =totLM  + ORLM
+     c     Orcli         ifeq      *zeros
+     c     OrWt          oreq      *zeros
+     c                   move      'N'           KllVktOK
+     c                   end
+      * turplanlegging(curturn ikke 0), vis checkbox for på/av tur
+     C                   callp     wrtsection('tablerow2')
+     c                   end
+      * avslutning av tablerow
+     C                   callp     wrtsection('tablerow3')
+      *
+     c     NextRec       tag
+     C     STATUS        IFEQ      'R'
+     C     GSSOR9K       READE     GSSORL09                               50
+     C                   ELSE
+     C     SHIPFROM      READE     GSSORL10                               50
+     C                   END
+     C  N50              ENDDO
+      *
+     c     CURTURN       IFNE      *zeros
+     c     Round         andeq     1
+     C                   callp     updhtmlvar('KLLVKTOK':KllVktOK)
+     C                   callp     updhtmlvar('TOTCOL':
+     C                             %trim(%editc(TOTCOL:'Z')))
+     C                   callp     updhtmlvar('TOTVKT':
+     C                             %trim(%editc(TOTVKT:'M')))
+     C                   callp     updhtmlvar('TOTM3':
+     C                             %trim(%editc(TOTM3:'M')))
+     C                   callp     updhtmlvar('TOTLM':
+     C                             %trim(%editc(TOTLM:'M')))
+     C                   callp     wrtsection('TripBot')
+      * send.nr tildelt? tillat skriv...
+     c                   movel     curturn       DFAVD
+     c                   move      curturn       DFOPD
+     c     DokufKey      chain     DOKUF                              33
+     C  N33DF1004        Ifne      *blanks
+     C                   callp     wrtsection('TripBot2')
+     C                   else
+     C                   callp     wrtsection('TripBot3')
+     c                   end
+     C                   callp     wrtsection('TripBotE')
+      *
+     c                   goto      strles
+     c                   end
+      *
+      * 5-Section /$tableend
+     C                   callp     wrtsection('tableend')
+      *
+     C     SLUTT         tag
+     C                   EXSR      SetEnd
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Select to trip / remove from trip
+      *=====================================================================******
+     C     SelRem        begsr
+      * Slett evt merkede poster...
+     C                   eval      ItemCount = ZhbGetVarCnt('Select')
+     C                   eval      i = 1
+     C     i             DOUGT     ItemCount
+     C                   eval      ORNO    = ZhbGetVar('Select':i)
+     C                   eval      ORNON   = c2n2(ORNO)
+      *
+     C     ORNON         CHAIN     GSSORF                             33
+     C     *in33         IFEQ      *OFF
+     C                   EXSR      OPDLOGG
+      * er IKKE på tur, Sett på aktuell tur
+     C     ORTNO         IFEQ      *ZEROS
+     c                   move      '1'           ORST
+     c     ORST2         ifeq      'IPR'
+     c                   movel     'RFP'         ORST2
+     c                   end
+     c                   move      CURTURN       ORTNO
+     c                   else
+      * er PÅ aktuell tur, Fjern
+     C     ORTNO         IFEQ      CURTURN
+     c                   move      '0'           ORST
+     c                   move      *zeros        ORTNO
+     c                   end
+     c                   end
+     C                   Update    GSSORFRU
+     C                   end
+      *
+     C                   eval      i = i +1
+     C                   ENDDO
+      *
+     C                   endsr
+      *=====================================================================
+      *  Oppdater loggen
+      *=====================================================================
+     C     OPDLOGG       begsr
+      *
+     C                   MOVE      WSUSER        LGUSER
+     C                   MOVE      WDT           LGDT
+     C                   MOVE      WTM           LGTID
+     C                   Z-ADD     1             LGLN
+     C                   MOVEL     'SS111'       LGPGM
+     C                   Z-ADD     5             LGNIVÅ
+     C                   MOVE      WDT           LGHDT
+     C                   MOVEL     WTM           LGHTID
+     C                   MOVEL     'MAIN'        LGFTYP
+     C                   MOVE      ORNON         LGONO
+     C                   MOVE      *ZEROS        LGLNO
+      *
+     C     ORTNO         IFEQ      *ZEROS
+     c     ORST2         ifeq      'IPR'
+     C                   EVAL      LGTXT = XXTXT01
+     C                   CAT       ORLC:1        LGTXT
+     C                   EVAL      LGAGM = 'IPR'
+     C     KUFASTKGM     CHAIN     KUFAST                             33
+     C                   CAT       KFTXT:2       LGAGM
+     C                   EVAL      LGANY = 'RFP'
+     C     KUFASTKNY     CHAIN     KUFAST                             33
+     C                   CAT       KFTXT:2       LGANY
+     C                   WRITE     GSSLGFR
+     c                   end
+     C                   EVAL      LGTXT = XXTXT02
+     C                   CAT       ORLC:1        LGTXT
+     C                   EVAL      LGANY = 'New trip No.'
+     C                   CAT       CURTUR:2      LGANY
+     c                   MOVE      *BLANKS       LGAGM
+     C                   WRITE     GSSLGFR
+     c                   else
+     C                   EVAL      LGTXT = XXTXT03
+     C                   CAT       ORLC:1        LGTXT
+     C                   EVAL      LGAGM = 'Old trip No.'
+     C                   MOVE      ORTNO         XAN09             9
+     C                   CAT       XAN09:1       LGAGM
+     C                   MOVE      *BLANKS       LGANY
+     C                   WRITE     GSSLGFR
+     C                   end
+      *
+     C                   endsr
+      *= ===================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   MOVE      'N'           XFEIL             1
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   EVAL      CURTUR  = zhbgetvar('CURTUR')
+     C                   eval      CURTURN = c2n2(CURTUR)
+     C                   EVAL      KunITur = zhbgetvar('KunITur')
+     c     curturn       ifeq      99999999999
+     c                   eval      KunITur = 'Y'
+     c                   eval      CurTur  = ' '
+     c                   eval      CurTurn = 0
+     c                   end
+     C                   EVAL      STATUS  = zhbgetvar('STATUS')
+     C                   EVAL      AREA    = zhbgetvar('AREA')
+     C                   eval      KUNDE   = zhbgetvar('KUNDE')
+     C                   eval      KUNDEN  = c2n2(KUNDE)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     c     curturn       ifne      *zeros
+     c                   eval      TRIPCOL = '#DDDDDD'
+     c                   else
+     c                   eval      TRIPCOL = BIFARG
+     c                   end
+     C                   callp     updhtmlvar('TRIPCOL':TRIPCOL)
+      *
+     C                   callp     updhtmlvar('WSNA':WSNA)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   callp     updhtmlvar('CURTUR':
+     C                             %trim(%editc(CURTURN:'Z')))
+     c                   move      curturN       curtura          11
+     C                   callp     updhtmlvar('CURTURA':CURTURA)
+     C                   callp     updhtmlvar('LABELTYP':LabelTyp)
+     C                   callp     updhtmlvar('KunITur':KunITur)
+     C                   callp     updhtmlvar('KUNDE':
+     C                             %trim(%editc(KUNDEN:'Z')))
+     c     KUNDEN        ifne      *zeros
+     c                   move      kunden        ORCNO
+     C     CUNDL1K       CHAIN     CUNDL01                            33
+     C   33              EVAL      KNAVN = '*UNKNOW'
+     C                   callp     updhtmlvar('KUNDENA':KNAVN)
+     c                   else
+     C                   callp     updhtmlvar('KUNDENA':'All')
+     c                   end
+     C     CURTURN       IFNE      *ZEROS
+     C                   callp     updhtmlvar('REMOVE':'REMOVE')
+     c                   else
+     C                   callp     updhtmlvar('REMOVE':'      ')
+     c                   end
+     C                   callp     updhtmlvar('STATUS':STATUS)
+     c     STATUS        IFEQ      'R'
+     C                   callp     updhtmlvar('STATTXT':'RFP')
+     c                   else
+     C                   callp     updhtmlvar('STATTXT':'IPR & RFP')
+     c                   end
+     C                   callp     updhtmlvar('AREA':AREA)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+     c* Sequence of this Recd (numeric, converted to char)
+     C                   move      bseq          bseqchar          3
+     C                   callp     updhtmlvar('SEQ':bseqchar)
+     C                   callp     updhtmlvar('KNAVN':KNAVN)
+     C                   callp     updhtmlvar('ORONO':
+     C                             %trim(%editc(ORONO:'Z')))
+     C                   callp     updhtmlvar('POCONO':POCONO)
+     C                   EVAL      WKEY = *BLANKS
+     C                   EVAL      WPUNKT = '.'
+     C                   EVAL      WCURTUR = CURTUR
+     C                   EVAL      WKUNITUR = KUNITUR
+     C                   EVAL      WAREA = AREA
+     C                   EVAL      WSTATUS = STATUS
+     C                   EVAL      WKUNDE  = KUNDE
+     C                   EVAL      WXXLEVERT = 'S'
+     C                   callp     updhtmlvar('WKEY':WKEY)
+     C                   callp     updhtmlvar('RFREF':RFREF)
+     C                   callp     updhtmlvar('STAT2':ORST2)
+     C                   callp     updhtmlvar('ARTXT':ARTXT)
+     C                   callp     updhtmlvar('KLL':
+     C                             %trim(%editc(ORCLI:'Z')))
+     C                   callp     updhtmlvar('VKT':
+     C                             %trim(%editc(ORWT:'M')))
+     C                   callp     updhtmlvar('M3':
+     C                             %trim(%editc(ORVOL:'M')))
+     C                   callp     updhtmlvar('LM':
+     C                             %trim(%editc(ORLM:'M')))
+     C                   callp     updhtmlvar('TRIP':
+     C                             %trim(%editc(ORTNO:'Z')))
+     C                   callp     updhtmlvar('DATE':
+     C                             %trim(%editw(ORDTL:'    .  .  ')))
+     c     curturn       ifne      *zeros
+     c     curturn       andeq     ORTNO
+     c                   eval      TRIPCOL = '#DDDDDD'
+     c                   else
+     c                   eval      TRIPCOL = BIFARG
+     c                   end
+     C                   callp     updhtmlvar('TRIPCOL':TRIPCOL)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+      * "HTMLSRC  " er dft = NORSK, ved å trykke på FLAGGET i inng.
+      * kan dette endre stil "HTMLSRCXX" avh. av støttede språk
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SS111'
+      *------------------
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      GSSORF                               50
+     C                   open      GSSORL09                             50
+     C                   open      GSSORL10                             50
+     C                   open      GSSPOF                               50
+     C                   open      GSSRFF                               50
+     C                   open      GSSLGF                               50
+     C                   open      KUFAST                               50
+     C                   open      CUNDL01                              50
+     C                   OPEN      Dokuf
+     C                   OPEN      BRPARF
+      *
+     C     CUNDL1K       klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    ORCNO
+     C     DokufKey      klist
+     C                   kfld                    DFRI
+     C                   kfld                    DFAVD
+     C                   kfld                    DFOPD
+     C                   kfld                    DFFBNR
+     c                   move      'F'           DFRI
+     c                   z-add     1             DFFBNR
+      *
+     C     GSSOR9K       klist
+     C                   kfld                    SHIPFROM
+     C                   kfld                    XXST2
+     C                   MOVEL     'RFP'         XXST2             5
+     C     KUFASTKGM     KLIST
+     C                   KFLD                    KFTYP
+     C                   KFLD                    XXST2GM           5
+     C                   MOVEL     'SSSTATUS'    KFTYP
+     C                   MOVEL     'IPR'         XXST2GM
+     C     KUFASTKNY     KLIST
+     C                   KFLD                    KFTYP
+     C                   KFLD                    XXST2NY           5
+     C                   MOVEL     'RFP'         XXST2NY
+      *
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * Hent fabrikk kode (Ship From) / Navn
+     c                   Move      *blanks       SHIPFROM          5
+     C                   MOVE      'SSFAB'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     c  n33              MoveL     PAVRDA        SHIPFROM
+     c  n33              MoveL     PAVRDA        WSNA
+      * Hent labeltye (zebra/eltron) dersom det er behandling av tur
+     c                   Move      *blanks       LabelTyp          1
+     C                   MOVE      'LABTY'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     c  n33              MoveL     PAVRDA        LabelTyp
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   close     BRIDF
+     C                   close     GSSORF
+     C                   close     GSSORL09
+     C                   close     GSSORL10
+     C                   close     GSSPOF
+     C                   close     GSSRFF
+     C                   CLOSE     GSSLGF
+     C                   CLOSE     KUFAST
+     C                   close     CUNDL01
+     C                   close     dokuf
+     C                   close     BRPARF
+     C                   eval      *inlr = *on
+      *
+     C                   endsr

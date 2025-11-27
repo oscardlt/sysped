@@ -1,0 +1,445 @@
+      *********************************************************************
+      * PROGRAM BEHANDLER INPUT FRA SYMN1 OG VISER LISTE
+      *
+CRTPG+*  CRTPGM SYSPED/SS201 MODULE(*LIBL/SS201
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 VIS OGSÅ PENDING ORDRE
+10XXX * 02 YBC PTF10 VIS VEKT
+********************************************************************
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FGSSORF    UF   E           K DISK    USROPN
+     FGSSORL32  IF   E           K DISK    USROPN
+     F                                     RENAME(GSSORFR:GSSORFR32)
+     FGSSOWF    UF   E           K DISK    USROPN
+     FGSSPOF    IF   E           K DISK    USROPN
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FBATGR     IF   E           K DISK    USROPN
+     FCDBOAT    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FFIRM      if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      * Variables received from the input string
+     D OddEven         s             10
+     D lng             s              2
+     D BckGnd          s             10
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSNA            S             30
+     D WSONO           S              7
+     D BWSONO          S              7  0
+     D WSBOAGRP        S              7
+     D WSKDB           S              5
+     D WSSTD           S              5
+     D WSCON           S             20
+     D WSCON2          S             20
+     D WSCONMAX        S             20
+     D WSCON2MAX       S             20
+     D WSVEN           S             20
+     D WSVENMAX        S             20
+     D XXSLETT         S              1
+     D ErrTxt          S            500
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+      * dato/tid siste vellykkede operasjon.
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      *
+      * WSREFF skal være UNIK (innen åpne poster for en bruker/kunde)
+      * STATUS-endring (send eller slett)
+     C                   IF        BWSONO <> 0
+     C     BWSONO        CHAIN     GSSORF                             33
+     C  N33              IF        XXSLETT = 'Y'
+     C     GSSOWFK1      CHAIN     GSSOWF                             33
+     C                   MOVE      'D'           ORST
+     C                   MOVE      WDT           ORDTE
+     C                   MOVE      WTM           ORTME
+     C  N33              UPDATE    GSSOWFR
+     C                   END
+     C  N33              UPDATE    GSSORFR
+     C                   MOVE      '0'           ORST
+     C                   END
+      *
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      * 3-Section /$tablestr
+     C                   exsr      SetTabStr
+     C                   callp     wrtsection('tablestr')
+      * 4-Sections /$tablerow
+      *
+     C                   EXSR      HENTORDRE
+      *
+      * 5-Section /$tableend
+     C                   callp     wrtsection('tableend')
+      *
+      * 6-Section /$endhtml
+     C     endhtml       tag
+     C                   exsr      SetEnd
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C     SLUTT         tag
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+      *
+     C                   EVAL      WSONO   = zhbgetvar('WSONO')
+     C                   EVAL      BWSONO  = c2n2(WSONO)
+     C                   EVAL      XXslett = zhbgetvar('XXslett')
+     C                   EVAL      WSBOAGRP= zhbgetvar('WSBOAGRP')
+     C                   EVAL      WSKDB   = zhbgetvar('WSKDB')
+     C                   EVAL      WSSTD   = zhbgetvar('WSSTD')
+     C                   EVAL      WSCON   = zhbgetvar('WSCON')
+     C                   EVAL      WSVEN   = zhbgetvar('WSVEN')
+      *
+     C                   EVAL      WSCON   = uppify(WSCON)
+     C                   EVAL      WSCONMAX = %TRIM(WSCON)
+     C                             + '99999999999999999999'
+     C                   CALL      'GSS051R'
+     C                   PARM                    WSCON
+     C                   PARM                    WSCO2            20
+     C                   EVAL      WSCON2 = WSCO2
+     C                   EVAL      WSCON2MAX = %TRIM(WSCON2)
+     C                             + '99999999999999999999'
+     C                   EVAL      WSVEN   = uppify(WSVEN)
+     C                   EVAL      WSVENMAX = %TRIM(WSVEN)
+     C                             + '999999999999999999999999999999'
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C                   callp     updhtmlvar('KUNDE':
+     C                             %trim(%editc(KUNDNR:'Z')))
+     C                   callp     updhtmlvar('KNAVN':KNAVN)
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+      *
+     C                   callp     updHtmlVar('WSBOAGRP':WSBOAGRP)
+     C                   callp     updHtmlVar('WSKDB':WSKDB)
+     C                   callp     updHtmlVar('WSSTD':WSSTD)
+     C                   callp     updHtmlVar('WSCON':WSCON)
+     C                   callp     updHtmlVar('WSVEN':WSVEN)
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   callp     updhtmlvar('ERRTXT':ERRTXT)
+      *
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablestr (table start)
+      *=====================================================================******
+     C     SetTabStr     begsr
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+      *
+     C                   callp     updHTMLvar('ODDEVEN':OddEven)
+     C                   callp     updhtmlvar('ORONO':
+     C                             %trim(%editc(ORONO:'Z')))
+     C                   callp     updhtmlvar('ORDTL':
+     C                             %trim(%editw(ORDTL:'    .  .  ')))
+     C                   callp     updhtmlvar('ORBCD':ORBCD)
+     C                   callp     updhtmlvar('CBNAB':CBNAB)
+     C                   callp     updhtmlvar('ORSNM':ORSNM)
+     C                   callp     updhtmlvar('ORDSC':ORDSC)
+     C                   callp     updhtmlvar('ORCLI':
+     C                             %trim(%editc(ORCLI:'Z')))
+N02  C                   callp     updhtmlvar('ORWT':
+N02  C                             %trim(%editc(ORWT:'3')))
+     C                   callp     updhtmlvar('ORLC':ORLC)
+     C                   callp     updhtmlvar('POCONO':POCONO)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+cccccC                   eval      IfsMultIndicators = gethtmlifsmult(
+cccccC                             '/syspeddev/html/Header/eSpedTop.html -
+cccccC                             /syspeddev/html/SS201.html -
+cccccC                             /syspeddev/html/Footer/eSpedBot.html':
+cccccC                             '/CGITAG/')
+      *
+     C                   endsr
+      *=====================================================================******
+      * HENT ORDRE
+      *=====================================================================******
+     C     HENTORDRE     BEGSR
+      *
+     C                   IF        XAGENT = 'J'
+     C     GSSORL32K     SETLL     GSSORL32
+     C     GSSORL32K     READE     GSSORL32                               50
+     C                   ELSE
+     C     GSSOWFK2      SETLL     GSSOWF
+N01  C     STLESNEST1    TAG
+     C     GSSOWFK2      READE(N)  GSSOWF                                 50
+     C  N50ORONO         CHAIN(N)  GSSORF                             33
+N01  C  N50              IF        *IN33 = *OFF AND ORST <> XRST
+N01  C                   GOTO      STLESNEST1
+N01  C                   END
+     C                   END
+      *
+     C                   DOW       *IN50 = *OFF
+     C                   IF        ORST2 = *BLANKS
+     C                   IF        WSBOAGRP <> *BLANKS
+     C     BATGRKEY      CHAIN     BATGR                              33
+     C     *IN33         CABEQ     *ON           XLESNESTE
+     C                   END
+     C                   IF        WSKDB <> 'ALL'
+     C     ORBCD         CABNE     WSKDB         XLESNESTE
+     C                   END
+     C                   IF        WSSTD <> 'ALL'
+     C     ORLC          CABNE     WSSTD         XLESNESTE
+     C                   END
+     C                   IF        WSCON <> *BLANKS
+     C     ORONO         SETLL     GSSPOF
+     C     ORONO         READE     GSSPOF                                 33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ((POCON2 >= WSCON2) AND (POCON2 < WSCON2MAX))
+     C                   LEAVE
+     C                   END
+     C     ORONO         READE     GSSPOF                                 33
+     C                   ENDDO
+     C     *IN33         CABEQ     *ON           XLESNESTE
+     C                   END
+     C                   IF        WSVEN <> *BLANKS
+     C     ORSNM         CABLT     WSVEN         XLESNESTE
+     C     ORSNM         CABGT     WSVENMAX      XLESNESTE
+     C                   END
+      *
+     C     ORBCD         CHAIN     CDBOAT                             33
+     C     ORONO         SETLL     GSSPOF
+     C     ORONO         READE     GSSPOF                                 33
+     C   33              MOVE      *BLANKS       POCONO
+      *
+     C                   exsr      SetTabRow
+     C                   callp     wrtsection('tablerow')
+     C                   END
+      *
+     C     XLESNESTE     TAG
+     C                   IF        XAGENT = 'J'
+     C     GSSORL32K     READE     GSSORL32                               50
+     C                   ELSE
+N01  C     STLESNEST2    TAG
+     C     GSSOWFK2      READE(N)  GSSOWF                                 50
+N01  C   50              IF        XRST = '0'
+N01  C                   EVAL      XRST = 'P'
+N01  C     GSSOWFK2      SETLL     GSSOWF
+N01  C     GSSOWFK2      READE(N)  GSSOWF                                 50
+N01  C                   END
+     C  N50ORONO         CHAIN(N)  GSSORF                             33
+N01  C  N50              IF        *IN33 = *OFF AND ORST <> XRST
+N01  C                   GOTO      STLESNEST2
+N01  C                   END
+     C                   END
+     C                   ENDDO                                                  *hival
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+OddEv *
+     C                   open      GSSORF                               50
+     C                   open      GSSOWF                               50
+     C                   open      GSSPOF                               50
+     C                   open      GSSORL32                             50
+     C                   open      BRPARF                               50
+     C                   open      BATGR                                50
+     C                   open      CDBOAT                               50
+     C                   OPEN      CUNDL01
+     C                   OPEN      FIRM
+     C     CUNDL01K      klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    BIKUNR
+     C     GSSOWFK1      klist
+     C                   kfld                    XRST              1
+     C                   kfld                    WSUSER
+     C                   kfld                    BWSONO
+     C     GSSOWFK2      klist
+     C                   kfld                    XRST              1
+     C                   kfld                    WSUSER
+     C     GSSORL32K     klist
+     C                   kfld                    XLC               5
+     C     BATGRKEY      klist
+     C                   kfld                    WSBOAGRP
+     C                   kfld                    ORBCD
+     C     BRPARFK1      klist
+     C                   kfld                    WSUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    X1PAID            5
+     C     BRPARFK12     klist
+     C                   kfld                    XFIRMADFT        10
+     C                   kfld                    PAKUNR
+     C                   kfld                    X1PAID
+     C                   Eval      XFIRMADFT = '*KUNDFT*'+BIFIRM
+     C                   Eval      X1PAID    = 'SSAGT'
+     C     BRPARFK1      CHAIN     BRPARF                             33
+     C   33BRPARFK12     CHAIN     BRPARF                             33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      'J'           XAGENT            1
+     C                   Eval      X1PAID    = 'SSLOC'
+     C     BRPARFK1      CHAIN     BRPARF                             33
+     C  N33              MOVEL     PAVRDA        XLC
+     C                   END
+      *
+     C                   EVAL      XRST       = '0'
+     C                   EVAL      ErrTxt     = *BLANKS
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   close     BRIDF
+     C                   close     GSSORF
+     C                   close     GSSOWF
+     C                   close     GSSPOF
+     C                   close     GSSORL32
+     C                   close     BRPARF
+     C                   close     BATGR
+     C                   close     CDBOAT
+     C                   close     CUNDL01
+     C                   CLOSE     FIRM
+     C                   eval      *inlr = *on
+      *
+     C                   endsr
+      *

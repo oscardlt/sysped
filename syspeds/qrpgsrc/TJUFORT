@@ -1,0 +1,490 @@
+HARD! * Harkodet i INIT om en vil ha Utvidet statustekst (på enkelte)
+HARD! *                 move      'J'           UtvidetSt         1
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/TJUFORT MODULE(*LIBL/TJUFORT *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF11 - Dersom fortolling er på begynt - hent Tarrifør fra sad (ikke fra tildelings)
+      * 02 JOV PTF11 - SENDER MED OGSÅ AVDELINGENS NAVN
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEAD43    IF   E           K DISK    USROPN
+     FSADH      IF   E           K DISK    USROPN
+     FSADIUF    IF   E           K DISK    USROPN
+     FEDIM4     IF   E           K DISK    USROPN
+     FFRISOK    IF   E           K DISK    USROPN
+     FARKIVL02  IF   E           K DISK    USROPN
+     FBRPARF    IF   E           k DISK    USROPN
+N02  FKODTA     IF   E           k DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+     D OddEven         s             10
+     D AntLest         s              5  0
+     D Tmpdg           s              4  0
+N16  D AntDgA          s              5
+N16  D StaDg5A         s              5
+N16  D EndDg5A         s              5
+N16  D StaDg5N         s              5  0
+N16  D EndDg5N         s              5  0
+     0* Client input variables
+     D user            s             10
+     D JSONstring      s          32000
+      *
+     D ExtRef          S             35
+     D Status          S             35
+     D                 DS
+     D  PAVRDA                 1     50
+N16  D  Pavrda1_5              1      5
+N16  D  StaDg                  1      2
+N16  D  EndDg                  4      5
+N16  D  Color                  6     25
+N16  D  Pavrda1_15             1     15
+N16  D  Pavrda16_50           16     50
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory - top=expire-date mm
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *JSON start
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬ '+%trim(user)+'¬, ';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+      *Legg ut i JSON  liste over Avd-gruppering (seleksjon/tillegsfilter)
+     C                   Exsr      AvdGrp
+      *Legg ut i JSON  liste over Dag-gruppering (søyler i diagram)
+     C                   Exsr      DagGrp
+      /free
+        JSONstring='"ufortList" : [';
+      /end-free
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+      *
+      * HOVEDRUTINE
+      * Vis liste over registrete saker
+      *
+     C                   Move      *zeros        AntLest
+     c     'J'           setll     HEAD43
+     c     'J'           Reade     HEAD43                                 35
+      *
+     c     *IN35         doweq     '0'
+     c                   exsr      getExtra
+      * div filter
+     C                   EXSR      INCLUD
+     C     INCL          CABNE     'J'           NextRec
+      * Ok - skriv
+     C                   Add       1             AntLest
+     C                   exsr      Setrow
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     c     NextRec       Tag
+     c     'J'           Reade     HEAD43                                 35
+     c                   enddo
+      *
+      *
+     C     UTLES         TAG
+      * Quit
+      * Compute run time
+     c                   eval      JSONstring =']}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *********************************************************
+     C     AvdGrp        begsr
+      *********************************************************
+      *Legg ut i JSON  liste over Dag-gruppering/chart-list (søyler i diagram)
+     c                   eval      JSONstring='"avdGroups" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+      * Avd-grupper    - parametersatt
+     C                   Move      *zeros        AntLest
+     C     BrParAvdK     SETLL     BRPARF
+     C     BrParAvdK     READE     BRPARF                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   Add       1             AntLest
+      /free
+        if AntLest=1;
+           JSONstring=*blanks;
+           else;
+           JSONstring=', ';
+           endif;
+        JSONstring=%trim(JSONstring)+'{'
+          +'¬avdGrpNavn¬ : ¬'+%trim(PAVRDA1_15)+'¬, '
+          +'¬avdList¬ : ¬'+%trim(PAVRDA16_50)+'¬ } ';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+     C     BrParAvdK     READE     BRPARF                                 33
+     C                   ENDDO
+      * listeavsluttning
+     c                   eval      JSONstring ='],'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDSR
+      *********************************************************
+     C     DagGrp        begsr
+      *********************************************************
+      *Legg ut i JSON  liste over Dag-gruppering/chart-list (søyler i diagram)
+     c                   eval      JSONstring='"chartList" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+      * dag-kategorier - parametersatt
+     C                   Move      *zeros        AntLest
+     C     BrParDagK     SETLL     BRPARF
+     C     BrParDagK     READE     BRPARF                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   if        Pavrda1_5 = 'MINUS'
+     c                   eval      StaDg5A='-9999'
+     c                   eval      EndDg5A='-1'
+     c                   else
+     c                   eval      StaDg5N=c2n2(StaDg)
+     c                   eval      StaDg5A=%trim(%editc(StaDg5N:'3'))
+     c                   eval      EndDg5A=%trim(%editc(EndDg5N:'3'))
+     C                   if        EndDg='99'
+     c                   eval      EndDg5A='9999'
+     c                   else
+     c                   eval      EndDg5N=c2n2(EndDg)
+     c                   eval      EndDg5A=%trim(%editc(EndDg5N:'3'))
+     c                   endif
+     c                   endif
+     C                   Add       1             AntLest
+      /free
+        if AntLest=1;
+           JSONstring=*blanks;
+           else;
+           JSONstring=', ';
+           endif;
+        JSONstring=%trim(JSONstring)+'{'
+          +'¬start¬ : ¬'+%trim(StaDg5A)+'¬, '
+          +'¬end¬ : ¬'+%trim(EndDg5A)+'¬, '
+          +'¬color¬ : ¬'+%trim(Color)+'¬ } ';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+N02  C                   callp     wrtsection('JSONlin')
+     C     BrParDagK     READE     BRPARF                                 33
+     C                   ENDDO
+      * listeavsluttning
+     c                   eval      JSONstring ='],'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+     C                   ENDSR
+      **********************************
+     c     GetExtra      begsr
+      **********************************
+
+      * FRA SADH
+     C                   MOVE      *BLANKS       SADfinnes         1
+     C                   MOVE      *BLANKS       SIST
+     C                   MOVE      *ZEROS        SITDN
+N01  C                   MOVE      *BLANKS       SISG
+     c     HeaKey        chain     SADH                               33
+     c     *in33         ifeq      *off
+     C                   MOVE      'J'           SADfinnes         1
+     c                   MOVEL     SINAK         HENAK
+     c                   z-add     SINTK         HENT
+     c                   z-add     SIVKB         HEVKT
+     c                   ENDIF
+
+      * FRA TILDELINGSFIL
+     C                   MOVE      *BLANKS       SAISG
+     c     HeaKey        chain     SADIUF                             33
+     c                   Move      *BLANKS       SFMERK           30
+     c  N33              MOVEL     SAIME1        SFMERK
+N01   * dersom den ER fortollet vis tariffør fra SAD ikke fra tildelingsfila SADIUF
+N01  c     SISG          ifne      *blanks
+N01  C                   MOVE      SISG          SAISG
+N01  c                   endif
+
+      * ekstern ref
+     c                   move      *blanks       EXTREF
+     c     ExtImpKey     chain     FRISOK                             33
+     c  N33              movel     FSSOK         EXTREF
+
+      * ant arkiverte handelsfakt.
+     c                   move      *blanks       SFARK             1
+     c                   move      *zeros        antZH             1 0
+     c     ArkZHkey      setll     ARKIVL02
+     c     ArkZHkey      reade     ARKIVL02                               33
+     c     *in33         doweq     '0'
+     c                   add       1             antZH
+     c     antZH         ifeq      9
+     c                   leave
+     c                   endif
+     c     ArkZHkey      reade     ARKIVL02                               33
+     C                   enddo
+     c     antZH         ifgt      0
+     c                   move      antZH         SFARK
+     c                   endif
+     c
+      * Påbegynt overfor TVIN eller ikke (sjekkes kun ved status blank/E)
+     c                   if        SADfinnes='J'
+     c                             and(SIST=' ' or SIST='E')
+     c                   eval      SIST = ' '
+     c     EDIMkey       setll     EDIM4
+     c     EDIMkey       reade     EDIM4                                  33
+     c     *in33         doweq     '0'
+     c     M1N07         ifeq      'DFU'                                        Normal
+     c     M1N07         oreq      'DMA'                                        Andre pros(enn 40)
+     c     M1N07         oreq      'DFO'                                        Foreløpig/Innstikk
+     c                   eval      SIST = 'E'                                   E=EDI/endre
+     c                   leave
+     c                   endif
+     c     EDIMkey       reade     EDIM4                                  33
+     c                   enddo
+     c                   endif
+      *
+     c                   endsr
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      user = uppify(user)
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     HEAD43
+     C                   CLOSE     SADIUF
+     C                   CLOSE     EDIM4
+     C                   CLOSE     SADH
+     C                   CLOSE     FRISOK
+     C                   CLOSE     ARKIVL02
+     C                   CLOSE     BRPARF
+N02  C                   CLOSE     KODTA
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+      *
+     c                   move      'DIF'         ufunk
+     c                   move      hedtop        dato2
+     C                   CALL      'SYGE20'
+     c                   parm                    ufunk             3
+     C                   parm                    dato1             8 0
+     C                   parm                    dato2             8 0
+     C                   parm                    AntDg             5 0
+      *
+     c                   if        antDg < 0
+     c                   mult      -1            ANTDG
+     c                   eval      antDgA='-'+%trim(%editc(ANTDG:'3'))
+     c                   else
+     c                   eval      antDgA= %trim(%editc(ANTDG:'3'))
+     c                   endif
+      *
+     c                   move      *blanks       AvdOpd           12
+     c                   movel     heavd         AAAvd             4
+     c                   movel     heopd         AAOpd             7
+     c                   eval      AvdOpd = AAAvd+'_'+AAOpd
+      *
+     c                   eval      Status = SIST
+     c     UtvidetSt     ifeq      'J'
+     c                   select
+     c     SIST          wheneq    'E'
+     c                   eval      Status = 'E-Åpen,men Påbegynt'
+     c     SIST          wheneq    'C'
+     c                   eval      Status = 'C-Sendt TAD'
+     c     SIST          wheneq    'T'
+     c                   eval      Status = 'T-Lagt til manu. eksp.'
+     c     SIST          wheneq    'M'
+     c                   eval      Status = 'M-Melding mottatt'
+     c     SIST          wheneq    'D'
+     c                   eval      Status = 'D-Dokumentkontroll'
+     c     SIST          wheneq    'V'
+     c                   eval      Status = 'V-Varekontroll'
+     c                   endsl
+     c                   endif
+N02  c     AvdKey        Chain     KODTA
+      /free
+        if AntLest=1;
+           JSONstring=*blanks;
+           else;
+           JSONstring=', ';
+           endif;
+        JSONstring=%trim(JSONstring)+'{'
+          +'¬dato¬ : ¬'+%trim(%editc(HEDTOP:'3'))+'¬, '
+          +'¬dager¬ : ¬'+%trim(ANTDGA)+'¬, '
+          +'¬tariffor¬ : ¬'+%trim(SAISG)+'¬, '
+          +'¬avd¬ : ¬'+%trim(%editc(HEAVD:'3'))+'¬, '
+          +'¬avdNavn¬ : ¬'+%trim(KOANVN)+'¬, '
+          +'¬opd¬ : ¬'+%trim(%editc(HEOPD:'3'))+'¬, '
+          +'¬oppdrag¬ : ¬ '+%trim(AVDOPD)+'¬, '
+          +'¬sign¬ : ¬ '+%trim(HESG)+'¬, '
+          +'¬extRef¬ : ¬ '+%trim(EXTREF)+'¬, '
+          +'¬antHfakt¬ : ¬ '+%trim(SFARK)+'¬, '
+          +'¬mottaker¬ : ¬ '+%trim(HENAK)+'¬, '
+          +'¬kll¬ : ¬ '+%trim(%editc(HENT:'3'))+'¬, '
+          +'¬vekt¬ : ¬ '+%trim(%editc(HEVKT:'3'))+'¬, '
+          +'¬godsnr¬ : ¬ '+%trim(HEGN)+'¬, '
+          +'¬status¬ : ¬ '+%trim(Status)+'¬, '
+          +'¬merknad¬ : ¬ '+%trim(SFMERK)+'¬ } ';
+      /end-free
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   endsr
+      *
+      *
+     C***********************************************
+     C     INCLUD        BEGSR
+     C***********************************************
+      **
+     C                   MOVE      'N'           INCL              1
+      *
+      **
+     c     HEST          cabeq     'S'           EndInc                         SLETTET
+     c     HEOPD         cablt     *zeros        EndInc                         Mønster-oppd/TRmod
+     c     HETLL         cabne     *blanks       EndInc
+     c     HEGNN         cabne     *blanks       EndInc
+      * Kommet gjennom hit uten uthopp = Skal Inkluderes
+     C                   MOVE      'J'           INCL
+      *
+     C     ENDINC        ENDSR
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+HARD!c                   move      'N'           UtvidetSt         1
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C     HEAKEY        Klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     C     EdiMKey       Klist
+     c                   kfld                    MSR
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   move      'S'           MSR
+     C     ExtImpKey     Klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    FSKODE
+     c                   move      '*CR'         FSKODE
+      *
+     C     ArkZHKey      Klist
+     c                   kfld                    ARSTAT
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     c                   kfld                    ARTYPE
+     c                   move      'A'           ARSTAT
+     c                   move      'ZH'          ARTYPE                         OBS!! JUKSEFORENKL..
+     C     BrParAvdK     klist
+     C                   kfld                    AVBRID           10
+     C                   kfld                    AVKUNR            8 0
+     C                   kfld                    AVID              5
+     C     BrParDagK     klist
+     C                   kfld                    DGBRID           10
+     C                   kfld                    DGKUNR            8 0
+     C                   kfld                    DGID              5
+N02  C     AVDKEY        Klist
+N02  c                   kfld                    KOAUNI
+N02  c                   kfld                    HEAVD
+N02  c                   move      'A'           KOAUNI
+      *
+     C                   OPEN      HEAD43
+     C                   OPEN      SADIUF
+     C                   OPEN      EDIM4
+     C                   OPEN      SADH
+     C                   OPEN      FRISOK
+     C                   OPEN      ARKIVL02
+     C                   OPEN      BRPARF
+N02  C                   OPEN      KODTA
+      *
+      * Finn ut om Avd-gruppe-inndeling er på user eller firma-nivå(set key)
+     C                   MOVE      BIBRID        AVBRID
+     C                   MOVEL     'UFTAG'       AVID
+     C     BrParAvdK     Chain     BRPARF                             33
+     C   33              Eval      AVBRID = '*KUNDFT*'+BIFIRM
+      * Finn ut om dag-gruppe-inndeling er på user eller firma-nivå(set key)
+     C                   MOVE      BIBRID        DGBRID
+     C                   MOVEL     'UFTDG'       DGID
+     C     BrParDagK     Chain     BRPARF                             33
+     C   33              Eval      DGBRID = '*KUNDFT*'+BIFIRM
+      *
+     C                   endsr
+      *

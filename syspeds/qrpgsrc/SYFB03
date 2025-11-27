@@ -1,0 +1,513 @@
+      ***************************************************************
+      *** PROGRAM SKAL BEREGNE FRAKT (TOLLPOST)                   ***
+      ***************************************************************
+      *
+      * HVIS SPESIFIK POSTALAVTALE FINNES MED "TGI" SOM GEBYRKODE,
+      * TOLKES DETTE SOM AVVIK FRA TG-SONETABELL-BEREGNING
+      *
+      * FINNING AV RETT SONETABELLNUMMER:
+      *   DET ER NÅ KUN KOLONNENE HOVEDFR / FORFR / VIDEREFR.
+      *   SOM ER I BRUK OG DET ER "SUM SONE-TABELNR"!!! DET SLÅS OPP PÅ
+      *   DET ER KUN VED SONETAB-NR LAVERE ENN 30 (100) AT PRISEN ER
+      *   KOMPONERT AV HOVEDFRAKT + FORFR/VIDERFRAKT.
+      *   VED SONETAB-NR 100 ->> ER FORF/VIDERF. ALLTID 000 (TYDELIGVIS
+      *
+      *   Hvis ENKOLLOSENDING legges tallet 450 på funnet sone.
+      *   TABELL med nummer høyere enn 450 er altså ENKOLLO-tabeller.
+      *   Da er kun de 6 første element i bruk
+      *
+      * FINNING AV RETT TABELL-ELEMENT (=Pris) UTFRA VEKT :
+      * Ved normalberegning ("garantifrakt') gjelder:
+      *   GR. 1 --> 01-04 KG
+      *   GR. 2 --> 05-09 KG
+      *   GR. 3 --> 09-14 KG
+      *   GR. 4 --> 15-19 KG (grp. 1-4=identisk pris i.flg brukerguide)
+      *   GR. 5 --> 20-29 KG
+      *   GR. 6 --> 30-39 KG osv....( til og med grp 102)
+      *   Vekt / 10 + 3 gir gruppe (Heltalsdivisjon, dropp rest)
+      *   (F.eks: 37 Kg: 37 / 10 = 3,7 (= 3), 3 + 3  = 6  Pris i Tab 6)
+      *   TABELLEN GRUPPERT PÅ 10 KG (->09, ->19, ->29, ->39, ->49 ...)
+      *   MEN FRA 40->199 KILO ER 2 OG 2 GRUPPER IDENTISKE (STEPP A 20)
+      *   FRA 200->499 KILO ER 5 OG 5 GRUPPER IDENTISKE (STEPP A 50 KG)
+      *   FRA 500->1000 !!! 10 OG 10 GRUPPER IDENTISKE (STEPP A 100 KG)
+      *   (JAMFØR DEN TRYKTE BRUKERGUIDE/PRISLISTE FRA TG)
+      *   OVER 1000 KG ER PRIS GITT PR 100 KG, (men siden vekt er
+      *   avrundet OPP til nærmeste 100 kan det ses på som fastpris-
+      *   intervall for hvert 100 kg. (Jfr. TG brukerguide ->2000 kg ))
+      *   1001-2000 - tab.elem 103.
+      *   2001-99999- tab.elem 105/107/109/111/113/115/117/119
+      *        gitt nyansert på ulike grupper men har pr dato lik pris
+      *
+      * Ved "Enkollo-sending') gjelder:
+      *   GR. 1 --> 01-04 KG
+      *   GR. 2 --> 05-09 KG (grp. 1-2=identisk pris i.flg brukerguide)
+      *   GR. 3 --> 09-14 KG
+      *   GR. 4 --> 15-19 KG (grp. 3-4=identisk pris i.flg brukerguide)
+      *   GR. 5 --> 20-24 KG
+      *   GR. 6 --> 25-29 KG (grp. 5-6=identisk pris i.flg brukerguide)
+      ***************************************************************
+      *
+     FFRTABTG   IF   E           K DISK
+     FFRSTTG    IF   E           K DISK
+     FFRSTIS01  IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FTRAN      IF   E           K DISK
+     FAVFRH     IF   E           K DISK
+     FAVFRD     IF   E           K DISK
+     D                 DS
+     D  TGPR1                  1    240
+     D  TGPR2                241    480
+     D  PR                     1    480  0
+     D                                     DIM(120)
+      *
+     C     STTGK         KLIST
+     C                   KFLD                    YPNF
+     C                   KFLD                    YPNT
+     C     TRANK         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    UKNT
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+     C     FBKEY         KLIST
+     C                   KFLD                    YRI
+     C                   KFLD                    UAVD
+     C                   KFLD                    UOPD
+     C                   KFLD                    UFBN
+     C                   MOVE      'F'           YRI               1
+     C     HEKEY         KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UOPD
+     C     TGKEY         KLIST
+     C                   KFLD                    AFKUND
+     C                   KFLD                    AFPROD
+     C                   KFLD                    AFAVDE
+     C                   KFLD                    AFLKFR
+     C                   KFLD                    TGSON             5
+     C     TGKEYE        KLIST
+     C                   KFLD                    AFKUND
+     C                   KFLD                    AFPROD
+     C                   KFLD                    AFAVDE
+     C                   KFLD                    AFLKFR
+     C     VKTKEY        KLIST
+     C                   KFLD                    AFAVNR
+     C                   KFLD                    AFCDE1
+     C     VKTKE2        KLIST
+     C                   KFLD                    AFAVNR
+     C                   KFLD                    AFCDE1
+     C                   KFLD                    UVKT2
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UPNF              4 0
+     C                   PARM                    UPNT              4 0
+     C                   PARM                    UVKT              9 0
+     C                   PARM                    ULM               7 3
+     C                   PARM                    UM3               7 3
+     C                   PARM                    UKNT              8 0
+     C                   PARM                    UBL               9 0
+     C                   PARM                    UVKT2             9 0
+     C                   PARM                    UFLAGG            1 0
+      * NYE PARAM. FOR Å KUNNE OVERSTYRE PRISBEREGNING
+     C                   PARM                    UOVERS            1
+     C                   PARM                    UKUNDE            8 0
+     C                   PARM                    UANT              7 0
+     C                   PARM                    UTGSON            3
+     C                   PARM                    UBL2              9 0
+     C                   PARM                    URAB              3 1
+     C                   PARM                    UAVD              4 0
+     C                   PARM                    UOPD              7 0           IKKE I BRUK
+     C                   PARM                    UFBN              3 0           IKKR I BRUK
+      *
+      *
+     C                   IF        UFLAGG <> 2
+      *  UFLAGG SOM UT-PARAM:  0 = FANT PRIS,   1 = FANT IKKE PRIS
+      *
+     C                   MOVE      *BLANKS       UUVAL             3
+     C                   MOVE      'FRA'         UGEB              3
+     C                   MOVE      'TGI'         UGEBKO            3
+     C                   MOVE      *ZEROS        UUBELØ           13 2
+     C* LEGGER INN DUMMY "S" FOR PART (ULIK A=OPPDATER FR.BER.VEKT)
+     C                   MOVE      'A'           USKA              1
+     C                   CALL      'SYGE04'
+     C                   PARM                    UGEBKO
+     C                   PARM                    UGEB
+     C                   PARM                    UAVD
+     C                   PARM                    UOPD
+     C                   PARM                    UKUNDE
+     C                   PARM                    UUVAL
+     C                   PARM                    UUBELØ
+     C                   PARM                    UAVNR             9 0
+     C                   PARM                    UAVMSG           50
+     C                   PARM                    USKA
+     C     UUBELØ        IFNE      *ZEROS
+     C                   Z-ADD     UUBELØ        UBL
+     C                   Z-ADD     UUBELØ        UBL2
+     C                   GOTO      SLUTT
+     C                   END
+      *
+     C                   END
+      *
+     C* EVT. STANDARDRABATTER LIGGER PÅ KUNDENR TILHØRENDE TRANSP.
+     C                   MOVE      *ZEROS        STDKUN            8 0
+     C     UANT          IFEQ      1
+     C     UVKT          ANDLE     29
+     C                   MOVE      'J'           ENKOLL            1
+     C                   MOVE      'N'           ENKOLL            1
+     C                   ELSE
+     C                   MOVE      'N'           ENKOLL
+     C                   END
+     C* INNG PARM TRANSP.NR GITT - HENT KUNDENR FOR STANDARDRABATTER.
+     C     UKNT          IFNE      *ZEROS
+     C     TRANK         CHAIN     TRAN                               33
+     C                   MOVE      VMTRKU        STDKUN
+     C                   END
+      *
+     C                   Z-ADD     0             UFLAGG
+     C                   MOVE      *ZEROS        YPNF              4
+     C                   MOVE      '9999'        YPNT              4
+      *
+      *** Hente transportørsnr. til Tollpost
+     C     STTGK         CHAIN     FRSTTG                             33
+     C   33              Z-ADD     1             UFLAGG
+     C   33              GOTO      SLUTT
+     C                   MOVEL     TGNA          UKNT
+      * HVIS FRA-POSTNR IKKE ER GYLDIG TOLLPOST-BASE, BRUK 0101
+     C                   MOVE      UPNF          YPNF
+     C     YPNF          SETLL     FRSTTG
+     C     YPNF          READE     FRSTTG                                 50
+     C   50              MOVE      '0101'        UPNF
+      *
+      *** Hente vektomregningsfaktorer og rabatt
+     C     TRANK         CHAIN     TRAN                               33
+     C   33              MOVE      *ZEROS        VMLMOM
+     C   33              MOVE      *ZEROS        VMM3OM
+     C   33              MOVE      *ZEROS        VMRAB
+     C   33              MOVE      *ZEROS        VMTRKU
+     C* HVIS IKKE TRANSP. VAR GITT SOM INNPARAM:HENT KNR FOR STD-RABATT
+     C     STDKUN        IFEQ      *ZEROS
+     C                   MOVE      VMTRKU        STDKUN            8 0
+     C                   END
+      *
+      *** Omregne lastemeter/kubikkmeter til vekt
+     C     ULM           MULT(H)   VMLMOM        XVKTLM            9 0
+     C     UM3           MULT(H)   VMM3OM        XVKTM3            9 0
+      *** Teste/velge den største vekten
+     C                   SELECT
+     C     UVKT          WHENGE    XVKTLM
+     C     UVKT          ANDGE     XVKTM3
+     C                   MOVE      UVKT          XVKT              9 0
+     C     XVKTLM        WHENGE    XVKTM3
+     C                   MOVE      XVKTLM        XVKT
+     C                   OTHER
+     C                   MOVE      XVKTM3        XVKT
+     C                   ENDSL
+     C     XVKT          IFEQ      *ZEROS
+     C                   Z-ADD     1             XVKT
+     C                   END
+     C                   Z-ADD     XVKT          UVKT2
+     C     XVKT          IFGT      99999
+     C                   Z-ADD     99999         XVKT5             5 0
+     C                   ELSE
+     C                   Z-ADD     XVKT          XVKT5
+     C                   END
+      *
+      *** Finne indeks (XN) til pristabell og beregningsmåte
+      *** IN27, IN28 på  --->  Fast pris op denne vekten
+      *** IN27, IN28 av  --->  Pris ipristabell er sats for pr. 100 kg
+     C                   MOVEA     '00'          *IN(27)
+     C* FLERKOLLI......
+     C     ENKOLL        IFEQ      'J'
+     C                   SETON                                        27
+     C                   SELECT
+     C     XVKT5         WHENLE    9
+     C                   Z-ADD     1             XN                5 0
+     C     XVKT5         WHENLE    19
+     C                   Z-ADD     3             XN
+     C                   OTHER
+     C                   Z-ADD     5             XN
+     C                   ENDSL
+     C                   ELSE
+     C* FLERKOLLI......
+     C                   SELECT
+     C*** Vekt <= 1000 -->  Pris ligger på elementer 4-102 i pristabell
+     C*** Elementnr = vekt/10+3.(Unntatt i 1. grp (når under 10 kg))
+     C     XVKT5         WHENLE    19
+     C                   Z-ADD     4             XN
+     C                   SETON                                        27
+     C     XVKT5         WHENLE    1000
+     C                   SETON                                        28
+     C     XVKT5         IFEQ      1000
+     C                   Z-ADD     102           XN
+     C                   ELSE
+     C     XVKT5         DIV       10            XN
+     C                   ADD       3             XN
+     C                   END
+     C     XVKT5         IFGE      990
+     C                   Z-ADD     20            XVKT52            5 0
+     C                   END
+     C     XVKT5         WHENLT    2000
+     C*** Vekt < 2000 -->   Prissats ligger på element 103 i pristabell
+     C                   Z-ADD     103           XN
+     C                   Z-ADD     20            XVKT52            5 0
+     C     XVKT5         WHENLT    3000
+     C*** Vekt < 3000 -->   Prissats ligger på element 105 i pristabell
+     C                   Z-ADD     105           XN
+     C                   Z-ADD     30            XVKT52
+     C     XVKT5         WHENLT    4000
+     C*** Vekt < 4000 -->   Prissats ligger på element 107 i pristabell
+     C                   Z-ADD     107           XN
+     C                   Z-ADD     40            XVKT52
+     C     XVKT5         WHENLT    5000
+     C*** Vekt < 5000 -->   Prissats ligger på element 109 i pristabell
+     C                   Z-ADD     109           XN
+     C                   Z-ADD     50            XVKT52
+     C     XVKT5         WHENLT    9000
+     C*** Vekt < 9000 -->   Prissats ligger på element 111 i pristabell
+     C                   Z-ADD     111           XN
+     C                   Z-ADD     90            XVKT52
+     C     XVKT5         WHENLT    14000
+     C*** Vekt < 14000 -->  Prissats ligger på element 113 i pristabell
+     C                   Z-ADD     113           XN
+     C                   Z-ADD     140           XVKT52
+     C     XVKT5         WHENLT    20000
+     C*** Vekt < 20000 -->  Prissats ligger på element 115 i pristabell
+     C                   Z-ADD     115           XN
+     C                   Z-ADD     200           XVKT52
+     C     XVKT5         WHENLT    30000
+     C*** Vekt < 30000 -->  Prissats ligger på element 117 i pristabell
+     C                   Z-ADD     117           XN
+     C                   Z-ADD     300           XVKT52
+     C                   OTHER
+     C*** Vekt >=30000 -->  Prissats ligger på element 119 i pristabell
+     C                   Z-ADD     119           XN
+     C     XVKT5         ADD       99            XVKT52
+     C                   DIV       100           XVKT52
+     C                   ENDSL
+      *** Opphøye vekt til mærmest 100 kg for å beregne frakt med vekt
+      *** er høyere enn 1000.
+     C     XVKT5         IFGT      1000
+     C                   ADD       99            XVKT5
+     C                   DIV       100           XVKT5
+     C                   END
+      *
+     C                   END                                                     Flerkolli
+      *
+      *** Finne neste vektintervall for å se om det er mindre frakt.
+     C                   SELECT
+     C     XN            WHENLE    102
+     C     XN            ADD       1             XN2               3 0
+     C     XN            WHENGT    102
+     C     XN            ANDLE     117
+     C     XN            ADD       2             XN2
+     C                   OTHER
+     C                   Z-ADD     XN            XN2
+     C                   ENDSL
+     C     XN2           COMP      103                                29  29
+      *
+      *** Hente sonenumre
+     C                   MOVE      UPNF          YPNF
+     C                   MOVE      UPNT          YPNT
+      * ER TIL-POSTNR I TOLLPOST STED/SONE OVERSTYRT???
+     C                   MOVE      *ON           *IN32
+     C     UOVERS        IFEQ      'J'
+     C     STTGK         SETLL     FRSTIS01
+     C     YPNF          READE     FRSTIS01                               32
+     C  N32YPNT          IFGE      STIPNF
+     C                   MOVE      STIHF         TGHF
+     C                   MOVE      STIFF         TGFF
+     C                   MOVE      STIVF         TGVF
+     C                   ELSE
+     C                   MOVE      *ON           *IN32
+     C                   END
+     C                   END
+     C*
+     C   32STTGK         CHAIN     FRSTTG                             33
+     C   33              GOTO      SLUTT
+     C                   MOVE      TGVF          XTGVF             3 0
+     C                   MOVE      TGHF          XTGHF             3 0
+     C                   ADD       XTGVF         XTGHF
+     C                   MOVE      XTGHF         TGHF
+     C                   MOVE      *ZEROS        TGVF
+      *
+      *
+      *** Berenge frakt i hovedfraktsone
+     C     TGHF          IFNE      *ZEROS
+     C     TGHF          ANDNE     *BLANKS
+     C                   MOVE      TGHF          SUMSON            3 0
+     C                   MOVE      TGFF          SUMSOF            3 0
+     C                   MOVE      TGVF          SUMSOV            3 0
+     C                   MOVE      *BLANKS       TGFF
+     C                   MOVE      *BLANKS       TGVF
+     C*
+     C                   ADD       SUMSOF        SUMSON
+     C                   ADD       SUMSOV        SUMSON
+     C                   MOVE      SUMSON        TGHF
+     C*
+     C     TGHF          CHAIN     FRTABTG                            33
+     C  N33              DO
+      *** Beregne frakt i intervall som vekt ligger i
+     C   27
+     COR 28              Z-ADD     PR(XN)        XBLHF             9 0
+     C  N27
+     CANN28XVKT5         MULT      PR(XN)        XBLHF
+     C  N27
+     CANN28XBLHF         DIV(H)    10            XBLHF
+      *** Berenge frakt i neste intervall
+      *** XBLHF2  --->  Frakt i neste intervall
+     C  N29              Z-ADD     PR(XN2)       XBLHF2            9 0
+     C   29XVKT52        MULT      PR(XN2)       XBLHF2
+     C   29XBLHF2        DIV(H)    10            XBLHF2
+      *** Teste om frakt er mindre enn minimum frakt
+      *** Sonenummer <  100 ---> Minimum frakt = 110
+      *** Sonenummer >= 100 ---> Minimum frakt = 80
+     C                   SELECT
+     C     TGHF          WHENLT    '100'
+     C     XBLHF         IFLT      110
+     C                   Z-ADD     110           XBLHF
+     C                   END
+     C     XBLHF2        IFLT      110
+     C                   Z-ADD     110           XBLHF2
+     C                   END
+     C     TGHF          WHENGE    '100'
+     C     TGHF          ANDLE     '160'
+     C     XBLHF         IFLT      80
+     C                   Z-ADD     80            XBLHF
+     C                   END
+     C     XBLHF2        IFLT      80
+     C                   Z-ADD     80            XBLHF2
+     C                   END
+     C                   ENDSL
+     C                   END
+     C                   END
+      *
+      *
+      *** Frakt i dette intervallet ....
+     C                   Z-ADD     XBLHF         UBL
+      *** Sammenligne frakt med neste intervall og velge den minste.
+      *** Legge anbefalt vekt tilbake.
+     C     XBLHF2        IFLT      UBL
+     C                   Z-ADD     XBLHF2        UBL
+     C   29XVKT52        MULT      100           UVKT2
+     C  N29              SELECT
+     C     XN2           WHENLE    4
+     C     XN2           MULT      5             UVKT2
+     C     XN2           WHENEQ    5
+     C                   Z-ADD     21            UVKT2
+     C                   OTHER
+     C     XN2           SUB       3             UVKT2
+     C                   MULT      10            UVKT2
+     C                   ENDSL
+     C                   END
+      * RABATT ?? PÅ  KUNDEBASIS/GENERELT
+     C                   MOVE      UBL           UBL2                            *BRUTTO
+     C                   EXSR      RABATT
+      *
+     C                   MOVE      TGHF          UTGSON
+      *
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+      ***********************************************
+     C     RABATT        BEGSR
+      ***********************************************
+      * TG INNLANDSTABELLER ER I "POSTAL" PR.DEFN. BENEVNT F.EKS"TG005"
+      * KUNDEAVT. OM %-RAB. ER PR. DEFN. GITT VED Å ANGI DUMMY LANDKODE
+      * "%%"+TAB-NR FRA/TIL (F.EKS  %%  TG001 TG299 (TIL-OMRÅDE BLANK))
+      * I LINJA FOR "FRA" SETTES "P" DERETTER VANLIGE %-RABATT-REGLER
+      * (DVS. ENTEN FLAT % SATS ANGITT VED SATS PÅ HOVEDSIDEN ELLER
+      *  HVIS 0 DER, KAN DET DIFERENSIERES PÅ VEKT.GRP I DETALJBILDET)
+      *
+      *
+      * PRIORITERING:
+      *       1=AKTUELT KUNDENR, AKTUELL AVDELING
+      *       2=AKTUELT KUNDENR, 0000 I  AVDELING
+      *       3=TRANSPORTØRS KUNDENR, AKTUELL AVDELING
+      *       2=TRANSPØRTØRS KUNDENR, 0000 I  AVDELING
+      *
+     C                   MOVE      *ZEROS        URAB
+      *
+     C                   MOVE      ' '           AFPROD
+     C                   MOVE      '%%'          AFLKFR
+     C                   MOVEL     'TG'          TGSON
+     C                   MOVE      TGHF          TGSON
+     C* FINN EVT AVTALE SOM DEKKER TABELLEN.
+     C                   MOVE      UKUNDE        AFKUND
+     C                   MOVE      UAVD          AFAVDE
+     C* KUNDESPESIFIK RABATT KUN HVIS "OVERSTYR" = J
+     C     UOVERS        IFEQ      'J'
+     C     TGKEY         SETGT     AVFRH                                        ** 1
+     C     TGKEYE        READPE    AVFRH                                  33    ** 1
+     C     *IN33         IFEQ      '0'
+     C     AFPNF2        ANDLT     TGSON
+     C                   MOVE      '1'           *IN33
+     C                   END
+     C   33              MOVE      *ZEROS        AFAVDE
+     C   33TGKEY         SETGT     AVFRH                                        ** 2
+     C   33TGKEYE        READPE    AVFRH                                  33    ** 2
+     C     *IN33         IFEQ      '0'
+     C     AFPNF2        ANDLT     TGSON
+     C                   MOVE      '1'           *IN33
+     C                   END
+     C                   ELSE
+     C                   SETON                                        33
+     C                   END
+     C   33              MOVE      STDKUN        AFKUND
+     C   33              MOVE      UAVD          AFAVDE
+     C   33TGKEY         SETGT     AVFRH                                        ** 3
+     C   33TGKEYE        READPE    AVFRH                                  33    ** 3
+     C     *IN33         IFEQ      '0'
+     C     AFPNF2        ANDLT     TGSON
+     C                   MOVE      '1'           *IN33
+     C                   END
+     C   33              MOVE      *ZEROS        AFAVDE
+     C   33TGKEY         SETGT     AVFRH                                        ** 4
+     C   33TGKEYE        READPE    AVFRH                                  33    ** 4
+     C     *IN33         IFEQ      '0'
+     C     AFPNF2        ANDLT     TGSON
+     C                   MOVE      '1'           *IN33
+     C                   END
+     C     *IN33         IFEQ      '1'
+     C                   GOTO      UTRAB
+     C                   END
+      *
+      * RABATT PÅ HEADER-NIVÅ..
+     C                   Z-ADD     AFPFRA        URAB
+      * ELLER PÅ DETALJ-NIVÅ (=VEKTGRP.)
+     C     AFPFRA        IFEQ      *ZEROS
+     C                   MOVE      'H'           AFCDE1
+      * SJEKKER FØRST OM DET FINNES NOE REG. I DENNE TABELLEN
+     C     VKTKEY        SETLL     AVFRD                                  90
+     C     *IN90         IFEQ      *ON
+      * DET FINNES REG. I DENNE TABELLEN. SLÅ OPP PÅ VEKTINTERVALLET
+      * OG HENT PROSENTSATSEN.
+     C     VKTKE2        SETLL     AVFRD                                  90
+     C     VKTKEY        READE     AVFRD                                  90
+     C     *IN90         IFEQ      *OFF
+     C                   Z-ADD     AFPRIA        URAB
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C     UTRAB         TAG
+     C     URAB          IFNE      *ZEROS
+     C     URAB          IFEQ      99.9
+     C                   MOVE      *ZEROS        UBL
+     C                   ELSE
+     C     100           SUB       URAB          XRABAT            6 3
+     C                   DIV       100           XRABAT
+     C                   MULT(H)   XRABAT        UBL
+     C                   END
+     C                   END
+     C     URAB          IFNE      99.9
+     C     AFMINI        IFGT      UBL
+     C     AFMINI        ANDNE     0
+     C                   Z-ADD     AFMINI        UBL
+     C                   END
+     C     AFMAXI        IFLT      UBL
+     C     AFMAXI        ANDNE     0
+     C                   Z-ADD     AFMAXI        UBL
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+      *

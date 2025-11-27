@@ -1,0 +1,289 @@
+      **************************************************************
+      *** PROGRAM SKAL klargjøre / kalle utskrift av Tr.merkelap.
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER
+      *** LEDIGE INDIKATORER 01-26
+      *** LEDIGE INDIKATORER 29-32 35-99
+      **************************************************************
+     FGSSTRF    IF   E           K DISK
+     FGSSORL21  IF   E           K DISK
+     FGSSOLF    UF   E           K DISK
+     FSTED2     IF   E           K DISK
+     FKODTLK    IF   E           K DISK
+     FDOKUF     UF A E           K DISK
+     FDOKUFM    UF A E           K DISK
+     FFIRFB     UF   E           K DISK
+     D                 DS
+     D  OLMN                   1     35
+     D  EANID                  1     20
+     D  DSAPID                 1      2
+     D  KOID                   3     20
+     D  DSIDPK                 3      3
+     D  DSIDLA                 4      5
+     D  DSIDLE                 6     10
+     D  DSIDNR                11     20
+     D TotCol          S              5  0
+     D TotVkt          S              7  1
+     D TotM3           S              7  2
+     D UCMD            DS          1024
+     D                 DS
+     D XCMD11          C                   CONST('OVRPRTF')
+     D XCMD12Z         C                   CONST('FILE(ZBARC)')
+     D XCMD12E         C                   CONST('FILE(SYLA03P)')
+     D XCMD13          C                   CONST('OUTQ(')
+     D
+     D                 DS
+     D  TRAD4                  1     30
+     D  WSTRADPNU              1      9
+     D  WSTRAD410             10     10
+     D  WSTRADSTU1            10     30
+     D  WSTRADSTU2            11     30
+      *
+     C                   EXSR      INIT
+      *
+     C     UTNO          CHAIN     GSSTRF                             33
+      *
+      * Lag/Oppdater fraktbrev..
+     c                   MOVEL     'F'           DFRI
+     C                   MOVEL     UTNO2         DFAVD
+     C                   MOVE      UTNO2         DFOPD
+     C                   Z-ADD     1             DFFBNR
+     c     DokufKey      chain     DOKUF                              50
+      *  Slett evt gamle kolli-IDer på gitt fraktbrevsnr.../sett nøkkel
+     C                   EXSR      SRINKOID
+      *  Sjekk at alle involverte KOLLI-ID'er har EAN-nummer
+      *  Hvis ikke skapes den nå..
+     C     UTNO          setll     GSSORL21
+     C     UTNO          READE     GSSORL21                               33
+     C     *IN33         DOWEQ     *OFF
+     C                   eval      Totcol=totcol + ORCLI
+     C                   eval      TotVkt=totvkt + ORWT
+     C                   eval      TotM3 =totm3  + ORVOL
+     C                   EXSR      FIXCLL
+     C     UTNO          READE     GSSORL21                               33
+     C                   end
+      *
+     c                   z-add     TotCol        DFNT
+     c                   z-add     TotCol        DFNTLA
+     c                   z-add     TotVkt        DFVKT
+     c                   z-add     TotM3         DFM3
+      *  Legg inn rett avs.mottaker mm.
+     c                   EXSR      AVSMOT
+     c   50              Write     DOKUFR
+     c  N50              update    DOKUFR
+      *
+     C                   MOVE      'WW'          UULAYOUT          2
+     C                   MOVE      'J'           UUKOPI            1
+      * KALL FRA GRØNNSKJERM - overstyr printer / kall prog
+     C     UPRT          IFNE      *blanks
+     C                   Z-ADD     1024          UCMDL            15 5
+     C                   MOVE      *BLANKS       UCMD
+     C     ULABTYP       IFEQ      'Z'
+     C     XCMD11        CAT       XCMD12Z:1     UCMD
+     c                   ELSE
+     C     XCMD11        CAT       XCMD12E:1     UCMD
+     c                   END
+     C                   CAT       XCMD13:1      UCMD
+     C                   CAT       UPRT:0        UCMD
+     C                   CAT       ')':0         UCMD
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    UCMD
+     C                   PARM                    UCMDL
+      *
+     C     ULABTYP       IFEQ      'Z'
+      * Zebra (ZPL-language)
+     C                   CALL      'SYFA12SN'
+     C                   PARM                    UFIRM
+     C                   PARM                    UULAYOUT
+     C                   PARM                    DFAVD
+     C                   PARM                    DFOPD
+     C                   PARM                    DFFBNR
+     C                   PARM                    UUKOPI
+     C                   ELSE
+      * Eltron (EPL-language)
+     C                   CALL      'SYFA12SE'
+     C                   PARM                    UFIRM
+     C                   PARM                    UULAYOUT
+     C                   PARM                    DFAVD
+     C                   PARM                    DFOPD
+     C                   PARM                    DFFBNR
+     C                   PARM                    UUKOPI
+     C                   END
+     C                   END
+      *
+      * KALL FRA WEB Kall CL som ordner  resten
+     C     UFROM         IFEQ      'W'
+     C*...  SS115C      PGM        PARM(&FI &CURTUR &LTYP)
+     C                   CALL      'SS115C'
+     C                   PARM                    UFIRM
+     C                   PARM                    UTNO2
+     C                   PARM                    ULABTYP
+     C                   PARM                    UUKOPI
+     C                   PARM                    UULAYOUT
+     C                   PARM                    UNIK
+     C                   END
+      *
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C***********************************************
+     C     FIXCLL        BEGSR
+     C***********************************************
+      * For hver odre kopier kolli-ider inn i dokufm
+     c     ORONO         SETLL     GSSOLF
+     c     ORONO         READE     GSSOLF                                 33
+     c     *in33         DOWEQ     *OFF
+      * Om EAN kolli-id ikke fins - tildel nå. (VIA DS også oppd av OLMN)
+     c     OLMN          IFEQ      *blanks
+     C     UFIRM         CHAIN     FIRFB                              33
+     C                   ADD       1             FIIDNR
+     C                   UPDATE    FIRFBR
+     C                   MOVE      '00'          DSAPID
+     C                   MOVE      '3'           DSIDPK
+     C                   MOVE      FIIDLA        DSIDLA
+     C                   MOVE      FIIDLE        DSIDLE
+     C                   MOVEL     FIIDNR        DSIDNR
+     C                   MOVE      *ZEROS        UAN22            22
+     C                   MOVE      KOID          UAN22
+     C                   CALL      'SYGE08'
+     C                   PARM                    UAN22
+     C                   MOVE      UAN22         KOID
+     c                   end
+      *
+     C                   ADD       1             FMMKNR
+     C                   MOVEL     KOID          FMMRK1
+     C                   WRITE     DOKUFMR
+      * Oppdater evt endret OLMN i kolli-fila på ordren
+     c                   update    GSSOLFR
+     c     ORONO         READE     GSSOLF                                 33
+     C                   END
+     c                   endsr
+      *
+      *_____________________________________________________
+      * Subroutine to INIT Colli_ID handling
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRINKOID      BEGSR
+      * SKAL KOLLI-ID TILDELES??
+     C                   MOVE      'N'           KOLLIID           1
+     C     UFIRM         CHAIN(N)  FIRFB                              33
+     C     *IN33         IFEQ      '0'
+     C     FIIDNR        ANDNE     *ZEROS
+     C                   MOVE      'J'           KOLLIID
+      * SLETT EVT. TIDLIGERE TILDELT KOLLIID
+     C                   MOVE      DFRI          FMRI
+     C                   MOVE      DFAVD         FMAVD
+     C                   MOVE      DFOPD         FMOPD
+     C                   MOVE      DFFBNR        FMFBNR
+     C                   MOVE      *ZEROS        FMLINR
+      * ikke slett hvis uukopi = J
+     c     uukopi        ifne      'J'
+     C     DOKUFMKEY     SETLL     DOKUFM
+     C     DOKUFMKEY     READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C     FMST          IFEQ      'I'
+     C                   DELETE    DOKUFMR
+     C                   ELSE
+     C                   UPDATE    DOKUFMR
+     C                   END
+     C     DOKUFMKEY     READE     DOKUFM                                 33
+     C                   END
+      * INITIER FOR UTLEGGING AV NYE
+     C                   MOVE      *ZEROS        FMMKNR
+     C                   MOVE      *ZEROS        FMLONR
+     C                   MOVE      *BLANKS       FMMRK1
+     C                   MOVE      'I'           FMST
+     C                   end
+     C                   END
+      *
+      *
+     C                   ENDSR
+     C***********************************************
+     C     AVSMOT        BEGSR
+     C***********************************************
+     c                   move      'N'           DFST
+     c                   move      'S'           DFKDME
+      * Avsender (Hub + Stedsnavn )
+      * Fra grønnskerm finnes ikke full hub-adresse.(Bruk Hub + Stedsnavn )
+     c     ORLC          Chain     Sted2                              34
+     c                   eval      DFNAVS = ORLC + ' ' + ST2NVN
+      * Mottaker
+     c                   movel     TRAD1         DFNAVM
+     c                   movel     TRAD2         DFAD1M
+     c                   movel     TRAD3         DFAD2M
+     C                   MOVEL     TRAD5         KLKLK
+      * Når 2 første i linje 5 er gyldi postnr da er det UTENLANDS..
+     C     LANDKEY       CHAIN     KODTLK                             33
+     C     *IN33         IFEQ      '0'
+     c                   move      'V'           DFST
+     c                   movel     KLKLK         DFLKM
+     c                   movel     WSTRADPNU     DFPNUM
+     C     WSTRAD410     IFNE      ' '
+     c                   movel     WSTRADSTU1    DFAD3M
+     C                   ELSE
+     c                   movel     WSTRADSTU2    DFAD3M
+     C                   END
+     C                   ELSE
+      * Norsk
+     c                   move      *Blanks       DFPNUM
+     c                   move      *Blanks       DFLKM
+     c                   movel     TRAD4         DFAD3M
+     C                   END
+      *
+      * Levadr etter mottaker
+     c                   movel     DFNAVM        DFNAVL
+     c                   movel     DFAD1M        DFAD1L
+     c                   movel     DFAD2M        DFAD2L
+     C     DFLKM         IFEQ      *blanks
+      * Norsk
+     c                   movel     DFAD3M        DFADUL
+     C                   MOVE      *zeros        DFPOUL
+     c                   movel     DFAD3M        TMPPNR            4
+     C                   TESTN                   tmpPNR               34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      TMPPNR        DFPOUL
+     C                   MOVE      DFADUL        XXAD25           25
+     C                   MOVE      *BLANKS       DFADUL
+     C                   MOVEL     XXAD25        DFADUL
+     C                   END
+     C                   else
+      *UTENLANDSK
+     c                   movel     DFPNUM        DFPNUL
+     c                   movel     DFAD3M        DFADUL
+     c                   movel     DFLKM         DFLKL
+     C                   END
+      *
+     C                   ENDSR
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UFIRM             2
+     C                   PARM                    UTNO2            11
+     C                   PARM                    ULABTYP           1
+     C                   PARM                    UPRT             10
+     C                   PARM                    UFROM             1
+     C                   PARM                    UKOPI             1
+     C                   MOVE      UTNO2         UTNO             11 0
+      * Ved kall fra web lånes PRT-param for unikt TMP-filnavn
+     c     UFROM         IFEQ      'W'
+     c                   movel     UPRT          UNIK              7
+     C                   MOVE      *BLANKS       UPRT
+     c                   end
+      *
+     C     DokufKey      klist
+     C                   kfld                    DFRI
+     C                   kfld                    DFAVD
+     C                   kfld                    DFOPD
+     C                   kfld                    DFFBNR
+      *
+     C     DOKUFMKEY     KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+     C     LandKey       klist
+     C                   kfld                    KLKUNI
+     C                   kfld                    KLKLK
+     C                   MOVEL     'LK '         KLKUNI
+     C                   ENDSR
+      *

@@ -1,0 +1,213 @@
+     H DFTACTGRP(*NO)
+     FSVTX15F   IF   E           K DISK
+     FSVTX08F2  IF   E           K DISK
+     d svi304r61       pr
+     d uvtx15_01_                          like(uvtx15_01)
+     d ulk_                                like(ulk)
+     d sviv_fokd_                          like(sviv_fokd)
+     d uwtsat_                             like(uwtsat)
+     d uwtfti_                             like(uwtfti)
+     d uwtmti_                             like(uwtmti)
+     d uwtmuc_                             like(uwtmuc)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d svi304r61       pi
+     d uvtx15_01                     10
+     d ulk                            2
+     d sviv_fokd                      4
+     d uwtsat                        10S 3
+     d uwtfti                         2
+     d uwtmti                         3
+     d uwtmuc                         3
+     d  U_WTSAT        S             15
+     d  WERR           S              1
+     d  WULK           S              4
+     d  X              S              2  0
+     d wtm             s              6
+     d A1              S             10
+     d A2              S             10
+     d A3              S             10
+     d A4              S             10
+     d A5              S             10
+     d myrows          s             10i 0
+     d ok              s              1
+
+     d MyPoDS          ds                  Qualified  dim(99)
+     d  w01                          10
+     d  w02                           4
+     d  w04                           5
+     d  w10                          10
+     d  w11                          10
+     d  w31                          15
+     d  w33                           4
+     D                 DS
+     D  WDT                    1      8
+     D  WDTY                   1      4
+     D  WDTM                   5      6
+     D  WDTD                   7      8
+     D                 DS
+     D  WD                     1     10
+     D  WDY                    1      4
+     D  WD1                    5      5
+     D  WDM                    6      7
+     D  WD2                    8      8
+     D  WDD                    9     10
+     D                 DS
+     D  SVTX15_04              1      5
+     D  SVTX15_04A             1      2
+     D  SVTX15_04B             1      3
+     D  SVTX15_04C             3      5
+
+      /free
+       exsr sra;
+       exsr srb;
+       exsr src;
+       *inlr = *on;
+
+        // __________________________________________________
+        // Init                                           SRA
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sra;
+
+        // Fixa arbetsvariablar
+           WULK=ULK;
+
+
+        // Fixa søkning på 5 nivåer
+         A1=%subst(UVTX15_01:1:10);
+         A2=%subst(UVTX15_01:1:8) + '00';
+         A3=%subst(UVTX15_01:1:6) + '0000';
+         A4=%subst(UVTX15_01:1:4) + '000000';
+         A5=%subst(UVTX15_01:1:2) + '00000000';
+
+         // Hent dagens dato
+         syge15c ( wdt : wtm );
+         wd1='-';
+         wd2='-';
+         wdy=wdty;
+         wdm=wdtm;
+         wdd=wdtd;
+
+       endsr;
+
+        // __________________________________________________
+        // Kør SQL in i array                             SRB
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr srb;
+
+           Setll A5 svtx15f;
+           Read svtx15f;
+           Dow not %eof(svtx15f);
+
+           ok='0';
+           x = 0;
+
+           if %subst(UVTX15_01:1:2) <> %subst(SVTX15_01:1:2);
+           leave;
+           endif;
+
+           if (A5 = SVTX15_01) or (A4 = SVTX15_01) or
+              (A3 = SVTX15_01) or (A2 = SVTX15_01) or (A1 = SVTX15_01);
+           ok='1';
+           else;
+           ok='0';
+           Endif;
+
+           if ok = '1';
+           if (SVTX15_04 <> '103') and (SVTX15_04 <> '106') and
+              (SVTX15_04 <> '142') and (SVTX15_04 <> 'SEMOM');
+           ok='1';
+           else;
+           ok='0';
+           Endif;
+           Endif;
+
+           if ok = '1';
+           if (SVTX15_31 <> ' ');
+           ok='1';
+           else;
+           ok='0';
+           Endif;
+           Endif;
+
+           if ok = '1';
+           if (SVTX15_31 <> '0.0');
+           ok='1';
+           else;
+           ok='0';
+           Endif;
+           Endif;
+
+           if ok = '1';
+           x = x + 1;
+           mypods(x).w01 = svtx15_01;
+           mypods(x).w02 = svtx15_02;
+           mypods(x).w04 = svtx15_04;
+           mypods(x).w10 = svtx15_10;
+           mypods(x).w11 = svtx15_11;
+           mypods(x).w31 = svtx15_31;
+           mypods(x).w33 = svtx15_33;
+           Endif;
+
+           Read svtx15f;
+           Enddo;
+
+       endsr;
+        // __________________________________________________
+        // Læs array                                      SRC
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr src;
+
+       for x = 1 to 90;
+
+           werr=' ';
+
+         // Stæmmer datum ?
+
+
+         if mypods(x).w11 > wd;
+           werr='X';
+         endif;
+
+         if mypods(x).w10 < wd;
+           werr='X';
+         endif;
+
+       // Er landkoden riktig ?
+
+         if werr=*blanks;
+           if mypods(x).w02 <> wulk;
+             werr='X';
+
+           // Eller stæmmer regionen ?
+
+           chain (wulk : mypods(x).w02) svtx08f2;
+             if %found;
+               werr=' ';
+             endif;
+           endif;
+         endif;
+
+       // Allt stæmmer, flytta til outputparametrar
+
+         if werr=*blanks;
+
+           uwtsat = %dec(mypods(x).w31:10:3);
+           uwtfti = *blanks;
+           svtx15_04 = mypods(x).w04;
+           if svtx15_04a = 'SE';
+           uwtmti = svtx15_04c;
+           else;
+           uwtmti = svtx15_04b;
+           endif;
+           uwtmuc = mypods(x).w33;
+
+         endif;
+        endfor;
+
+       endsr;
+
+      /end-free

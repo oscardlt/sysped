@@ -1,0 +1,228 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJEOPDFBR MODULE(*LIBL/TJEOPDFBR *LIBL/INCGI)
+CRTPGM*        ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 JOV PTF11 tollpass
+11XXX * 02 JOV PTF11 direkteprint dersom HEPK1 = J  / lage UDS
+********************************************************************
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+N01  FDOKUF     IF   E           K DISK    USROPN
+N02  FBRPARF    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     D WSUSER          S             10
+     D WSAVD           S              4
+     D BSAVD           S              4  0
+     D WSOPD           S              7
+     D BSOPD           S              7  0
+     D WSFBN           S              3
+     D BSFBN           S              3  0
+     D IFSFIL          S             50
+     D JSONstring      s          32000
+     D Error           S            150
+N02
+N02   * uds som i SYFA00
+N02  D SAVUDS         UDS
+N02  D  UFIRM                  1      2
+N02  D  KOVFIRM                3      4
+N02  D  KOVPRO                13     13
+N02  D  UAVD                  15     18
+N02  D  USG                   19     21
+N02  D  UNULL1                22     35
+N02  D  UNULL2                64     69
+N02  D  UBLA1                 81     81
+N02  D  UOPD                  82     88
+N02  D* XBLA1/XBLA2 ER IKKE I BRUK. HVIS TAR NOEN POSISJONER TIL BRUK
+N02  D* HUSK Å SYNKE STØRRELSE PÅ XBLA1/XBL2
+N02  D  XBLA1                 92    256
+N02  D  XBLA2                257    508
+N02  D  FILFB                509    509
+N02  D  FILTB                510    510
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+     C                   EXSR      PARSE
+
+     C                   EXSR      INIT
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬wsavd¬ : ¬'+%trim(WSAVD)+'¬, '
+        +'¬wsopd¬ : ¬'+%trim(WSOPD)+'¬, '
+        +'¬wsfbn¬ : ¬'+%trim(WSFBN)+'¬, '
+        +'¬ifsfil¬ : ¬'+%trim(IFSFIL)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(ERROR)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   IF        ERROR=*BLANKS
+
+     C                   EVAL      JSONstring ='"prtPDFfrbrev" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+     C                   ENDIF
+      * Quit
+     C                   EXSR      EXIT
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         BEGSR
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      WSAVD   = zhbgetvar('WSAVD')
+     C                   EVAL      BSAVD   = c2n2(WSAVD)
+     C                   EVAL      WSOPD   = zhbgetvar('WSOPD')
+     C                   EVAL      BSOPD   = c2n2(WSOPD)
+     C                   EVAL      WSFBN   = zhbgetvar('WSFBN')
+     C                   EVAL      BSFBN   = c2n2(WSFBN)
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+     C     HeaKey        KLIST
+     C                   KFLD                    BSAVD
+     C                   KFLD                    BSOPD
+
+     C   50              eval      Error = 'Invalid userID'
+     c   50              goto      UtIni
+     c                   OPEN      Headf
+N01  c                   OPEN      DOKUF
+N02  c                   OPEN      BRPARF
+
+N02  C     BrParKey      klist
+N02  C                   kfld                    PABRID
+N02  C                   kfld                    PAKUNR
+N02  C                   kfld                    PAID
+N02  C                   MOVE      BIBRID        PABRID
+N02  C                   MOVE      *zeros        PAKUNR
+      *
+     C     HeaKey        CHAIN     HEADF                              51
+     C   51              eval      Error = 'Invalid Order'
+     c   51              goto      UtIni
+      *
+N02   * Dersom HEPK1 = J skal også ordinær skrives/arkiveres/mm (både Fb/Tollp takles)
+N02   *  Initier UDS som etter syfa00   (AVD/OPD/TUR I UDS fikses uansett via CL..)
+N02  C     HEPK1         ifeq      'J'
+N02  C     *DTAARA       DEFINE    *LDA          SAVUDS
+N02  C                   MOVE      'ASSIG'       PAID
+N02  C     BrParKey      chain     BRPARF                             33
+N02  C  N33              MOVE      PAVRDA        USG
+N02  C                   move      HEAVD         UAVD
+N02  C                   move      HEOPD         UOPD
+N02  C                   MOVE      BIFIRM        UFIRM
+N02  C                   MOVE      BIFIRM        KOVFIRM
+N02  C                   MOVE      *zeros        UNULL1
+N02  C                   MOVE      *zeros        UNULL2
+N02  C                   OUT       SAVUDS
+      *
+N02  C                   move      HEAVD         UAVDA             4
+N02  C                   move      HEOPD         UOPDA             7
+N02  C                   move      '00000000'    UNullTur          8
+N02  C                   call      'SYFA12CLD'
+N02  C                   parm                    UAVDA
+N02  C                   parm                    UOPDA
+N02  C                   parm                    UNullTur
+N02  C                   endif
+      *
+N01  C                   MOVE      'F'           Utype
+     C     DOKUFK        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    DFAVD
+     C                   KFLD                    DFOPD
+     C                   KFLD                    DFFBNR
+     C                   MOVE      'F'           DFRI
+     C                   MOVE      HEAVD         DFAVD
+     C                   MOVE      HEOPD         DFOPD
+     C                   Z-ADD     1             DFFBNR
+     C     DOKUFK        CHAIN     DOKUF                              33
+     C     *IN33         IFEQ      '0'
+N01  C                   Z-ADD     DFFBNR        BSFBN
+     c                   if        DFTOLL <> *zeros
+N01  C                   MOVE      'T'           Utype
+     c                   endif
+     c                   ENDIF
+      *  Kall prog for å generere PDF-fil i IFS.
+     C                   MOVE      BSAVD         WSAVD
+     C                   MOVE      BSOPD         WSOPD
+     C                   MOVE      BSFBN         WSFBN
+     C                   EVAL      IFSFil = *BLANKS
+     C                   call      'SYFA12CES'
+     c                   parm                    BIFIRM
+     C                   PARM                    WSAVD
+     C                   PARM                    WSOPD
+     C                   PARM                    WSFBN
+E01  C                   PARM                    Utype             1
+     C                   PARM                    IFSFIL
+
+     C     UTINI         ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     EXIT          BEGSR
+
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     HEADF
+N01  C  N50              CLOSE     DOKUF
+N02  C  N50              CLOSE     BRPARF
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   ENDSR
+      *
+      *

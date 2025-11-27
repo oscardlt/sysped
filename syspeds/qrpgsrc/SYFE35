@@ -1,0 +1,942 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX * 01 SH  PTF11 fakturering i annen valuta
+11XXX * 02 SH  PTF11 rettelser til 01
+********************************************************************
+      *
+      *
+      *     OPPDATERE FERJEFAKTURA
+      *     I IBM REGNSKAPSSYSTEM
+      *  LØSNING 1 VRU2  POST1/2 --> POSTB1/B2
+      *  INNFØRT KODIL01/KODJL01 OG SUBRUTINE STEBAR SOM LEGGER
+      *  KOSTNADSSTED OG BÆRERS GRUPPERINGSKODE I IBMNY1 (H I POSTB0)
+      *
+N01  FFERFAKT   IF   E           K DISK
+     FKODJL01   IF   E           K DISK
+     FKODIL01   IF   E           K DISK
+     FKONTL01   IF   E           K DISK
+     FTUFE3     UF   E           K DISK
+     FTUFET     IF   E           K DISK
+     FKOSBU     IF   E           K DISK
+     FKOSBL01   UF A E           K DISK
+     FKOSAL02   UF A E           K DISK
+     FKODTÅ     IF   E           K DISK
+     FKODTV     IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FKODTGE    IF   E           K DISK
+     FKODTG2    IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FNUMML01   UF   E           K DISK                                         X010
+     FSYSRL01   UF   E           K DISK                                         X010
+     FKHEDL01   IF   E           K DISK
+     FKUNDL01   UF   E           K DISK
+     FLISTE     O    F  132        PRINTER OFLIND(*INOF)
+      *
+     D                 DS
+     D  DG                     1      2  0
+     D  MN                     3      4  0
+     D  AR                     5      6  0
+     D  IBMDAT                 1      6  0
+     D                 DS
+     D  IBMFAR                 1      4  0
+     D  IBMFMN                 5      6  0
+     D  IBMFDG                 7      8  0
+     D  IBMFFD                 1      8  0
+     D                 DS
+     D  FEDATÅ                 1      4  0
+     D  FEDATM                 5      6  0
+     D  FEDATD                 7      8  0
+     D  FEDATO                 1      8  0
+     D                 DS
+     D  FEDAFÅ                 1      4  0
+     D  FEDAFM                 5      6  0
+     D  FEDAFD                 7      8  0
+     D  FEDAFF                 1      8  0
+     D                UDS
+     D  UDSFIR                 3      4
+     D*--------------------------------------------------------------
+     D* DEFINERER DATASTRUKTURER
+     D*--------------------------------------------------------------
+     D                 DS
+     D  MINPER                 1      6  0
+     D  KOÅCC                  1      2  0
+     D  KOÅÅR                  3      4  0
+     D  KOÅMND                 5      6  0
+     D                 DS
+     D  KNAVN                  1     30
+     D  KNAV25                 1     25
+     D                 DS
+     D  KG2LEV                 1      8  0
+     D  KG2PRO                 1      4  4
+     D  KG2BÆR                 5      8  0
+     D                 DS
+     D  BILTX2                 1     15
+     D  BUTX27                 1     27
+     C                   EXSR      INIT
+     C*PRINTER HEADING
+     C*
+     C                   EXCEPT    PHEAD
+     C*HENT FØRSTE FAKTURA SOM SKAL OVERFØRES
+     C                   SETOFF                                       30
+     C     'F'           SETLL     TUFE3
+     C     'F'           READE(N)  TUFE3                                  30
+     C     *IN30         DOWEQ     '0'
+     C                   EXSR      HOVED
+     C* FLERE ??
+     C     'F'           SETLL     TUFE3
+     C     'F'           READE(N)  TUFE3                                  30
+     C  N30              END
+     C**
+     C* GETS TOTALS
+     C                   EXSR      TOTSR
+     C*
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C*
+     C*
+     C******************************************
+     C     HOVED         BEGSR
+     C******************************************
+     C* DENNE RUTINE OVERFØRER EN HEL FAKTURA
+     C* KOMMER INN HIT ETTER Å HA LEST 1. FAKT.LINJE PÅ AKT. FAKT
+     C*
+     C* SKJEKKER OM PERIODE VARELINJE ER ÅPEN
+     C* I REGNSKAPET
+     C                   MOVE      FEMND         KOÅMND
+     C                   MOVE      FEÅR          KOÅÅR
+     C                   MOVE      FECC          KOÅCC
+     C*
+     C     KODÅKE        CHAIN     KODTÅ                              33
+     C  N33              MOVEL     KOÅCC         SÅR               4 0
+     C  N33              MOVE      KOÅÅR         SÅR
+     C  N33              MOVE      KOÅMND        SMND              2 0
+     C   33              MOVE      MINPE2        SMND
+     C   33              MOVEL     MINPE2        SÅR
+     C                   MOVE      SÅR           SÅR2              2 0
+     C*
+     C* SKJEKK OM DENNE MÅNED HAR BILAGSNR
+     C*
+     C                   MOVE      SÅR           YYÅR
+     C                   Z-ADD     SMND          YYMND
+     C     FISADK        IFNE      'N'
+     C     KEYBI         CHAIN(N)  KOSAL02                            44
+     C  N44              MOVE      BILNR         SBNRNU
+     C   44              EXSR      HENTBI
+     C                   ELSE
+      * UTEN SAMMENSLÅING SKRIVES TIL POSAL02 UANSETT
+     C                   Z-ADD     FEFAKT        BILNR
+     C                   MOVE      BILNR         SBNRNU
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      SBNRNU        BILNR
+     C                   MOVE      SÅR           PERAAR
+     C                   MOVE      SMND          PERNR
+     C                   MOVE      *BLANKS       VALKOD
+     C                   WRITE     KOSAR
+     C                   EXCEPT    PNYBI
+     C                   END
+     C*
+     C                   Z-ADD     FEFAKT        IBMFAK            7 0
+     C                   MOVE      FEDATD        DG
+     C                   MOVE      FEDATM        MN
+     C                   MOVE      FEDATÅ        AR
+     C                   MOVE      FEDAFF        IBMFFD
+     C* ALLTID FERGEFAKTURA I LOKAL VALUTA / IKKE MOMS
+n01  C*                  MOVE      FICURR        RESVAL            3
+     C                   MOVE      'N'           FEKDM             1
+     C* AKKUMULER INNTEKTSLINJENE
+     C* VARIABLE VAT
+     C     FITAX         ADD       1             FITAXN            5 4
+     C     FITAXD        IFNE      *ZEROS
+     C     FITAX2        ANDNE     *ZEROS
+     C     FEDATO        ANDLT     FITAXD
+     C     FITAX2        ADD       1             FITAXN
+     C                   END
+     C                   EXSR      VALI
+     C*
+     C                   ENDSR
+     C******************************************
+     C     VALI          BEGSR
+     C******************************************
+N01  C     keyval        klist
+N01  c                   kfld                    fefakt
+n01  c     keyval        chain     ferfakt                            33
+n01  c   33              move      *blanks       resval            3
+n01  c  N33              move      ferval        resval
+      *
+     C                   MOVE      *ZEROS        RESVAB
+s01  C*                  MOVE      *ZEROS        MVAVAL
+     C* HAR ALLTID LEST DEN FØRSTE NÅR EN KOMMER INN
+     C                   MOVE      FEFAKT        XXFAKT
+     C*
+     C     KEYFE3        SETLL     TUFE3
+     C                   SETOFF                                       33
+     C* GÅR I LØKKE OG LESER VARELINJER
+     C*
+     C     STVALI        TAG
+     C*
+     C*
+     C     KEYFE3        READE     TUFE3                                  33
+     C  N33              DO
+     C* REF TIL KOSTNADSBILAG (BUDSJETT) MÅ FINNES
+     C     FETREF        CHAIN     KOSBU                              11
+     C   11              GOTO      STVALI
+     C                   MOVE      BUTXT         BUTX27
+     C* OPPDATER FERGEPOSTEN SOM OVERFØRT
+     C                   MOVE      'O'           FEOPKO
+     C                   MOVEL     SÅR           FECC
+     C                   MOVE      SÅR           FEÅR
+     C                   Z-ADD     SMND          FEMND
+     C                   Z-ADD     SBNRNU        FEJOUR
+     C                   UPDATE    TUFER
+     C*
+     C* HENT STED,BÆRER,PROSJ FRA AVD.REG. / KONTO FRA VAREREGISTER
+     C                   EXSR      KONTER
+     C*
+     C                   EXSR      IBM
+     C                   SETOFF                                       11
+s01  C*                  ADD       FEPRIN        RESVAB           11 2
+     C* FINNES DET TILLEGSLINJER TIL DENNE FAKTURA?
+     C                   EXSR      SLAVE
+     C*
+     C                   GOTO      STVALI
+     C                   END
+     C*
+     C* PLUSSER MVA  PÅ UTENSLANDSK BELØP
+     C*(MEN FORELØPIG ER ALLTID FERJEFAKT I LOKAL VALUTA)
+s01  C*    RESVAL        IFNE      FICURR
+s01  C*                  MOVE      MVAVAL        MVAGRL           13 2
+s01  C*                  MULT(H)   FITAXN        MVAVAL
+s01  C*                  SUB       MVAGRL        MVAVAL
+s01  C*                  ADD       MVAVAL        RESVAB
+s01  C*                  END
+     C*
+     C*
+     C     KUNNOK        IFNE      *ZEROS
+     C                   EXSR      IBMTOT
+     C                   ELSE
+     C                   EXCEPT    DETNUL
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     SLAVE         BEGSR
+     C***********************************************
+     C                   SETOFF                                       94
+     C     FETREF        SETLL     TUFET
+     C*
+     C     FETREF        READE     TUFET                                  94
+     C     *IN94         DOWEQ     '0'
+     C     FETBNR        CHAIN     KOSBU                              11
+     C                   MOVEL     BUTXT         BUTX27
+     C                   EXSR      KONTER
+     C                   Z-ADD     FETPRN        FEPRIN
+     C                   EXSR      IBM
+     C     FETREF        READE     TUFET                                  94
+     C  N94              END
+     C*
+     C                   SETOFF                                           94
+     C*
+     C                   ENDSR
+     C******************************************
+     C     KONTER        BEGSR
+     C******************************************
+     C                   Z-ADD     FEAVD         KOVAVD
+     C     KODVKE        CHAIN     KODTV                              11
+     C   11              MOVE      'N'           KOVPRO                         *PROSJ??
+     C*
+     C*  HENTER AVDELINGSOPPLYSNINGER OM KONTERING  STED/BÆRER
+     C                   MOVE      KOVAVD        KOAAVD
+     C     KODAKE        CHAIN     KODTA                              11
+     C   11              MOVE      *ZEROS        KOABÆR
+     C   11              MOVE      *ZEROS        KOAKON
+     C*
+     C* OPPLYSNING OM KONTERING FRA VAREKODEREG.
+     C     GEBKEY        CHAIN     KODTGE                             11
+     C  N11GEBKE2        CHAIN     KODTG2                             11
+     C*
+     C*
+     C*HVIS GEBYRERT ER BORTE BENYTTES KONTO 99999
+     C*
+     C   11              DO
+     C                   MOVE      99999         KGEKON
+     C                   MOVE      99999         KG2KON
+     C                   MOVE      'J'           KGEPR
+     C                   MOVE      *ZEROS        KGEUTK
+     C                   MOVE      *ZEROS        KG2AVD
+     C                   MOVE      *ZEROS        KG2BÆR
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C******************************************
+     C     IBM           BEGSR
+     C******************************************
+     C*
+     C* LEGGER OVER DEN AVDELING SOM KONTERES I
+     C* DEN INTERNE SPEDISJONSAVDELING
+     C*
+     C                   MOVE      *ZEROS        IBMNOK
+     C                   MOVE      KOAKON        FAVD              4 0
+     C                   MOVE      KOABÆR        SBÆR
+     C                   MOVE      *ZEROS        PRIPRO            8 0
+     C                   MOVE      'H'           IBMTYP            1
+     C* HVIS GEBYRET FAST FØRES EN AVDELING
+     C* TAST DETTE HENSYN TIL HER
+     C*
+     C     KG2AVD        IFNE      *ZEROS
+     C                   MOVE      KG2AVD        FAVD
+     C                   END
+     C*
+     C* HVIS GEBYRET FAST FØRES EN BÆRER
+     C* TAS  DETTE HENSYN TIL HER
+     C     KG2BÆR        IFNE      *ZEROS
+     C                   MOVE      KG2BÆR        SBÆR
+     C                   END
+     C*
+     C* EGEN KONTO UTEN MOMS
+     C*
+     C     KG2KON        IFNE      *ZEROS
+     C     FEKDM         ANDNE     'J'
+     C                   MOVE      KG2KON        KGEKON
+     C                   END
+     C*
+     C     KONTKE        CHAIN     KONTL01                            66
+     C* FLYTTER 0 I BÆRER HVIS IKKE LOV
+     C  N66STEDK         IFEQ      'N'
+     C                   MOVE      *ZEROS        FAVD
+     C                   END
+     C*
+     C* FLYTTER 0 I BÆRER HVIS IKKE LOV
+     C*
+     C  N66BARERK        IFEQ      'N'
+     C                   MOVE      *ZEROS        SBÆR
+     C                   END
+     C*
+     C* SNUR BELØPET PÅ POSTERINGEN
+     C*
+     C                   Z-SUB     FEPRIN        IBMNOK           11 2
+     C*
+     C* ØKER POST MED MOMS
+     C* ( FORELØPIG ALDRI MOMS PÅ FERJEFAKTURA )
+     C     FEKDM         IFEQ      'J'
+     C                   MULT      FITAXN        IBMNOK
+S01  C*                  ADD       FEPRIN        MVAVAL           13 2
+     C                   Z-ADD     3             IBMMVA            1 0
+     C                   ELSE
+     C                   Z-ADD     4             IBMMVA
+     C*
+     C* VED AKTIVA/PASSIVA SKAL MOMS VÆRE 0
+     C     KONTY         IFNE      'I'
+     C     KONTY         ANDNE     'U'
+     C                   Z-ADD     0             IBMMVA
+     C                   END
+     C*
+     C                   END
+     C*
+     C                   MOVE      IBMMVA        SMVA
+     C*
+     C* OPPDATERER REGNSKAP HVIS IKKE BELØP = 0
+     C*
+     C     IBMNOK        IFNE      *ZEROS
+     C                   ADD       IBMNOK        KUNNOK           11 2
+      *
+      * beregner  valutabeløp
+      *
+     c     resval        ifne      *blanks
+n01  C     IBMNOK        div       FERKUR        xwork            15 4
+n01  C     xwork         mult(h)   feromr        RESVAB           13 2
+N01  C     FEROMR        IFNE      1
+N01  C                   EXSR      DECIV
+N01  C                   END
+n01  c                   end
+n01  C                   ADD       RESVAB        kunval           13 2
+     C*
+     C*
+     C* LEGGER UT VANLIG POST TIL INNTEKTER
+     C*
+     C* SKJEKKER OM PROSJEKTNUMMER SKAL LEGGES UT
+     C*
+     C     FEAVD         IFNE      *ZEROS
+     C     KOVPRO        ANDEQ     'J'
+     C     KGEPR         ANDNE     'N'
+     C                   ADD       1             IBMPNR
+     C                   EXSR      GETSUR
+     C                   EXSR      SRPOST
+     C                   MOVE      FERUND        PRIPRO
+     C                   MOVE      FERUND        PROSNR
+     C                   MOVE      BILTX2        BILTXT
+     C                   EXSR      STEBAR
+s02  C*                  MOVE      RESVAL        VALKOX
+s02  C*                  Z-ADD     RESVAB        BELOPV
+     C                   EXCEPT    IBMNY1
+     C                   GOTO      UTUTL
+     C                   END
+     C*
+     C* ELLERS VANLIG SUMPOST TIL INNTEKTSKONTO   (SAMMENSLÅTT)
+     C*
+     C                   Z-ADD     SMND          SMNPC
+     C     SKEY          CHAIN     KOSBL01                            44
+     C*
+     C* HENTER REGLER FRA KONTOPLAN
+     C*
+     C   44              DO
+     C     KONTKE        CHAIN     KONTL01                            66
+     C                   ADD       1             IBMPNR
+     C                   EXSR      GETSUR
+     C                   EXSR      SRPOST
+     C                   MOVEL     'SAMLEPOS'    BILTXT
+     C                   MOVE      'T      '     BILTXT
+     C                   MOVE      *ZEROS        PROSNR
+     C                   EXSR      STEBAR
+     C                   EXCEPT    IBMNY1
+     C                   END
+     C  N44              ADD       IBMNOK        BBELOP
+s02  C* N44              ADD       RESVAB        BELOPV
+     C  N44              UPDATE    KOSBR
+     C*
+     C     UTUTL         TAG
+     C*
+     C*
+     C* SKRIVER UT LISTE OVER POSTERING
+     C*
+     C   OF              EXCEPT    PHEAD
+     C   OF              SETOFF                                       OF
+     C                   EXSR      KDTFMT
+     C     IBMNOK        COMP      *ZEROS                             66  66
+     C                   EXCEPT    DET
+     C                   EXSR      KDTFMT
+     C*
+     C                   END
+     C*
+     C     UTIBM         ENDSR
+     C******************************************
+     C     SRPOST        BEGSR
+     C******************************************
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      SBNRNU        BILNR
+     C                   MOVE      IBMPNR        POSNR
+     C     AR            IFGT      50
+     C     AR            ADD       1900          KRDAAR
+     C                   ELSE
+     C     AR            ADD       2000          KRDAAR
+     C                   END
+     C                   MOVE      MN            KRDMND
+     C                   MOVE      DG            KRDDAG
+     C                   MOVE      SÅR           PERAAR
+     C                   MOVE      SMND          PERNR
+     C                   MOVE      IBMTYP        TYPE
+     C                   MOVE      BILTX2        BILTXT
+     C                   MOVE      KGEKON        KONTO
+     C                   MOVE      FAVD          KSTED
+     C                   MOVE      SBÆR          KBARER
+     C                   MOVE      IBMMVA        MOMSK
+     C                   Z-ADD     IBMNOK        BBELOP
+     C                   Z-ADD     FERUND        PROSNR
+     C                   MOVE      'J'           OPDKOD
+     C                   ENDSR
+     C******************************************
+     C     IBMTOT        BEGSR
+     C******************************************
+     C*
+     C* OPPDATERER TOTALPOST I KUNDEREGISTER
+     C*
+     C     KUNKEY        CHAIN     KUNDL01                            33
+     C  N33UYEAR         IFGT      50
+     C     UYEAR         ADD       1900          SISAAR
+     C                   ELSE
+     C     UYEAR         ADD       2000          SISAAR
+     C                   END
+     C  N33              MOVE      UMONTH        SISMND
+     C  N33              MOVE      UDAY          SISDAG
+     C  N33              UPDATE    KUNDR
+     C  N33KHEKEY        CHAIN     KHEDL01                            33
+     C  N33              MOVE      KONTOH        KGEKON
+     C                   Z-SUB     KUNNOK        IBMNOK
+     C                   MOVE      *ZEROS        KUNNOK
+     C                   MOVE      *ZEROS        IBMMVA
+     C                   MOVE      'D'           IBMTYP
+     C                   MOVE      ' '           NOKKEL
+     C   33              SETOFF                                       4546
+     C  N33SPRAAK        COMP      'E'                                    45
+     C  N33SPRAAK        COMP      'T'                                    46
+     C*
+     C*
+     C*  LOKAL  VALUTA - VALUTAFELT I RESKONTRO SKAL IKKE OPPDATERES
+     C*
+s01  C*    RESVAL        IFEQ      '   '
+s01  C*                  MOVE      *BLANKS       RESVAL
+s01  C*                  MOVE      *ZEROS        RESVAB
+s01  C*                  END
+s01  C*    RESVAL        IFEQ      FICURR
+s01  C*                  MOVE      *BLANKS       RESVAL
+s01  C*                  MOVE      *ZEROS        RESVAB
+s01  C*                  END
+     C*
+     C*  IKKE PROSJ PÅ KUNDEPOST- MEN HUSK PROSJ.NR
+     C                   MOVE      FERUND        FPROSJ            8 0
+     C                   MOVE      *ZEROS        FERUND
+     C                   MOVE      *ZEROS        FAVD
+     C                   MOVE      *ZEROS        SBÆR
+     C                   MOVE      KNAV25        BUTX27           27
+     C                   MOVEL     '**'          BUTX27
+     C* LEGG UT EN DEBITORPOST - ALDRI SNAKK OM SAMLEFAKTURASAMMENSLÅING
+     C                   ADD       1             IBMPNR
+     C                   EXSR      GETSUR
+     C                   EXSR      SRPOST
+     C                   MOVE      FEKUNR        RESNR
+     C                   MOVE      RESVAL        VALKOX
+s01  C*                  Z-ADD     RESVAB        BELOPV
+n01  C                   Z-SUB     KUNVAL        BELOPV
+     C                   MOVE      *ZEROS        REFNR
+     C                   MOVE      IBMFAK        KRNR
+     C                   MOVE      IBMFAR        FFDAAR
+     C                   MOVE      IBMFMN        FFDMND
+     C                   MOVE      IBMFDG        FFDDAG
+     C                   MOVE      *BLANKS       BILTXT
+     C                   MOVEL     'Faktura '    BILTXT
+     C   45              MOVEL     'Invoice '    BILTXT
+     C   46              MOVEL     'Rechnung'    BILTXT
+     C                   EXCEPT    IBMNY
+     C*
+     C   OF              EXCEPT    PHEAD
+     C   OF              SETOFF                                       OF
+     C                   EXSR      KDTFMT
+     C     IBMNOK        COMP      *ZEROS                             66  66
+     C                   EXCEPT    DET
+     C                   EXSR      KDTFMT
+     C                   SETOFF                                       67
+     C                   MOVE      FPROSJ        FERUND
+n02  C                   MOVE      *blanks       VALKOX
+n02  C                   Z-SUB     *zeros        BELOPV
+n02  C                   MOVE      *BLANKS       RESVAL
+n02  C                   Z-ADD     0             KUNVAL
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KDTFMT        BEGSR
+     C***********************************************
+     C                   MOVE      DG            UDT1              2 0
+     C                   MOVE      MN            UDT2              2 0
+     C                   MOVE      AR            UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          DG
+     C                   MOVE      UDT2          MN
+     C                   MOVE      UDT3          AR
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TOTSR         BEGSR
+     C***********************************************
+     C                   SETOFF                                       33
+     C                   MOVE      *ZEROS        SMNPC
+     C                   MOVE      *ZEROS        SÅR
+     C                   MOVE      *ZEROS        SÅR2
+     C     SKEY          SETLL     KOSBL01
+     C*
+     C                   READ(N)   KOSBL01                                33
+     C     *IN33         DOWEQ     '0'
+     C     BBELOP        IFGT      *ZEROS
+     C                   ADD       BBELOP        DEBTOT           11 2
+     C                   ELSE
+     C                   ADD       BBELOP        KRETOT           11 2
+     C                   END
+     C                   READ(N)   KOSBL01                                33
+     C  N33              END
+     C*
+     C                   EXCEPT    DEBKRE
+     C                   ENDSR
+     C*
+     C*
+     C******************************************
+     C     HENTBI        BEGSR
+     C******************************************
+     C* HENTER BILAGSNR KUN VED SAMMENSLÅING
+     C     FISADK        IFNE      'N'
+     C*
+     C                   MOVE      'BILS'        NOK1              4
+     C                   MOVE      '    '        NOK2              4
+     C     NUMMKY        CHAIN     NUMML01                            61
+     C     *IN61         IFEQ      '1'
+     C                   EXSR      GMLNUM
+     C                   END
+     C  N61              DO
+     C                   ADD       1             SBNRNU
+     C                   UPDATE    NUMMR
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      SBNRNU        BILNR
+     C                   MOVE      SÅR           PERAAR
+     C                   MOVE      SMND          PERNR
+     C                   MOVE      *BLANKS       VALKOD
+     C                   WRITE     KOSAR
+     C                   EXCEPT    PNYBI
+     C                   END
+     C*
+     C                   END
+     C                   ENDSR
+     C*
+     C******************************************
+     C     GMLNUM        BEGSR
+     C******************************************
+     C     *LIKE         DEFINE    SÅR           TMPÅR
+     C                   MOVE      SÅR           TMPÅR
+      *
+     C     SÅR           DOWGT     2002
+     C                   SUB       1             SÅR
+     C     NUMMKY        CHAIN     NUMML01                            61
+     C  N61              LEAVE
+     C                   END
+      *
+     C                   MOVE      TMPÅR         SÅR
+     C                   ENDSR
+     C*
+     C*
+     C******************************************
+     C     GETSUR        BEGSR
+     C******************************************
+     C*
+     C* HENT NYTT SURRUGATNR - FRA SYSRF LEGG I "POSLNR"
+     C*
+     C*
+     C     SYSRKE        CHAIN     SYSRL01                            30
+     C  N30              ADD       1             SISSGT
+     C  N30              UPDATE    SYSRR
+     C                   Z-ADD     SISSGT        POSLNR
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KOSAL02  (TILSV POSAL01 I SYFA35)
+     C* (KOSAL01 BENYTTES I KOSTNADSOVERFØRING - DEN HAR IDENTISK
+     C*  LAYOUT SOM IBM'S POSAL01 (FIRMA/BILNR) -
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    PERAAR        YYÅR
+     C     *LIKE         DEFINE    PERNR         YYMND
+     C     KEYBI         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    AKTKOD
+     C                   KFLD                    YYÅR
+     C                   KFLD                    YYMND
+     C                   MOVE      'A'           AKTKOD
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KUNDL01
+     C*--------------------------------------------------------------
+     C     KUNKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    FEKUNR
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODTÅ   ÅPNE PERIODER
+     C*--------------------------------------------------------------
+     C     KODÅKE        KLIST
+     C                   KFLD                    KOÅUNI
+     C                   KFLD                    KOÅCC
+     C                   KFLD                    KOÅÅR
+     C                   KFLD                    KOÅMND
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE V
+     C*--------------------------------------------------------------
+     C     KODVKE        KLIST
+     C                   KFLD                    KOVUNI
+     C                   KFLD                    KOVAVD
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE A
+     C*--------------------------------------------------------------
+     C     KODAKE        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    KOAAVD
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE GE (GEBYRKODER)
+     C*--------------------------------------------------------------
+     C     GEBKEY        KLIST
+     C                   KFLD                    KGEUNI
+     C                   KFLD                    BUVK
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KODE-TEKST-FIL TYPE G2 (GEBYRKODER)
+     C*--------------------------------------------------------------
+     C     GEBKE2        KLIST
+     C                   KFLD                    KG2UNI
+     C                   KFLD                    BUVK
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KONTL01
+     C*--------------------------------------------------------------
+     C     KONTKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KGEKON
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL KHEDL01
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    RECTYP        KHEKE2
+     C     KHEKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KHEKE2
+     C                   KFLD                    KHENV
+     C                   MOVE      'D'           KHEKE2
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL POSTERINGSREGISTER KOSBL01
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    KBARER        SBÆR
+     C     *LIKE         DEFINE    PERNR         SMNPC
+     C     *LIKE         DEFINE    MOMSK         SMVA
+     C     *LIKE         DEFINE    PROSNR        NULPRO
+     C     SKEY          KLIST
+     C                   KFLD                    SMNPC
+     C                   KFLD                    SÅR
+     C                   KFLD                    KGEKON
+     C                   KFLD                    FAVD
+     C                   KFLD                    SBÆR
+     C                   KFLD                    SMVA
+     C                   KFLD                    NULPRO
+     C*
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL FAKTURAREGISTER: TUFE3
+     C*--------------------------------------------------------------
+     C     *LIKE         DEFINE    FEOPKO        XXOPKO
+     C     *LIKE         DEFINE    FEFAKT        XXFAKT
+     C     KEYFE3        KLIST
+     C                   KFLD                    XXOPKO
+     C                   KFLD                    XXFAKT
+     C                   MOVE      'F'           XXOPKO
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL SYSRL01
+     C*--------------------------------------------------------------
+     C     SYSRKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    REGNA
+     C                   MOVE      'SYS   '      REGNA             6
+     C*--------------------------------------------------------------
+     C* DEFINERER NØKKEL TIL NUMML01
+     C*--------------------------------------------------------------
+     C     NUMMKY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    SÅR
+     C                   KFLD                    NOK1
+     C                   KFLD                    NOK2
+     C*
+     C*
+     C* HENTER FIRMAOPPLYSNINGER
+     C*
+     C                   READ      FIRM                                   33
+     C     FITAX         ADD       1             FITAXN            5 4
+     C*
+     C*
+     C*
+     C*SY* INN SH HENTER MINSTE ÅPNE PERIODE
+     C*
+     C*
+     C     UYEAR         IFGT      50
+     C     UYEAR         ADD       1900          BILAAR
+     C                   ELSE
+     C     UYEAR         ADD       2000          BILAAR
+     C                   END
+     C                   MOVE      UMONTH        BILMND
+     C                   MOVE      UDAY          BILDAG
+     C                   MOVE      'Å'           KOÅUNI
+     C                   MOVE      *ZEROS        KOÅMND
+     C                   MOVE      *ZEROS        KOÅÅR
+     C                   MOVE      *ZEROS        KOÅCC
+     C     KODÅKE        SETLL     KODTÅ
+     C     KOÅUNI        READE     KODTÅ                                  33
+     C     *IN33         IFEQ      '1'
+     C     UYEAR         IFGT      50
+     C     UYEAR         ADD       1900          MINPE2            6 0
+     C                   ELSE
+     C     UYEAR         ADD       2000          MINPE2
+     C                   END
+     C                   MULT      100           MINPE2
+     C                   MOVE      UMONTH        MINPE2
+     C                   ELSE
+     C                   MOVE      MINPER        MINPE2
+     C                   END
+     C*
+     C*
+     C                   MOVE      *ZEROS        NULPRO
+     C                   MOVE      'V'           KOVUNI
+     C                   MOVE      'A'           KOAUNI
+     C                   MOVE      'GE'          KGEUNI
+     C                   MOVE      'G2'          KG2UNI
+     C*
+     C                   MOVE      *ZEROS        IBMPNR            3 0
+     C                   ENDSR
+     C***********************************************
+     C     STEBAR        BEGSR
+     C***********************************************
+     C     KODIKE        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    KBARER
+     C     KODJKE        KLIST
+     C                   KFLD                    FIRMA
+     C                   KFLD                    KSTED
+     C                   MOVE      *BLANKS       GRKOPO
+     C                   MOVE      *BLANKS       GRKODE
+     C     KBARER        IFNE      *ZEROS
+     C     KODIKE        CHAIN     KODIL01                            22
+     C  N22              MOVE      GRKOTI        GRKOPO
+     C                   END
+     C     KSTED         IFNE      *ZEROS
+     C     KODJKE        CHAIN     KODJL01                            22
+     C                   END
+     C                   ENDSR
+     C*
+N01  C***********************************************
+N01  C     DECIV         BEGSR
+N01  C***********************************************
+N01  C* TEST FIRMS NUMBER OF DECIMALS
+N01  C*
+N01  C* NO DECIMALS
+N01  C     FIDECI        IFEQ      0
+N01  C                   Z-ADD(H)  RESVAB        FABEL0           11 0
+N01  C                   Z-ADD     FABEL0        RESVAB
+N01  C                   ELSE
+N01  C* 1 DECIMAL
+N01  C     FIDECI        IFEQ      1
+N01  C                   Z-ADD(H)  RESVAB        FABEL1           12 1
+N01  C                   Z-ADD     FABEL1        RESVAB
+N01  C                   END
+n01  C                   END
+n01  C*
+n01  C                   ENDSR
+     C*
+     O*********
+     O* TIL IBM REGNSKAP    RESKONTO
+     O***********'
+     OKOSBR     EADD         IBMNY
+     O                       AKTKOD
+     O                       FIRMA
+     O                       BILNR
+     O                       POSNR
+     O                       BILAAR
+     O                       BILMND
+     O                       BILDAG
+     O                       PERAAR
+     O                       PERNR
+     O                       TYPE
+     O                       RESNR
+     O                       BILTXT
+     O                       KONTO
+     O                       KSTED
+     O                       KBARER
+     O                       MOMSK
+     O                       BBELOP
+     O                       VALKOX
+     O                       BELOPV
+     O                       REFNR
+     O                       KRNR
+     O                       KRDAAR
+     O                       KRDMND
+     O                       KRDDAG
+     O                       FFDAAR
+     O                       FFDMND
+     O                       FFDDAG
+     O                       OPDKOD
+     O                       POSLNR
+     O*********
+     O* TIL IBM REGNSKAP    HOVEDBOK  INNTEKTSPOST
+     O* (EVT TILLEGG VED SAMMENSLÅING SKJER VIA UPDAT I PROGRAMMET)
+     O***********'
+     OKOSBR     EADD         IBMNY1
+     O                       AKTKOD
+     O                       FIRMA
+     O                       BILNR
+     O                       POSNR
+     O                       BILAAR
+     O                       BILMND
+     O                       BILDAG
+     O                       PERAAR
+     O                       PERNR
+     O                       TYPE
+     O                       BILTXT
+     O                       KONTO
+     O                       KSTED
+     O                       KBARER
+     O                       MOMSK
+     O                       BBELOP
+     O                       PROSNR
+     O                       OPDKOD
+     O                       NOKKEL
+     O                       POSLNR
+     O                       GRKODE
+     O                       GRKOPO
+     O*
+     OLISTE     E            PHEAD            01
+     O                       FIFT                45
+     OLISTE     E            PHEAD            02
+     O                                           24 'F E R J E   -   F A K T '
+     O                                           48 'U R A J O U R N A L     '
+     O                                           60 'DATO:'
+     O                       UDATE         Y     68
+     O                                          100 'JOURNALNR:'
+     O                       SBNRNU        Z    107
+     O                                          126 'SIDE:'
+     O                       PAGE          Z    132
+     OLISTE     E            PHEAD            03
+     O                                           24 '------------------------'
+     O                       *PLACE              48
+     O                       *PLACE              72
+     O                       *PLACE              96
+     O                       *PLACE             120
+     O                                          132 '------------'
+     O          E            PHEAD            04
+     O                                            6 'FAKTNR'
+     O                                           15 'FAKTDATO'
+     O                                           29 'STE/BÆR'
+     O                                           35 'KTO'
+     O                                           38 'MK'
+     O                                           52 'D  E  B  E  T'
+     O                                           67 'K R E D I T'
+     O                                           88 'T E K S T..........'
+     O                                          106 'BILNUMMER'
+     O                                          117 'PROSJEKT'
+     O                                          126 'KUNDENR'
+     O                                          132 'PER'
+     OLISTE     E            PHEAD          1 05
+     O                                           24 '------------------------'
+     O                       *PLACE              48
+     O                       *PLACE              72
+     O                       *PLACE              96
+     O                       *PLACE             120
+     O                                          132 '------------'
+     OLISTE     E            PNYBI       1  2
+     O                                           24 '** BILAGSNR HBOK        '
+     O                       BILNR         Z     24
+     O                                           30 'PER:'
+     O                       PERNR               33
+     O                       PERAAR              41
+     O                                           39 'ÅR: '
+     OLISTE     E            DET            1
+     O                       IBMFAK        Z      7
+     O                       IBMDAT              15
+     O                       FAVD          Z     25
+     O                       SBÆR          Z     29
+     O                       KGEKON              35
+     O                       IBMMVA              37
+     O               66      IBMNOK        J     52
+     O              N66      IBMNOK        J     67
+     O                       BUTX27              95
+     O                       BUBILN             106
+     O                       PRIPRO        Z    117
+     O                       FEKUNR        Z    126
+     O                       SMND               129
+     O                                          130 '/'
+     O                       SÅR2               132
+     O          E            DETNUL         1
+     O                       IBMFAK        Z      7
+     O                                           31 '   * NULL FAKTURA  *    '
+     OLISTE     E            DEBKRE      2
+     O                                           24 '** DEBET/KREDIT TOTAL **'
+     O                       DEBTOT        JB    52
+     O                       KRETOT        JB    67

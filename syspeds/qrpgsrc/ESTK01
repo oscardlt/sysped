@@ -1,0 +1,308 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK01 MODULE(*LIBL/ESTK01 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF11 Hent POST IP/User for å sende resultat tilbake til kallende server
+      * 02 jov PTF11 IE videresender ikke '¬' og '¦' , byttes med '{' og '}' uten merking
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FHEADF     UF   E           K DISK    USROPN
+     FCUNDL01   UF   E           K DISK    USROPN
+N01  FBRPARF    if   e           k disk    usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+     0* Client input variables
+     D pStreng         s           1000                                         Parameterstreng
+     D par             s             20                                         P.nvn-eks:&AD=/{AD=
+     D l               s              5  0                                      ParmNavn-lengde
+     D p               s              5  0                                      Param startpkt
+     D s               s              5  0                                      Param sluttpkt
+     D pVerdi          s           1000                                         ParameterVerdi
+     D user            s             10
+     D adr             s            200
+     D avd             s              4
+     D opd             s              7
+     D henLev          s              1
+     D knr             s              8
+     D lat             s             15
+     D latN            s              8S 6
+     D lng             s             15
+     D lngN            s              9S 6
+     D sub             s              1
+     D UpdTxt          s             70
+      *
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      *
+      * File open / keys
+     C                   EXSR      INIT
+     c*
+      * dersom det er trykket på submit - oppdater
+      * lat/lon innsendes kun når submit er trykket
+     c     latN          ifne      *zeros
+     c     lngN          andne     *zeros
+     c                   eval      SUB ='Y'
+     c                   select
+     c                   when      HEOPD<> *zeros
+     c     HeaKey        chain     HEADF                              33
+     c     *in33         ifeq      *off
+     c                   if        henLev = 'L'
+     c                   eval(h)   HELBRE = latN
+     c                   eval(h)   HELLEN = lngN
+     c                   eval      HELBLK = 'G'                                 Google-søk
+     c                   else
+     c                   eval(h)   HEHBRE = latN
+     c                   eval(h)   HEHLEN = lngN
+     c                   eval      HEHBLK = 'G'                                 Google-søk
+     c                   endif
+     c                   update    HEADFR
+     c                   endif
+     c                   when      KUNDNR<> *zeros
+     c     KunKey        chain     CUNDL01                            33
+     c     *in33         ifeq      *off
+     c                   eval(h)   XXBRE  = latN
+     c                   eval(h)   XXLEN  = lngN
+     c                   update    KUNDR
+     c                   endif
+     c                   endsl
+     c                   endif
+      ***
+      * Output html
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/ESTK01.html':
+     C                             '/CGITAG/')
+S01  C*                  callp     updHtmlVar('USER':USER)
+N01  C                   callp     updHtmlVar('USER':POSTUSR)
+N01  C                   callp     updHtmlVar('POSTIP':POSTIP)
+     C                   callp     updHtmlVar('A':
+     C                             %trim(%editc(HEAVD:'Z')))
+     C                   callp     updHtmlVar('O':
+     C                             %trim(%editc(HEOPD:'Z')))
+     C                   callp     updHtmlVar('K':
+     C                             %trim(%editc(KUNDNR:'Z')))
+     C                   callp     updHtmlVar('AD':ADR)
+     C                   callp     updHtmlVar('HL':HenLev)
+      * ledetekst for oppdatering
+     c                   select
+     c                   when      HEOPD<> *zeros
+     c                   move      *blanks       side             20
+     c                   if        henLev = 'L'
+     c                   eval      side=' leveringsadresse'
+     c                   else
+     c                   eval      side=' henteadresse'
+     c                   endif
+     c                   eval      UpdTxt='For oppdatering på oppdrag '
+     C                             +%editc(HEAVD:'Z')+'/'+%editc(HEOPD:'Z')
+     c                             + side
+     c                   when      KUNDNR<> *zeros
+     c     KunKey        chain(N)  CUNDL01                            33
+     c                   eval      UpdTxt='For oppdatering på kunde '
+     C                             +%editc(KUNDNR:'Z')+' '+KNAVN
+     c                   endsl
+     C                   callp     updHtmlVar('UpdTxt':UpdTxt)
+      *
+     C                   callp     updHtmlVar('sub':sub)
+N01   * Hvis trykt Lagre - vis  ferdigmelding
+N01  c                   if        sub='Y'
+N01  C                   callp     wrtsection('done')
+N01  c                   else
+     C                   callp     wrtsection('all')
+N01  c                   endif
+      *
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+e02   * kall fra PCO? Parametre er da EN streng: ?user=NN{A=1{O=155248{HL=L{Ad=LØKKEBERGVEIEN
+     C                   eval      pStreng= zhbgetvar('user')
+e02  c     '{'           scan      pStreng       p                              parm-pos(&...=  )
+     c                   if        p<>0
+     c                   exsr      Parse2
+     c                   goto      utParse
+     c                   endif
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   eval      user = uppify(user)
+     C                   eval      AVD= zhbgetvar('A')
+     C                   eval      HEAVD   = c2n2(AVD)
+     C                   eval      OPD= zhbgetvar('O')
+     C                   eval      HEOPD   = c2n2(OPD)
+     C                   eval      KNR= zhbgetvar('K')
+     C                   eval      KUNDNR  = c2n2(KNR)
+     C                   eval      ADR= zhbgetvar('AD')
+     C                   eval      henLev= zhbgetvar('HL')
+     C                   eval      lat= zhbgetvar('lat')
+     C     '.':','       xlate     lat           lat
+     C                   eval      latN    = c2n2(lat)
+     C                   eval      lng= zhbgetvar('lng')
+     C     '.':','       xlate     lng           lng
+     C                   eval      lngN    = c2n2(lng)
+     C                   eval      Sub     = zhbgetvar('SUB')
+     C     utParse       endsr
+      ****************************************************
+     C     Parse2        begsr
+      ****************************************************
+      * Manuell parse av inputstring
+E02   * kall fra PCO? Parametre er da EN streng: ?user=NN{A=1{O=155248{HL=L{Ad=LØKKEBERGVEIEN
+      *
+E02  c                   eval      pStreng = %xlate('}':' ':pStreng)
+     C                   eval      pStreng = uppify(pStreng)
+     c                   eval      user= %subst(pStreng:1:p-1)
+      * Parameter &A=Avd
+E02  c                   eval      Par = '{A='
+     c                   eval      l   = 3
+     c                   exsr      finnParVal
+     c                   eval      AVD = pVerdi
+     C                   eval      HEAVD   = c2n2(AVD)
+      * Parameter &O=Opp
+E02  c                   eval      Par = '{O='
+     c                   eval      l   = 3
+     c                   exsr      finnParVal
+     c                   eval      OPD = pVerdi
+     C                   eval      HEOPD   = c2n2(OPD)
+      * Parameter &HL=HenLev
+E02  c                   eval      Par = '{HL='
+     c                   eval      l   = 4
+     c                   exsr      finnParVal
+     c                   eval      HenLev = pVerdi
+      * Parameter &K=Knr
+E02  c                   eval      Par = '{K='
+     c                   eval      l   = 3
+     c                   exsr      finnParVal
+     c                   eval      knr = pVerdi
+     C                   eval      KUNDNR  = c2n2(KNR)
+      * Parameter &AD=Adr
+E02  c                   eval      Par = '{AD='
+     c                   eval      l   = 4
+     c                   exsr      finnParVal
+     c                   eval      ADR = pVerdi
+      *
+     c                   endsr
+      ****************************************************
+     C     finnParVal    begsr
+      ****************************************************
+     c                   eval      pVerdi = *blanks
+      * p<>0 =  parameter finnes - I så fakk, hvor slutter den/hent verdi
+     c                   eval      p = %scan(%trim(Par):pStreng)
+     c                   if        p<>0
+     c                   eval      p = p + l                                    pos bak &xxxx=
+E02  c                   eval      s = %scan('{':pStreng:p)
+     c                   if        s=0
+     c                   eval      s=1000
+     c                   endif
+     c                   eval      pVerdi = %subst(pStreng:p:s-p)
+     c                   endif
+     c                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     HEADF
+     C                   CLOSE     CUNDL01
+N01  C                   close     BRPARF
+     C                   endsr
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+N01   * Dersom bruker for Postback-IP ikke er satt, OG det er trykt oppdater vis info/feilmelding
+N01  c                   if        *in50=*on
+N01  c                   callp     gethtmlifs(
+N01  C                             '/syspeddev/html/ESTK01.html':
+N01  C                             '/CGITAG/')
+N01  C                   callp     wrtsection('notsetup')
+N01  C                   callp     wrtsection('*fini')
+N01  C                   eval      *inlr = *on
+N01  C                   return
+N01  c                   endif
+N01  c                   if        user='ASSNN'                                  ikke User m/POST-IP
+N01  c                             and latN<>*zeros and lngN<>*zeros
+N01  c                   callp     gethtmlifs(
+N01  C                             '/syspeddev/html/ESTK01.html':
+N01  C                             '/CGITAG/')
+N01  C                   callp     wrtsection('notsetup')
+N01  C                   callp     wrtsection('*fini')
+N01  C                   eval      *inlr = *on
+N01  C                   return
+N01  c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C     HEAKEY        Klist
+     c                   kfld                    HEAVD
+     c                   kfld                    HEOPD
+     C     KUNKEY        Klist
+     c                   kfld                    BIFIRM
+     c                   kfld                    KUNDNR
+N01  C     BrParKey      klist
+N01  C                   kfld                    BIBRID
+N01  C                   kfld                    PAKUNR
+N01  C                   kfld                    PAID
+      *
+     C                   OPEN      HEADF
+     C                   OPEN      CUNDL01
+N01  C                   OPEN      BRPARF
+N01   * HENT SERVERIP
+N01  C  N33              MOVE      *BLANKS       POSTIP           70
+N01  C                   MOVE      'TKGIP'       PAID
+N01  C     BrParKey      CHAIN     BRPARF                             33
+N01  C  N33              EVAL      POSTIP=PAVRDA
+N01   * HENT UserID for Post
+N01  C  N33              MOVEL     'ASSNN'       POSTUSR          10
+N01  C                   MOVE      'TKGUS'       PAID
+N01  C     BrParKey      CHAIN     BRPARF                             33
+N01  C  N33              EVAL      POSTUSR=PAVRDA
+     C                   endsr
+      *

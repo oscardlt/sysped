@@ -1,0 +1,105 @@
+/*OBS! ADDLIBLE MMMAIL *LAST  før kompilering                     */
+/*                                                                */
+/*Dette prog kan fungere som en mal for "fange" en spoolfile fra..*/
+/*et eksisterende (sysped..)-prog, ved kjøring fra web -        ..*/
+/*Konv til PDF eller HTML / printe / avslutte                   ..*/
+/*Denne CL kalles fra web-program (f.eks) SS136 som klargør/viser.*/
+/*en dummy HTML-side ("SPLHTMDUM"),                               */
+/*denne "replacer seg selv" med den nylig skapte HTML/PDF-fil..   */
+/*(ved HTML kan denne igjen inneholde javascript for å åpne PRINT */
+/*dialog (Ctr P) og så CLOSE seg selv/refreshe "MOR-vinduet")     */
+
+         /*Dette prog takler i dag KUN 1 spoolfile..*/
+
+             PGM        PARM(&FIL &PDF &CURTUR &LTYP &USER &POACK +
+                          &KLDET &M3LM &UNIK)
+/*generelle variabler/param.  for alle utskr. med denne teknikk..*/
+             DCL        VAR(&FIL) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&PDF) TYPE(*CHAR) LEN(1) /* +
+                          J=PDF, N=HTML */
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&POACK) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&KLDET) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&M3LM) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&UNIK) TYPE(*CHAR) LEN(7)
+             DCL        VAR(&TMP196) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&TMP196M) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&STMF) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&QJOB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&QUSER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&QNBR) TYPE(*CHAR) LEN(6)
+/*Variable/param som er spesifike for den jobb genererer spoolfil..*/
+             DCL        VAR(&PRTF) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&LTYP) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CURTUR) TYPE(*CHAR) LEN(11)
+             DCL        VAR(&KOP) TYPE(*CHAR) LEN(1) VALUE('W') /* +
+                          Fra WEB */
+             DCL        VAR(&FAX) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&PRT) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&PRT2) TYPE(*CHAR) LEN(10)
+
+             RTVJOBA    JOB(&QJOB) USER(&QUSER) NBR(&QNBR)
+
+             IF         COND((&LTYP = 'F') *OR (&LTYP = 'P')) +
+                          THEN(CHGVAR VAR(&PRTF) VALUE('GSS026PW'))
+             ELSE       CMD(CHGVAR VAR(&PRTF) VALUE('GSS026P'))
+
+             CHGVAR     VAR(&TMP196) VALUE('TMP' *CAT &UNIK)
+             CHGVAR     VAR(&TMP196M) VALUE('/QSYS.LIB/QTEMP.LIB/' +
+                          *CAT &TMP196 *CAT '.FILE/' *CAT &TMP196 +
+                          *CAT '.MBR')
+             CLRPFM     FILE(QTEMP/&TMP196)
+             MONMSG     MSGID(CPF3142) EXEC(CRTPF FILE(QTEMP/&TMP196) +
+                          RCDLEN(196))
+             OVRDBF     FILE(TMP196) TOFILE(QTEMP/&TMP196)
+
+             CHGVAR     VAR(&STMF) VALUE('/syspeddev/temp/' +
+                          *CAT &FIL)
+             OVRPRTF    FILE(GSS026P) OUTQ(SYCGIOUTQ) HOLD(*YES) +
+                          SPLFOWN(*JOB)
+             OVRPRTF    FILE(GSS026PW) OUTQ(SYCGIOUTQ) HOLD(*YES) +
+                          SPLFOWN(*JOB)
+
+
+ /* - SKAP SPOOLFILE - GJERNE VIA EKSISTERENDE SYSPED-PROGRAM */
+ /* OBS!! Kun EN spool-file takles */
+ /* HER LEGGES EVT. MANIPULERINGER AV PARAMETRE MM  */
+ /* (SOM ER SPESIFIKKE FOR DET GITTE PROGRAMMET  .) */
+
+             CHGVAR     VAR(&PRT) VALUE(&POACK *CAT &KLDET *CAT &M3LM)
+             CALL       PGM(GSS026R) PARM(&CURTUR &PRT &PRT2 &LTYP +
+                          &FAX &KOP &QNBR &QUSER &QJOB &USER)
+
+ /* Hvis ikke til PDF da pakkes spool inn i HTML..) */
+             IF         COND(&PDF = 'J') THEN(DO)
+             ADDLIBLE   LIB(MMAIL)
+             MONMSG     MSGID(CPF0000)
+             CVTSPLFPDF SPLF(&PRTF) TOPDF(&STMF) +
+                          JOB(&QNBR/&QUSER/&QJOB) SPLNBR(*LAST)
+             RMVLIBLE   LIB(MMAIL)
+             MONMSG     MSGID(CPF0000)
+                        ENDDO
+
+ /* Hvis ikke til PDF da pakkes spool inn i HTML..) */
+             IF         COND(&PDF = 'N') THEN(DO)
+ /*LEGG INN START-HTML*/
+             CALL       PGM(SPLHTMSTA)
+ /*LEGG INN selve spoolfila*/
+             CPYSPLF    FILE(&PRTF) TOFILE(QTEMP/&TMP196) +
+                          JOB(&QNBR/&QUSER/&QJOB) SPLNBR(*LAST) +
+                          MBROPT(*ADD) CTLCHAR(*NONE)
+ /*LEGG INN SLUTT-HTML*/
+             CALL       PGM(SPLHTMSTO)
+ /*KOPIER TIL IFS*/
+             CPYTOSTMF  FROMMBR(&TMP196M) TOSTMF(&STMF) +
+                          STMFOPT(*REPLACE) CVTDTA(*AUTO) +
+                          STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&STMF) USER(QTMHHTTP) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+                        ENDDO
+
+
+             DLTOVR     FILE(TMP196)
+             CLRPFM     FILE(QTEMP/&TMP196)
+             MONMSG     MSGID(CPF0000)
+             ENDPGM

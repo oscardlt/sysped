@@ -1,0 +1,1172 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 Ny farlig gods logikk
+10XXX * 02 YBC PTF10 BÅTKODE='*ALL' -> ENDELIG TRIP MED TRANSIT-TRIP FUNKSJONER
+10029 * 03 YBC PTF10 OPSJON 2 GÅR DIREKT TIL "ARBEID MED ORDRE"
+10XXX * 04 YBC PTF10 SKRIV ORDRETYPE PÅ MERKELAPP
+10XXX * 05 YBC PTF10 SETT STATUS TILBAKE VED SLETTING AV EN ORDRE
+10XXX * 06 YBC PTF10 LOGG OPTION
+10XXX * 07 SH  PTF10 mangler ortype i et kall
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 08 YBC PTF11 MANGLE PARAMETER VED KALL AV GSS033R
+10XXX * 09 SH  PTF11 mangler ortype i et kall
+********************************************************************
+      *
+      ***********************************************************
+      *** PROGRAM SKAL ARBEIDE MED ORDRE PÅ TUREN             ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 07 09 11 13-24             ***
+      *** LEDIGE INDIKATORER 31 32 36-39 41-90 97
+      ***********************************************************
+      *
+     FHEADF     IF   E           K DISK
+     FGSS035W   UF A E           K DISK    USROPN
+     FGSSOLF    UF   E           K DISK
+     FGSSORF    UF   E           K DISK
+     FGSSORL21  IF   E           K DISK
+     F                                     RENAME(GSSORFR:GSSORF21)
+     FGSSORL24  IF   E           K DISK
+     F                                     RENAME(GSSORFR:GSSORF24)
+     FGSSORL25  IF   E           K DISK
+     F                                     RENAME(GSSORFR:GSSORF25)
+     FGSSPOF    IF   E           K DISK
+     FGSSTRF    UF   E           K DISK
+     FGSS011P   O    E             PRINTER USROPN
+     FGSSSFF    IF   E           K DISK
+     FGSSFGF    IF   E           K DISK
+N01  FGSSDGF    IF   E           K DISK
+N06  FGSSLGF    O  A E             DISK
+     FCDBOAT    IF   E           K DISK
+     FVALUL01   IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FGSS023D   CF   E             WORKSTN
+     F                                     SFILE(GSS023DA:ZRECNO)
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D TN              S             11  0 DIM(100)
+     D CNF             S              3  0 DIM(100)
+     D CNT             S              3  0 DIM(100)
+     D                 DS
+     D  POCONO                 1     20
+N01  D  WXCONO                 1     18
+     D  XDLT                   1      7
+     D                 DS
+     D  ORDTL                  1      8  0
+     D  ORDTLÅ                 1      4  0
+     D  ORDTLM                 5      6  0
+     D  ORDTLD                 7      8  0
+     D                 DS
+     D  WSDTLA                 1      6
+     D  WSDTL                  1      6  0
+     D  WSDTLD                 1      2  0
+     D  WSDTLM                 3      4  0
+     D  WSDTLÅ                 5      6  0
+     D                 DS
+     D  CON                    1   1000    DIM(50)
+     D  WSCON1                 1     20
+     D  WSCON2                21     40
+     D  WSCON3                41     60
+     D  WSCON4                61     80
+     D  WSCON5                81    100
+     D  WSCON6               101    120
+     D                 DS
+     D  OLMN                   1     35
+     D  OLMNPRE                1      3
+     D  OLMNTNO                4     14
+     D  OLMNBOX               15     17
+     D  OLMNTOM               18     35
+     D UCMD            DS          1024
+     D                 DS
+     D XCMD11          C                   CONST('OVRPRTF -
+     D                                     FILE(GSS011P) -
+     D                                     OUTQ(')
+     D XCMD21          C                   CONST('PAGESIZE(66 80) -
+     D                                     CPI(10) -
+     D                                     OVRFLW(60)')
+     D                 DS
+     D XFT01           C                   CONST('DEL. BY:')
+     D XFT02           C                   CONST('TRUCK NO:')
+     D XFT03           C                   CONST('AWBNO:')
+     D                 DS
+     D  XFT11                  1     10
+     D  XFT12                 13     27
+     D  WSFT1                  1     70
+     D                 DS
+     D  XFT21                  1     10
+     D  XFT22                 13     19
+     D  XFT23                 20     20
+     D  XFT24                 21     28
+     D  XFT25                 13     27
+     D  WSFT2                  1     70
+     D                UDS
+     D  UFIRM                  1      2
+     D  UCURR                  3      5
+     D  UUSID                101    110
+     D  UBICGR               111    112
+     D  UBICNO               113    120  0
+     D  UBIFC                121    123
+     D  UBIPRT               124    133
+     D  UBIPRM               134    143
+N08  D  UBIPRP               149    158
+N08  D  UBIPRI               159    168
+N06  D                SDS
+N06  D  UUSER                254    263
+     C*
+     C                   EXSR      INIT
+     C*
+     C     START         TAG
+     C                   MOVE      '1'           *IN93
+     C                   WRITE     GSS023DB
+     C                   MOVEA     '0000'        *IN(93)
+     C                   MOVE      *ZEROS        ZRECNO
+     C                   MOVE      *ZEROS        WSWT
+     C                   MOVE      *ZEROS        XONO              7 0
+     C                   MOVE      *ZEROS        XONO1             7 0
+     C                   MOVE      *ZEROS        XONO2             7 0
+     C                   MOVE      *ZEROS        XONO3             7 0
+     C                   MOVE      *BLANKS       XBCD1             5
+     C                   MOVE      *BLANKS       XBCD2             5
+     C                   MOVE      *BLANKS       XBCD3             5
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C     GORK21        SETLL     GSSORL21                           94
+     C     GORK21        SETLL     GSSORL24                           95
+     C     GORK21        SETLL     GSSORL25                           96
+     C     START1        TAG
+     C     UTNO          READE     GSSORL21                               94
+     C   94              Z-ADD     9999999       XONO1
+     C   94
+     CAN 40              MOVE      '99999'       XBCD1
+     C  N94              MOVE      ORONO         XONO1
+     C  N94
+     CAN 40              MOVE      ORBCD         XBCD1
+     C     UTNO          READE     GSSORL24                               95
+     C   95              Z-ADD     9999999       XONO2
+     C   95
+     CAN 40              MOVE      '99999'       XBCD2
+     C  N95              MOVE      ORONO         XONO2
+     C  N95
+     CAN 40              MOVE      ORBCD         XBCD2
+     C     UTNO          READE     GSSORL25                               96
+     C   96              Z-ADD     9999999       XONO3
+     C   96
+     CAN 40              MOVE      '99999'       XBCD3
+     C  N96              MOVE      ORONO         XONO3
+     C  N96
+     CAN 40              MOVE      ORBCD         XBCD3
+     C                   SELECT
+     C     XBCD3         WHENLT    XBCD1                                        XBCD3 ER MINST
+     C     XBCD3         ANDLT     XBCD2
+     C                   MOVE      XONO3         XONO
+     C     XBCD2         WHENLT    XBCD1                                        XBCD2 ER MINST
+     C     XBCD2         ANDLT     XBCD3                                        XBCD2 ER MINST
+     C                   MOVE      XONO2         XONO
+     C     XBCD1         WHENLT    XBCD2                                        XBCD1 ER MINST
+     C     XBCD1         ANDLT     XBCD3
+     C                   MOVE      XONO1         XONO
+     C     XBCD1         WHENEQ    XBCD2                                        XBCD1=XBCD2
+     C     XBCD1         ANDLT     XBCD3                                        XBCD3 ER STØRST
+     C     XONO2         IFLT      XONO1                                        ORD2<ORD1
+     C                   MOVE      XONO2         XONO
+     C                   ELSE
+     C                   MOVE      XONO1         XONO
+     C                   END
+     C     XBCD2         WHENEQ    XBCD3                                        XBCD2=XBCD3
+     C     XBCD2         ANDLT     XBCD1                                        XBCD1 ER STØRST
+     C     XONO3         IFLT      XONO2                                        ORD3<ORD2
+     C                   MOVE      XONO3         XONO
+     C                   ELSE
+     C                   MOVE      XONO2         XONO
+     C                   END
+     C     XBCD3         WHENEQ    XBCD1                                        XBCD3=XBCD1
+     C     XBCD3         ANDLT     XBCD2                                        XBCD2 ER STØRST
+     C     XONO1         IFLT      XONO3                                        ORD3<ORD1
+     C                   MOVE      XONO1         XONO
+     C                   ELSE
+     C                   MOVE      XONO3         XONO
+     C                   END
+     C                   OTHER                                                  XBCD1,2,3 ER LIKE
+     C                   SELECT
+     C     XONO3         WHENLT    XONO1
+     C     XONO3         ANDLT     XONO2
+     C                   MOVE      XONO3         XONO
+     C     XONO2         WHENLT    XONO1
+     C                   MOVE      XONO2         XONO
+     C                   OTHER
+     C                   MOVE      XONO1         XONO
+     C                   ENDSL
+     C                   ENDSL
+      *
+     C     START2        TAG
+      *
+     C  N94
+     CORN95
+     CORN96              DO
+     C                   DO        5000
+     C                   ADD       1             ZRECNO
+     C     XONO          CHAIN(N)  GSSORF                             33
+     C                   EXSR      HENTBOX
+S03  C*                  IF        WXCLNF = 0
+S03  C*                  MOVE      ORCLNF        WXCLNF
+S03  C*                  MOVE      ORCLNT        WXCLNT
+S03  C*                  END
+S03  C*                  MOVE      ORCLI         WXCLI
+S03  C*                  MOVE      ORWT          WXWT
+S03  C*                  MOVE      ORVOL         WXVOL
+     C                   ADD       ORWT          WSWT
+     C     ORONO         SETLL     GSSPOF                             33
+     C     ORONO         READE     GSSPOF                                 33
+     C   33              MOVE      *BLANKS       POCONO
+     C  N40              MOVE      ORLC          XLCBCD
+     C   40              MOVE      ORBCD         XLCBCD
+      * SJEKK OM FARLIG GODS
+     C     ORONO         CHAIN     GSSFGF                             33
+     C  N33              MOVE      '1'           *IN(38)
+     C   33              MOVE      '0'           *IN(38)
+N01  C     ORONO         CHAIN     GSSDGF                             33
+N01  C  N33              MOVE      '1'           *IN(37)
+N01  C   33              MOVE      '0'           *IN(37)
+     C                   WRITE     GSS023DA
+     C     ST21          TAG
+     C                   SELECT
+     C     XONO3         WHENEQ    XONO
+     C  N96UTNO          READE     GSSORL25                               96
+     C  N96              MOVE      ORONO         XONO3
+     C  N96
+     CAN 40              MOVE      ORBCD         XBCD3
+     C   96              Z-ADD     9999999       XONO3
+     C   96
+     CAN 40              MOVE      '99999'       XBCD3
+     C   96              GOTO      ST21
+     C     XONO2         WHENEQ    XONO
+     C  N95UTNO          READE     GSSORL24                               95
+     C   95              Z-ADD     9999999       XONO2
+     C   95
+     CAN 40              MOVE      '99999'       XBCD2
+     C  N95              MOVE      ORONO         XONO2
+     C  N95
+     CAN 40              MOVE      ORBCD         XBCD2
+     C                   OTHER
+     C  N94UTNO          READE     GSSORL21                               94
+     C   94              Z-ADD     9999999       XONO1
+     C   94
+     CAN 40              MOVE      '99999'       XBCD1
+     C  N94              MOVE      ORONO         XONO1
+     C  N94
+     CAN 40              MOVE      ORBCD         XBCD1
+     C                   ENDSL
+     C                   SELECT
+     C     XBCD3         WHENLT    XBCD1                                        XBCD3 ER MINST
+     C     XBCD3         ANDLT     XBCD2
+     C                   MOVE      XONO3         XONO
+     C     XBCD2         WHENLT    XBCD1                                        XBCD2 ER MINST
+     C     XBCD2         ANDLT     XBCD3                                        XBCD2 ER MINST
+     C                   MOVE      XONO2         XONO
+     C     XBCD1         WHENLT    XBCD2                                        XBCD1 ER MINST
+     C     XBCD1         ANDLT     XBCD3
+     C                   MOVE      XONO1         XONO
+     C     XBCD1         WHENEQ    XBCD2                                        XBCD1=XBCD2
+     C     XBCD1         ANDLT     XBCD3                                        XBCD3 ER STØRST
+     C     XONO2         IFLT      XONO1                                        ORD2<ORD1
+     C                   MOVE      XONO2         XONO
+     C                   ELSE
+     C                   MOVE      XONO1         XONO
+     C                   END
+     C     XBCD2         WHENEQ    XBCD3                                        XBCD2=XBCD3
+     C     XBCD2         ANDLT     XBCD1                                        XBCD1 ER STØRST
+     C     XONO3         IFLT      XONO2                                        ORD3<ORD2
+     C                   MOVE      XONO3         XONO
+     C                   ELSE
+     C                   MOVE      XONO2         XONO
+     C                   END
+     C     XBCD3         WHENEQ    XBCD1                                        XBCD3=XBCD1
+     C     XBCD3         ANDLT     XBCD2                                        XBCD2 ER STØRST
+     C     XONO1         IFLT      XONO3                                        ORD3<ORD1
+     C                   MOVE      XONO1         XONO
+     C                   ELSE
+     C                   MOVE      XONO3         XONO
+     C                   END
+     C                   OTHER                                                  XBCD1,2,3 ER LIKE
+     C                   SELECT
+     C     XONO3         WHENLT    XONO1
+     C     XONO3         ANDLT     XONO2
+     C                   MOVE      XONO3         XONO
+     C     XONO2         WHENLT    XONO1
+     C                   MOVE      XONO2         XONO
+     C                   OTHER
+     C                   MOVE      XONO1         XONO
+     C                   ENDSL
+     C                   ENDSL
+     C  N94
+     CORN95
+     CORN96              END
+     C                   END
+     C*                    Z-ADDZRECNO    YRECNO  40
+     C     ZRECNO        IFGT      0
+     C                   Z-ADD     1             ZRECNO
+     C                   END
+     C                   Z-ADD     5             LINNBR
+     C                   Z-ADD     2             POSNBR
+      *
+     C     START3        TAG
+     C                   MOVEA     '11'          *IN(91)
+     C     ZRECNO        IFEQ      0
+     C                   EXFMT     GSS023DG
+     C                   ELSE
+     C                   WRITE     GSS023DB
+     C                   EXFMT     GSS023DC
+     C                   END
+     C*
+     C***
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+     C***
+     C*
+     C                   SETOFF                                       9830
+     C                   MOVE      *ZEROS        UFLAGG
+     C                   MOVE      'N'           WSKPBN
+N05   *
+N05   * SETT STATUS TILBAKE VED FJERNING AV ORDRE FRA TRIP
+N05  C   03
+N05  COR 10
+N05  COR 12              IF        XBACKST = 'J'
+N05  C     UTNO          SETLL     GSSORL21
+N05  C     UTNO          READE     GSSORL21                               33
+N05  C                   DOW       *IN33 = *OFF
+N05  C     ORONO         CHAIN     GSSORF                             33
+N05  C                   MOVE      '1'           ORST
+N05  C                   IF        ORLC = 'ONWAY'
+N05  C                   MOVE      ORLC2         ORLC
+N05  C                   MOVE      ORLC3         ORLC2
+N05  C                   MOVE      *BLANKS       ORLC3
+N05  C                   MOVE      ORDTL2        ORDTL
+N05  C                   MOVE      ORDTL3        ORDTL2
+N05  C                   MOVE      *ZEROS        ORDTL3
+N05  C                   END
+N05  C                   UPDATE    GSSORFR
+N05  C     UTNO          READE     GSSORL21                               33
+N05  C                   ENDDO
+N05  C     UTNO          CHAIN     GSSTRF                             33
+N05  C                   MOVE      '1'           TRST
+N05  C                   UPDATE    GSSTRFR
+N05  C                   Z-SUB     3             UFLAGG
+N05  C                   GOTO      SLUTT
+N05  C                   END
+N05   *
+     C*** AVSLUTT
+     C   03              GOTO      SLUTT
+     C*** FRISK OPP
+     C   05              GOTO      START
+     C*** PLUKK
+     C   06              DO
+     C     UTYPEX        IFEQ      'EDT'
+     C                   Z-ADD     1             UFLAGG
+     C                   ELSE
+     C                   MOVE      *ZEROS        UFLAGG
+     C                   END
+     C                   CALL      'GSS024R'
+     C                   PARM                    UTNO
+     C                   PARM      WSWT          UWT               7 1
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        IFEQ      1
+     C                   MOVE      *ZEROS        UFLAGG
+     C                   MOVE      *ZEROS        W2ONO
+     C                   GOTO      START
+     C                   END
+     C                   GOTO      SLUTT
+     C                   END
+      *** SØK FRA
+     C   08              GOTO      START6
+      *** SKRIV UT
+     C   10*IN27         IFEQ      '0'
+     C                   MOVE      '0'           *IN99
+     C     STPRT         TAG
+     C                   EXFMT     GSS023DX
+     C                   MOVE      '0'           *IN99
+     C   12              GOTO      START3
+     C     WSPRT         COMP      *BLANKS                                99
+     C   99              GOTO      STPRT
+      *
+     C                   MOVE      'PRT'         UTYPE
+     C                   MOVE      TRCNO         UCNO2             8
+     C                   MOVE      TRTNO         UTNO2            11
+      *
+     C     WSFAX         IFEQ      'Y'
+     C                   CALL      'GSS034C'
+     C                   PARM                    UCNO2
+     C                   PARM                    UUTFAX            1
+     C                   PARM                    UTNO2
+     C                   PARM                    UTYPE
+N09  C                   PARM                    ORTYPE
+     C                   PARM                    UVALK             3
+     C                   PARM                    UMOD              1
+     C                   PARM                    WSCOMM
+     C                   PARM                    UKNC
+     C     UUTFAX        CABEQ     'J'           STPRT1
+     C                   GOTO      STPRT
+     C                   END
+      *
+     C     WSCPY         IFEQ      0
+     C                   Z-ADD     1             WSCPY
+     C                   END
+     C                   MOVE      WSCPY         UCPY              1
+      *
+     C                   CALL      'GSS022R'
+     C                   PARM                    UTNO2
+     C                   PARM                    UTYPE
+     C                   PARM                    UCPY
+     C                   PARM                    WSPRT
+     C                   PARM                    WSFAX
+      *
+     C     STPRT1        TAG
+     C                   GOTO      SLUTT
+     C                   ELSE
+     C                   MOVEA     '00'          *IN(98)
+     C                   MOVE      UCURR         WSCUR
+     C     TRMFT1        IFEQ      *BLANKS
+     C     HEADFK        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   MOVEL     TRTNO         HEAVD
+     C                   MOVE      TRTNO         HEOPD
+     C     HEADFK        CHAIN     HEADF                              99
+     C                   MOVE      *BLANKS       WSFT1
+     C                   MOVE      *BLANKS       WSFT2
+     C                   MOVEL     XFT01         XFT11
+     C                   MOVE      TRDW          XFT12
+     C     HEUR          IFEQ      'A'
+     C     HEUR          OREQ      'B'
+     C                   MOVEL     XFT02         XFT21
+     C                   MOVEL     HEGN          XFT25
+     C                   ELSE
+     C                   MOVEL     XFT03         XFT21
+     C                   MOVEL     HEGN          XFT22
+     C                   MOVE      '-'           XFT23
+     C                   MOVE      HEGN          XFT24
+     C                   END
+     C                   ELSE
+     C                   MOVE      TRMFT1        WSFT1
+     C                   MOVE      TRMFT2        WSFT2
+     C                   END
+      *
+     C     STPRT2        TAG
+     C                   EXFMT     GSS023DY
+     C                   MOVEA     '00'          *IN(98)
+     C   04              DO
+     C                   MOVE      *BLANKS       USØKKN           30
+     C                   CALL      'SOEKKUN'
+     C     WSKNC         PARM      WSKNC         UKNC80            8 0
+     C                   PARM                    UFIRM
+     C                   PARM                    USØKKN
+     C                   GOTO      STPRT2
+     C                   END
+     C   12              GOTO      START3
+     C     WSPRT         COMP      *BLANKS                                99
+     C   99              GOTO      STPRT2
+     C     KODVAK        CHAIN     VALUL01                            98
+     C   98              GOTO      STPRT2
+     C     WSCOMM        IFEQ      'Y'
+     C     WSKNC         ANDNE     0
+     C     CUND1K        CHAIN     CUNDL01                            97
+     C   97              GOTO      STPRT2
+     C                   END
+      *
+     C     UTNO          CHAIN     GSSTRF                             33
+     C                   MOVE      WSFT1         TRMFT1
+     C                   MOVE      WSFT2         TRMFT2
+     C                   UPDATE    GSSTRFR
+     C                   SELECT
+     C     WSNYL         WHENEQ    'P'
+     C     WSNYL         OREQ      'O'
+     C     TRST          IFLT      '4'
+     C                   MOVE      'PRT'         UTYPE
+     C                   ELSE
+     C                   MOVE      'CPY'         UTYPE
+     C                   END
+     C     WSNYL         WHENEQ    'L'
+     C     TRST          IFLT      '4'
+     C                   MOVE      'PRL'         UTYPE
+     C                   ELSE
+     C                   MOVE      'CPL'         UTYPE
+     C                   END
+     C                   ENDSL
+     C                   MOVE      WSKNC         UKNC              8
+     C                   MOVE      TRCNO         UCNO2             8
+     C                   MOVE      UTNO          UTNO2            11
+     C     WSFAX         IFEQ      'Y'
+     C     WSNYL         IFEQ      'P'
+     C     WSNYL         OREQ      'L'
+     C                   MOVE      '2'           UMOD              1
+     C                   ELSE
+     C                   MOVE      '3'           UMOD
+     C                   END
+     C                   CALL      'GSS034C'
+     C                   PARM                    UCNO2
+     C                   PARM                    UUTFAX            1
+     C                   PARM                    UTNO2
+     C                   PARM                    UTYPE
+N09  C                   PARM                    ORTYPE
+     C                   PARM                    WSCUR
+     C                   PARM                    UMOD
+     C                   PARM                    WSCOMM
+     C                   PARM                    UKNC
+     C     UUTFAX        CABEQ     'J'           SLUTT
+     C                   GOTO      STPRT2
+     C                   END
+      *
+      *
+     C     WSCPY         IFEQ      0
+     C                   Z-ADD     1             WSCPY
+     C                   END
+     C                   MOVE      WSCPY         UCPY              1
+      *
+     C     WSML          IFEQ      'Y'
+     C                   OPEN      GSS035W
+     C     TRTNO         CHAIN     GSS035W                            33
+     C     *IN33         IFEQ      '0'
+     C                   UPDATE    GSS035WR
+     C                   ELSE
+     C                   MOVE      TRTNO         W3TNO
+     C                   WRITE     GSS035WR
+     C                   END
+     C                   CLOSE     GSS035W
+     C                   END
+      *
+     C     WSNYL         IFEQ      'P'
+     C     WSNYL         OREQ      'L'
+     C                   CALL      'GSS031R'
+     C                   PARM                    UTNO2
+     C                   PARM                    UTYPE
+     C                   PARM                    WSPRT
+N07  C                   PARM                    ORTYPE
+     C                   PARM                    WSCUR
+     C                   PARM                    UCPY
+     C                   PARM                    WSFAX
+     C                   PARM                    WSCOMM
+     C                   PARM                    UKNC
+     C                   PARM                    UQJOB            10
+     C                   PARM                    UQUSER           10
+     C                   PARM                    UQNBR             6
+     C                   PARM                    WSPOS1            5
+     C                   PARM                    WSPOS2            5
+     C                   PARM                    WSPOS3            5
+     C                   ELSE
+     C                   CALL      'GSS033R'
+     C                   PARM                    UTNO2
+     C                   PARM                    UTYPE
+N08  C                   PARM                    ORTYPE
+     C                   PARM                    WSPRT
+     C                   PARM                    UCPY
+     C                   PARM                    WSFAX
+N08  C                   PARM                    UQJOB            10
+N08  C                   PARM                    UQUSER           10
+N08  C                   PARM                    UQNBR             6
+     C                   END
+     C                   GOTO      SLUTT
+     C                   END
+      *** AVSLUTT
+     C   12              Z-ADD     1             UFLAGG
+     C   12              GOTO      SLUTT
+      *
+     C     ZRECNO        IFNE      0
+     C                   EXSR      HHENT
+     C     UINGEN        CABEQ     'N'           START
+     C     WSKPBN        CABEQ     'Y'           START
+     C                   END
+     C   98XRECNO        IFNE      0
+     C                   Z-ADD     XRECNO        ZRECNO
+     C                   END
+     C                   GOTO      START3
+      *
+      *** SØK FRA
+     C     START6        TAG
+     C                   EXFMT     GSS023DE
+     C                   Z-ADD     22            LINNBR
+     C                   Z-ADD     19            POSNBR
+     C   12              GOTO      START3
+     C  N40              MOVE      TRBCD         W2BCD
+     C                   GOTO      START
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+     C***********************************************
+     C     HHENT         BEGSR
+     C***********************************************
+     C                   MOVE      ' '           UINGEN            1
+     C                   MOVE      *ZEROS        TN
+     C                   MOVE      *ZEROS        CNF
+     C                   MOVE      *ZEROS        CNT
+     C                   Z-ADD     0             LINNBR
+     C                   SETOFF                                       919299
+     C     *IN98         DOWEQ     '0'
+     C                   READC     GSS023DA                               98
+     C   98              DO
+     C   99              SETOFF                                       98
+     C                   Z-ADD     1             LINNBR
+     C                   GOTO      SLHENT
+     C                   END
+     C     ZRECNO        DIV       15            LINNBR
+     C                   MVR                     XLIN              2 0
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C  N29WSNR          IFEQ      '2'
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C                   EXSR      CHGORD
+     C   12              GOTO      SLHENT
+     C                   END
+     C  N29WSNR          IFEQ      '4'
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C                   EXSR      DLTORD
+     C     WSKPBN        CABEQ     'Y'           SLHENT2
+     C   12              GOTO      SLHENT
+     C                   END
+     C     WSNR          IFEQ      '5'
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C                   EXSR      DSPORD
+     C   12              GOTO      SLHENT
+     C                   END
+     C     WSNR          IFEQ      '6'
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C                   EXSR      PRTORD
+     C   12              GOTO      SLHENT
+     C                   END
+     C  N29WSNR          IFEQ      '8'
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C                   EXSR      WRKINV
+     C   12              GOTO      SLHENT
+     C                   END
+     C  N29WSNR          IFEQ      'L'
+     C     WSNR          OREQ      'B'
+     C     WSNR          IFEQ      'B'
+     C                   MOVE      'BOX'         UTYPE2
+     C                   ELSE
+     C                   MOVE      'CHG'         UTYPE2
+     C                   END
+     C                   MOVE      ' '           WSNR
+     C     XDLT          COMP      '*DELETE'                              98
+     C   98              GOTO      SLHENT
+     C     ORONO         CHAIN(N)  GSSORF                             33
+     C                   CALL      'GSS018R'
+     C                   PARM      ORONO         UONO
+     C                   PARM                    UTYPE2
+     C                   PARM                    ORPOS1
+     C                   PARM                    ORCLI
+     C                   UPDATE    GSS023DA
+     C                   END
+     C                   END
+     C*
+     C     SLHENT        TAG
+      *
+     C                   IF        UINGEN = 'N'
+     C                   MOVE      ' '           UINGEN
+     C                   MOVE      '0'           USTT
+     C     1             DO        100           XNR
+     C                   IF        TN(XNR) = 0
+     C                   LEAVE
+     C                   END
+     C                   MOVE      'N'           UINGEN2
+     C                   MOVE      TN(XNR)       UTNO2X
+     C                   MOVE      CNF(XNR)      UCLNF
+     C                   MOVE      CNT(XNR)      UCLNT
+     C                   CALL      'GSS036R'
+     C                   PARM                    UTNO2X           11 0
+     C                   PARM                    UTNO
+     C                   PARM                    USTF              1
+     C                   PARM                    USTT              1
+     C                   PARM                    UWT
+     C                   PARM                    UCLNF             3 0
+     C                   PARM                    UCLNT             3 0
+     C                   PARM                    UINGEN2           1
+     C                   IF        UINGEN2 = 'N'
+     C                   MOVE      'N'           UINGEN
+     C                   END
+     C                   ENDDO
+     C                   END
+      *
+     C     SLHENT2       TAG
+     C                   ADD       4             LINNBR
+     C                   Z-ADD     2             POSNBR
+     C                   SETOFF                                       99
+     C   98              DO
+     C                   MOVE      'GSS0009'     MSGNR
+     C                   SETON                                            30
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     CHGORD        BEGSR
+     C***********************************************
+     C                   MOVE      '1'           *IN99
+N06  C                   EVAL      XOPT = '*CHG'
+N06  C                   EXSR      OPDLOG
+S03  C*    ORONO         CHAIN     GSSORF                             33
+S03  C* N33              DO
+S03  C*                  SUB       ORWT          WSWT
+S03  C*                  ADD       WXWT          WSWT
+S03  C*                  MOVE      WXCLNF        ORCLNF
+S03  C*                  MOVE      WXCLNT        ORCLNT
+S03  C*                  MOVE      WXCLI         ORCLI
+S03  C*                  MOVE      WXWT          ORWT
+S03  C*                  MOVE      WXVOL         ORVOL
+S03  C*                  UPDATE    GSSORFR
+S03  C*                  END
+N03  C                   MOVE      'CH2'         UTYPE2
+N03  C                   CALL      'GSS011R'
+N03  C                   PARM                    ORONO
+N03  C                   PARM                    UTYPE2
+N03  C                   PARM                    ORBCD
+N03  C                   PARM                    ORCNO
+N03  C                   PARM                    ORSNO
+N03  C                   PARM                    ORLC
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   UPDATE    GSS023DA
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     DLTORD        BEGSR
+     C***********************************************
+     C                   MOVE      '1'           *IN99
+     C     ORONO         CHAIN     GSSORF                             33
+     C  N33              DO
+N05   *
+N05  C                   IF        ((ORST <> '1') AND (ORST < '4'))
+N05  C                   MOVE      'J'           XBACKST           1
+N05  C                   END
+N05   *
+      *
+     C     ORONO         SETLL     GSSOLF
+     C     ORONO         READE(N)  GSSOLF                                 33
+     C                   MOVE      'N'           WSKPBN
+     C                   DOW       *IN33 = *OFF
+     C                   IF        OLBOX = 0
+     C                   MOVE      'N'           WSKPBN
+     C                   LEAVE
+     C                   ELSE
+     C                   MOVE      'Y'           WSKPBN
+     C                   END
+     C     ORONO         READE(N)  GSSOLF                                 33
+     C                   ENDDO
+     C                   IF        WSKPBN = 'Y'
+     C                   EXFMT     GSS023DK
+     C                   END
+      *
+     C                   MOVE      ORST          USTF
+     C                   MOVE      '0'           ORST
+     C                   MOVE      *ZEROS        ORTNO
+     C                   SUB       ORWT          WSWT
+     C     ORLC          IFEQ      'ONWAY'
+     C                   MOVE      ORLC2         ORLC
+     C                   MOVE      ORLC3         ORLC2
+     C                   MOVE      *BLANKS       ORLC3
+     C                   MOVE      ORDTL2        ORDTL
+     C                   MOVE      ORDTL3        ORDTL2
+     C                   MOVE      *ZEROS        ORDTL3
+     C                   END
+     C                   UPDATE    GSSORFR
+N06  C                   EVAL      XOPT = '*DLT'
+N06  C                   EXSR      OPDLOG
+      *
+     C                   IF        WSKPBN = 'Y'
+      * OPPDATER BOX-LAPPER PÅ OLMN
+     C                   CALL      'GSS046R'
+     C                   PARM                    ORONO
+      *
+     C                   ELSE
+      *
+     C     ORONO         SETLL     GSSOLF
+     C     ORONO         READE     GSSOLF                                 33
+     C     *IN33         DOWEQ     '0'
+     C                   MOVE      *ZEROS        OLTNO
+     C                   MOVE      *ZEROS        OLBOX
+     C                   IF        ((OLMNPRE = '995') AND (OLMNTOM = *BLANKS))
+     C                   MOVE      OLMNTNO       OLTNO
+     C                   MOVE      OLMNBOX       OLBOX
+     C                   MOVE      *BLANKS       OLMN
+     C                   END
+     C                   MOVE      ' '           OLST
+     C                   IF        ((ORCLNF = 0) OR (ORCLNF > OLBOX))
+     C                   MOVE      OLBOX         ORCLNF
+     C                   END
+     C                   IF        ((ORCLNT = 0) OR (ORCLNT < OLBOX))
+     C                   MOVE      OLBOX         ORCLNT
+     C                   END
+     C                   UPDATE    GSSOLFR
+     C     ORONO         READE     GSSOLF                                 33
+     C  N33              ENDDO
+      *
+      * SJEKK ORDRE MED SAMME KOLLINR
+     C                   IF        ((ORCLNF <> 0) AND (ORTNO2 <> 0))
+     C     1             DO        100           XNR               3 0
+     C                   IF        ORCLNT = 0
+     C                   EVAL      ORCLNT = ORCLNF
+     C                   END
+     C                   SELECT
+     C                   WHEN      TN(XNR) = 0
+     C                   LEAVE
+     C                   WHEN      TN(XNR) = ORTNO2
+     C                   SELECT
+     C                   WHEN      ((CNF(XNR)<=ORCLNF) AND (CNT(XNR)>=ORCLNT))
+     C                   GOTO      OPDFRAFØR
+     C                   WHEN      ((CNF(XNR)<=ORCLNF) AND (CNT(XNR)>=ORCLNF))
+     C                   IF        CNT(XNR) < ORCLNT
+     C                   EVAL      CNT(XNR) = ORCLNT
+     C                   END
+     C                   GOTO      OPDFRAFØR
+     C                   WHEN      ((CNF(XNR)<=ORCLNT) AND (CNT(XNR)>=ORCLNT))
+     C                   IF        CNF(XNR) > ORCLNF
+     C                   EVAL      CNF(XNR) = ORCLNF
+     C                   END
+     C                   GOTO      OPDFRAFØR
+     C                   WHEN      ((CNF(XNR)>ORCLNF) AND (CNT(XNR)<ORCLNT))
+     C                   EVAL      CNF(XNR) = ORCLNF
+     C                   EVAL      CNT(XNR) = ORCLNT
+     C                   GOTO      OPDFRAFØR
+     C                   ENDSL
+     C                   ENDSL
+     C                   ENDDO
+     C                   MOVE      ORTNO2        TN(XNR)
+     C                   MOVE      ORCLNF        CNF(XNR)
+     C                   MOVE      ORCLNT        CNT(XNR)
+     C                   MOVE      'N'           UINGEN
+     C     OPDFRAFØR     TAG
+     C                   END
+      *
+     C                   END
+      *
+     C                   MOVE      *ZEROS        ORONO
+     C                   MOVE      *BLANKS       POCONO
+     C                   MOVE      '*DELETE'     XDLT
+     C                   MOVE      *ZEROS        ORSNO
+     C                   MOVE      *ZEROS        ORCLI
+     C                   MOVE      *ZEROS        ORWT
+     C                   MOVE      *ZEROS        ORVOL
+     C                   MOVE      *BLANKS       ORPOS1
+     C                   MOVE      *BLANKS       ORLC
+S03  C*                  MOVE      *ZEROS        WXCLNF
+S03  C*                  MOVE      *ZEROS        WXCLNT
+S03  C*                  MOVE      *ZEROS        WXCLI
+S03  C*                  MOVE      *ZEROS        WXWT
+S03  C*                  MOVE      *ZEROS        WXVOL
+     C                   END
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   UPDATE    GSS023DA
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     DSPORD        BEGSR
+     C***********************************************
+     C                   MOVE      '1'           *IN99
+     C                   MOVE      'DSP'         UTYPE2            3
+     C                   MOVE      ORONO         UONO
+     C     *LIKE         DEFINE    ORONO         UONO
+     C     *LIKE         DEFINE    ORBCD         UBCD
+     C     *LIKE         DEFINE    ORCNO         UCNO
+     C     *LIKE         DEFINE    ORSNO         USNO
+     C     *LIKE         DEFINE    ORLC          ULC
+     C                   CALL      'GSS011R'
+     C                   PARM                    UONO
+     C                   PARM                    UTYPE2
+     C                   PARM                    UBCD
+     C                   PARM                    UCNO
+     C                   PARM                    USNO
+     C                   PARM                    ULC
+     C     ORONO         CHAIN(N)  GSSORF                             33
+     C                   EXSR      HENTBOX
+S03  C*                  IF        WXCLNF = 0
+S03  C*                  MOVE      ORCLNF        WXCLNF
+S03  C*                  MOVE      ORCLNT        WXCLNT
+S03  C*                  END
+S03  C*                  MOVE      ORCLI         WXCLI
+S03  C*                  MOVE      ORWT          WXWT
+S03  C*                  MOVE      ORVOL         WXVOL
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   UPDATE    GSS023DA
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     PRTORD        BEGSR
+     C***********************************************
+     C                   MOVE      'Y'           WSSK
+     C     STPORD        TAG
+     C                   EXFMT     GSS023DZ
+     C                   MOVE      '0'           *IN99
+     C  N12              DO
+     C     WSPRTM        COMP      *BLANKS                                99
+     C   99              GOTO      STPORD
+      *
+     C     ORONO         CHAIN(N)  GSSORF                             33
+N06  C                   EVAL      XOPT = '*PRT'
+N06  C                   EXSR      OPDLOG
+     C     CUND1K2       CHAIN     CUNDL01                            33
+     C     ORBCD         CHAIN     CDBOAT                             33
+     C     ORONO         SETLL     GSSPOF
+     C     ORONO         READE     GSSPOF                                 33
+     C                   MOVE      *BLANKS       CON
+     C                   MOVE      *ZEROS        XNR               3 0
+     C                   DOW       *IN33 = '0'
+     C                   ADD       1             XNR
+     C                   MOVE      POCONO        CON(XNR)
+     C     ORONO         READE     GSSPOF                                 33
+     C  N33              ENDDO
+     C                   MOVE      ORDTLD        WSDTLD
+     C                   MOVE      ORDTLM        WSDTLM
+     C                   MOVE      ORDTLÅ        WSDTLÅ
+      *
+     C     WSSK          IFEQ      'Y'
+     C                   MOVE      ORONO         UPONO             7
+     C                   MOVE      ORCLI         UCLI              5 0
+     C                   CALL      'GSS011RP'
+     C                   PARM                    WSPRTM                         PRINTNAVN
+     C                   PARM                    UPONO                          INTER ORDRENR
+N04  C                   PARM                    ORTYPE                         ORDRETYPE
+     C                   PARM                    CBNAB                          BÅTNAVN
+     C                   PARM                    KNAVN                          KUNDENAVN
+     C                   PARM                    ORSNM                          LEVERANDØR
+     C                   PARM                    WSDTLA                         LEV.DATO
+     C                   PARM                    UCLI                           ANTALL KOLLI
+     C                   PARM                    WSCON1                         P.O.NR 1
+     C                   PARM                    WSCON2                         P.O.NR 2
+     C                   PARM                    WSCON3                         P.O.NR 3
+     C                   PARM                    WSCON4                         P.O.NR 4
+     C                   PARM                    WSCON5                         P.O.NR 5
+     C                   PARM                    WSCON6                         P.O.NR 6
+     C                   ELSE
+     C                   Z-ADD     1024          UCMDL            15 5
+     C                   MOVE      *BLANKS       UCMD
+     C     XCMD11        CAT       WSPRTM:0      UCMD
+     C                   CAT       ')':0         UCMD
+     C                   CAT       XCMD21:1      UCMD
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    UCMD
+     C                   PARM                    UCMDL
+      *
+     C                   OPEN      GSS011P
+     C     ORSNO         IFEQ      0
+     C                   MOVE      ORSNM         SFNM
+     C                   MOVE      *BLANKS       SFAD1
+     C                   MOVE      *BLANKS       SFAD2
+     C                   MOVE      *BLANKS       SFAD3
+     C                   MOVE      *BLANKS       SFTEL
+     C                   MOVE      *BLANKS       SFFAX
+     C                   ELSE
+     C     ORSNO         CHAIN     GSSSFF                             33
+     C                   END
+      *
+     C     1             DO        ORCLI         XSIDE
+     C                   WRITE     GSS011PA
+     C                   END
+      *
+     C                   CLOSE     GSS011P
+     C                   END
+      *
+     C                   END
+     C                   UPDATE    GSS023DA
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     WRKINV        BEGSR
+     C***********************************************
+     C                   MOVE      '1'           *IN99
+     C                   CALL      'GSS012R'
+     C                   PARM                    ORONO
+     C                   PARM                    UTYPE
+     C                   PARM                    UFLAGG
+     C     XLIN          IFEQ      0
+     C                   Z-ADD     15            LINNBR
+     C                   ELSE
+     C                   Z-ADD     XLIN          LINNBR
+     C                   END
+     C                   UPDATE    GSS023DA
+N06  C                   EVAL      XOPT = '*WIN'
+N06  C                   EXSR      OPDLOG
+      *
+     C     ORST          IFGE      '4'
+     C                   CALL      'GSS032R'
+     C                   PARM                    UTNO
+     C                   PARM                    ORONO
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     HENTBOX       BEGSR
+     C***********************************************
+S03  C*                  MOVE      *ZEROS        WXCLNF
+S03  C*                  MOVE      *ZEROS        WXCLNT
+     C                   MOVEA     '01'          *IN(34)
+     C     XONO          SETLL     GSSOLF
+     C     XONO          READE(N)  GSSOLF                                 33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        OLST = 'L'
+     C                   MOVE      '1'           *IN34
+     C                   ELSE
+     C                   MOVE      '0'           *IN35
+     C                   END
+     C                   SELECT
+S03  C*                  WHEN      WXCLNF = 0
+S03  C*                  MOVE      OLBOX         WXCLNF
+S03  C*                  WHEN      ((OLBOX <> 0) AND (OLBOX < WXCLNF))
+S03  C*                  IF        WXCLNT = 0
+S03  C*                  MOVE      WXCLNF        WXCLNT
+S03  C*                  END
+S03  C*                  MOVE      OLBOX         WXCLNF
+S03  C*                  WHEN      OLBOX > WXCLNF
+S03  C*                  IF        OLBOX > WXCLNT
+S03  C*                  MOVE      OLBOX         WXCLNT
+S03  C*                  END
+N03  C                   WHEN      ORCLNF = 0
+N03  C                   MOVE      OLBOX         ORCLNF
+N03  C                   WHEN      ((OLBOX <> 0) AND (OLBOX < ORCLNF))
+N03  C                   IF        ORCLNT = 0
+N03  C                   MOVE      ORCLNF        ORCLNT
+N03  C                   END
+N03  C                   MOVE      OLBOX         ORCLNF
+N03  C                   WHEN      OLBOX > ORCLNF
+N03  C                   IF        OLBOX > ORCLNT
+N03  C                   MOVE      OLBOX         ORCLNT
+N03  C                   END
+     C                   ENDSL
+     C     XONO          READE(N)  GSSOLF                                 33
+     C                   ENDDO
+      *
+S03  C*                  IF        WXCLNF = 0
+N03  C                   IF        ORCLNF = 0
+     C                   MOVEA     '00'          *IN(34)
+     C                   ELSE
+     C   35              MOVE      '0'           *IN34
+     C                   END
+      *
+     C                   ENDSR
+      *
+N06   ***********************************************
+N06  C     OPDLOG        BEGSR
+N06   ***********************************************
+N06  C                   CALL      'SYGE15C'
+N06  C                   PARM                    WDT               8
+N06  C                   PARM                    WTM               6
+N06  C                   MOVE      WDT           LGDT
+N06  C                   MOVE      WTM           LGTID
+N06  C                   MOVE      WDT           LGHDT
+N06  C                   MOVE      WTM           LGHTID
+N06  C                   EVAL      LGUSER = UUSER
+N06  C                   EVAL      LGPGM  = 'GSS023R'
+N06  C                   EVAL      LGNIVÅ = 3
+N06  C                   EVAL      LGFTYP = XOPT
+N06  C                   EVAL      LGONO  = ORONO
+N06  C                   EVAL      LGNGM  = UTNO
+N06  C                   SELECT
+N06  C                   WHEN      XOPT = '*CHG'
+N06  C                   EVAL      LGTXT = 'The order is tried to changed.'
+N06  C                   EVAL      LGNNY  = UTNO
+N06  C                   WHEN      XOPT = '*DLT'
+N06  C                   EVAL      LGTXT = 'The order is removed from trip'
+N06  C                   EVAL      LGNNY  = 0
+N06  C                   WHEN      XOPT = '*PRT'
+N06  C                   EVAL      LGTXT = 'The picklist is printed.'
+N06  C                   EVAL      LGNNY  = UTNO
+N06  C                   WHEN      XOPT = '*WIN'
+N06  C                   EVAL      LGTXT = 'The invoicebasis is chg.'
+N06  C                   EVAL      LGNNY  = UTNO
+N06  C                   ENDSL
+N06  C                   WRITE     GSSLGFR
+N06   *
+N06  C                   ENDSR
+N06   *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     GORK21        KLIST
+     C                   KFLD                    UTNO
+     C                   KFLD                    W2BCD
+     C                   KFLD                    W2ONO
+     C     KODVAK        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    WSCUR
+     C     CUND1K        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    WSKNC
+     C     CUND1K2       KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    ORCNO
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UTNO             11 0
+     C                   PARM                    UTYPE             3
+     C                   PARM                    UMODE             1
+     C                   PARM                    UFLAGG            1 0
+     C                   MOVE      UTYPE         UTYPEX            3
+N06  C                   MOVE      *BLANKS       XOPT              4
+      *
+     C                   CLEAR                   GSSORFR
+     C     WSPRT         IFEQ      *BLANKS
+N08  C                   IF        UMODE = '1'
+     C                   MOVE      UBIPRT        WSPRT
+N08  C                   ELSE
+N08  C                   MOVE      UBIPRI        WSPRT
+N08  C                   END
+     C                   END
+     C     WSMLP         IFEQ      *BLANKS
+     C                   MOVE      UBIPRM        WSMLP
+     C                   END
+     C     WSPRTM        IFEQ      *BLANKS
+     C                   MOVE      UBIPRM        WSPRTM
+     C                   END
+     C                   MOVE      *ZEROS        *IN
+     C                   MOVE      *ZEROS        W2ONO
+     C     UMODE         COMP      '1'                                2727
+     C                   MOVE      *ZEROS        UFLAGG
+     C                   MOVE      'P'           WSNYL
+     C                   MOVE      '1'           UMOD              1
+     C                   MOVE      'N'           WSFAX
+     C                   MOVE      'N'           WSCOMM
+     C                   Z-ADD     1             WSCPY
+     C     UTYPE         COMP      'DSP'                                  29
+     C     UTNO          CHAIN(N)  GSSTRF                             33
+     C                   MOVE      'N'           WSML
+     C     TRBCD         COMP      *BLANKS                                28
+N02  C  N28TRBCD         COMP      '*ALL'                                 28
+     C  N28TRLOCF        COMP      *BLANKS                            2828
+     C  N28TRLOCT        COMP      *BLANKS                            2828
+     C     TRBCD         COMP      *BLANKS                                40
+N02  C  N40TRBCD         COMP      '*ALL'                                 40
+      *
+     C                   ENDSR
+      *

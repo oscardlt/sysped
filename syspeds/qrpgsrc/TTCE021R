@@ -1,0 +1,312 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TTCE021R MODULE(*LIBL/TTCE021R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+
+     d WhereC          s            512a
+     d FirstW          s              1A
+     d cQuote          C                   const('''')
+     d SqlStm          s            512a
+     d myrows          s             10i 0
+     D WSUSER          S             10
+     D AVD             S              4
+     D AVDN            S              4  0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d X               S             10  0
+     d MyPoDS          ds                  Qualified  dim(1)
+     d  THAVD                         4S 0
+     d  THTDN                         7S 0
+     d  THSIK                         1S 0
+     d  THDTA                         8S 0
+     d  THTMA                         4S 0
+     d  THSPOM                        1
+     d  THTKBM                        1
+     d  THKREF                       70
+     d  THTREF                       35
+     d  THLOSD                       35
+     d  THLOSDSK                      2
+     d  THLKR1                        2
+     d  THLKR2                        2
+     d  THLKR3                        2
+     d  THLKR4                        2
+     d  THLKR5                        2
+     d  THLKR6                        2
+     d  THLKR7                        2
+     d  THLKR8                        2
+     d  THKNSS                        8S 0
+     d  THNASS                       30
+     d  THADSS1                      30
+     d  THPNSS                        9
+     d  THPSSS                       24
+     d  THLKSS                        2
+     d  THSKSS                        2
+     d  THTINSS                      17
+     d  THKNKS                        8S 0
+     d  THNAKS                       30
+     d  THADKS1                      30
+     d  THPNKS                        9
+     d  THPSKS                       24
+     d  THLKKS                        2
+     d  THSKKS                        2
+     d  THTINKS                      17
+     d  THKNT                         8S 0
+     d  THNAT                        30
+     d  THADT1                       30
+     d  THPNT                         9
+     d  THPST                        24
+     d  THLKT                         2
+     d  THSKT                         2
+     d  THTINT                       17
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+         exsr ParseSr;
+         exsr init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(OPD)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"securityhead" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         exsr SelSr;
+         if myrows > 0;
+           exsr LesSr;
+         endif;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+         exsr Exit;
+
+       //-----------------------------------------------------------------
+       // Select fra fil via SQL
+       //-----------------------------------------------------------------
+       begsr     SelSr;
+
+       If    AVDN > 0;
+         AVD = %editc(AVDN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC = ' THAVD  = ' + AVD;
+       EndIf;
+
+       If    OPDN > 0;
+         OPD = %editc(OPDN:'X');
+         Exsr  AddAnd;
+         Eval  WhereC =  %trim(WhereC)  +
+         ' THTDN  = ' + OPD;
+       EndIf;
+
+         Eval      WhereC =  ' Where ' + %trim(WhereC);
+
+         Eval       SqlStm = 'Select * ' +
+                             'from TRUHFV ' +
+                              %trim(WhereC)  +
+                             ' Order by '       +
+                             'THDTA desc ' +
+                             'FOR READ ONLY ';
+
+         Exec SQL PREPARE DynSel from :SqlStm;
+         EXEC SQL DECLARE  A33  cursor for DynSel;
+         Exec SQL OPEN A33;
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+       //-----------------------------------------------------------------
+       // Set inn "AND" mellom where settninger
+       //-----------------------------------------------------------------
+       begsr     AddAnd;
+       If        FirstW =   'N';
+         Eval      WhereC =  %trim(WhereC) + ' and ';
+       EndIf;
+         Eval      FirstW =   'N';
+       endsr;
+       //-----------------------------------------------------------------
+       // hent input
+       //-----------------------------------------------------------------
+       begsr     ParseSr;
+         wsuser  = zhbgetvar('USER');
+         avd     = zhbgetvar('AVD');
+         avdn    = c2n2(avd);
+         opd     = zhbgetvar('OPD');
+         opdn    = c2n2(opd);
+
+        endsr;
+        // __________________________________________________
+        // Læs array                                    LESSR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr LesSr;
+       for x = 1 to myrows;
+
+       if mypods(x).thtkbm = *blanks;
+         leave;
+       endif;
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬thavd¬ : ¬'+%trim(%editc(mypods(x).THAVD:'Z'))+'¬, '
+          +'¬thtdn¬ : ¬'+%trim(%editc(mypods(x).THTDN:'Z'))+'¬, '
+          +'¬thsik¬ : ¬'+%trim(%editc(mypods(x).THSIK:'Z'))+'¬, '
+          +'¬thdta¬ : ¬'+%trim(%editc(mypods(x).THDTA:'Z'))+'¬, '
+          +'¬thtma¬ : ¬'+%trim(%editc(mypods(x).THTMA:'Z'))+'¬, '
+          +'¬thspom¬ : ¬'+%trim(mypods(x).THSPOM)+'¬, '
+          +'¬thtkbm¬ : ¬'+%trim(mypods(x).THTKBM)+'¬, '
+          +'¬thkref¬ : ¬'+%trim(mypods(x).THKREF)+'¬, '
+          +'¬thtref¬ : ¬'+%trim(mypods(x).THTREF)+'¬, '
+          +'¬thlosd¬ : ¬'+%trim(mypods(x).THLOSD)+'¬, '
+          +'¬thlosdsk¬ : ¬'+%trim(mypods(x).THLOSDSK)+'¬, '
+          +'¬thlkr1¬ : ¬'+%trim(mypods(x).THLKR1)+'¬, '
+          +'¬thlkr2¬ : ¬'+%trim(mypods(x).THLKR2)+'¬, '
+          +'¬thlkr3¬ : ¬'+%trim(mypods(x).THLKR3)+'¬, '
+          +'¬thlkr4¬ : ¬'+%trim(mypods(x).THLKR4)+'¬, '
+          +'¬thlkr5¬ : ¬'+%trim(mypods(x).THLKR5)+'¬, '
+          +'¬thlkr6¬ : ¬'+%trim(mypods(x).THLKR6)+'¬, '
+          +'¬thlkr7¬ : ¬'+%trim(mypods(x).THLKR7)+'¬, '
+          +'¬thlkr8¬ : ¬'+%trim(mypods(x).THLKR8)+'¬, '
+          +'¬thknss¬ : ¬'+%trim(%editc(mypods(x).THKNSS:'Z'))+'¬, '
+          +'¬thnass¬ : ¬'+%trim(mypods(x).THNASS)+'¬, '
+          +'¬thadss1¬ : ¬'+%trim(mypods(x).THADSS1)+'¬, '
+          +'¬thpnss¬ : ¬'+%trim(mypods(x).THPNSS)+'¬, '
+          +'¬thpsss¬ : ¬'+%trim(mypods(x).THPSSS)+'¬, '
+          +'¬thlkss¬ : ¬'+%trim(mypods(x).THLKSS)+'¬, '
+          +'¬thskss¬ : ¬'+%trim(mypods(x).THSKSS)+'¬, '
+          +'¬thtinss¬ : ¬'+%trim(mypods(x).THTINSS)+'¬, '
+          +'¬thknks¬ : ¬'+%trim(%editc(mypods(x).THKNKS:'Z'))+'¬, '
+          +'¬thnaks¬ : ¬'+%trim(mypods(x).THNAKS)+'¬, '
+          +'¬thadks1¬ : ¬'+%trim(mypods(x).THADKS1)+'¬, '
+          +'¬thpnks¬ : ¬'+%trim(mypods(x).THPNKS)+'¬, '
+          +'¬thpsks¬ : ¬'+%trim(mypods(x).THPSKS)+'¬, '
+          +'¬thlkks¬ : ¬'+%trim(mypods(x).THLKKS)+'¬, '
+          +'¬thskks¬ : ¬'+%trim(mypods(x).THSKKS)+'¬, '
+          +'¬thtinks¬ : ¬'+%trim(mypods(x).THTINKS)+'¬, '
+          +'¬thknt¬ : ¬'+%trim(%editc(mypods(x).THKNT:'Z'))+'¬, '
+          +'¬thnat¬ : ¬'+%trim(mypods(x).THNAT)+'¬, '
+          +'¬thadt1¬ : ¬'+%trim(mypods(x).THADT1)+'¬, '
+          +'¬thpnt¬ : ¬'+%trim(mypods(x).THPNT)+'¬, '
+          +'¬thpst¬ : ¬'+%trim(mypods(x).THPST)+'¬, '
+          +'¬thlkt¬ : ¬'+%trim(mypods(x).THLKT)+'¬, '
+          +'¬thskt¬ : ¬'+%trim(mypods(x).THSKT)+'¬, '
+          +'¬thtint¬ : ¬'+%trim(mypods(x).THTINT)+'¬}';
+
+         jsonfix (JSONstring);
+         updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+        endfor;
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+
+         if %found;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+       endsr;
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+
+         wrtsection('*fini');
+         *inlr = *on;
+         return;
+       endsr;
+      /end-free

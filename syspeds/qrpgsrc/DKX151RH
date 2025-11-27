@@ -1,0 +1,558 @@
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FEDIS      UF   E           K DISK
+     FEDIMC     UF   E           K DISK
+     FDKNH      UF   E           K DISK
+     FDKNHE     IF   E           K DISK
+     FDKTFI     IF   E             DISK
+     FEDIM6     IF   E           K DISK    PREFIX(X_)
+     F                                     RENAME(EDIMR:EDIMR6)
+     FDKNHH     O  A E             DISK
+      *____________________
+      * DS for input string
+      *""""""""""""""""""""
+     D                 DS
+     D  A                      1   4096
+     D                                     DIM(4096)                            Input string
+     D  ADS                    1   4096
+      *_____________________
+      * DS for output string
+      *"""""""""""""""""""""
+     D                 DS
+     D  B                      1  10000
+     D                                     DIM(10000)                           Output string
+     D  BDS                    1  10000
+      *________________________________________
+      * DS for å venstrestille numeriske felter
+      *""""""""""""""""""""""""""""""""""""""""
+     D                 DS
+     D  ØN152                  1     15  2
+     D  ØA152H                 1     13
+     D  ØA152X                 5     13
+     D  ØA152D                14     15
+     D                 DS
+     D  ØA12                   1     12
+     D  Ø12                    1     12
+     D                                     DIM(12)
+     D                 DS
+     D  DKTF_0004T             1     35
+     D  WREGSENR               1      8
+     D                 DS
+     D  WSSN                   1      9S 0
+     D  WSSNA                  1      9
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s          10000a   Varying
+     D Codepage        s              5a   Varying
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D RunCmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmd                         200A   CONST
+     D  Len                          15P 5 CONST
+      *   SYEDI data area
+     D EDIDTA          DS           256
+     D  UELIBF               171    180
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   EXSR      SRC
+     C                   EXSR      UNZ
+     C                   EXSR      CATIFS
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+     C     *LIKE         DEFINE    SSN           WSN
+     C     *LIKE         DEFINE    S0036         W0036
+     C     *LIKE         DEFINE    MST           WST
+     C     *LIKE         DEFINE    MVEN          WVEN
+     C     *LIKE         DEFINE    TIAVD         WVIH_SYAV
+     C     *LIKE         DEFINE    TITDN         WVIH_SYOP
+
+     C                   Z-ADD     0             ØX                2 0
+     C                   MOVE      *BLANKS       ØAN              12
+     C                   Z-ADD     0             W0074             7 0
+     C                   MOVE      *BLANKS       XTAR              3
+     C                   Z-ADD     80            LEN               5 0
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEYA          KLIST
+     C                   KFLD                    WSN
+     C     KEYB          KLIST
+     C                   KFLD                    SSR
+     C                   KFLD                    WST
+     C                   KFLD                    WVEN
+     C                   KFLD                    S0004
+     C                   KFLD                    S0010
+     C                   KFLD                    S0035
+     C     KEYD          KLIST
+     C                   KFLD                    WVIH_SYAV
+     C                   KFLD                    WVIH_SYOP
+      *_____________
+      * Init av felt
+      *"""""""""""""
+      * Hente dagens dato og klokkeslett.
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      '+'           WST
+     C                   MOVE      *BLANKS       WVEN
+      * Workfields for Array's
+     C                   Z-ADD     0             AX                2 0          Index for A
+     C                   Z-ADD     1             BX                5 0          Index for B
+     C                   Z-ADD     0             AXV               5 0          Leftindx A
+     C                   Z-ADD     0             AXH               5 0          Rightindx A
+     C                   MOVE      'R'           WDIR              1            Search direction
+     C                   MOVE      *BLANKS       WCHAR             1            Test character
+     C                   MOVE      'Y'           WCHART            1            Test character
+      * Workfields for separation character  '
+     C                   BITON     '123457'      WAPSTR            1
+     C                   BITOFF    '06'          WAPSTR
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C     WSN           PARM                    WSN
+     C                   PARM                    WNETW             1
+      *_______________________________
+      * Hente firmarecord
+      *"""""""""""""""""""""""""""""""
+     C                   READ      DKTFI                                  33
+      * Åpne dataarea
+     C     *DTAARA       DEFINE                  EDIDTA
+     C                   IN        EDIDTA
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Start av file                                        SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+      *_____________________________
+      * Hente data fra sendningslogg
+      *"""""""""""""""""""""""""""""
+     C     KEYA          CHAIN     EDIS                               81
+      * Legg in UNB-segment (Sendningsstart)
+     C                   EXSR      UNB0
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Les meldinger                                        SRC /
+      *////////////////////////////////////////////////////////////
+     C     SRC           BEGSR
+     C     KEYB          CHAIN     EDIMC                              8182
+     C     *IN81         IFEQ      *OFF
+
+     C     M0065         IFEQ      'CUSDEC'
+     C     M1N07         ANDEQ     '007'
+     C     M0065         OREQ      'CUSDEC'
+     C     M1N07         ANDEQ     '044'
+
+      * Uppdatera DKNH
+     C                   EVAL      WVIH_SYAV=MAVD
+     C                   EVAL      WVIH_SYOP=MTDN
+     C     KEYD          CHAIN     DKNH                               82
+     C     *IN82         IFEQ      '0'
+     C                   Z-ADD     SSN           MSN
+     C                   MOVE      'A'           MST
+     C                   MOVEL     WDT           MDT
+     C                   MOVEL     WTM           MTM
+     C                   UPDATE    EDIMR
+     C                   EVAL      TIST='A'
+     C                   UPDATE    DKNHR
+      * Skriv til historik
+     C                   CLEAR                   DKNHHR
+     C                   EVAL      DKNHH_SYA=MAVD
+     C                   EVAL      DKNHH_SYO=MTDN
+     C                   EVAL      DKNHH_DTH=WDT
+     C                   EVAL      DKNHH_TMH=WTM
+     C                   EVAL      DKNHH_SR='S'
+     C                   EVAL      DKNHH_TXH='CUSDEC'
+     C                   CAT       M1001:1       DKNHH_TXH
+     C                   EVAL      DKNHH_TX1='Øverføringsreferans:'
+     C                   CAT       SMBR:1        DKNHH_TX1
+     C                   WRITE     DKNHHR
+
+     C                   ENDIF
+     C                   ENDIF
+
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Slutt på file                                        UNZ /
+      *////////////////////////////////////////////////////////////
+     C     UNZ           BEGSR
+      *_____________________________
+      * Legg in UNZ (Slutt sendning)
+      *"""""""""""""""""""""""""""""
+     C                   EVAL      ADS='UNZ+1+' + %trimr(S0020)+WAPSTR
+     C                   EVAL      AXV=1
+     C     ' '           CHECKR(E) ADS           AXH
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      *___________________________________
+      * Lag streng for katalognavn/filnavn
+      *"""""""""""""""""""""""""""""""""""
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + %trimr(SMBR) + 'UNZ'
+      *_____________________________
+      * Lag fil og set codepage (pc)
+      *"""""""""""""""""""""""""""""
+     C                   EVAL      Codepage = '819'
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w, codepage=' + Codepage )
+
+     C                   EVAL      rc = close( FILE_o )
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w' )
+
+     C                   IF        FILE_o <> *Null
+     C                   EVAL      Data = %trimr(BDS)
+     C                   EVAL      rc = fputs(Data : File_o)
+     C                   EVAL      rc = close( FILE_o )
+     C                   ENDIF
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for output string, read input from left              SRÅ
+      *////////////////////////////////////////////////////////////
+     C     SRÅ           BEGSR
+      *_________________
+      * Trim left blanks
+      *"""""""""""""""""
+     C                   MOVEL(P)  ADS           ADS2           4096
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      ADS=%TRIML(ADS2)
+      *_______________
+      * Find positions
+      *""""""""""""""""
+      * Find first non-0 position
+     C     WDIR          IFEQ      'L'
+     C     AXV           DO        AXH           AXV
+     C     A(AXV)        COMP      '0'                                  8383
+     C   83              ENDDO
+      * Find last non-blank position
+     C                   ELSE
+
+     C     ' '           CHECKR    ADS           AXH
+
+     C                   ENDIF
+     C                   MOVE      'R'           WDIR
+      *________________________________________________
+      * Read input string and place it in output string
+      *""""""""""""""""""""""""""""""""""""""""""""""""
+     C     AXV           DO        AXH           AXV
+     C                   MOVE      A(AXV)        WCHAR
+      * If invalid character (' + : ?) then replace with 'Ø'
+     C     WCHART        IFEQ      'Y'
+     C     WDIR          ANDEQ     'R'
+     C     WCHAR         IFEQ      ';'
+     C                   EVAL      WCHAR=':'
+     C                   ENDIF
+     C     WCHAR         COMP      WAPSTR                                 83
+     C  N83WCHAR         COMP      '+'                                    83
+     C  N83WCHAR         COMP      ':'                                    83
+     C  N83WCHAR         COMP      '?'                                    83
+     C   83              EXSR      SRÅA
+     C                   ENDIF
+      * Move to output string
+     C                   MOVE      WCHAR         B(BX)
+     C                   ADD       1             BX
+
+     C                   ENDDO
+
+     C                   EVAL      WCHART='Y'
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for replace control characters                      SRÅA
+      *////////////////////////////////////////////////////////////
+     C     SRÅA          BEGSR
+      * Move '?' before the character
+     C                   MOVE      '?'           B(BX)
+     C                   ADD       1             BX
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Venstrestill numeriske verdier                      SRNE /
+      *////////////////////////////////////////////////////////////
+     C     SRNE          BEGSR
+      * Flytte in rett verdi i Alfa 12-felt
+     C                   MOVE      *ZEROS        ØA12
+     C     ØA152D        IFEQ      '00'
+     C                   MOVE      ØA152H        ØA12
+     C                   ELSE
+     C                   MOVEL     ØA152X        ØA12
+     C                   MOVE      '.  '         ØA12
+     C                   MOVE      ØA152D        ØA12
+     C     Ø12(12)       IFEQ      '0'
+     C                   MOVE      ' '           Ø12(12)
+     C     Ø12(11)       IFEQ      '0'
+     C                   MOVE      ' '           Ø12(11)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      * lete fra venstre og finn foerste siffer over 0
+     C     1             DO        11            ØX
+     C     Ø12(ØX)       IFNE      '0'
+     C                   GOTO      SRNE1
+     C                   ENDIF
+     C                   ENDDO
+     C     SRNE1         TAG
+      * Venstrestill til et nytt felt
+     C                   MOVE      *BLANKS       ØAN
+     C                   MOVEA     Ø12(ØX)       ØAN
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Sendningsstart                                      UNB0 /
+      *////////////////////////////////////////////////////////////
+     C     UNB0          BEGSR
+      *____
+      * UNA
+      *""""
+     C                   MOVEL(P)  'UNA:+,?'     ADS
+     C     ADS           CAT       WAPSTR:1      ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     9             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *______________
+      * START SEGMENT
+      *""""""""""""""
+     C                   MOVEL(P)  'UNB+UNOC:3+' ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     11            AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *____________________
+      * OVERFØRINGSAVSENDER
+      *""""""""""""""""""""
+     C                   MOVEL(P)  S0004         ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     35            AXH
+     C                   EXSR      SRÅ
+
+     C                   MOVEL(P)  '+'           ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     1             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *____________________
+      * OVERFØRINGSMOTTAKER
+      *""""""""""""""""""""
+     C                   MOVEL(P)  S0010         ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     35            AXH
+     C                   EXSR      SRÅ
+
+     C                   MOVEL(P)  '+'           ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     1             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *__________________________________________
+      * DATO/TID FOR FREMSTILLING AV OVERFØRINGEN
+      *""""""""""""""""""""""""""""""""""""""""""
+     C                   MOVE      *BLANKS       ADS
+     C                   EVAL      ADS = %SUBST(WDT:3:6)
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     6             AXH
+     C                   EXSR      SRÅ
+
+     C                   MOVEL(P)  ':'           ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     1             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      * Tid
+     C                   MOVE      *BLANKS       ADS
+     C     4             SUBST     WTM:1         ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     4             AXH
+     C                   EXSR      SRÅ
+
+     C                   MOVEL(P)  '+'           ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     1             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *________________________
+      * OVERFØRINGENS REFERANSE
+      *""""""""""""""""""""""""
+     C                   MOVEL(P)  S0020         ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     10            AXH
+     C                   EXSR      SRÅ
+
+      *______________
+      * SLUTT SEGMENT
+      *""""""""""""""
+     C                   MOVEL(P)  WAPSTR        ADS
+     C                   Z-ADD     1             AXV
+     C                   Z-ADD     1             AXH
+     C                   MOVE      'N'           WCHART
+     C                   EXSR      SRÅ
+      *___________________________________
+      * Lag streng for katalognavn/filnavn
+      *"""""""""""""""""""""""""""""""""""
+     C                   EVAL      WSSN=SSN
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/'
+     C                             + WREGSENR
+     C                             + '_'
+     C                             + WDT
+     C                             + '_'
+     C                             + WSSNA
+     C                             + '.tri'
+     C                   MOVE      *BLANKS       WFD             128
+     C                   EVAL      WFD = WfilNam
+      *_____________________________
+      * Lag fil og set codepage (pc)
+      *"""""""""""""""""""""""""""""
+     C                   EVAL      Codepage = '819'
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w, codepage=' + Codepage )
+
+     C                   EVAL      rc = close( FILE_o )
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w' )
+
+     C                   IF        FILE_o <> *Null
+     C                   EVAL      Data = %trimr(BDS)
+     C                   EVAL      rc = fputs(Data : File_o)
+     C                   EVAL      rc = close( FILE_o )
+     C                   ENDIF
+
+     C                   EVAL      ADS=*BLANKS
+     C                   EVAL      BDS=*BLANKS
+     C                   Z-ADD     0             AX
+     C                   Z-ADD     1             BX
+     C                   Z-ADD     0             AXV
+     C                   Z-ADD     0             AXH
+     C                   MOVE      'R'           WDIR
+     C                   MOVE      *BLANKS       WCHAR
+     C                   MOVE      'Y'           WCHART
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Sendningsslutt                                      UNZ0 /
+      *////////////////////////////////////////////////////////////
+     C     UNZ0          BEGSR
+      *_____________________________
+      * Legg in UNZ (Slutt sendning)
+      *"""""""""""""""""""""""""""""
+     C                   EVAL      ADS='UNZ+2+' + %trimr(S0020)+WAPSTR
+     C                   EVAL      AXV=1
+     C     ' '           CHECKR(E) ADS           AXH
+     C                   EVAL      WCHART='N'
+     C                   EXSR      SRÅ
+      *___________________________________
+      * Lag streng for katalognavn/filnavn
+      *"""""""""""""""""""""""""""""""""""
+     C                   MOVE      *BLANKS       WFILNAM         256
+     C                   EVAL      WfilNam = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + %trimr(SMBR) + 'UNZ'
+      *_____________________________
+      * Lag fil og set codepage (pc)
+      *"""""""""""""""""""""""""""""
+     C                   EVAL      Codepage = '819'
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w, codepage=' + Codepage )
+
+     C                   EVAL      rc = close( FILE_o )
+      *________________________________________
+      * Åpne fil, med tegnkonvertering for jobb
+      *""""""""""""""""""""""""""""""""""""""""
+     C                   EVAL      FILE_o = open( %TrimR( WfilNam )
+     C                             : 'w' )
+
+     C                   IF        FILE_o <> *Null
+     C                   EVAL      Data = %trimr(BDS)
+     C                   EVAL      rc = fputs(Data : File_o)
+     C                   EVAL      rc = close( FILE_o )
+     C                   ENDIF
+      *________________________
+      * Oppdatere sendningslogg
+      *""""""""""""""""""""""""
+     C                   EVAL      SST='A'
+     C                   EVAL      S0036=2
+     C                   UPDATE    EDISR
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Samkjør nå flere *IFS filer til 1                 CATIFS /
+      *////////////////////////////////////////////////////////////
+     C     CATIFS        BEGSR
+
+     C                   MOVE      *BLANKS       WFA             128
+     C                   EVAL      WFA = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + %trimr(SMBR) + 'UNB'
+
+     C                   MOVE      *BLANKS       WFB             128
+     C                   MOVE      MAVD          WAVD              4
+     C                   MOVE      MTDN          WOPD              7
+     C                   EVAL      WFB = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + 'DKYU'
+     C                             + WAVD
+     C                             + '-'
+     C                             + WOPD
+
+     C                   MOVE      *BLANKS       WFC             128
+     C                   EVAL      WFC = '/' + %trimr(UELIBF)
+     C                             + '/EDISE/TEMP/'
+     C                             + %trimr(SMBR) + 'UNZ'
+
+     C                   MOVE      *BLANKS       WCMD            300
+     C                   MOVE      *BLANKS       WCMD            300
+     C                   EVAL      WCMD = 'QSH CMD(' + WAPSTR + 'cat'
+     C                             + ' '
+     C                             + %trimr(WFB)
+     C                             + ' '
+     C                             + %trimr(WFC)
+     C                             + ' >> '
+     C                             + %trimr(WFD)
+     C                             + WAPSTR + ')'
+
+     C                   CALLP     RUNCMD(WCMD:300)
+      *________________________
+      * Oppdatere sendningslogg
+      *""""""""""""""""""""""""
+     C                   EVAL      SST='A'
+     C                   EVAL      S0036=1
+     C                   UPDATE    EDISR
+      *________________________
+      * Aktivisera ftp-sændning
+      *""""""""""""""""""""""""
+     C                   CALL      'QSNDDTAQ'
+     C                   PARM      'DKDTAQ    '  QTNAME           10
+     C                   PARM      '*LIBL     '  QTLIB            10
+     C                   PARM      1             QTLEN             5 0
+     C                   PARM      'X'           QTFIEL            1
+     C                   ENDSR

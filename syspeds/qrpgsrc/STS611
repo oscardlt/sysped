@@ -1,0 +1,203 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 BIAKT=L ER ENDRET TIL Å TESTE AUTORISASJON
+********************************************************************
+      *********************************************************************
+      *  Hovedprogram for verifisering av pålogging  MSC / PDA - Ship-sys *
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STS611 MODULE(*LIBL/STS611 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           k disk    usropn
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+     D USER            S             10
+     D PASSORD         S             10
+     D RET             S              1
+     D FEILKODE        S              1
+     D But1Txt         S             20
+     D But2Txt         S             20
+     D But3Txt         S             20
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  BIDTF                  1      8  0
+     D  BIDTFÅ                 1      4  0
+     D  BIDTFM                 5      6  0
+     D  BIDTFD                 7      8  0
+     D                 DS
+     D  BIDTV                  1      8  0
+     D  BIDTVÅ                 1      4  0
+     D  BIDTVM                 5      6  0
+     D  BIDTVD                 7      8  0
+     D                 DS
+     D LocCoTx                 1     50
+     D LocCode                 1      5
+     D LocTxt                  6     50
+     D LocInOut                6      8
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESS LINE
+      *=====================================================================
+      * Åpne fil
+     C                   OPEN      BRIDF
+      * Bruker-id / Passord
+     C                   EVAL      USER = zhbgetvar('USER')
+     C                   EVAL      PASSORD = zhbgetvar('PASSORD')
+     C                   EVAL      RET = zhbgetvar('RET')
+      * Convert to uppercase
+     C                   eval      USER = uppify(USER)
+     C                   eval      PASSORD  = uppify(PASSORD)
+      * Test innlogging
+      * (ved RETUR fra prog testet ikke passord.)
+     C     USER          CHAIN     BRIDF                              30
+     c     *IN30         IFEQ      *OFF
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   open      BRPARF
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * Hent "location" som denne userid kan skyte på
+     C                   MOVE      'SSSCA'       PAID
+     C     BrParKey      Chain     BRPARF                             31
+     c  n31              MoveL     PAVRDA        LocCoTx
+     C                   close     BRPARF
+     c                   end
+      *
+     C                   SELECT
+      * Ugyldig brukerID
+     C                   WHEN      *IN30 = *ON
+     C                   MOVE      '1'           FEILKODE
+      * Bruker-id er meldt inaktiv
+S01  C*                  WHEN      ((BIAKT  <> 'A') AND (BIAKT <> 'L'))
+N01  C                   WHEN      BIAKT  <> 'A'
+     C                   MOVE      '2'           FEILKODE
+      * Mer en max feilforsøk
+     C                   WHEN      BIANTF >  3
+     C                   MOVE      '3'           FEILKODE
+      * Feil passord
+     C                   WHEN      BIPO   <> PASSORD
+     c     RET           IFNE      'Y'
+     C                   MOVE      '4'           FEILKODE
+     C                   end
+     C                   EXSR      UpdateFeil
+      * mangler param SSSCA
+     C                   WHEN      *IN31 = *ON
+     C                   MOVE      '5'           FEILKODE
+     c                   other
+     C                   MOVE      *BLANKS       FEILKODE
+     C                   ENDSL
+      *
+      * Noe feil - vis feilmelding / nytt forsøk ELLERS last neste HTML..
+     C     FEILKODE      IFNE      *BLANKS
+     C                   EXSR      LoadHtmlFeil
+     C                   ELSE
+     C                   EXSR      LoadHtmlMnu
+     C                   END
+      *
+     C  N30              UPDATE    BRIDFR
+      *
+      * Lukk fil
+     C                   CLOSE     BRIDF
+      * Quit
+     C                   exsr      Exit
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * (Aktiv) Bruker har gitt feil passord - add 1 til antall ganger
+      * Mer en xx feil - må RESETTES av operatør
+      *=====================================================================
+     C     UpdateFeil    begsr
+     C                   ADD       1             BIANTF
+     C                   TIME                    WTIME
+     C                   MOVE      WTID          BITIDF
+     C                   MOVE      WÅÅ           BIDTFÅ
+     C                   MOVE      WMM           BIDTFM
+     C                   MOVE      WDD           BIDTFD
+     C                   MOVE      ' '           BIINN
+     C                   endsr
+      *=====================================================================
+      * Noe feil ved bruker ID
+      *=====================================================================
+     C     LoadHtmlFeil  begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'STS611B':'/CGITAG/')
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     C                   callp     wrtsection('all')
+     C                   endsr
+      *=====================================================================
+      * Bruker har oppgitt riktig bruker-id og passord
+      *=====================================================================
+     C     LoadHtmlMnu   begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'STS612':'/CGITAG/')
+     C                   eval      But1Txt = 'Scan Outgoing Trip'
+     C                   eval      But2Txt = 'Scan Incoming Trip'
+     C                   eval      But3Txt = 'Future use'
+     C                   callp     updhtmlvar('But1Txt':But1Txt)
+     C                   callp     updhtmlvar('But2Txt':But2Txt)
+     C                   callp     updhtmlvar('But3Txt':But3Txt)
+     C                   callp     updhtmlvar('LOCATION':LocTxt)
+      * Ta med variabler fra USER-ID
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('user':BIBRID)
+     C                   callp     updHTMLvar('besk':BIBESK)
+     C                   callp     updHTMLvar('kunr':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+     C                   callp     wrtsection('all')
+      * Null ut antall misslykkede forsøk, ved ett riktig.
+     C                   MOVE      *ZEROS        BIANTF
+     C                   TIME                    WTIME
+     C                   MOVE      WTID          BITIDV
+     C                   MOVE      WÅÅ           BIDTVÅ
+     C                   MOVE      WMM           BIDTVM
+     C                   MOVE      WDD           BIDTVD
+     C                   MOVE      BIDTV         BIDTF
+     C                   MOVE      BITIDV        BITIDF
+     C                   MOVE      'I'           BIINN
+     C                   endsr

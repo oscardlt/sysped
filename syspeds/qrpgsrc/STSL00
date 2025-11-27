@@ -1,0 +1,213 @@
+      *********************************************************************
+      *  Hovedprogram for verifisering av pålogging                       *
+      *********************************************************************
+      *
+CRTPGM*  CRTPGM SYSPED/stsl00 MODULE(*LIBL/stsl00) ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Number of variables
+     DnbrVars          s             10i 0
+      *
+      *
+      * Saved query string
+     Dsavedquerystring...
+     D                 s          32767    varying
+      * Varible for demonstrating countp subprocedure
+     D USER            S             10
+     D PASSORD         S             10
+     D FEILMELDING     S             70
+     D FEILKODE        S              1
+     D XXCMD           S            128
+      * User space variables
+     D UsrSpcName      s             10
+     D UsrSpcLib       c                   'SYCGIUSP'
+      * Message ID for CrtUsrSpc
+     D MsgId           s              7
+      * State related variables
+     D State           ds                  based(StateP)
+     D  UBRID                        10
+     D  XMR                 1001   1200  0 DIM(40)
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  BIDTF                  1      8  0
+     D  BIDTFÅ                 1      4  0
+     D  BIDTFM                 5      6  0
+     D  BIDTFD                 7      8  0
+     D                 DS
+     D  BIDTV                  1      8  0
+     D  BIDTVÅ                 1      4  0
+     D  BIDTVM                 5      6  0
+     D  BIDTVD                 7      8  0
+     D ChkNbrInds      ds
+     D  Indicators                     n   dim(7)
+      *
+      * Constant for updHTMLvar subprocedure
+     D initHTMLVars    c                   '0'
+      *
+      *--------------------------------------------------------------------
+      * Other variables
+      *--------------------------------------------------------------------
+      * Return code
+     D RC              S             10I 0 INZ(0)                               return code
+      * Konstanter
+     D FMELDING1       C                   CONST('Tastet bruker-id fin-
+     D                                     nes ikke.')
+     D FMELDING2       C                   CONST('Bruker-id er deaktiv-
+     D                                     ert av systemoperat&oslash;-
+     D                                     r.')
+     D FMELDING3       C                   CONST('Bruker-id er deaktiv-
+     D                                     ert. Kontakt systemansvarli-
+     D                                     g.')
+     D FMELDING4       C                   CONST('Tastet passord er fe-
+     D                                     il. Maks 4 fors&oslash;k.')
+      *=====================================================================
+      * MAIN PROCESS LINE
+      *=====================================================================
+      * Åpne fil
+     C                   OPEN      BRIDF
+      * Get input
+     C                   EVAL      NBRVARS =
+     C                             zhbgetinput(savedquerystring:qusec)
+      * Bruker-id
+     C                   EVAL      USER = zhbgetvar('USER')
+      * Passord
+     C                   EVAL      PASSORD = zhbgetvar('PASSORD')
+      * Convert to uppercase
+     C                   eval      USER = uppify(USER)
+     C                   eval      PASSORD  = uppify(PASSORD)
+      * Test innlogging
+     C     USER          CHAIN     BRIDF                              30
+     C                   SELECT
+     C                   WHEN      USER = 'AVSLUTT'
+     C                   MOVEL     '.'           FEILMELDING
+     C                   MOVE      *BLANKS       FEILKODE
+     C                   EVAL      USER = PASSORD
+     C     USER          CHAIN     BRIDF                              30
+     C                   MOVE      *ZEROS        BIANTF
+     C                   MOVE      ' '           BIINN
+     C                   WHEN      *IN30 = *ON
+     C                   MOVEL     FMELDING1     FEILMELDING
+     C                   MOVE      '1'           FEILKODE
+     C                   WHEN      BIAKT  <> 'A'
+     C                   MOVEL     FMELDING2     FEILMELDING
+     C                   MOVE      '2'           FEILKODE
+     C                   WHEN      BIANTF >  3
+     C                   MOVEL     FMELDING3     FEILMELDING
+     C                   MOVE      '3'           FEILKODE
+     C                   WHEN      BIPO   <> PASSORD
+     C                   MOVEL     FMELDING4     FEILMELDING
+     C                   MOVE      '4'           FEILKODE
+     C                   EXSR      UpdateFeil
+     c                   other
+     C                   MOVE      *BLANKS       FEILMELDING
+     C                   MOVE      *BLANKS       FEILKODE
+     C                   ENDSL
+      *
+      * Noe feil - vis feilmelding / nytt forsøk ELLERS last neste HTML..
+     C     FEILMELDING   IFNE      *BLANKS
+     C                   EXSR      LoadHtmlFeil
+     C                   ELSE
+     C                   EXSR      LoadHtmlMnu
+     C                   END
+      *
+     C  N30              UPDATE    BRIDFR
+      *
+      * Lukk fil
+     C                   CLOSE     BRIDF
+      * Quit
+     C                   exsr      Exit
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * (Aktiv) Bruker har gitt feil passord - add 1 til antall ganger
+      * Mer en xx feil - må RESETTES av operatør
+      *=====================================================================
+     C     UpdateFeil    begsr
+     C                   ADD       1             BIANTF
+     C                   TIME                    WTIME
+     C                   MOVE      WTID          BITIDF
+     C                   MOVE      WÅÅ           BIDTFÅ
+     C                   MOVE      WMM           BIDTFM
+     C                   MOVE      WDD           BIDTFD
+     C                   MOVE      ' '           BIINN
+     C                   endsr
+      *=====================================================================
+      * Noe feil ved bruker ID
+      *=====================================================================
+     C     LoadHtmlFeil  begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'STSL00B':'/CGITAG/')
+     C                   callp     updHTMLvar('FEILTXT':FEILMELDING)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     C                   callp     wrtsection('all')
+     C                   endsr
+      *=====================================================================
+      * Bruker har oppgitt riktig bruker-id og passord
+      *=====================================================================
+     C     LoadHtmlMnu   begsr
+     C                   callp     gethtml('HTMLSRC':
+ejov C                             '*LIBL':
+     C                             'STSL10':'/CGITAG/')
+      * Ta med variabler fra USER-ID
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('user':BIBRID)
+     C                   callp     updHTMLvar('besk':BIBESK)
+     C                   callp     updHTMLvar('kunr':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+      * Null ut antall misslykkede forsøk, ved ett riktig.
+     C                   MOVE      *ZEROS        BIANTF
+     C                   TIME                    WTIME
+     C                   MOVE      WTID          BITIDV
+     C                   MOVE      WÅÅ           BIDTVÅ
+     C                   MOVE      WMM           BIDTVM
+     C                   MOVE      WDD           BIDTVD
+     C                   MOVE      BIDTV         BIDTF
+     C                   MOVE      BITIDV        BITIDF
+     C                   MOVE      'I'           BIINN
+      *
+     C                   eval      UsrSpcName = CrtUsrSpc(
+     C                               UsrSpcLib : StateP : MsgID)
+     C                   EVAL      XXCMD = 'GRTOBJAUT OBJ(SYCGIUSP/'
+     C                   CAT       UsrSpcName:0  XXCMD
+     C                   CAT       ') OBJTYPE':0 XXCMD
+     C                   CAT       '(*USRSPC)':0 XXCMD
+     C                   CAT       'USER(*PUB':1 XXCMD
+     C                   CAT       'LIC)':0      XXCMD
+     C                   CAT       'AUT(*ALL)':1 XXCMD
+     C                   EVAL      RC = DOCMD('XXCMD')
+     C                   callp     updHTMLvar('UsrSpcName':UsrSpcName)
+     C                   EVAL      UBRID = USER
+     C                   movea     *zeros        xmr
+      *
+     C                   callp     wrtsection('all')
+      *
+     C                   endsr

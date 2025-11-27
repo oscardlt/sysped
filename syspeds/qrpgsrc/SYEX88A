@@ -1,0 +1,716 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 SØK KUN EN KUNDE AV GANGEN
+10XXX * 02 sh  PTF10 track and trace på turnivå
+********************************************************************
+      *
+      *
+      ***************************************************************
+      *** PROGRAM SKAL VEDL./SPØRRE TUROPPLYSNINGER               ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER        ***
+      *** LEDIGE INDIKATORER 02 05-11 13-26                       ***
+      *** LEDIGE INDIKATORER 32 35-99                             ***
+      *** INDIKATOR 27 PÅ = SPØRRING    (KALLE FRA SYEX89)        ***
+      ***           27 AV = VEDLIKEHOLD (KALLE FRA SYEX88)        ***
+      ***           28 PÅ = NY TUR SKAL OPPRETTES                 ***
+      ***           28 AV = GAMMEL TUR SKAL ENDRES                ***
+      ***************************************************************
+      *
+n02  FTRACKF    O  A E           K DISK
+     FTURER     UF A E           K DISK
+     FHEAD11    IF   E           K DISK
+     FFAK2      IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FTELL      UF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     FSYEX88FA  CF   E             WORKSTN INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+N01  D                UDS
+N01  D  FIFIRM                 1      2
+N02  D                SDS
+N02  D  UUSR                 254    263
+     D                 DS
+     D  TUDTÅ                  1      4  0
+     D  TUDTM                  5      6  0
+     D  TUDTD                  7      8  0
+     D  TUDT                   1      8  0
+     D                 DS
+     D  TUDTÅT                 1      4  0
+     D  TUDTMT                 5      6  0
+     D  TUDTDT                 7      8  0
+     D  TUDTT                  1      8  0
+     D                 DS
+     D  WSDTD                  1      2  0
+     D  WSDTM                  3      4  0
+     D  WSDTÅ                  5      6  0
+     D  WSDT                   1      6  0
+     D                 DS
+     D  WSDTDT                 1      2  0
+     D  WSDTMT                 3      4  0
+     D  WSDTÅT                 5      6  0
+     D  WSDTT                  1      6  0
+n02  D                 DS
+n02  D  XULTID                 1     14  0
+n02  D  XULTM                  1      6  0
+n02  D  XULDD                  7      8  0
+n02  D  XULMM                  9     10  0
+n02  D  XULÅÅ                 11     14  0
+n02  D                 DS
+n02  D  ULÅÅ                   1      4  0
+n02  D  ULMM                   5      6  0
+n02  D  ULDD                   7      8  0
+n02  D  ULDT                   1      8  0
+     C*
+     C                   EXSR      INIT
+     C*
+     C     START         TAG
+     C                   EXSR      KDTFMT
+     C                   EXFMT     BILDE
+     C     *IN55         IFEQ      *ON
+     C     *IN12         ANDEQ     *OFF
+     C                   GOTO      START
+     C                   ENDIF                                                  <*IN55
+     C                   EXSR      KDTFMT
+     C                   SETOFF                                       30
+     C                   MOVEA     '0000'        *IN(96)
+     C   12              Z-ADD     1             UFLAGG
+     C   12              GOTO      SLUTT
+     C   04              DO
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   Z-ADD     WSSUBN        XRECNO            4 0
+     C                   EXSR      SØKDTA
+     C                   GOTO      START
+     C                   END
+     C*
+     C  N27              DO
+     C                   EXSR      TESTB
+     C   30              GOTO      START
+     C                   EXSR      OPDTUR
+     C                   END
+     C   03              Z-ADD     3             UFLAGG
+     C  N03              EXSR      TILTUR
+     C  N01
+     CANN03              GOTO      START
+     C*
+     C     SLUTT         TAG
+     C*** VED VEDLIKEHOLD OPPDATERER STATUS PÅ TUR.
+     C  N27TURERK        CHAIN     TURER                              33
+     C  N27
+     CANN33              MOVE      ' '           TUST
+     C  N27
+     CANN33              UPDATE    TURERR
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C******************************************
+     C     TESTB         BEGSR
+     C******************************************
+     C*
+     C*** TEST DATO
+     C                   MOVE      WSDTÅ         UÅÅ               2 0
+     C                   MOVE      WSDTM         UMM               2 0
+     C                   MOVE      WSDTD         UDD               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UÅÅ
+     C                   PARM                    UFLAGG            1 0
+     C* DATO MÅ VÆRE I ÅR HVIS IKKE ÅRSSKIFTE
+     C     TUMODE        IFNE      'E'
+     C     UÅÅ           IFNE      UYEAR
+     C     UYEAR         IFEQ      0
+     C                   Z-ADD     99            UIFJOR            2 0
+     C                   ELSE
+     C     UYEAR         SUB       1             UIFJOR            2 0
+     C                   END
+     C     UYEAR         IFEQ      99
+     C                   MOVE      *ZEROS        UNESTE            2 0
+     C                   ELSE
+     C     UYEAR         ADD       1             UNESTE            2 0
+     C                   END
+     C* I JANUAR TILLATT MED 12 I FJOR
+     C     UÅÅ           IFEQ      UIFJOR
+     C     UMM           ANDEQ     12
+     C     UMONTH        ANDEQ     01
+     C                   GOTO      DATOOK
+     C                   END
+     C*
+     C*   I DESEMBER TILLATT MED 01 NESTE ÅR
+     C     UÅÅ           IFEQ      UNESTE
+     C     UMM           ANDEQ     01
+     C     UMONTH        ANDEQ     12
+     C                   GOTO      DATOOK
+     C                   END
+     C                   Z-ADD     1             UFLAGG
+     C                   ELSE
+     C* MÅNED KAN BARE VÆRE 1 FRAM NÅR UYEAR ER IÅR
+     C     UMM           IFGT      UMONTH
+     C     UMONTH        ADD       1             UNESTM            2 0
+     C     UMM           IFGT      UNESTM
+     C                   Z-ADD     1             UFLAGG
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C*
+     C     DATOOK        TAG
+     C     UFLAGG        COMP      1                                      99
+     C   99              MOVE      'JOV0299'     MSGNR
+     C   99              SETON                                        30
+      * DATO TIL
+     C                   MOVE      WSDTÅT        UÅÅ               2 0
+     C                   MOVE      WSDTMT        UMM               2 0
+     C                   MOVE      WSDTDT        UDD               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UÅÅ
+     C                   PARM                    UFLAGG            1 0
+     C* DATO MÅ VÆRE I ÅR HVIS IKKE ÅRSSKIFTE
+     C     TUMODE        IFNE      'E'
+     C     UÅÅ           IFNE      UYEAR
+     C     UYEAR         IFEQ      0
+     C                   Z-ADD     99            UIFJOR            2 0
+     C                   ELSE
+     C     UYEAR         SUB       1             UIFJOR            2 0
+     C                   END
+     C     UYEAR         IFEQ      99
+     C                   MOVE      *ZEROS        UNESTE            2 0
+     C                   ELSE
+     C     UYEAR         ADD       1             UNESTE            2 0
+     C                   END
+     C* I JANUAR TILLATT MED 12 I FJOR
+     C     UÅÅ           IFEQ      UIFJOR
+     C     UMM           ANDEQ     12
+     C     UMONTH        ANDEQ     01
+     C                   GOTO      DATOOT
+     C                   END
+     C*
+     C*   I DESEMBER TILLATT MED 01 NESTE ÅR
+     C     UÅÅ           IFEQ      UNESTE
+     C     UMM           ANDEQ     01
+     C     UMONTH        ANDEQ     12
+     C                   GOTO      DATOOT
+     C                   END
+     C                   Z-ADD     1             UFLAGG
+     C                   ELSE
+     C* MÅNED KAN BARE VÆRE 1 FRAM NÅR UYEAR ER IÅR
+     C     UMM           IFGT      UMONTH
+     C     UMONTH        ADD       1             UNESTM            2 0
+     C     UMM           IFGT      UNESTM
+     C                   Z-ADD     1             UFLAGG
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C     DATOOT        TAG
+     C     UFLAGG        COMP      1                                      95
+     C   95              MOVE      'JOV0299'     MSGNR
+     C   95              SETON                                        30
+     C*
+     C* TEST AGENTNR.
+     C                   MOVE      WSKNA         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            98
+     C  N98              MOVE      KNAVN         WSNAA
+     C  N98              MOVE      ADR3          XADR3A           24
+     C   98
+     CANN30              MOVE      'SPK0008'     MSGNR
+     C   98              SETON                                        30
+     C*
+     C* TEST TRANSPORTØR
+     C     WSKNT         IFEQ      0
+     C     WSNAT         COMP      *BLANKS                                96
+     C   96
+     CANN30              MOVE      'SPN0008'     MSGNR
+     C   96              SETON                                        30
+     C                   ELSE
+     C                   MOVE      WSKNT         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            97
+     C  N97              DO
+     C                   MOVE      KNAVN         WSNAT
+     C                   MOVE      ADR1          WSAD1T
+     C                   MOVE      ADR2          WSAD2T
+     C                   MOVE      *BLANKS       WSAD3T
+     C     POSTNR        IFEQ      0
+     C                   MOVEL     ADR3          WSAD3T
+     C                   ELSE
+     C                   MOVEL     POSTNR        WSAD3T
+     C                   MOVE      ADR3          WSAD3T
+     C                   END
+     C                   END
+     C   97
+     CANN30              MOVE      'SPK0009'     MSGNR
+     C   97              SETON                                        30
+     C                   END
+     C*
+     C     KOAIE         IFEQ      'I'
+     C     WSSDF         ANDEQ     *BLANKS
+     C                   MOVEL     XADR3A        WSSDF
+     C                   END
+     C     KOAIE         IFEQ      'E'
+     C     WSSDT         ANDEQ     *BLANKS
+     C                   MOVEL     XADR3A        WSSDT
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     MOVTWS        BEGSR
+     C***********************************************
+     C     TURERK        CHAIN     TURER                              33
+n02  c                   move      tubusj        tubusf            5 0
+     C  N33              DO
+     C                   MOVE      'E'           TUMODE            1
+     C                   MOVE      TUDTD         WSDTD
+     C                   MOVE      TUDTM         WSDTM
+     C                   MOVE      TUDTÅ         WSDTÅ
+     C                   MOVE      TUDTDT        WSDTDT
+     C                   MOVE      TUDTMT        WSDTMT
+     C                   MOVE      TUDTÅT        WSDTÅT
+     C                   MOVE      TUKNA         WSKNA
+     C                   MOVE      TUKNA         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            33
+     C  N33              MOVE      KNAVN         WSNAA
+     C                   MOVE      TUKNT         WSKNT
+     C                   MOVE      TUNAT         WSNAT
+     C                   MOVE      TUAD1T        WSAD1T
+     C                   MOVE      TUAD2T        WSAD2T
+     C                   MOVE      TUAD3T        WSAD3T
+     C                   MOVE      TUBILN        WSBILN
+     C                   MOVE      TUHENG        WSHENG
+     C                   MOVE      TUTARF        WSTARF
+     C                   MOVE      TULK          WSLK
+     C                   MOVE      TUTRMA        WSMÅTE
+     C                   MOVE      TUTO1B        WSTSTE
+     C                   MOVE      TUSDF         WSSDF
+     C                   MOVE      TUSDT         WSSDT
+     C                   MOVE      TUST          XST               1
+     C  N27              MOVE      'P'           TUST
+     C                   MOVE      TUBUSJ        WSBUSJ
+     C                   UPDATE    TURERR
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     OPDTUR        BEGSR
+     C***********************************************
+     C     TURERK        CHAIN     TURER                              33
+     C   33              DO
+     C                   MOVE      UAVD          TUAVD
+     C     UAVD          CHAIN     TELL                               34
+     C   34AVDZER        CHAIN     TELL                               34
+     C                   MOVE      TETURN        TUPRO
+     C                   ADD       1             TETURN
+     C                   UPDATE    TELLR
+     C                   MOVE      TUPRO         UPRO
+     C                   MOVE      *ZEROS        TUAO
+     C                   MOVE      'P'           TUST
+     C                   END
+     C*
+     C                   MOVE      WSDTD         TUDTD
+     C                   MOVE      WSDTM         TUDTM
+     C     WSDTÅ         IFGT      50
+     C     WSDTÅ         ADD       1900          TUDTÅ
+     C                   ELSE
+     C     WSDTÅ         ADD       2000          TUDTÅ
+     C                   END
+     C                   MOVE      WSDTDT        TUDTDT
+     C                   MOVE      WSDTMT        TUDTMT
+     C     WSDTÅT        IFGT      50
+     C     WSDTÅT        ADD       1900          TUDTÅT
+     C                   ELSE
+     C     WSDTÅT        ADD       2000          TUDTÅT
+     C                   END
+     C                   MOVE      WSKNA         TUKNA
+     C                   MOVE      WSKNT         TUKNT
+     C                   MOVE      WSNAT         TUNAT
+     C                   MOVE      WSAD1T        TUAD1T
+     C                   MOVE      WSAD2T        TUAD2T
+     C                   MOVE      WSAD3T        TUAD3T
+     C                   MOVE      WSBILN        TUBILN
+     C                   MOVE      WSHENG        TUHENG
+     C                   MOVE      WSTARF        TUTARF
+     C                   MOVE      WSLK          TULK
+     C                   MOVE      WSMÅTE        TUTRMA
+     C                   MOVE      WSTSTE        TUTO1B
+     C                   MOVE      WSSDF         TUSDF
+     C                   MOVE      WSSDT         TUSDT
+     C                   MOVE      WSBUSJ        TUBUSJ
+     C*
+     C   33              WRITE     TURERR
+n02  c   33              exsr      ttsr
+     C  N33              UPDATE    TURERR
+n02  c     tubusj        ifne      tubusf
+n02  c                   exsr      ttsrb
+n02  c                   move      tubusj        tubusf
+n02  c                   end
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     SUMFRA        BEGSR
+     C***********************************************
+     C                   MOVE      *ZEROS        TUAO
+     C                   MOVE      *ZEROS        TUTS
+     C                   MOVE      *ZEROS        TUTVKT
+     C                   MOVE      *ZEROS        TUTM3
+     C                   MOVE      *ZEROS        TUTLM
+     C                   MOVE      *ZEROS        TOTFB
+     C     STSUM1        TAG
+     C     HEA11K        SETLL     HEAD11
+     C     STSUM2        TAG
+     C                   SETOFF                                       33
+     C     HEA11K        READE     HEAD11                                 33
+     C  N33              DO                                                     1<-B
+     C                   ADD       1             TUAO
+     C                   ADD       HENT          TUTS
+     C                   ADD       HEVKT         TUTVKT
+     C                   ADD       HEM3          TUTM3
+     C                   ADD       HELM          TUTLM
+     C                   ADD       HEFBV         TOTFB
+     C     FAK2K         SETLL     FAK2
+     C     STSUM3        TAG
+     C     HEAVD         READE     FAK2                                   33
+     C  N33HEOPD         COMP      FAOPD                              3333
+     C   33              GOTO      STSUM2
+     C     FAVK          IFEQ      'FRA'                                         2<-B
+     C                   ADD       FABELN        TOTFRA
+     C                   END                                                     2<-E
+     C     FAVK          IFEQ      'FR1'                                         2<-B
+     C                   ADD       FABELN        TOTFR1
+     C                   END                                                     2<-E
+     C     FAVK          IFEQ      'FR2'                                         2<-B
+     C                   ADD       FABELN        TOTFR2
+     C                   END                                                     2<-E
+     C                   GOTO      STSUM3
+     C                   END                                                    1<-E
+     C*
+     C                   MOVE      'X'           IMPL
+     C                   MOVE      'X'           EXPL
+     C                   MOVE      'X'           IMPF
+     C                   MOVE      'X'           EXPF
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TILTUR        BEGSR
+     C***********************************************
+     C                   Z-ADD     0             UFLAGG
+     C   33              Z-ADD     1             UFLAGG
+     C     KOAIE         IFNE      'I'
+     C                   CALL      'SYEX88B'
+     C                   PARM                    UFIRM
+     C                   PARM                    UAVD
+     C                   PARM                    UPRO
+     C                   PARM                    IMPL
+     C                   PARM                    EXPL
+     C                   PARM                    IMPF
+     C                   PARM                    EXPF
+     C                   PARM                    USPØR
+     C                   PARM                    UIMP
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        COMP      1                                      01
+     C     UFLAGG        COMP      3                                      03
+     C     TURERK        CHAIN     TURER                              33
+     C                   UPDATE    TURERR
+     C                   ELSE
+     C                   MOVE      1             UFLAGG
+     C                   SETON                                        01
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     SØKDTA        BEGSR
+     C***********************************************
+     C                   Z-ADD     1             UFLAGG
+     C     LINNBR        IFEQ      6
+     C     POSNBR        ANDGE     22
+     C     POSNBR        ANDLE     29
+     C                   EXSR      SØKKUN
+     C                   Z-ADD     13            LINNBR
+     C                   Z-ADD     22            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      8
+     C     POSNBR        ANDGE     22
+     C     POSNBR        ANDLE     29
+     C                   EXSR      SØKKUN
+     C                   Z-ADD     13            LINNBR
+     C                   Z-ADD     22            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      13
+     C     POSNBR        ANDGE     22
+     C     POSNBR        ANDLE     23
+     C                   CALL      'SAD061I'
+     C                   PARM                    WSMÅTE
+     C                   Z-ADD     14            LINNBR
+     C                   Z-ADD     22            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C     LINNBR        IFEQ      16
+     C     POSNBR        ANDGE     22
+     C     POSNBR        ANDLE     23
+     C                   MOVE      'J'           USPED             1
+     C                   CALL      'SYFI10L'
+     C                   PARM                    WSLK
+     C                   PARM                    USPED
+     C                   Z-ADD     17            LINNBR
+     C                   Z-ADD     22            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+     C*
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+     C*
+     C     SLSØK         ENDSR
+     C*
+     C***********************************************
+     C     SØKKUN        BEGSR
+     C***********************************************
+S01  C*                  CALL      'SOEKUN'
+S01  C*                  PARM                    UFIRM
+S01  C*                  PARM                    SOANTK
+S01  C*                  PARM                    SOTXT1
+S01  C*                  PARM                    WSKNA
+S01  C*                  PARM                    SOTXT2
+S01  C*                  PARM                    WSKNT
+S01  C*                  PARM                    SOTXT3
+S01  C*                  PARM                    SOKNR3
+S01  C*                  PARM                    SOTXT4
+S01  C*                  PARM                    SOKNR4
+S01  C*                  PARM                    SOTXT5
+S01  C*                  PARM                    SOKNR5
+S01  C*                  PARM                    SOTXT6
+S01  C*                  PARM                    SOKNR6
+S01  C*                  PARM                    SOTXT7
+S01  C*                  PARM                    SOKNR7
+S01  C*                  PARM                    SOTXT8
+S01  C*                  PARM                    SOKNR8
+N01   *
+N01  C     LINNBR        IFEQ      6
+N01  C     POSNBR        ANDGE     22
+N01  C     POSNBR        ANDLE     29
+N01  C                   MOVE      *BLANKS       UKNAVN           30
+N01  C                   CALL      'SOEKKUN'
+N01  C                   PARM                    WSKNA
+N01  C                   PARM                    FIFIRM
+N01  C                   PARM                    UKNAVN
+N01  C                   END
+N01   *
+N01  C     LINNBR        IFEQ      8
+N01  C     POSNBR        ANDGE     22
+N01  C     POSNBR        ANDLE     29
+N01  C                   CALL      'SOEKKUN'
+N01  C                   PARM                    WSKNT
+N01  C                   PARM                    FIFIRM
+N01  C                   PARM                    WSNAT
+N01  C                   END
+     C*
+     C                   MOVE      WSKNA         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            33
+     C  N33              MOVE      KNAVN         WSNAA
+     C                   MOVE      WSKNT         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            33
+     C  N33              DO
+     C                   MOVE      KNAVN         WSNAT
+     C                   MOVE      ADR1          WSAD1T
+     C                   MOVE      ADR2          WSAD2T
+     C                   MOVE      *BLANKS       WSAD3T
+     C     POSTNR        IFEQ      0
+     C                   MOVEL     ADR3          WSAD3T
+     C                   ELSE
+     C                   MOVEL     POSTNR        WSAD3T
+     C                   MOVE      ADR3          WSAD3T
+     C                   END
+     C                   END
+      *
+     C     WSKNA         IFEQ      0
+     C                   Z-ADD     6             LINNBR
+     C                   Z-ADD     26            POSNBR
+     C                   ELSE
+     C     WSKNT         IFEQ      0
+     C                   Z-ADD     8             LINNBR
+     C                   Z-ADD     26            POSNBR
+     C                   ELSE
+     C                   Z-ADD     13            LINNBR
+     C                   Z-ADD     26            POSNBR
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     TURERK        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UPRO
+     C     KUND1K        KLIST
+     C                   KFLD                    UFIRM
+     C                   KFLD                    KUNDNR
+     C     HEA11K        KLIST
+     C                   KFLD                    UPRO
+     C     AVDKEY        KLIST
+     C                   KFLD                    AVDUNI            1
+     C                   KFLD                    UAVD
+     C     FAK2K         KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    YSK
+     C*
+     C     *ENTRY        PLIST
+     C                   PARM                    UFIRM             2
+     C                   PARM                    UAVD              4 0
+     C                   PARM                    UPRO              8 0
+     C                   PARM                    USPØR             1
+     C                   PARM                    UIMP              1
+     C                   PARM                    UFLAGG            1 0
+     C     USPØR         COMP      'J'                                    27
+     C     UPRO          COMP      0                                      28
+     C     UIMP          COMP      'J'                                    31
+     C     UFLAGG        IFEQ      9
+     C                   MOVE      *ON           *IN55
+     C                   ELSE
+     C                   MOVE      *OFF          *IN55
+     C                   ENDIF                                                  <*UFLAGG
+     C*
+     C     *LIKE         DEFINE    UAVD          AVDZER
+     C                   MOVE      ' '           YSK               1
+     C                   MOVE      'A'           AVDUNI
+     C  N27AVDKEY        CHAIN     KODTA                              33
+     C*
+S01  C*                  Z-ADD     2             SOANTK            1 0
+S01  C*                  MOVE      *BLANKS       SOTXT3            8
+S01  C*                  MOVE      *BLANKS       SOTXT4            8
+S01  C*                  MOVE      *BLANKS       SOTXT5            8
+S01  C*                  MOVE      *BLANKS       SOTXT6            8
+S01  C*                  MOVE      *BLANKS       SOTXT7            8
+S01  C*                  MOVE      *BLANKS       SOTXT8            8
+S01  C*                  MOVE      *ZEROS        SOKNR3            8 0
+S01  C*                  MOVE      *ZEROS        SOKNR4            8 0
+S01  C*                  MOVE      *ZEROS        SOKNR5            8 0
+S01  C*                  MOVE      *ZEROS        SOKNR6            8 0
+S01  C*                  MOVE      *ZEROS        SOKNR7            8 0
+S01  C*                  MOVE      *ZEROS        SOKNR8            8 0
+S01  C*
+S01  C*                  MOVE      'DIV0678'     XMSGNR            7            MELDING-ID
+S01  C*                  Z-ADD     3             XLEVEL            1 0          NIVÅ
+S01  C*                  Z-ADD     0             XRETUR            1 0          RETURKODE
+S01  C*                  Z-ADD     8             XMSGL             4 0          LENGDE PÅ MELDING
+S01  C*                  CALL      'SUBR23R3'
+S01  C*                  PARM                    XMSGNR
+S01  C*                  PARM                    SOTXT1            8
+S01  C*                  PARM                    XLEVEL
+S01  C*                  PARM                    XRETUR
+S01  C*                  PARM                    XMSGL
+S01  C*                  MOVE      'DIV0679'     XMSGNR
+S01  C*                  Z-ADD     3             XLEVEL
+S01  C*                  Z-ADD     0             XRETUR
+S01  C*                  Z-ADD     8             XMSGL
+S01  C*                  CALL      'SUBR23R3'
+S01  C*                  PARM                    XMSGNR
+S01  C*                  PARM                    SOTXT2            8
+S01  C*                  PARM                    XLEVEL
+S01  C*                  PARM                    XRETUR
+S01  C*                  PARM                    XMSGL
+     C*
+     C                   MOVE      *ZEROS        WSDT
+     C                   MOVE      *ZEROS        WSDTT
+     C                   MOVE      *ZEROS        TUDT
+     C  N28              EXSR      MOVTWS
+     C   27              EXSR      SUMFRA
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     KDTFMT        BEGSR
+     C***********************************************
+     C                   MOVE      WSDTD         UDT1              2 0
+     C                   MOVE      WSDTM         UDT2              2 0
+     C                   MOVE      WSDTÅ         UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          WSDTD
+     C                   MOVE      UDT2          WSDTM
+     C                   MOVE      UDT3          WSDTÅ
+     C*
+     C                   MOVE      WSDTDT        UDT1              2 0
+     C                   MOVE      WSDTMT        UDT2              2 0
+     C                   MOVE      WSDTÅT        UDT3              2 0
+     C                   CALL      'DATOFMT'
+     C                   PARM                    UDT1
+     C                   PARM                    UDT2
+     C                   PARM                    UDT3
+     C                   MOVE      UDT1          WSDTDT
+     C                   MOVE      UDT2          WSDTMT
+     C                   MOVE      UDT3          WSDTÅT
+     C*
+     C                   ENDSR
+     C*
+n02  C***********************************************
+n02  C     TTSR          BEGSR
+n02  C***********************************************
+n02   * OPPDRAG OPPRETTET (POST I FIL TRACKF)
+n02  C                   MOVE      TUAVD         TTAVD
+n02  C                   MOVE      TUPRO         TTTUR
+n02  C                   MOVE      *zeros        TTOPD
+n02  C                   TIME                    XULTID
+n02  C                   MOVE      XULDD         ULDD
+n02  C                   MOVE      XULMM         ULMM
+n02  C                   MOVE      XULÅÅ         ULÅÅ
+n02  C                   MOVE      'STR'         TTACTI
+n02  C                   MOVE      ULDT          TTDATE
+n02  C                   MOVE      XULTM         TTTIME
+n02  C                   MOVE      TTDATE        TTDATL
+n02  C                   MOVE      TTTIME        TTTIML
+n02  C                   MOVE      UUSR          TTUSER
+n02  C                   MOVEL     'Trip ent'    XXTEXT           16
+n02  C                   MOVE      'ered    '    XXTEXT
+n02  C                   MOVEL     XXTEXT        TTTEXT
+n02  C                   MOVEL     'Tur oppr'    XXTEXT           16
+n02  C                   MOVE      'ettet   '    XXTEXT
+n02  C                   MOVEL     XXTEXT        TTTEXL
+n02  C                   WRITE     TRACKFR
+n02   *
+n02  C                   ENDSR
+     C*
+n02  C***********************************************
+n02  C     TTSRB         BEGSR
+n02  C***********************************************
+n02   * budsjett er endret
+n02  C                   MOVE      TUAVD         TTAVD
+n02  C                   MOVE      TUPRO         TTTUR
+n02  C                   MOVE      *zeros        TTOPD
+n02  C                   TIME                    XULTID
+n02  C                   MOVE      XULDD         ULDD
+n02  C                   MOVE      XULMM         ULMM
+n02  C                   MOVE      XULÅÅ         ULÅÅ
+n02  C                   MOVE      'BUD'         TTACTI
+n02  C                   MOVE      ULDT          TTDATE
+n02  C                   MOVE      XULTM         TTTIME
+n02  C                   MOVE      TTDATE        TTDATL
+n02  C                   MOVE      TTTIME        TTTIML
+n02  C                   MOVE      UUSR          TTUSER
+n02  C                   EVAL      TTTEXT = 'Budget changed from: '
+n02  C                             + %trim(%editc(TUBUSF:'Z')) + 'to: '
+n02  C                             + %trim(%editc(TUBUSJ:'Z'))
+n02  C                   EVAL      TTTEXL = 'Budsjett endret fra: '
+n02  C                             + %trim(%editc(TUBUSF:'Z')) + 'til: '
+n02  C                             + %trim(%editc(TUBUSJ:'Z'))
+n02  C                   WRITE     TRACKFR
+n02   *
+n02  C                   ENDSR
+     C*

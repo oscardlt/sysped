@@ -1,0 +1,640 @@
+      * OBS! verdiene MinVer / MaxVer (HARDKODET i INIT / sist i sourcen)
+      *      viser Laveste og h¯yeste klient(PDA)versjon som st¯ttes
+      *      HVER gang ny versj av TKsign distribueres mÂ det endres her.
+      *********************************************************************
+      * Brukes til ulike formÂl:
+      *    1) Parameter KL=G - Get Klokke (+min/max vers.+dlls) ved oppstart
+      *    2) Mottak av NMEA-string / Lengde Breddegrad
+      *    3) Mottak av "¯yeblikksmeldinger" pÂ tur eller sendingsnivÂ
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK503 MODULE(*LIBL/ESTK503 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 Loggf¯ring i TKIMEI
+      * 02 jov PTF10 Dato manglet i key TURFREE (for hent av siste linjenr)
+      *              i v10 lagre oppdr.nr uten foranstilt nuuller..
+      * 03 JOV PTF10 Seperat versjonskontroll 02.. / 03..
+      * 04 JOV PTF10 gammel NMEA-logikk fjernet
+      *              &GPSTS Timestamp
+P10047* 05 Jov PTF10 Error ved ukjent user flyttes til INIT-rutine
+P10048* 06 Jov PTF10 parameter TKOPD for vis OPD-button (samt ogsÂ J/n ok ved param TKSBD)
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Pxxxxx* 07 Jov PTF11 Nye backuprutiner-hindre innsend av GPs-Pos dersom fil ikke lar seg Âpne
+Pxxxxx* 08 Jov PTF11 event-time&/dato kan ikke vÊre fram i tid
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    if   e           k disk    usropn
+     FTKGPS     O  A E             DISK    Usropn
+     FFREETXT1  IF A E           K DISK    USROPN
+     FFREETUR1  IF A E           K DISK    USROPN
+     FTURER14   IF   E           K DISK    USROPN
+     FTurer20   IF   E           K DISK    USROPN
+     F                                     RENAME(TURERR:TURERR20)
+     FTKIMEI    UF A E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+      * Client input variables
+S01  D*user            s             10
+N01  D WSUSER          s             10
+     D SJA             s              8
+     D SJN             s              8  0
+     D KL              s              1
+     D VERSJ           s             10
+N01  D IMEI            s             15
+     D MinVer          s             10
+     D MaxVer          s             10
+     D LinTxt          s            500
+S04  D*NMEA            s             90
+     D Lat             s              9
+     D Lon             s             10
+     D LatN            s              8  6
+     D LonN            s              9  6
+N04  D GPSTSDn         s              8  0
+N04  D GPSTSTn         s              6  0
+     D NumBig          s             19  9
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+N04  D                 DS
+N04  D GPSTS                   1     14
+N04  D   GPSTSD                1      8
+N04  D   GPSTST                9     14
+      * Definere  hex 0D / 25 (CRLF)
+     D                 DS
+     D CRLF                    1      2
+     D Hex0D                   1      1    inz(x'0D')
+     D Hex25                   2      2    inz(x'25')
+     D                 DS
+     D  MLDREF                 1     20
+     D  MLDTUR                 1      8
+     D  MLDREF9                9      9
+     D  MLDAVD                 1      4
+     D  MLDREF5                5      5
+     D  MLDOPD                 6     12
+     D                 DS
+     D  MLD                    1    210
+     D  MLD1                   1     70
+     D  MLD2                  71    140
+     D  MLD3                 141    210
+     D                 DS
+     D  TimeTmp                1     26
+     D  TimeTmp≈               1      4
+     D  TimeTmpM               6      7
+     D  TimeTmpD               9     10
+     D  TimeTmpTMS            12     18
+     D  TimeTmpTT             12     13
+     D  TimeTmpTM             15     16
+     D  TimeTmpTS             18     19
+     D  TS                     1     19
+     D                 DS
+     D  IdagTmp≈               1      4
+     D  IdagTmpM               5      6
+     D  IdagTmpD               7      8
+     D  Idag≈MD                1      8
+     D  IdagTT                 9     10
+     D  IdagTM                11     12
+     D  IdagTS                13     14
+     D  IdagTMS                9     14
+     D  IdagDtTMS              1     14
+S04   *
+S04   * GPS-posisjon.
+S04   * NMEA-streng $GPGGA - Kun bre/lengdegr. mottas fra TK-sign (28 byte f¯r/inkl ,E)
+S04   * $GPGGA,053653.26,5944.782570,N,01013.035218,E,1,01,3.1,105.0,M,-0.356006,M,-2.24507,*4A
+S04   * ....+... 1 ...+... 2 ...+... 3 ...+... 4 ...+... 5 ...+... 6 ...+... 7 ...+... 8 ...+...
+S04   * 5944.782570,N,01013.035218,E
+S04   *                DS
+S04  D* TST_NMEA               1      5
+S04  D* TST_5_5                5      5
+S04  D*                DS
+S04  D* OK_NMEA                1     90
+S04  D* NM_BreGr               1      2  0
+S04  D* NM_BreMin              3      4  0
+S04  D* NM_BreSek              6     11  6
+S04  D* NM_BreNS              13     13                                         N=Nord
+S04  D* NM_LenGr              15     17  0
+S04  D* NM_LenMin             18     19  0
+S04  D* NM_LenSek             21     26  6
+S04  D* NM_LenEW              28     28                                         E=East
+S04   * fÊrre desimaler i len/brd..
+S04   * ....+... 1 ...+... 2 ...+... 3 ...+... 4 ...+... 5 ...+... 6 ...+... 7 ...+... 8 ...+...
+S04   * 000,5944.7825,N,01013.0352,E
+S04  D*                DS
+S04  D* OK_NMEA2               1     90
+S04  D* N2_BreGr               5      6  0
+S04  D* N2_BreMin              7      8  0
+S04  D* N2_BreSek             10     13  4
+S04  D* N2_BreNS              15     15                                         N=Nord
+S04  D* N2_LenGr              17     19  0
+S04  D* N2_LenMin             20     21  0
+S04  D* N2_LenSek             23     26  4
+S04  D* N2_LenEW              28     28                                         E=East
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+     C                   movel     timedata1     TimeTmp
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+s01  C*                  eval      user = zhbgetvar('user')
+s01  C*                  move      user          SJA
+N01  C                   eval      WSuser = zhbgetvar('user')
+N01  C                   move      WSuser        SJA
+     C                   eval      SJN     = c2n2(SJA)
+     C                   eval      VERSJ = zhbgetvar('V')
+     C                   eval      KL   = zhbgetvar('KL')
+S04  C*                  eval      NMEA = zhbgetvar('NMEA')
+     C                   eval      MLDREF= zhbgetvar('MLDREF')
+     C                   eval      MLD   = zhbgetvar('MLD')
+     C                   eval      LAT   = zhbgetvar('LAT')
+     C     '.':','       XLATE     LAT           LAT
+     C                   eval      NumBig  = c2n2(LAT)
+     c     NumBig        Ifge      -90
+     c     NumBig        andle     90
+     C                   eval      LatN    = NumBig
+     c                   end
+     C                   eval      LON   = zhbgetvar('LON')
+     C     '.':','       XLATE     LON           LON
+     C                   eval      NumBig  = c2n2(LON)
+     c     NumBig        Ifge      -180
+     c     NumBig        andle     180
+     C                   eval      LONN    = NumBig
+     c                   end
+n04  C                   eval      GPSTS =zhbgetvar('GPSTS')
+N04  C                   eval      GPSTSDn = c2n2(GPSTSD)
+N04  C                   eval      GPSTSTn = c2n2(GPSTST)
+N01  C                   eval      IMEI   = zhbgetvar('HWID')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   close     BRPARF
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESTK503':'/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+      * Send section top
+     C                   callp     wrtsection('top')
+S05  C* Ugyldig userID
+S05  C*    *IN50         IFEQ      '1'
+S05  C*                  eval      LinTxt = '#ERROR# Ukjent userID'
+S05  C*                  callp     updHTMLvar('LINTXT':LinTxt)
+S05  C*                  callp     wrtsection('lin')
+S05  C*                  goto      utles
+S05  C*                  end
+      *
+      * 1. PDA-INIT, $alles kun ved oppstart av TKsign
+      *              BER OM SERVERENS KLOKKESLETT mm  FOR ≈ SYNKE PDAEN
+     C     KL            IFEQ      'G'
+     C                   exsr      PDAINIT
+     C                   goto      utles
+     c                   end
+      *
+      * 2. Mottar  Lengde Breddegrad som skal lagres
+S04  C*    NMEA          ifne      *blanks
+S04  C*    LATN          ORNE      *zeros
+N04  C     LATN          ifne      *zeros
+     C                   exsr      LATLONSr
+     C                   goto      utles
+     C                   end
+      *
+      * 3. ÿyeblikksmelding til notisblokk
+     C     MLD           IFNE      *blanks
+     C                   exsr      MELDING
+     C                   goto      utles
+     c                   end
+      *
+      *
+      * Send section bot
+     C     UTLES         TAG
+     C                   callp     wrtsection('bot')
+     C
+     C                   endsr
+     C
+      *=====================================================================******
+      *  PDAINIT
+      *=====================================================================******
+     C     PDAINIT       begsr
+      *  (skilt ut i egen SR i endring 13 uten videre merking)
+      *  BER OM SERVERENS KLOKKESLETT mm  FOR ≈ SYNKE PDAEN
+     C                   eval      LinTxt = IdagDtTMS + ';' +
+     c                             %trim(MinVer) + ';' +
+     c                             %trim(MaxVer)
+     c     Versj         IFge      '02.15'
+     C                   eval      LinTxt = %trim(LinTxt) + ';' +
+     c                             'interop.pocketoutlook.dll,' +
+     c                             'PPPTTCF6_0N2.dll,' +
+     c                             'PPPTT6_0Helper.dll'+
+     c                             ',Symbol.dll' +
+     c                             ',Symbol.Barcode.dll'
+     c                             + ',GPS.dll'
+     c                             + ',Intermec.DataCollection.CF2.dll'
+     c                             + ',Interop.BCRServiceCOMLib.dll'
+     c                             + ',TKbarcode.dll'
+     c                   end
+      * KODE FOR OM SLETT DB- ER  TILATT
+     c     Versj         IFge      '02.16'
+     C                   MOVE      'TKSDB'       PAID
+     C     BrParKey      CHAIN     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+S06  C*    PAVRDA        ANDEQ     'Y'
+N06  C     PAVRDA        IFEQ      'Y'                                          Internt J (el Y)
+N06  C     PAVRDA        OREQ      'J'
+     C                   MOVE      'Y'           ClearYN           1            TKsign = Y
+N06  C                   END
+     C                   END
+     C                   eval      LinTxt = %trim(LinTxt) + ';' +
+     C                             %trim(ClearYN)
+     c                   end
+      * tidsrom for backup (ingen innnsend/refrech.. )
+     c     Versj         IFge      '02.17'
+     C                   MOVE      *blanks       BckTid            9
+     C                   MOVE      'TKBAC'       PAID
+     C     FiParKey      CHAIN     BRPARF                             33
+     C  N33              MOVEl     PAVRDA        BckTid            9
+     C   33              MOVE      '0000-0000'   BckTid            9
+     C                   eval      LinTxt = %trim(LinTxt) + ';' +
+     C                             %trim(BckTid)
+     c                   end
+     c     Versj         IFge      '02.29'
+      * Egendefinerte tekster for avvik ved henting/levering
+     C                   MOVE      'TKHLA'       PAID
+     C                   move      'J'           FÿrsteP           1
+     C                   eval      LinTxt = %trim(LinTxt)+';'
+     C     FiParKey      setll     BRPARF
+     C     FiParKey      reade     BRPARF                                 33
+     C     *in33         doweq     '0'
+     c     FÿrsteP       ifeq      'J'
+     C                   eval      LinTxt = %trim(LinTxt)+%trim(PAVRDA)
+     c                   else
+     C                   eval      LinTxt = %trim(LinTxt)+','+%trim(PAVRDA)
+     c                   end
+     C                   move      'N'           FÿrsteP           1
+     C     FiParKey      reade     BRPARF                                 33
+     c                   end
+      * Egendefinerte tekster for AVVISNING av order
+     C                   MOVE      'TKAVK'       PAID
+     C                   move      'J'           FÿrsteP           1
+     C                   eval      LinTxt = %trim(LinTxt)+';'
+     C     FiParKey      setll     BRPARF
+     C     FiParKey      reade     BRPARF                                 33
+     C     *in33         doweq     '0'
+     c     FÿrsteP       ifeq      'J'
+     C                   eval      LinTxt = %trim(LinTxt)+%trim(PAVRDA)
+     c                   else
+     C                   eval      LinTxt = %trim(LinTxt)+','+%trim(PAVRDA)
+     c                   end
+     C                   move      'N'           FÿrsteP           1
+     C     FiParKey      reade     BRPARF                                 33
+     c                   end
+      *
+     c                   end
+N06   * Prameetr for om button for ett oppdrag vises   (manglende param = N)
+N06  c     Versj         IFge      '03.10'
+N06  C                   MOVE      'N'           OpdBut            1
+N06  C                   MOVE      'TKOPD'       PAID
+N06  C     BrParKey      CHAIN     BRPARF                             33        pri 1
+N06  C   33FiParKey      CHAIN     BRPARF                             33        Pri 2
+N06  C  N33              MOVEl     PAVRDA        OpdBut
+N06  c     OpdBut        ifeq      'J'
+N06  C                   MOVE      'Y'           OpdBut                         Internt J(Y)->TK=Y
+N06  c                   endif
+N06  c     OpdBut        ifne      'Y'
+N06  C                   MOVE      'N'           OpdBut
+N06  c                   endif
+N06  C                   eval      LinTxt = %trim(LinTxt) + ';' +
+N06  C                             %trim(OpdBut)
+N06  c                   end
+      * Skriv "hovedlinja".
+     C                   callp     updHTMLvar('LINTXT':LinTxt)
+     C                   callp     wrtsection('lin')
+      *
+      * EGEN linje for evt overvÂking av antall turer i "Hent liste"
+     c     Versj         IFge      '02.20'
+     C                   MOVE      'TKATU'       PAID
+     C     FiParKey      CHAIN     BRPARF                             33
+     C   33              MOVEl     'J'           TKATUjn           1
+     C  N33              MOVEl     PAVRDA        TKATUjn           1
+     C     TKATUjn       IFEQ      'J'
+     C                   move      *zeros        AntTur            5 0
+     C                   open      TURER20
+     C     TURKEY20      setll     TURER20
+     C     TURKEY20      Reade     TURER20                                33
+     C     *IN33         DOWEQ     '0'
+     C                   ADD       1             AntTur
+     C     TURKEY20      Reade     TURER20                                33
+     C                   end
+     C                   close     TURER20
+     C                   eval      LinTxt='##AT'+%trim(%editc(AntTur:'3'))
+     C                   callp     updHTMLvar('LINTXT':LinTxt)
+     C                   callp     wrtsection('lin')
+     c                   end
+     c                   end
+     C
+      *
+N01   * loggf¯r bruk..
+N01  c     IMEI          ifne      *blanks
+N01  C     IMEIkey       KLIST
+N01  C                   KFLD                    IMEI
+N01  C                   KFLD                    PROD
+N01  C                   OPEN      TKIMEI
+N01  C                   movel     timedata1     TimeTmp
+N01  C                   MOVE      TimeTmp≈      IdagTmp≈
+N01  C                   MOVE      TimeTmpM      IdagTmpM
+N01  C                   MOVE      TimeTmpD      IdagTmpD
+N01  C                   MOVE      TimeTmpTT     IdagTT
+N01  C                   MOVE      TimeTmpTM     IdagTM
+N01  C                   MOVE      TimeTmpTS     IdagTS
+N01  C                   movel     'TKsign'      PROD
+N01  C     IMEIkey       chain     TKIMEI                             33
+N01  C                   movel     VERSJ         VERS
+N01  C                   movel     WSUSER        USR
+N01  C                   MOVE      Idag≈MD       DATOS
+N01  C                   MOVE      IdagTMS       TIDS
+N01  C                   add       1             ANT
+N01  C  N33              update    TKIMEIR
+N01  C   33              write     TKIMEIR
+N01  C                   CLOSE     TKIMEI
+N01  C                   end
+     C                   endsr
+     C
+      *=====================================================================******
+      *  LATLONsr
+      *=====================================================================******
+     C     LATLONSR      begsr
+      *  (skilt ut i egen SR i endring 13 uten videre merking)
+S07  C*                  open      TKGPS
+s01  C*                  MOVE      USER          TKBRID
+N01  C                   MOVE      WSUSER        TKBRID
+N04  c     GPSTSDn       ifne      *zeros
+N04  C                   MOVE      GPSTSDn       TKDT
+N04  C                   MOVE      GPSTSTn       TKTI
+N04  c                   else
+     C                   MOVE      Idag≈MD       TKDT
+     C                   MOVE      IdagTMS       TKTI
+N04  c                   endif
+N04  C                   MOVE      Idag≈MD       TKDTL
+N04  C                   MOVE      IdagTMS       TKTIL
+S04   * Ferdige verdier..
+S04  c*    LATN          IFNE      *zeros
+     C                   eval      TKBRE  = LATN
+     C                   eval      TKLEN  = LONN
+S04  C*                  else
+S04   * eller NMEA-data som mÂ dekomponeres
+S04  C*                  MOVEL     NMEA          TST_NMEA
+S04  C*    TST_5_5       IFEQ      '.'
+S04  C*                  MOVEL     NMEA          OK_NMEA
+S04  C*                  ELSE
+S04  C*                  MOVEL     NMEA          OK_NMEA2
+S04  C*                  Z-ADD     N2_BreGr      NM_BreGr
+S04  C*                  Z-ADD     N2_BreMin     NM_BreMin
+S04  C*                  Z-ADD     N2_BreSek     NM_BreSek
+S04  C*                  MOVE      N2_BreNS      NM_BreNS
+S04  C*                  Z-ADD     N2_LenGr      NM_LenGr
+S04  C*                  Z-ADD     N2_LenMin     NM_LenMin
+S04  C*                  Z-ADD     N2_LenSek     NM_LenSek
+S04  C*                  MOVE      N2_LenEW      NM_LenEW
+S04  C*                  END
+S04  C*                  eval      TKBRE  = NM_BreGr+(NM_BreMin+NM_BreSek)/60
+S04  C*                  eval      TKLEN  = NM_LenGr+(NM_LenMin+NM_LenSek)/60
+S04  c*    NM_BreNS      IFNE      'N'
+S04  C*                  eval      TKBRE  = TKBRE * -1
+S04  C*                  end
+S04  c*    NM_LenEW      IFNE      'E'
+S04  C*                  eval      TKLEN  = TKLEN * -1
+S04  C*                  end
+S04  C*                  END
+N08  C                   IF        TKDT <= TKDTL
+     C                   write     TKGPSR
+N08  C                   ENDIF
+      *
+     C                   close     TKGPS
+     C
+     C                   endsr
+     C
+      *=====================================================================******
+      *  MELDING
+      *=====================================================================******
+     C     MELDING       begsr
+      *  (skilt ut i egen SR i endring 13 uten videre merking)
+     C     CRLF:'  '     XLATE     Mld           Mld
+     c                   eval      FRTTXT = Mld
+     c                   MOVE      *ZEROS        FRTLI
+      * Meld pÂ turnivÂ
+     c     MLdRef9       ifeq      *blanks
+     C                   open      Turer14
+     C                   open      FREETUR1
+     c                   MOVE      MLDTUR        FRTTUR
+      * finn avd..
+     c     FRTTUR        Chain     TURER14                            33
+     C     *IN33         cabeq     '1'           UtMeld
+     c                   move      TUAVD         FRTAVD
+N02  c                   MOVE      Idag≈MD       FRTDT
+     C     TuFTmax       setgt     FREETUR1
+     C     TuFTmaxE      readpe    FREETUR1                               33
+     c                   add       1             FRTLI
+     c                   MOVE      'P'           FRTKOD
+     c                   MOVE      Idag≈MD       FRTDT
+     c                   MOVE      *ZEROS        FRTFAK
+     c                   eval      FRTTXT = Mld1
+     c                   WRITE     FREETURR
+     c     Mld2          Ifne      *Blanks
+     c                   add       1             FRTLI
+     c                   eval      FRTTXT = Mld2
+     c                   WRITE     FREETURR
+     c                   end
+     c     Mld3          Ifne      *Blanks
+     c                   add       1             FRTLI
+     c                   eval      FRTTXT = Mld3
+     c                   WRITE     FREETURR
+     c                   end
+     C                   close     FREETUR1
+     C                   close     Turer14
+     c                   else
+      * Meld pÂ sendingsnr
+     c     MLdRef5       cabne     '_'           UtMeld
+     c                   move      MLDAvd        FRTAVD
+     c*                  move      MLDOpd        FRTOPD
+n02   * I v10 lagres Oppdrnr uten foranstilte nuller
+n02  C                   eval      FRTOPD  = c2n2(MLDOpd)
+     C                   open      FREETXT1
+     C     SnFTmax       setgt     FREETXT1
+     C     SnFTmaxE      readpe    FREETXT1                               33
+     c                   add       1             FRTLI
+     c                   MOVE      'P'           FRTKOD
+     c                   MOVE      Idag≈MD       FRTDT
+     c                   MOVE      *ZEROS        FRTFAK
+     c                   eval      FRTTXT = Mld1
+     c                   WRITE     FREETXTR
+     c     Mld2          Ifne      *Blanks
+     c                   add       1             FRTLI
+     c                   eval      FRTTXT = Mld2
+     c                   WRITE     FREETXTR
+     c                   end
+     c     Mld3          Ifne      *Blanks
+     c                   add       1             FRTLI
+     c                   eval      FRTTXT = Mld3
+     c                   WRITE     FREETXTR
+     c                   end
+     C                   close     FREETXT1
+     c                   end
+     C
+     C     UtMeld        endsr
+     C
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+
+      * DATO TRENGS I FLERE..
+     C                   MOVE      TimeTmp≈      IdagTmp≈
+     C                   MOVE      TimeTmpM      IdagTmpM
+     C                   MOVE      TimeTmpD      IdagTmpD
+     C                   MOVE      TimeTmpTT     IdagTT
+     C                   MOVE      TimeTmpTM     IdagTM
+     C                   MOVE      TimeTmpTS     IdagTS
+      *
+     C                   OPEN      BRIDF
+s01  C*    USER          CHAIN     BRIDF                              50
+N01  C     WSUSER        CHAIN     BRIDF                              50
+N05   * Ukjent UserID
+N05  c     *in50         ifeq      '1'
+N05  C                   callp     gethtml('HTMLSRC':'*LIBL':'ESTK503':
+N05  c                             '/CGITAG/')
+N05  C                   callp     wrtsection('top')
+N05  C                   eval      LinTxt = '#ERROR# Ukjent userID'
+N05  C                   callp     updHTMLvar('LINTXT':LinTxt)
+N05  C                   callp     wrtsection('lin')
+N05  C                   callp     wrtsection('bot')
+N05  C                   callp     wrtsection('*fini')
+N05  C                   close     BRIDF
+N05  C                   eval      *inlr = *on
+N05  C                   return
+N05  c                   endif
+N07   *
+N07   * innsend av GPS-pos nÂr backup gÂr??(hos systema..)
+N07  C     LATN          ifne      *zeros
+N07  C                   open      TKGPS                                50
+N07  c     *in50         ifeq      '1'
+N07  C                   callp     gethtml('HTMLSRC':'*LIBL':'ESTK503':
+N07  c                             '/CGITAG/')
+N07  C                   callp     wrtsection('top')
+N07  C                   eval      LinTxt = '#ERROR# Kan ikke Âpne TKGPS'
+N07  C                   callp     updHTMLvar('LINTXT':LinTxt)
+N07  C                   callp     wrtsection('lin')
+N07  C                   callp     wrtsection('bot')
+N07  C                   callp     wrtsection('*fini')
+N07  C                   close     BRIDF
+N07  C                   eval      *inlr = *on
+N07  C                   return
+N07  c                   endif
+N07  c                   endif
+N07   *
+S05  c*    *in50         ifeq      *off
+     C                   MOVE      Idag≈MD       BIDTV
+     C                   MOVE      IdagTMS       BITIDV
+     C                   eval      BIWELC = 'TKsign-versjon: '+Versj
+     C                   UPDATE    BRIDFR
+S05  c*                  end
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt pÂ user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   OPEN      BRPARF
+     C     BrParKey      klist
+S06  C*                  kfld                    PABRID
+N06  C                   kfld                    BIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+S06  C*                  MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+     C     FiParKey      klist
+     C                   kfld                    FIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   movel     '*KUNDFT*'    FIBRID           10
+     C                   move      BIFIRM        FIBRID
+     C     TuFTmax       KLIST
+     C                   KFLD                    FRTAVD
+     C                   KFLD                    FRTTUR
+     C                   KFLD                    FRTDT
+     C                   KFLD                    XXTLI             2 0
+     c                   z-add     99            XXTLI
+     C     TuFTmaxE      KLIST
+     C                   KFLD                    FRTAVD
+     C                   KFLD                    FRTTUR
+     C                   KFLD                    FRTDT
+     C     SnFTmax       KLIST
+     C                   KFLD                    FRTAVD
+     C                   KFLD                    FRTOPD
+     C                   KFLD                    FRTDT
+     C                   KFLD                    XXTLI
+     C     SnFTmaxE      KLIST
+     C                   KFLD                    FRTAVD
+     C                   KFLD                    FRTOPD
+     C                   KFLD                    FRTDT
+     C     TurKey20      KLIST
+     C                   KFLD                    SJN
+     C                   KFLD                    xxTST4
+     C                   MOVE      ' '           xxTST4            1
+      *
+N03  c     VERSJ         iflt      '03.00'
+     c                   eval      MinVer = '02.09'
+     c                   eval      MaxVer = '02.47'
+N03  c                   else
+N03  c                   eval      MinVer = '03.03'
+N03  c                   eval      MaxVer = '03.11'
+N03  c                   endif
+      *
+     C     UtInit        endsr

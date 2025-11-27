@@ -1,0 +1,300 @@
+     H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FEUROOH    UF   E           K DISK
+     FEURORH    UF   E           K DISK
+     FEURORL    IF   E           K DISK
+     FEDIC      UF   E             DISK
+     FEDIS      O  A E             DISK
+     FEDISX     O  A E             DISK
+      *__________
+      * Variabler
+      *""""""""""
+     D FILE_o          s               *
+     D String          s            512a
+     D rc              s             10i 0
+     D Data            s             80a   Varying
+     D Codepage        s              5a   Varying
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+      *___________
+      * Konstanter
+      *"""""""""""
+     D LF              c                   x'25'
+      *___________________________
+      * IFS Stream file funksjoner
+      *"""""""""""""""""""""""""""
+     Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value Options( *String )
+
+     Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+     D                                 *   Value Options( *String )
+     D                                 *   Value
+
+     Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+     D                                 *   Value
+     D                 DS
+     D  WMBR                   1     14
+     D  WMBRA                  1      1
+     D  WMBRB                  2     10  0
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+      *___________________
+      * Definiere Workfelt
+      *"""""""""""""""""""
+     C     *LIKE         DEFINE    EURORH6       WEURORH6
+     C     *LIKE         DEFINE    EURORH5       WEURORH5
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEYA          KLIST
+     C                   KFLD                    WEURORH6
+     C                   KFLD                    WEURORH5
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      *_________________
+      * Input parametrer
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    WEURORH6
+     C                   PARM                    WEURORH5
+      *_____________
+      * Init av felt
+      *"""""""""""""
+     C                   MOVE      'G'           WMBRA                          GENERELL
+     C* Hente dagens dato og klokkeslett.
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *                                                       SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+
+     C     KEYA          CHAIN     EURORH                             51
+     C     KEYA          CHAIN     EURORL                             52
+     C     KEYA          CHAIN     EUROOH                             53
+
+     C     *IN51         CABEQ     '1'           SRB9
+     C     *IN52         CABEQ     '1'           SRB9
+     C     *IN53         CABEQ     '1'           SRB9
+
+      *________________________________________
+      * Hente og oppdater neste sendningsnummer
+      *""""""""""""""""""""""""""""""""""""""""
+     C     1             CHAIN     EDIC                               51
+     C     *IN51         CABEQ     '1'           SRB9
+     C                   ADD       1             CSN
+     C                   UPDATE    EDICR
+     C                   EVAL      WMBRB=CSN
+      * Lag fil og set codepage (pc)
+     C                   MOVE      *BLANKS       WFilNam         256
+     C                   EVAL      WFilNam='/SYSPEDFX/EUROPRIS/EDISE1K/' + WMBR
+     C                   MOVE      *BLANKS       WFilNam2        256
+     C                   EVAL      WFilNam2='/SYSPEDFX/EUROPRIS/EDISE1K' +
+     C                                     '/BACKUP/' + WMBR
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam2 )
+     C                             : 'w, codepage=850' )
+     C                   EVAL      rc = close( FILE_o )
+     C                   EVAL      FILE_o = open( %TrimR( WFilNam2 )
+     C                             : 'w' )
+      *Oppdater hode
+     C                   EVAL      EURORH3=WDT
+     C                   EVAL      EURORH4=WTM
+     C                   EVAL      EURORH5B=WMBR
+     C                   UPDATE    EURORHR
+
+     C                   EVAL      EUROOH5B=WMBR
+     C                   UPDATE    EUROOHR
+      *Skriv hode til fil
+     C                   EXSR      SR00
+     C                   EXSR      SR10
+      *Skriv linjer til fil
+     C     KEYA          SETLL     EURORL
+     C     KEYA          READE     EURORL                                 54
+     C     *IN54         DOWEQ     *OFF
+     C                   EXSR      SR20
+     C     KEYA          READE     EURORL                                 54
+     C                   ENDDO
+      *Skriv avslutt til fil
+     C                   EXSR      SR09
+      *_________________
+      * Logge sendningen
+      *"""""""""""""""""
+     C                   CLEAR                   EDISR
+     C                   EVAL      S0004='CC'
+     C                   EVAL      S0010='EUROPRIS'
+     C                   Z-ADD     CSN           WMBRB
+     C                   MOVE      WMBR          S0020
+     C                   Z-ADD     CSN           SSN
+     C                   MOVE      'S'           SSR
+     C                   MOVE      'C'           SST
+     C                   MOVEL     WDT           SDT
+     C                   MOVEL     WTM           STM
+     C                   MOVEL     '*IFS'        SFILE
+     C                   MOVEL     WFILNAM2      SIFS
+     C                   WRITE     EDISR
+
+     C                   CLEAR                   EDISXR
+     C                   EVAL      SXPRODM=WMBR
+     C                   EVAL      SXIFSOBJ=Wfilnam2
+     C                   WRITE     EDISXR
+
+     C     SRB9          ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 00 Start av fil                                SR00 /
+      *////////////////////////////////////////////////////////////
+     C     SR00          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '00':0        SDATA          1024
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       'CCNO':0      SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       'EUROPRIS':0  SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WDT:0         SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WTM:0         SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WMBR:0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       'ORDRSP':0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORH6B:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 09 Slutt på fil                                SR09 /
+      *////////////////////////////////////////////////////////////
+     C     SR09          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '09':0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       WMBR:0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+     C                   EVAL      rc = close( FILE_o )
+      * Kopier filen til produksjonkatalogen
+     C                   EVAL      CmdLine = 'CPY OBJ(' + X'7D'
+     C                             + %trimr(WFILNAM2) + X'7D'
+     C                             + ') TOOBJ(' +X'7D'
+     C                             + %trimr(WFILNAM)
+     C                             + X'7D' + ') '
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   CALL      'QCMDEXC'     Qcmdexc                98
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 10 Hode                                        SR10 /
+      *////////////////////////////////////////////////////////////
+     C     SR10          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '10':0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORH6:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * Skriv 20 Linje                                       SR20 /
+      *////////////////////////////////////////////////////////////
+     C     SR20          BEGSR
+
+     C                   EVAL      SDATA=*BLANKS
+
+     C                   CAT       '20':0        SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL3:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL4:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL5:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL5B:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL6:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL7:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL8:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL8B:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL9:0     SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL9B:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL14:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL14B:0   SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL16:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL16B:0   SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL17:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL18:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL19:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL20:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL21:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   CAT       EURORL22:0    SDATA
+     C                   CAT       ';':0         SDATA
+
+     C                   EVAL      rc = fputs(%trimr(SDATA) + LF: File_o)
+
+     C                   ENDSR

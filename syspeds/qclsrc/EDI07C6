@@ -1,0 +1,88 @@
+/* N01  FEIL MEMBER I FIL Q  */
+             PGM
+             /*_____________________*/
+             /* Deklarere Variabler */
+             /*"""""""""""""""""""""*/
+             DCL        VAR(&LIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FIL) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MBR) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&OK) TYPE(*LGL) LEN(1)
+             DCL        VAR(&SSN) TYPE(*DEC) LEN(9 0)
+             DCL        VAR(&SST) TYPE(*CHAR) LEN(1) VALUE(C)
+             DCL        VAR(&NETW) TYPE(*CHAR) LEN(1) VALUE('6')
+             DCL        VAR(&IIDS) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&IIDR) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&STRTIME) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&ENDTIME) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&QTIME) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&FROMUSR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FROMADR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&TOUSR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&TOADR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&NBRCURRCD) TYPE(*DEC) LEN(10 0)
+             /*__________________________________________________*/
+             /* Denne Jobben kan bli startet *IMMED eller        */
+             /* venter til et klokkeslett som finnes i firmans   */
+             /* dataarea.                                        */
+             /*""""""""""""""""""""""""""""""""""""""""""""""""""*/
+             RTVDTAARA  DTAARA(EDIDTA (154 6)) RTNVAR(&STRTIME)
+             IF         COND(&STRTIME *EQ *IMMED) THEN(GOTO +
+                          CMDLBL(START))
+
+             RTVSYSVAL  SYSVAL(QTIME) RTNVAR(&QTIME)
+             IF         COND(&STRTIME *LE &QTIME) THEN(GOTO +
+                          CMDLBL(START))
+
+             DLYJOB     RSMTIME(&STRTIME)
+ /*__________________________*/
+ /* Skal polling avsluttes ? */
+ /*""""""""""""""""""""""""""*/
+ START:      RTVDTAARA  DTAARA(EDIDTA (160 6)) RTNVAR(&ENDTIME)
+             IF         COND(&ENDTIME *NE *NONE) THEN(DO)
+             RTVSYSVAL  SYSVAL(QTIME) RTNVAR(&QTIME)
+             IF         COND(&ENDTIME *LT &QTIME) THEN(GOTO +
+                          CMDLBL(END))
+             ENDDO
+             /*_______________*/
+             /* Mottak av MSG */
+             /*"""""""""""""""*/
+             CALL       PGM(E063R) PARM(&NETW)
+             DLYJOB     DLY(30)
+             /*_______________*/
+             /* Finn status A */
+             /*"""""""""""""""*/
+ START2:     CALL       PGM(EDI07R) PARM(&OK &LIB &FIL &MBR &SSN +
+                          &NETW &IIDS &IIDR)
+             IF         COND(&OK *EQ '1') THEN(DO)
+             DLYJOB     DLY(30)
+             GOTO       CMDLBL(START)
+             ENDDO
+             /*_______________*/
+             /* Lage WORKFILE */
+             /*"""""""""""""""*/
+             DLTF       FILE(QTEMP/Q)
+             MONMSG     MSGID(CPF0000)
+             CRTPF      FILE(QTEMP/Q) RCDLEN(80)
+             MONMSG     MSGID(CPF0000)
+             CPYF       FROMFILE(&LIB/&FIL) TOFILE(QTEMP/Q) +
+                          MBROPT(*REPLACE) FROMKEY(1 (&MBR)) +
+                          TOKEY(1 (&MBR)) FMTOPT(*NOCHK)
+             /*______*/
+             /* Send */
+             /*""""""*/
+             CALL       PGM(EDI10R) PARM(&SSN &FROMUSR &FROMADR +
+                          &TOUSR &TOADR)
+             SNDDST     TYPE(*FILE) TOUSRID((&TOUSR &TOADR)) +
+                          DSTD(EDI_FILE) CFMDEL(*YES) +
+                          USRID(&FROMUSR &FROMADR) DOCFILE(QTEMP/Q) +
+                          DOCMBR(*FIRST) DOCTYPE(*FFT)
+
+/*S01        RTVMBRD    FILE(QTEMP/Q) MBR(&MBR) */
+             RTVMBRD    FILE(QTEMP/Q) MBR(Q) +
+                          NBRCURRCD(&NBRCURRCD)
+
+             CALL       PGM(EDI06R) PARM(&SSN &SST &NBRCURRCD)
+
+             GOTO       CMDLBL(START2)
+
+END:         ENDPGM

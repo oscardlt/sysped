@@ -1,0 +1,413 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STS53 MODULE(*LIBL/STS53 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 IKKE LOV Å PAKKE SAMME MED ORDRE FRA TO FORSKJELLIGE BÅTER
+10XXX * 02 YBC PTF10 ny dangerous logikk
+********************************************************************
+      *
+      *********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    usropn
+     FBRPARF    IF   E           K DISK    usropn
+     FGSSOLF    UF   E           K DISK    usropn
+N01  FGSSOLL01  IF   E           K DISK    usropn
+N01  F                                     RENAME(GSSOLFR:GSSOLFR01)
+N01  F                                     PREFIX(OL1_)
+     FGSSOLL04  UF   E           K DISK    usropn
+     F                                     RENAME(GSSOLFR:GSSOLFR04)
+     FGSSORF    UF   E           K DISK    usropn
+     FGSSLGF    O  A E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D XXUSER          S             10
+     D XXTURNR         S             11
+     D FEILKODE        s              1
+     D SEMI            S              1
+     D TKfeil          S            100
+     D TKfeilK         S              1
+     D lstbrd          s              1
+     D STS101          s              1
+     D BoxNr           s              6  0
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+     D i               s             10i 0
+      *
+     D                 DS
+     D  XXCLID                 1     35
+     D  XXPRE                  1      3
+     D  XXONO                  4     10
+     D  XXLNO                 11     12
+      *
+     D                 DS
+     D  XXLBNR                 1      9
+     D  XXLBPRE                1      3
+     D  XXLBNO                 4      9
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+      *
+     C                   EXSR      INIT
+      *
+     C                   SELECT
+     C                   WHEN      *IN60
+     C                   MOVE      '1'           FEILKODE
+     C                   exsr      SetSkl51B
+      *
+     C                   WHEN      BIINN = ' '
+     C                   MOVE      '1'           FEILKODE
+     C                   exsr      SetSkl51B
+      *
+     C                   WHEN      ((XXLBPRE <> '998') AND
+     C                              (XXLBPRE <> '999'))
+     C                   MOVE      '2'           FEILKODE
+     C                   EVAL      TKFEIL='Must start 999..(location). '
+     C                                  + 'or 998..(box)'
+     C                   EVAL      TKFEILK='X'
+     C                   EXSR      SetSkl53
+      *
+     C                   OTHER
+     C                   IF        XXPRE = '995'
+     C                   EXSR      SRUPDOL
+     C                   ELSE
+     C                   MOVE      XXONO         OLONO
+     C                   MOVE      XXLNO         OLLNO
+     C     GSSOLFK       CHAIN     GSSOLF                             33
+     C     *IN33         IFEQ      '0'
+     C     OLONO         CHAIN(N)  GSSORF                             33
+      * 998= Ut til Kasse/boks.. - ikke tillatt med 0 i turnr..
+     C                   IF        XXLBPRE = '998'
+     C                   IF        ORTNO = 0
+     C                   MOVE      '3'           FEILKODE
+     C                   EVAL      TKFEIL='Colli '+%trim(XXCLID)+' is NOT on a '
+     C                             + 'Shipping list, cannot be placed in a box.'
+     C                   EVAL      TKFEILK='X'
+     C                   UPDATE    GSSOLFR
+     C                   EXSR      SetSkl53
+     C                   GOTO      SLUTT
+     C                   END
+N01   * SJEKK OM DET ER SAMME BÅT
+N01  C                   MOVE      ORBCD         GMORBCD           5
+N01  C                   MOVE      XXLBNO        OL1_OLBOX
+N01  C     GSSOLL01K     SETLL     GSSOLL01
+N01  C     GSSOLL01K     READE     GSSOLL01                               33
+N01  C                   DOW       *IN33 = *OFF
+N01  C     OL1_OLONO     CHAIN(N)  GSSORF                             33
+N01  C                   IF        ORBCD <> GMORBCD
+N01  C                   MOVE      '5'           FEILKODE
+N01  C                   EVAL      TKFEIL='Vessi '+%trim(XXCLID)+' from a vesse'
+N01  C                   EVAL      TKFEIL='Vessel which colli '+%trim(XXCLID)
+N01  C                             +' belong is not samme as vessel which other'
+N01  C                             +' colli on same box.'
+N01  C                   EVAL      TKFEILK='X'
+N01  C                   UPDATE    GSSOLFR
+N01  C                   EXSR      SetSkl53
+N01  C                   GOTO      SLUTT
+N01  C                   END
+N01  C     GSSOLL01K     READE     GSSOLL01                               33
+N01  C                   ENDDO
+N01   *
+     C                   MOVE      ORTNO         OLTNO
+     C                   MOVE      'L'           OLST
+     C                   MOVE      XXLBNO        OLBOX
+     C                   ELSE
+      * 999= Inn på lokasjon...  ikke tillatt med turnr
+     C                   IF        ((ORTNO <> 0) AND (OLBOX <> 0))
+     C                   MOVE      '4'           FEILKODE
+     C                   EVAL      TKFEIL='Colli '+%trim(XXCLID)+' is on shippi'
+     C                             +'ng list, cannot be placed on a warehouse '
+     C                             + 'location.'
+     C                   EVAL      TKFEILK='X'
+     C                   UPDATE    GSSOLFR
+     C                   EXSR      SetSkl53
+     C                   GOTO      SLUTT
+     C                   END
+      * Hvis lagersted gitt på bruker-profil, oppdater
+     C     LagerSted     IFNE      *BLANKS
+     C     OLONO         CHAIN     GSSORF                             34
+     C     *in34         IFEQ      *OFF
+     C                   MOVEL     LagerSted     ORPOS1
+     c                   Update    GSSORFR
+     c                   end
+     C                   MOVEL     LagerSted     OLSTD
+     C                   ELSE
+     C     OLONO         CHAIN(N)  GSSORF                             34
+     C                   MOVE      ORPOS1        OLSTD
+     c                   end
+     C                   MOVEL     XXLBNO        OLLC
+     C                   EXSR      SRLOGG
+     C                   END
+N02  c                   call      'GSS077R'
+N02  C                   PARM                    OLONO
+     C                   UPDATE    GSSOLFR
+     C                   END
+     C                   END
+     C                   exsr      SetSkl52
+     C                   ENDSL
+      *
+     C     SLUTT         TAG
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * 1-Section /$top
+     C                   exsr      SetTop
+     c     SEMI          ifeq      'Y'
+     C                   callp     wrtsection('top')
+     c                   else
+     C                   SELECT
+     C                   WHEN      *IN60
+     C                   callp     wrtsection('all')
+     C                   WHEN      BIINN = ' '
+     C                   callp     wrtsection('all')
+     C                   OTHER
+     C                   callp     wrtsection('top')
+     C                   ENDSL
+     c                   endif
+      *
+     C                   callp     wrtsection('*fini')
+      *
+      *
+     C                   close     BRIDF
+     C                   close     BRPARF
+     C                   close     GSSOLF
+     C                   close     GSSORF
+     C                   close     GSSLGF
+N01  C                   close     GSSOLL01
+     C                   close     GSSOLL04
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+      *
+     C                   eval      XXCLID = zhbgetvar('CLID')
+     C                   eval      XXUSER = zhbgetvar('USER')
+     C                   eval      XXTURNR= zhbgetvar('TURNR')
+     C                   eval      XXLBNR = zhbgetvar('LBNR')
+     C                   eval      STS101= zhbgetvar('STS101')
+     C                   EVAL      SEMI     = zhbgetvar('SEMI')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl51B     begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS51B'
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl52      begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS52'
+     C     SEMI          IFEQ      'Y'
+     C                   eval      Mbr = 'STS52T'
+     C                   end
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl53      begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS53'
+     C     SEMI          IFEQ      'Y'
+     C                   eval      Mbr = 'STS53T'
+     C                   end
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      * Color for text, background, links, visited links, active links
+     C                   exsr      setcolor
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':XXUSER)
+     C                   callp     updhtmlvar('CLID':XXCLID)
+     C                   callp     updhtmlvar('TURNR':XXTURNR)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+     C                   callp     updhtmlvar('STS101':STS101)
+     c     TKFEIL        ifeq      *blanks
+     c                   eval      Tkfeil='Colli '+%trim(XXCLID)
+     c                             +' is placed on location ' + XXLBNO
+     c     XXTURNR       ifne      *blanks
+     c     XXTURNR       andne     *zeros
+     C                   eval      BoxNr   = c2n2(XXLBNO)
+     c                   eval      Tkfeil='Colli '+%trim(XXCLID)
+     c                             +' is placed in BOX ' +
+     C                             %trim(%editc(BoxNr:'Z'))
+     c                   end
+     c                   end
+     C                   callp     updHTMLvar('TKFEILK':TKFEILK)
+     C                   callp     updHTMLvar('TKFEIL':TKFEIL)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Color for font, background, links, visited links, active links
+      *=====================================================================******
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     GSSOLFK       KLIST
+     C                   KFLD                    OLONO
+     C                   KFLD                    OLLNO
+N01  C     GSSOLL01K     KLIST
+N01  C                   KFLD                    ORTNO
+N01  C                   KFLD                    OL1_OLBOX
+      *
+     C                   open      BRIDF
+     C     XXUSER        CHAIN     BRIDF                              60
+     C                   IF        *IN60 = *OFF
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   open      BRPARF
+     C                   open      GSSOLF
+     C                   open      GSSORF
+     C                   open      GSSLGF
+N01  C                   open      GSSOLL01
+     C                   open      GSSOLL04
+     C                   END
+     C                   MOVE      *BLANKS       FEILKODE
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+      * Hvis lagersted er gitt på brukernivå, oppdateres det v/innlegg(999)
+      * (på sikt tillate mer enn en post / velge fra pulldown...)
+     c                   Move      *Blanks       LagerSted         5
+     C                   MOVE      'SSWAR'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     c  n33              MoveL     PAVRDA        LagerSted
+      *
+     C                   ENDSR
+      *=====================================================================
+      *  Oppdater loggen
+      *=====================================================================
+     C     SRLOGG        begsr
+      *
+     C                   MOVE      XXUSER        LGUSER
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           LGDT
+     C                   MOVE      WTM           LGTID
+     C                   Z-ADD     1             LGLN
+     C                   MOVEL     'STS53'       LGPGM
+     C                   MOVE      WDT           LGHDT
+     C                   MOVEL     WTM           LGHTID
+     C                   Z-ADD     3             LGNIVÅ
+     C                   MOVEL     'UNSEC'       LGFTYP
+     C                   MOVE      OLONO         LGONO
+     C                   MOVE      OLLNO         LGLNO
+     C                   WRITE     GSSLGFR
+      *
+     C                   endsr
+      *=====================================================================
+      *  Oppdater KOLLIFIL
+      *=====================================================================
+     C     SRUPDOL       begsr
+      *
+     C     XXCLID        SETLL     GSSOLL04
+     C     XXCLID        READE     GSSOLL04                               33
+     C                   DOW       *IN33 = *OFF
+     C                   MOVE      'L'           OLST
+     C                   MOVE      XXLBNO        OLBOX
+     C                   UPDATE    GSSOLFR04
+     C     XXCLID        READE     GSSOLL04                               33
+     C                   ENDDO
+      *
+     C                   endsr

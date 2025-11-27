@@ -1,0 +1,428 @@
+      * etter ønske fra ELin 17.04.2013 - IKKE sett ETA - skal være blank inntil bruker velger
+     FEUNB      IF   E           K DISK
+     FEUNH      IF   E           K DISK
+     FEDIM      IF   E           K DISK
+     FERFF96A   IF   E           K DISK
+     FTURER23   UF A E           K DISK
+     FHEADF     O  A E             DISK
+     FHEAD14    IF   E           K DISK
+     F                                     RENAME(HEADFR:HEA14R)
+     FDISP      O  A E             DISK
+     FBILLOF    O  A E             DISK
+     FBLV1      O  A E             DISK
+     FCDCON4    IF   E           K DISK
+     FTRACKF    O  A E             DISK
+     FTRACKT    O  A E             DISK
+     FEPOH      UF   E           K DISK
+     FEPOL      UF   E           K DISK
+     FEPOPOS    IF A E           K DISK
+     FFIRM      IF   E           K DISK
+     FTELL      UF   E           K DISK
+     D A               S              1    DIM(79)
+     D B               S              1    DIM(18)
+
+     D xxHavn          S              3
+     D xxCont          S              2
+     D xxCoAB          S              1
+     D xxDato          S              8
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  WMN2                   1      9  0
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * CONVERT
+      *""""""""
+     C                   EXSR      RTVD
+
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Get numerical value                               GETNUM /
+      *////////////////////////////////////////////////////////////
+     C     GETNUM        BEGSR
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     KEYMS0        KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C     EPOHKEY       KLIST
+     C                   KFLD                    WELKUND
+     C                   KFLD                    WELBES
+     C     EPOLKEY       KLIST
+     C                   KFLD                    WELKUND
+     C                   KFLD                    WELBES
+     C                   KFLD                    WELLIN
+     C                   KFLD                    WELULIN
+     C     PosMax        klist
+     C                   kfld                    ELAVD
+     C                   kfld                    ELOPD
+     c                   kfld                    MAX5
+     c                   move      99999         MAX5              5 0
+     C     HEADFK        klist
+     C                   kfld                    ELAVD
+     C                   kfld                    ELOPD
+
+     C     *LIKE         DEFINE    RMN           ZMN
+     C     *LIKE         DEFINE    RGN           ZGN0
+     C     *LIKE         DEFINE    ELKUND        WELKUND
+     C     *LIKE         DEFINE    ELBES         WELBES
+     C     *LIKE         DEFINE    ELLIN         WELLIN
+     C     *LIKE         DEFINE    ELULIN        WELULIN
+
+     C                   EVAL      WELKUND=21647
+
+     C     *ENTRY        PLIST
+     C                   PARM                    WMN1              9
+     C                   MOVEL     WMN1          WMN2
+     C                   Z-ADD     WMN2          ZMN
+     C     *LOVAL        SETLL     FIRM
+     C                   READ      FIRM                                   33
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED        RTVD /
+      *////////////////////////////////////////////////////////////
+     C     RTVD          BEGSR
+      *__________________
+      * READ ALL SEGMENTS
+      *""""""""""""""""""
+
+     C     ZMN           CHAIN     EDIM                               50
+     C                   IF        *IN50 = *OFF
+      * HENT meldingshode
+     C     ZMN           CHAIN     EUNH                               51
+      * Get interchange values
+     C     UIN           CHAIN     EUNB                               51
+      * BGM er sammensatt.. flere på samme kunde/havn/dato=samme TURNR
+      * esk HKG2SA0320130629 = HKG=havn, 2S=conttyp, A(B,C,D..)løpenr,03=??, 20130629=ank.dato
+     c                   eval      xxHavn=%subst(U1004:1:3)
+     c                   eval      xxCont=%subst(U1004:4:2)
+     c                   exsr      FixCont                                      VoiceKode->CCKode
+     c                   if        %subst(U1004:16:1)=' '
+     c                   eval      xxDato=%subst(U1004:8:8)                     15 lang, 8-15=ETD
+     c                   else
+     c                   eval      xxDato=%subst(U1004:9:8)                     16 lang, 9-16=ETD
+     c                   endif
+      * finnes tur samme dato/havn med Voice som kunde  (35 OFF = Finnes )
+     c                   exsr      FinnsTur
+      * INIT OPPDRAG
+     C                   CLEAR                   HEADFR
+     C                   EVAL      HEAVD=10
+     C     HEAVD         CHAIN     TELL                               63
+     C                   MOVE      TEOPDN        HEOPD
+     C   35              MOVE      TETURN        HEPRO
+     C  N35              MOVE      TUPRO         HEPRO
+     C                   ADD       1             TEOPDN
+     C   35              ADD       1             TETURN
+     C                   UPDATE    TELLR
+      *
+     C                   EVAL      HEUR='H'
+     C                   EVAL      HEKNA=7032
+     C                   EVAL      HESG='EDI'
+     C                   MOVE      MDT           HEDTR
+     C                   EVAL      HEKDFS='X'
+     C                   EVAL      HENAK='VOICE NORGE AS'
+     C                   EVAL      HEADK1='TUENVEIEN 70-ÅKRENE'
+     C                   EVAL      HEADK3='2000 LILLESTRØM'
+     C                   EVAL      TRKDAK='K'
+     C                   EVAL      TRKDFF='K'
+     C                   EVAL      TRSLAG='HO'
+     C                   EVAL      HEOT='BO'
+     c                   EVAL      HERFA = U1004                                Pakseddelnr fra Voic
+      * esk HKG2SA0320130629 = HKG=havn, 2S=conttyp, A(B,C,D..)løpenr,03=??, 20130629=Avg.dato
+     c     HERFA         ifeq      *blanks
+     c                   EVAL      HERFA = 'Pakks.No mangl.'
+     c                   endif
+     c*                  eval      HEVS1='Varer iht pakkseddel/ASN'
+     c*                  eval      HEVS2=U1004
+     c                   eval      HEVS1='ASNno: '+U1004
+      *
+      * HENT Ordrereferanser
+     C                   Z-ADD     16            ZGN0
+     C     KEYMS0        SETLL     ERFF96A
+     C     KEYMS0        READE     ERFF96A                                51
+     C     *IN51         DOWEQ     '0'
+     C                   IF        R1153 = 'ON'
+     C                   MOVEL     R1154         WELBES
+     C                   MOVEA     R1156         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          WELLIN
+     C                   MOVEA     R4000         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          WELULIN
+     C     EPOLKEY       CHAIN     EPOL                               61
+     C*    EPOHKEY       CHAIN     EPOH                               62
+     C     EPOHKEY       CHAIN(N)  EPOH                               62
+     C                   IF        *IN61=*OFF
+     C*                  IF        *IN62=*OFF
+      * Oppdragsdata (fra tilfeldig/siste EPOH )
+     C                   EVAL      HEFR=EHLBET
+     C                   EVAL      HELKA=EHFLK
+     C                   EVAL      HESDF=EHFSTE
+     C                   EVAL      HETRI=EHTLK
+     C                   EVAL      HESDT=EHTSTE
+     C                   EVAL      HEKNK=EHKUND
+     C                   EVAL      HEKNKF=EHKUND
+     C                   EVAL      TRKNFA=EHKUND
+      * avsender=Leverandør fra første POHeader(burde sjekke om det er MIX..)
+     c                   if        HENAS =*blanks
+     C                   EVAL      HENAS =EHLNAV
+     C                   EVAL      HEADS1=EHLAD1
+     C                   EVAL      HEADS2=EHLAD2
+     C                   EVAL      HEADS3=EHLAD3
+     c                   if        HEADS3=*blanks
+     C                   EVAL      HEADS3=EHLAD4
+     c                   endif
+     c                   endif
+      * fra linjenivå
+     C*                  ADD       ELANKL        HENT
+     C*                  EVAL(H)   HEVKT = HEVKT + ELANTS * ELVKTE
+     C*                  EVAL(H)   HEM3  = HEM3  + ELANTS * ELM3E
+     C                   ADD       ELNTSL        HENT
+     C                   EVAL(H)   HEVKT = HEVKT + ELVKTL
+     C                   EVAL(H)   HEM3  = HEM3  + ELM3L
+     C*                  EVAL      TRSDFD=EHETD
+     C*                  EVAL      TRSDTD=TUETA
+     C                   EVAL      TRSDFD=TUETD
+     C** Ikke sett       EVAL      TRSDTD=ELETA                                 fra en av LINJENE
+      * POMSdata
+     C                   EVAL      ELAVD=HEAVD
+     C                   EVAL      ELOPD=HEOPD
+     C*                  EVAL      ELSTA='2=Booked'
+     C                   EVAL      ELSTA='2'                                    Booked
+     C                   UPDATE    EPOLR
+      * Skriv x-ref ubetinget - sats 100% på at det fjernes ved evt remove fra oppdrag
+      * finn høyeste eksisterende POSnr - add 10
+     c                   move      *zeros        EPPOS
+     c     PosMax        setgt     EPOPOS
+     c     HEADFK        readpe    EPOPOS
+     C                   eval      EPAVD = ELAVD
+     C                   eval      EPOPD = ELOPD
+     c                   eval      EPPOS = EPPOS + 10
+     C                   eval      EPKUND= ELKUND
+     C                   eval      EPBES = ELBES
+     C                   eval      EPLIN = ELLIN
+     C                   eval      EPULIN= ELULIN
+     c                   write     EPOPOSR
+      * DERSOM ALLE LINJER NÅ ER PLUKKET SETT SETT 9999/9999999 FOR Å FJERNE FRA VISNING
+     C                   EXSR      TSTALL
+     C*                  UPDATE    EPOHR
+     C*                  ENDIF
+     C                   ENDIF
+     C                   ENDIF
+     C     KEYMS0        READE     ERFF96A                                51
+     C  N51              ENDDO
+      *
+     C                   WRITE     HEADFR
+      * TURER
+      * Obs - bør også  akkumuler vekt mm
+     c     *in35         ifeq      *on
+     C                   EVAL      TUAVD  = HEAVD
+     C                   EVAL      TUPRO  = HEPRO
+     C                   EVAL      TUKNA  = HEKNA
+     C                   EVAL      TUSG   = '*PM'
+     C                   EVAL      TUSTEF = HESDF
+     C                   EVAL      TUSTET = HESDT
+     C* TUETD ER ALT SATT (VIA DESADVs BGM xxDato)
+     C** ikke sett       EVAL      TUETA  = TRSDTD
+     C*                  EVAL      TUCKD1 = xxCont
+     C                   WRITE     TURERR
+     c                   else
+     C                   Update    TURERR
+     c                   endif
+      *
+      * DISPdata
+     C                   CLEAR                   DISPR
+     C                   EVAL      DIAVD=HEAVD
+     C                   EVAL      DIOPD=HEOPD
+     C                   EVAL      DISTEF=HESDF
+     C                   EVAL      DISTET=HESDT
+     C                   EVAL      DISONF=HELKA
+     C                   EVAL      DISONT=HETRI
+     C                   EVAL      DIDATF=TRSDFD
+     C                   EVAL      DIDATT=TRSDTD
+     C                   EVAL      DISIGN=HESG
+     C                   EVAL      DIOT=HEOT
+     C                   EVAL      DITUAV =TUAVD
+     C                   EVAL      DITUR  =TUPRO
+     C                   WRITE     DISPR
+      * BILL OF LADING
+     C                   CLEAR                   BILLOFR
+     C                   EVAL      BLAVD  = HEAVD
+     C                   EVAL      BLOPD  = HEOPD
+     C                   EVAL      BLPRO  = HEPRO
+     C                   EVAL      BLNAA  = HENAS
+     C                   EVAL      BLAD1A = HEADS1
+     C                   EVAL      BLAD2A = HEADS2
+     C                   EVAL      BLAD3A = HEADS3
+     C                   EVAL      BLNAM  = HENAK
+     C                   EVAL      BLAD1M = HEADK1
+     C                   EVAL      BLAD2M = HEADK2
+     C                   EVAL      BLAD3M = HEADK3
+     C                   EVAL      BLLSS  = HESDF
+     C                   EVAL      BLLSH  = HESDF
+     C                   EVAL      BLLOS  = HESDT
+     C                   EVAL      BLLOH  = HESDT
+     C                   WRITE     BILLOFR
+      * BILL OF LADING
+     C                   CLEAR                   BLV1R
+     C                   EVAL      BVAVD  = HEAVD
+     C                   EVAL      BVOPD  = HEOPD
+     C                   EVAL      BVLI   = 1
+     C                   EVAL      BVSORT = 10
+     C                   EVAL      BVKDC  = XXCONT
+     C     BVKDC         CHAIN     CDCON4                             33
+     C  N33              EVAL      BVVS   = CC4FT
+     C                   EVAL      BVVKT  = HEVKT
+     C                   EVAL      BVM3   = HEM3
+     C                   WRITE     BLV1R
+      * TRACKF
+     C                   CLEAR                   TRACKFR
+     C                   EVAL      TTAVD  = HEAVD
+     C                   EVAL      TTOPD  = HEOPD
+     C                   EVAL      TTACTI = 'STR'
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           TTDATE
+     C                   MOVE      WTM           TTTIME
+     C                   MOVE      WDT           TTDATL
+     C                   MOVE      WTM           TTTIML
+     C                   EVAL      TTTEXT = 'Order entered by EDI-FACT FROM -
+     C                             VOICE.'
+     C                   EVAL      TTUSER = 'E181R_96A'
+     C                   EVAL      TTTEXT = 'Ordre opprettet av EDI-FACT FRA -
+     C                             VOICE.'
+     C                   WRITE     TRACKFR
+      * TRACKT
+     C                   CLEAR                   TRACKTR
+     C                   EVAL      TXAVD  = HEAVD
+     C                   EVAL      TXOPD  = HEOPD
+     C*                  EVAL      TXETDD = EHETD
+     C*                  EVAL      TXETAD = TUETA
+     C                   EVAL      TXETDD = TUETD
+     C* ikke sett        EVAL      TXETAD = TRSDTD
+     C                   WRITE     TRACKTR
+
+     C                   ENDIF
+     C                   ENDSR
+
+      ********************************************************
+     C     FixCont       BEGSR
+      ********************************************************
+      * konverter Voice-koder til CC-koder
+      *   Størrelse på container (2 = 20’/4 = 40’)
+      *   Felt 5 Type container (S = Standard, H = Hanging, Q = HQ. R = Reefer)
+      *   (2R / 4R er det samme ...)
+     c                   select
+     c     xxCont        wheneq    '2S'
+     c                   eval      xxCont='20'
+     c     xxCont        wheneq    '2H'
+     c                   eval      xxCont='2G'
+     c     xxCont        wheneq    '2Q'                                         skal ikke fins->20
+     c                   eval      xxCont='20'
+     c     xxCont        wheneq    '4S'
+     c                   eval      xxCont='40'
+     c     xxCont        wheneq    '4H'
+     c                   eval      xxCont='4G'
+     c     xxCont        wheneq    '4Q'
+     c                   eval      xxCont='4H'
+     c                   endsl
+     C                   ENDSR
+      ********************************************************
+     C     FinnsTur      BEGSR
+      ********************************************************
+     c****               move      xxDato        TUETA
+     c                   move      xxDato        TUETD
+     c                   eval      TUSTEF = xxHavn
+     c     Tur23Key      klist
+     c*                  KFLD                    TUETA
+     c                   KFLD                    TUETD
+     c                   KFLD                    TUSTEF
+     c     Tur23Key      setll     TURER23
+     c     Tur23Key      reade     TURER23                                35
+     c     *in35         doweq     '0'
+      * minst ett voice-oppdrag
+     c     TUPRO         setll     Head14
+     c     TUPRO         reade     Head14                                 36
+     c     *in36         doweq     '0'
+     c     TRKNFA        cabeq     WELKUND       turOK
+     c     TUPRO         reade     Head14                                 36
+     c                   enddo
+
+      * frigi lock på tur som ikke skal oppdateres
+     c                   update    Turerr
+     c     Tur23Key      reade     TURER23                                35
+     c                   enddo
+     c     turOk         tag
+      *  35 *OFF = fant tur som skal bygges videre på
+      *  35 *ON  Ny tur tur - men andre kan være lest - må cleare - men husk TUETD
+     c   35              clear                   TURERR
+     c** 35              move      xxDato        TUETA
+     c   35              move      xxDato        TUETD
+     C                   ENDSR
+      ********************************************************
+     C     TSTALL        BEGSR
+      ********************************************************
+      * SJEKK OM ALLE LINJER ER PLUKKET - sett 9999/9999999 for at header skal skjules
+     C                   MOVE      'J'           XALLPLK           1
+     C     EPOHKEY       SETLL     EPOL
+     C     EPOHKEY       READE(N)  EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELAVD = 0
+     C                   MOVE      'N'           XALLPLK
+     C                   LEAVE
+     C                   END
+     C     EPOHKEY       READE(N)  EPOL                                   33
+     C                   ENDDO
+      *
+     C                   IF        XALLPLK='J'
+     C     EPOHKEY       CHAIN     EPOH                               33
+     C                   IF        *IN33 = *OFF                                    4<-B
+     C                   EVAL      EHAVD = 9999
+     C                   EVAL      EHOPD = 9999999
+     C                   EVAL      EHSTA = '2'                                  Booked
+     C                   UPDATE    EPOHR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+      *
+     C                   ENDSR

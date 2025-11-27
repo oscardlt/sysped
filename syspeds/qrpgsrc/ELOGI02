@@ -1,0 +1,450 @@
+      *********************************************************************
+      * PROGRAM BEHANDLER INPUT FRA ELOGI01 OG VISER LISTE
+      *
+CRTPG+*  CRTPGM SYSPED/ELOGI02 MODULE(*LIBL/ELOGI02
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FLLGRPK05  IF   E           K DISK    USROPN
+     FLLMRFL08  IF   E           K DISK    USROPN
+     F                                     RENAME(LLMRFR:LLMRFR08)
+     FLLMRFL09  IF   E           K DISK    USROPN
+     F                                     RENAME(LLMRFR:LLMRFR09)
+     FLLAGJL07  IF   E           K DISK    USROPN
+     F                                     RENAME(LLAGJR:LLAGJRL07)
+     FLLAGJS07  IF   E           K DISK    USROPN
+     F                                     RENAME(LLAGJR:LLAGJRS07)
+     FLLVARE01  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *--------------------------------------------------------------------
+     D OddEven         s             10
+      * Variables received from the input string
+     D BckGnd          s             10
+     D lstbrd          s              1
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSSALDO         S              1
+     D WSNA            S             30
+     D WSKN            S              8
+     D BSKN            S              8  0
+     D WSGNF           S             15
+     D WSGNT           S             15
+     D WSVISFELT       S             20
+     D VALG00          S            100
+     D VALG01          S            100
+     D VALG99          S            100
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      * Variables received from the input string
+      * and converted to numeric
+     D zeros           s             15a   inz('000000000000000')
+     D NIER            s             35A   INZ('9999999999999999999999999999999-
+     D                                     9999')
+     D l1              s              3s 0
+     D l2              s              3s 0
+      * Number of records matching search criteria
+     DRecordCnt        s              5S 0
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *
+      * tekstkonstanter på n=norsk e=engelsk (t=tysk)
+     D VALG01no        C                   CONST('Kunde:')
+     D VALG01en        C                   CONST('Client:')
+     D VALG02no        C                   CONST('Godsnr.')
+     D VALG02en        C                   CONST('Goods no.')
+     D VALG99no        C                   CONST('INGET SØK ANGITT!')
+     D VALG99en        C                   CONST('NO SEARCH CRITERIA GIVEN!')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+     C                   EXSR      INIT
+      *
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C  N50              UPDATE    BRIDFR
+      * Set/READ output skeleton html member name
+     C                   exsr      SetSkl
+      *------------------                                                   ******
+      * Write HTML sections
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+     C                   callp     wrtsection('tablestr')
+      * hent/skriv oppdrag
+     C                   exsr      HentVare
+      * tableend
+     C                   callp     wrtsection('tableend')
+     C                   callp     wrtsection('endhtml')
+      *
+     C                   callp     wrtsection('*fini')
+     C     SLUTT         tag
+     C                   EXSR      EXIT
+     C                   return
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   eval      lstbrd  = zhbgetvar('lstbrd')
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   EVAL      WSNA    = zhbgetvar('KNAVN')
+      *
+     C                   EVAL      WSSALDO = zhbgetvar('WSSALDO')
+     C                   IF        WSSALDO <> '+' AND
+     C                             WSSALDO <> ' ' AND
+     C                             WSSALDO <> '0'
+     C                   EVAL      WSSALDO = '+'
+     C                   END
+     C                   EVAL      WSKN    = zhbgetvar('WSKN')
+     C                   EVAL      BSKN    = c2n2(WSKN)
+      *
+     C                   EVAL      WSGNF   = zhbgetvar('WSGNF')
+     C                   eval      WSGNF   = uppify(WSGNF)
+     C                   EVAL      WSGNT   = zhbgetvar('WSGNT')
+     C                   eval      WSGNT   = uppify(WSGNT)
+      *
+     C                   endsr
+      *
+      ******************************************************
+     C     SetTop        begsr
+      ******************************************************
+     C                   callp     updHTMLvar('ROWHEAD':RowHead:
+     C                             InitHTMLVars)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+     C                   callp     updhtmlvar('WSNA':WSNA)
+     C                   callp     updhtmlvar('KNAVN':KNAVN)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+     C                   callp     updhtmlvar('WSSALDO':WSSALDO)
+     C                   callp     updhtmlvar('WSKN':WSKN)
+     C                   callp     updhtmlvar('WSGNF':WSGNF)
+     C                   callp     updhtmlvar('WSGNT':WSGNT)
+      *
+     C                   MOVE      *BLANKS       VALGKODE         50
+     C                   SELECT
+     C                   WHEN      WSGNF <> *BLANKS
+     C                   callp     updhtmlvar('VALGTXT':VALG01)
+     C                   EVAL      VALGKODE = %TRIM(WSGNF) + '-' + %TRIM(WSGNT)
+     C                   other
+     C                   callp     updhtmlvar('VALGTXT':VALG99)
+     C                   ENDSL
+     C                   callp     updhtmlvar('VALGKODE':VALGKODE)
+     C                   callp     updhtmlvar('WSVISFELT':WSVISFELT)
+      *
+     C                   endsr
+      *=====================================================================******
+      * HENT VARER
+      *=====================================================================******
+     C     HENTVARE      BEGSR
+      *
+     C                   IF        BSKN <> 0
+     C     BSKN          CHAIN     LLGRPK05                           33
+     C                   END
+     C                   MOVE      *ZEROS        XN                5 0
+     C                   SELECT
+     C                   WHEN      WSGNF <> *BLANKS
+     C                   IF        WSGNT = *BLANKS
+     C                   EVAL      WSGNT = %TRIM(WSGNF) + %TRIM(NIER)
+     C                   END
+     C                   IF        BSKN = 0
+     C     LLMRFL08K     SETLL     LLMRFL08
+     C                   ELSE
+     C     LLMRFL09K1    SETLL     LLMRFL09
+     C                   END
+     C                   ENDSL
+      *
+     C     STHENTV       TAG
+     C                   SELECT
+     C                   WHEN      WSGNF <> *BLANKS
+     C                   IF        BSKN = 0
+     C                   READ      LLMRFL08                               33
+     C                   ELSE
+     C     LLMRFL09K2    READE     LLMRFL09                               33
+     C                   END
+     C  N33WSGNT         COMP      MRGN                                 33
+     C                   OTHER
+     C                   MOVE      '1'           *IN33
+     C                   ENDSL
+      *
+     C                   IF        *IN33 = *OFF
+     C                   SELECT
+     C                   WHEN      WSSALDO = '+'
+     C     LLAGJ07K      SETLL     LLAGJS07
+     C     LLAGJ07K      READE     LLAGJS07                               33
+     C                   WHEN      WSSALDO = ' ' OR WSSALDO = '0'
+     C     LLAGJ07K      SETLL     LLAGJL07
+     C     LLAGJ07K      READE     LLAGJL07                               33
+     C                   ENDSL
+     C                   DOW       *IN33 = *OFF
+     C                   IF        VADATO < 99999999
+     C                   IF        WSSALDO = '+' OR
+     C                             WSSALDO = ' ' OR
+     C                             (WSSALDO = '0' AND VASALD = 0)
+     C     LLVARE01K     CHAIN     LLVARE01                           33
+     C                   exsr      SetTabRow
+     C                   callp     wrtsection('tablerow')
+     C                   ADD       1             XN
+     C     XN            CABGT     1000          SLHENTV
+     C                   END
+     C                   END
+     C                   SELECT
+     C                   WHEN      WSSALDO = '+'
+     C     LLAGJ07K      READE     LLAGJS07                               33
+     C                   WHEN      WSSALDO = ' ' OR WSSALDO = '0'
+     C     LLAGJ07K      READE     LLAGJL07                               33
+     C                   ENDSL
+     C                   ENDDO
+     C                   GOTO      STHENTV
+     C                   END
+      *
+     C     SLHENTV       TAG
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+      *
+     C     CUNDL01K      CHAIN     CUNDL01                            33
+     C                   callp     updhtmlvar('KNAVN':KNAVN)
+     C                   callp     updhtmlvar('VAKJED':
+     C                             %trim(%editc(VAKJED:'Z')))
+     C                   callp     updhtmlvar('VAMN':
+     C                             %trim(%editc(VAMN:'Z')))
+     C                   callp     updhtmlvar('MRGN':MRGN)
+     C                   callp     updhtmlvar('MRTRNR':MRTRNR)
+     C                   callp     updhtmlvar('VAANR':VAANR)
+     C                   callp     updhtmlvar('LVVB':LVVB)
+     C                   callp     updhtmlvar('VALLOK':VALLOK)
+     C                   callp     updhtmlvar('VADATO':
+     C                             %trim(%editw(VADATO:'    .  .  ')))
+     C                   callp     updhtmlvar('VASENR':VASENR)
+     C                   callp     updhtmlvar('VAOANT':
+     C                             %trim(%editc(VAOANT:'Z')))
+     C                   callp     updhtmlvar('VASALD':
+     C                             %trim(%editc(VASALD:'Z')))
+     C                   callp     updhtmlvar('VAAVD':
+     C                             %trim(%editc(VAAVD:'Z')))
+     C                   callp     updhtmlvar('VAOPD':
+     C                             %trim(%editc(VAOPD:'Z')))
+     C                   callp     updhtmlvar('MRLNA':MRLNA)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member/read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+     C*    XSPRÅK        ifeq      'EN'
+     C*                  eval      IfsMultIndicators = gethtmlifsmult(
+     C*                            '/syspeddev/html/ELOGI02EN.html':
+     C*                            '/CGITAG/')
+     C*                  else
+     C                   eval      IfsMultIndicators = gethtmlifsmult(
+     C                             '/syspeddev/html/ELOGI02.html':
+     C                             '/CGITAG/')
+     C*                  endif
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+     C                   open      LLMRFL08                             50
+     C                   open      LLMRFL09                             50
+     C                   open      LLGRPK05                             50
+     C                   open      LLAGJL07                             50
+     C                   open      LLAGJS07                             50
+     C                   open      LLVARE01                             50
+     C                   open      BRPARF                               50
+     C                   open      CUNDL01                              50
+      *
+     C     KunKey        klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    BIKUNR
+     C     CUNDL01K      klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    VAKJED
+     C     CUNDL01K2     klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    BSKN
+     C     LLMRFL08K     klist
+     C                   kfld                    WSGNF
+     C     LLMRFL09K1    klist
+     C                   kfld                    GKGRP
+     C                   kfld                    GKPNR
+     C                   kfld                    WSGNF
+     C     LLMRFL09K2    klist
+     C                   kfld                    GKGRP
+     C                   kfld                    GKPNR
+     C     LLAGJ07K      klist
+     C                   kfld                    MRGRUP
+     C                   kfld                    MRKJED
+     C                   kfld                    MRMRNR
+     C     LLVARE01K     klist
+     C                   kfld                    VAGRUP
+     C                   kfld                    VAKJED
+     C                   kfld                    VAANR
+      *
+     C                   MOVE      '<CITE>'      XCITESTR          6
+     C                   MOVE      '</CITE>'     XCITEEND          7
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C                   EVAL      PABRID = WSUSER
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   END
+      *
+     C                   MOVEL     'HEKUN'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR
+     C                             ((PAVRDA <> 'j') AND
+     C                              (PAVRDA <> 'J')))
+     C                   MOVE      'N'           XKUNEGEN          1
+     C                   ELSE
+     C                   MOVE      'J'           XKUNEGEN
+     C                   END
+      * sett tekstkonstannter avhengig av språk
+     C                   IF        BSKN = 0
+     C                   EVAL      VALG00 = *BLANKS
+     C                   ELSE
+     C     CUNDL01K2     CHAIN     CUNDL01                            33
+     C                   IF        XSPRÅK = 'EN'
+     C                   EVAL      VALG00 = %TRIM(VALG01EN)+' '+%TRIM(KNAVN)+','
+     C                   ELSE
+     C                   EVAL      VALG00 = %TRIM(VALG01NO)+' '+%TRIM(KNAVN)+','
+     C                   END
+     C                   END
+      *
+     C                   SELECT
+     C                   WHEN      XSPRÅK = 'EN'
+     C                   EVAL      VALG01 = %TRIM(VALG00)+' '+%TRIM(VALG02EN)
+     C                   EVAL      VALG99 =  VALG99en
+     C                   OTHER
+     C                   EVAL      VALG01 = %TRIM(VALG00)+' '+%TRIM(VALG02NO)
+     C                   EVAL      VALG99 =  VALG99no
+     C                   ENDSL
+     c     KunKey        chain     cundl01                            33
+     C                   IF        BSKN = 0
+     C                   EVAL      WSVISFELT = *BLANKS
+     C                   ELSE
+     C                   EVAL      WSVISFELT = ', "bVisible": false'
+     C                   END
+      *
+     C                   endsr
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   close     BRPARF
+     C                   close     BRIDF
+     C                   close     LLMRFL08
+     C                   close     LLMRFL09
+     C                   close     LLGRPK05
+     C                   close     LLAGJL07
+     C                   close     LLAGJS07
+     C                   close     LLVARE01
+     C                   close     CUNDL01
+     C                   eval      *inlr = *on
+      *
+     C                   endsr

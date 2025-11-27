@@ -1,0 +1,84 @@
+             PGM        (&UTSKRIFTNR &DOKNAVN &SVAR  &FAXNR &DOKNA12 +
+                         &MAPPE &PTIME &PDATE &NAVN &AVD &OPD +
+                         &TUR &KODE)
+             DCL        VAR(&AVD) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&KODE) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&OPD) TYPE(*CHAR) LEN(7)
+             DCL        VAR(&TUR) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&DOKNA12) TYPE(*CHAR) LEN(12)
+             DCL        VAR(&FAXNR) TYPE(*CHAR) LEN(21)
+             DCL        VAR(&NAVN) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&MAPPE) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&PTIME) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&PDATE) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&UTSKRIFTNR) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&BRUKER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&SVAR) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&DOKNAVN) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10)
+             /* **   NY    RELEASE    **  */
+             ALCOBJ     OBJ((QAOFENRG *FILE *SHRRD))
+             MONMSG     MSGID(CPF3141) EXEC(GOTO CMDLBL(SLUTT))
+             CHKDLO     DLO(STDGOD) FLR(FAXSTD) OBJTYPE(*DOC) +
+                          USRID(*CURRENT)
+             MONMSG     MSGID(CPF8A82 CPF8A77) EXEC(GOTO CMDLBL(SLUTT))
+    /* TEST OM MAN ER OFFICE-BRUKER */
+    /* I SÅ FALL SPØR OM UTSKRIFT SKAL FLYTTES TIL MAPPE */
+             RTVUSRPRF  RTNUSRPRF(&BRUKER)
+    /*       CALL       PGM(SYYA02A) PARM(&BRUKER &DOKNAVN &SVAR) */
+             IF         COND(&SVAR = 'N') THEN(GOTO CMDLBL(SLUTT))
+    /* */
+             RTVJOBA    JOB(&WS) /* Hente arbeidstsjonskode WS */
+             CLRPFM     FILE(FAXDOCA) MBR(&WS)
+             MONMSG     MSGID(CPF3141) EXEC(ADDPFM FILE(FAXDOCA) +
+                          MBR(&WS))
+             OVRDBF     FILE(FAXDOCA) TOFILE(FAXDOCA) MBR(&WS)
+             CLRPFM     FILE(FAXDOCB) MBR(&WS)
+             MONMSG     MSGID(CPF3141) EXEC(ADDPFM FILE(FAXDOCB) +
+                          MBR(&WS))
+             OVRDBF     FILE(FAXDOCB) TOFILE(FAXDOCB) MBR(&WS)
+    /* */
+    /* LEGG UTSKRIFT I KØ PÅ SPOOLFILE                  */
+             OVRPRTF    FILE(&UTSKRIFTNR) HOLD(*YES)
+    /* KOPIER SPOOLFILE OVER I DATABASEFIL (4 FØRSTE=SKIP/SPACEINFO) */
+             CPYSPLF    FILE(&UTSKRIFTNR) TOFILE(FAXDOCA) +
+                          SPLNBR(*LAST) TOMBR(&WS) CTLCHAR(*PRTCTL)
+             MONMSG     MSGID(CPF3309) EXEC(GOTO INTET)
+             DLTSPLF    FILE(&UTSKRIFTNR) SPLNBR(*LAST)
+             MONMSG     MSGID(CPF0000)
+    /* SETTE INN BLANKLINJER ETTER INFO I SKIPP/SPACEB-FELT*/
+             OVRDBF     FILE(PRTDOCA) TOFILE(FAXDOCA)
+             OVRDBF     FILE(PRTDOCB) TOFILE(FAXDOCB)
+             CALL       PGM(FAX002B)
+    /* */
+             MRGDOC     FROMDOC(STDGOD) FROMFLR(FAXSTD) +
+                          TODOC(&DOKNAVN) TOFLR(&BRUKER) +
+                          REPLACE(*YES) MRGTYPE(*FILE) +
+                          DTAFILE(*LIBL/FAXDOCB) DTAMBR(&WS) +
+                          JOBQ(*NO) ADJUST(*PAGES) MLTLINRPT(*NO) +
+                          DSPOPT(*EDIT) EXITPNL(*NO)
+    /* */
+             ALCOBJ     OBJ((QSYS/TLX400B *LIB *SHRUPD))
+             MONMSG     MSGID(CPF1085) EXEC(DO)
+    /* SENDER VIA FAKSMILE */
+             SBMJOB     CMD(CALL PGM(FAX030CLJ) PARM(&DOKNAVN &MAPPE +
+                          &FAXNR &PTIME &PDATE &NAVN &AVD &OPD &TUR +
+                          &KODE)) JOB(SNDFAXB) JOBD(*USRPRF) +
+                          JOBQ(QFAX/QFAXJOBQ)
+             GOTO       CMDLBL(CLEAR)
+             ENDDO
+             SBMJOB     CMD(CALL PGM(FAX030CLJ2) PARM(&DOKNAVN +
+                          &MAPPE &FAXNR &PTIME &PDATE &NAVN &AVD +
+                          &OPD &TUR &KODE)) JOB(SNDFAXB) +
+                          JOBD(*USRPRF) JOBQ(SYJOBQPRT)
+    /* SENDER VIA FAX400 */
+             DLCOBJ     OBJ((QSYS/TLX400B *LIB *SHRUPD))
+    /* */
+    /* TØM ARBEIDSFILER                          */
+ CLEAR:      CLRPFM     FILE(FAXDOCA)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(FAXDOCB)
+             MONMSG     MSGID(CPF0000)
+             GOTO SLUTT
+ INTET:      SNDPGMMSG  MSG('Ingen utskrift.')
+ SLUTT:      ENDPGM

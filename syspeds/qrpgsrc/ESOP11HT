@@ -1,0 +1,171 @@
+     ‚****************************************************************************************
+     ‚* Sende generell SMS fra oppdrag m inntil 140 tegn (+ev lenke til esped)               *
+     ‚****************************************************************************************
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX‚* 01 JOV PTF11 ....................
+****‚***************************************************************
+     H DftActGrp( *No )
+     fheadf     if   e           k disk
+     ffirm      if   e           k disk
+     ffirmarc   if   e           k disk
+     fsyparl3   if   e           k disk
+     ftrackf    o  a e           k disk
+     ‚*__________
+     ‚* Variabler
+     ‚*""""""""""
+     d usrid           s            128
+     d pw              s             32
+     d smsnr           s             16
+     d body            s           1280
+     d smslen          s              5  0
+     d smsant          s              1  0
+     d lf              c                   x'25'
+     d up              c                   const('ABCDEFGHIJKLMNOPQRST-
+     d                                     UVWXYZÆØÅ')
+     d lo              c                   const('abcdefghijklmnopqrst-
+     d                                     uvwxyzæøå')
+     d                sds
+     d zuser                 254    263
+     ‚*  Prototype for 'SYGE99'
+     d syge99          pr                  extpgm('SYGE99')
+     d usrid_                              like(usrid)
+     d pw_                                 like(pw)
+     d smsnr_                              like(smsnr)
+     d body_                               like(body)
+     ‚*  Prototype for esop11ht
+     d esop11ht        pr
+     d heavda_                             like(heavda)
+     d heopda_                             like(heopda)
+     d uutext1_                            like(uutext1)
+     d uutext2_                            like(uutext2)
+     d uusms_                              like(uusms)
+     d uuuser_                             like(uuuser)
+     d uuurl_                              like(uuurl)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d esop11ht        pi
+     d heavda                         4
+     d heopda                         7
+     d uutext1                       70
+     d uutext2                       70
+     d uusms                         15
+     d uuuser                        10
+     d uuurl                          1
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d link            s            150
+     d avdopd          s             11
+     d sndevt          s             50
+     d sykd            s              5
+     d wdt             s              8
+     d wtm             s              6
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+
+      /free
+       exsr init;
+
+       chain ( heavd : heopd ) headf;
+       if %found;
+         exsr lagsms;
+         exsr ttsr;
+       endif;
+
+       *inlr = *on;
+       return;
+
+
+
+       //*****************************************************************************
+       begsr lagsms;
+       //*****************************************************************************
+         body='Oppdrag '
+             + %trim(%editc(HEAVD:'Z'))+'/'
+             + %trim(%editc(HEOPD:'Z'))
+             +' Avs:'+%trim(%subst(HENAS:1:15))
+             +' Mot:'+%trim(%subst(HENAK:1:15))
+             +' Kll:'+%trim(%editc(HENT:'Z'))
+             +' Vkt:'+%trim(%editc(HEVKT:'Z'))
+             +' Mld:'+%trim(UUTEXT1)+' '+%trim(UUTEXT2);
+         if uuurl = 'J';
+           body=%trim(body)+' '+LINK;
+         endif;
+
+         smslen=%len(%trim(body));
+         smsant=(smslen/160)+0.9999;
+         usrid='roger@systema.no';
+         pw='straffe12';
+         smsnr= uusms;
+         syge99 ( usrid : pw : smsnr : body );
+
+       endsr;
+
+       //*****************************************************************************
+       begsr ttsr;
+       //*****************************************************************************
+         ttavd = heavd;
+         ttopd = heopd;
+         ttdate = %int(wdt);
+         tttime = %int(wtm);
+         ttdatl = ttdate;
+         tttiml = tttime;
+         ttacti = 'SMS';
+         ttuser = zuser;
+         if uuuser <> *blanks;
+           ttuser = uuuser;
+         endif;
+         tttexl = uutext1;
+         tttext = uutext2;
+         ttedev = '*LE'; // =  ConCat Lokal/Engelsk
+         ttedre = %trim(%editc(smsant:'Z'));
+         // ttdepo = 'Len:'+%trimr(%editc(smslen:'Z'));
+         ttdepo = uusms;
+         ttdepo = %subst(UUSMS:11);  // ved mer enn 10 i tlf...
+         ttmanu = 'S';
+         write trackfr;
+
+       endsr;
+
+       //*****************************************************************************
+       begsr init;
+       //*****************************************************************************
+         heavd  = %int(heavda);
+         heopd  = %int(heopda);
+         %subst(avdopd:1:4) = %editc(heavd:'X');
+         %subst(avdopd:5:7) = %editc(heopd:'X');
+         sndevt = *blanks;
+         // Hardkodet foreløpig / BØR over på  /syspeddev/tktt/   dedikert mobil-app
+         uuurl = 'J';
+         if uuurl = 'J';
+           sykd = 'ESUSR';
+           chain ( sykd ) syparl3;
+           if not %found;
+             syvrda = 'NN';
+           endif;
+
+           setll *loval firm;
+           read firm;
+           chain fifirm firmarc;
+           arcpae = %xlate(up:lo:arcpae);
+           EVAL      LINK   = 'http://'
+                     + %trim(ARCPAE) + '/sycgip/syso02.pgm'
+n04                  +'?user='+%trim(SYVRDA)
+n04                  +'%26UsrSpcName=InT5WXz4BJ'
+                     +'%26heavd='+%trim(%editc(HEAVD:'Z'))
+                     +'%26heopd='+%trim(%editc(HEOPD:'Z'));
+         endif;
+
+         // hent dato tid
+         syge15c ( wdt : wtm );
+       endsr;
+
+      /end-free

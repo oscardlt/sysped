@@ -1,0 +1,117 @@
+/* NATTJOBB SOM MERKER ALLE I-LINJER TIL OG MED DAGENS DATO */
+             PGM
+             DCL        VAR(&ONLINE) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&PRTF) TYPE(*CHAR) LEN(10) +
+                          VALUE('SYTR35P   ')
+             DCL        VAR(&FIRMA) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&AAR) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&PER) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&JANEI) TYPE(*CHAR) LEN(1) VALUE('N')
+             DCL        VAR(&NRBE) TYPE(*DEC) LEN(3 0) VALUE(110)
+             DCL        VAR(&PRT110) TYPE(*CHAR) LEN(10) /* Printernavn+
+                          til JOURNALEN  */
+             DCL        VAR(&PT110) TYPE(*CHAR) LEN(10) /* Papirtype +
+                          til JOURNALEN */
+             DCL        VAR(&IN01) TYPE(*LGL) LEN(1) VALUE('1')
+             DCL        VAR(&JOB) TYPE(*CHAR) LEN(10)
+/*           DCL        VAR(&PGMR) TYPE(*CHAR) LEN(10)     */
+             DCL        VAR(&WS) TYPE(*CHAR) LEN(10) +
+                          VALUE('INTERNOVF')
+             DCL        VAR(&MSGQ) TYPE(*CHAR) LEN(10) +
+                          VALUE('QSYSOPR')
+             RTVJOBA    JOB(&JOB)
+             CALL       PGM(INLIBL)
+/**********************************************************************/
+             CALL       PGM(*LIBL/SYFAFICL) PARM(&IN01)
+             IF         COND(&IN01 *EQ '1') THEN(DO)
+             SNDMSG     MSG('Brukeren knyttet til autom. +
+                          INTERNoverføring er ikke registrert som +
+                          regskapsbruker, eller er autorisert for +
+                          mer enn ett firma. AUTOMATISK OVERFØRING +
+                          TIL REGNSKAP ER IKKE UTFØRT') +
+                          TOMSGQ(&MSGQ)
+             MONMSG     MSGID(CPF0000)
+             GOTO SLUTT
+             ENDDO
+/*                                     */
+/* MERKE ALT SOM ER PRISET, MEN KUN HVIS PÅ TUR.(HVIS J I AVD)*/
+             CALL       PGM(SYFA62I) PARM(&ONLINE)
+/* */
+/* KALLER SYFA70 FOR Å OPPDATERE PROSJEKTREGISTER */
+/* */
+/*S01        CALL       PGM(SYFA70) */
+/*S01        CALL       PGM(SYFA70I) KUN NORTRAIL  */
+/* */
+/* */
+/* KALLER SYTR35 FOR Å OPPDATERE POSTERINGER      */
+/* */
+/* */
+/* OVERSTYRER SKRIVERFIL                          */
+/* */
+             CALL       PGM(GETPRTB) PARM(&NRBE &PRT110 &PT110)
+             OVRPRTF    FILE(&PRTF) OUTQ(&PRT110) PAGESIZE(48 132) +
+                          CPI(10) OVRFLW(48) +
+                          FORMTYPE(&PT110)
+/*                                                */
+/* HAR KUNDEN ARKIVSYSTEM ???                     */
+/*                                                */
+             CALL       PGM(ARC016) PARM(&JANEI)
+             IF         COND(&JANEI = 'J') THEN(DO)
+             OVRPRTF    FILE(&PRTF) OUTQ(SYARKIV) HOLD(*YES)
+             ENDDO
+
+    /* */
+             CALL       PGM(SYTR35)
+/* */
+/*                                                */
+/* OPPDATERER ARKIV                               */
+/*                                                */
+             IF         COND(&JANEI = 'J') THEN(DO)
+             RTVDTAARA  DTAARA(*LDA (1 2)) RTNVAR(&FIRMA)
+             ADDLIBLE   LIB(IBMENDA)
+             CALL PGM(ARK001CL) PARM(&FIRMA &PRTF +
+                          &AAR &PER)
+             RMVLIBLE   LIB(IBMENDA)
+             ENDDO
+             DLTOVR     FILE(*ALL)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) VALUE('                 -
+             ')
+/* FLYTT INN SOM MEMBER I POSTERINGSFIL KOSAF/KOSBF .....*/
+/* SLIK AT SAMME RUTINE KAN BRUKES VIDERE.. UAVHENGIG AV INNT.KOSTN.*/
+             CPYF       FROMFILE(POSTA0) TOFILE(KOSAF) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             MONMSG     MSGID(CPF0000)
+             CPYF       FROMFILE(POSTB0) TOFILE(KOSBF) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(POSTB0)
+             CLRPFM     FILE(POSTA0)
+/* */
+/* KALLER V005KSN FOR Å OPPDATERE NATIVE ØKONOMI -I BATCH   */
+/* */
+             CALL       PGM(VC005KSN) PARM(&WS)
+             CALL       PGM(INLIBL)
+/* FJERN EVT. GAMMELT MEMBER FRA KOPI/BACKUPFILER */
+             RMVM       FILE(BACKKSA) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(BACKKSB) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+/* KOPIER INN OVERFØRT MEMBER TIL  BACKUPFILER */
+             CPYF       FROMFILE(KOSAF) TOFILE(BACKKSA) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+             CPYF       FROMFILE(KOSBF) TOFILE(BACKKSB) FROMMBR(&WS) +
+                          TOMBR(&WS) MBROPT(*ADD)
+/* FJERN MEMBER FRA ARBEIDSFIL */
+             RMVM       FILE(KOSAF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(KOSBF) MBR(&WS)
+             MONMSG     MSGID(CPF0000)
+             CHGDTAARA  DTAARA(*LDA (1 1024)) +
+                          VALUE('                              ')
+
+
+
+             SBMJOB     CMD(CALL PGM(SYFA39CL)) JOB(STATOPDAT) +
+                          JOBD(*USRPRF) JOBQ(SYJOBQAV)
+
+ SLUTT:      ENDPGM

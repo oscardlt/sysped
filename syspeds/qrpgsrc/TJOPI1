@@ -1,0 +1,718 @@
+     ‚* V11TMP - Obs ved inst. hos kunder-DE FLESTE HAR 70 lang 'ubane' i kall på BHRURLCL
+     ‚*********************************************************************
+     ‚*  Enkel spørring/innland - basert på SYOPI1 men med JSON output
+     ‚*********************************************************************
+
+CRTP‚+*  CRTPGM SYSPED/TJOPI1 MODULE(*LIBL/TJOPI1 *LIBL/INCGI)
+CRTP‚m*         ACTGRP(*NEW) AUT(*USE)
+
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+     ‚* 01 JOV PTF11 Felt for forventet levering etaDt innført (innhold= spesial pr kunde)
+     ‚* 02 JOV PTF11 Keyu for frisok/IFB
+****‚***************************************************************
+     ‚*********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     ‚*********************************************************************
+     fbridf     if   e           k disk    usropn
+     fheadf     if   e           k disk    usropn
+     fhead39    if   e           k disk    usropn
+     f                                     rename(headfr:heaf39r)
+     fdokufm1   if   e           k disk    usropn
+     ftrackl01  if   e           k disk    usropn
+     fkofast    if   e           k disk    usropn
+     ffrisok    if   e           k disk    usropn
+     ffrisol01  if   e           k disk    usropn
+     f                                     rename(frisokr:frisokr2)
+     fkodfri    if   e           k disk    usropn
+     fdokuf7    if   e           k disk    usropn
+     ftran      if   e           k disk    usropn
+     fturer14   if   e           k disk    usropn
+     ‚*********************************************************************
+     ‚*--------------------------------------------------------------------
+     ‚* Variables common to all CGIs
+     ‚*--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+
+     ‚* Client input variables
+     d user            s             10
+     d sndnr           s             20
+     d kllnr           s             20
+     d jsonstring      s          32000
+     d error           s            150
+     d kvurl           s            140
+     d uttext          s            500
+     d wssok           s             80
+     d wssokurl        s            200
+
+     d kvdato          s              8  0
+     d spaces          s             12a   inz('&nbsp;&nbsp;')
+N01  d LastDate        s              8  0
+N01  d LastTim4        s              4  0
+N01  d LastDatoTid2    s             20
+N01  d LastUtText      s             70
+N01  d etaDt           s             20
+N01  d datoTid2        s             20
+N01  d                 ds
+N01  d ttdate                         8  0
+N01  d  ttÅÅ                          2    overlay(ttdate:3)
+N01  d  ttMN                          2    overlay(ttdate:5)
+N01  d  ttDG                          2    overlay(ttdate:7)
+N01  d tttime                         6  0
+N01  d  tttim4                        4  0 overlay(tttime:1)
+N01  d  ttTI                          2    overlay(tttime:1)
+N01  d  ttMI                          2    overlay(tttime:3)
+
+     d                 ds
+     d dsavop                        12
+     d  dsavd                         4    overlay(dsavop)
+     d  strek                         1    overlay(dsavop:5)
+     d  dsopd                         7    overlay(dsavop:6)
+     d                 ds
+     d kftxt                         50
+     d  kftxtb                       45    overlay(kftxt:5)
+     d  visweb                        1    overlay(kftxt:50)
+
+     ‚* Prototype
+     d jsonescape      pr                  extpgm('JSONESC')
+     d   jsonstr                  32000a
+     ‚*  Prototype for 'BHRKVFB'
+     d bhrkvfb         pr                  extpgm('BHRKVFB')
+     d heavd_                              like(heavd)
+     d heopd_                              like(heopd)
+     d uttext_                             like(uttext)
+     d ttdate_                             like(ttdate)
+     d tttime_                             like(tttime)
+     ‚*  Prototype for 'BHRURLCL'
+     d bhrurlcl        pr                  extpgm('BHRURLCL')
+     d ubane_                              like(ubane)
+     d gifok_                              like(gifok)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for bilibl
+     d bilibl_001      pr                  extpgm(bilibl)
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - TOP
+     ‚*----------------------------------------------------------------------
+     d firstfri        s              1
+     d firsttt         s              1
+     d gifok           s              1
+     d snr             s             17
+     d snrgm           s             17
+S01  d*tttim4          s              4  0
+     d ubane           s            256
+     ‚*----------------------------------------------------------------------
+     ‚* Stand Alone Fields - BOTTOM
+     ‚*----------------------------------------------------------------------
+
+      * Prolog3=GetInput
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      /free
+       // Get input /parse input string
+       exsr parse;
+
+       // File open / keys
+       exsr init;
+
+
+       exsr setall;
+
+       // File close/exit
+       exsr exit;
+
+       *inlr = *on;
+       return;
+
+
+       //**************************
+       begsr parse;
+       //**************************
+         // Parse variables from QUERY_STRING environment variable
+         sndnr   = zhbgetvar('sndnr');
+         kllnr   = zhbgetvar('kllnr');
+         // Userid.....
+         user = zhbgetvar('user');
+       endsr;
+
+
+       //**************************
+       begsr exit;
+       //**************************
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+
+         close bridf;
+         close headf;
+         close head39;
+         close dokufm1;
+         close trackl01;
+         close kofast;
+         close frisok;
+         close frisol01;
+         close kodfri;
+         close dokuf7;
+         close tran;
+         close turer14;
+       endsr;
+
+
+       //**************************
+       begsr setall;
+       //**************************
+
+         jsonstring='{'
+         +'¬inp_user¬ : ¬'+%trim(user)+'¬, '
+           +'¬inp_sndnr¬ : ¬'+%trim(sndnr)+'¬, '
+           +'¬inp_kllnr¬ : ¬'+%trim(kllnr)+'¬ ';
+         exsr skrivjson;
+
+         exsr tstinput;
+
+         if error=*blanks;
+    ‚      // gyldig input er gitt - vis info om ett oppdrag
+           // fiks gitte data
+N01        if hesgm = *blanks;
+N01          exsr berETA;
+N01        endif;
+           monitor;
+             kvdato = %int(hedtmo);
+           on-Error;
+             kvdato = 0;
+           endmon;
+           jsonstring=', '
+           +'¬sendingsNr¬ : ¬'+%trim(hxsndn)+'¬, '
+           +'¬sendersRef¬ : ¬'+%trim(herfa)+'¬, '
+           +'¬avdeling¬ : ¬'+%trim(%editc(heavd:'Z'))+'¬,'
+           +'¬oppdrag¬ : ¬'+%trim(%editc(heopd:'Z'))+'¬,'
+           +'¬saksbeh¬ : ¬'+%trim(hesg)+'¬, '
+           +'¬ordredato¬ : ¬'+%trim(%editw(hedtop:'    .  .  '))+'¬,'
+           +'¬avsender¬ : ¬'+%trim(henas)+'¬, '
+           +'¬avsAdr1¬ : ¬'+%trim(heads1)+'¬, '
+           +'¬avsAdr2¬ : ¬'+%trim(heads2)+'¬, '
+           +'¬avsAdr3¬ : ¬'+%trim(heads3)+'¬, '
+           +'¬mottaker¬ : ¬'+%trim(henak)+'¬, '
+           +'¬mottAdr1¬ : ¬'+%trim(headk1)+'¬, '
+           +'¬mottAdr2¬ : ¬'+%trim(headk2)+'¬, '
+           +'¬mottAdr3¬ : ¬'+%trim(headk3)+'¬, '
+           +'¬antall¬ : ¬'+%trim(%editc(hent:'3'))+'¬,'
+           +'¬varebesk¬ : ¬'+%trim(hevs1)+'¬, '
+           +'¬vekt¬ : ¬'+%trim(%editc(hevkt:'3'))+'¬,'
+           +'¬volM3¬ : ¬'+%trim(%editc(hem3:'3'))+'¬,'
+           +'¬lastem¬ : ¬'+%trim(%editc(helm:'3'))+'¬,'
+N01        +'¬etaDt¬ : ¬'+%trim(etaDt)+'¬, '
+           +'¬kvittert¬ : ¬'+%trim(hesgm)+'¬, '
+           +'¬kvDato¬ : ¬'+%trim(%editw(kvdato:'    .  .  '))+'¬,'
+           +'¬kvTid¬ : ¬'+%trim(%editw(heklmo:'  :  '))+'¬';
+           exsr skrivjson;
+    ‚      //diverse tabellbasert info referanser / T&T
+           exsr dspfrisok;
+           exsr trackinfo;
+         endif;
+
+    ‚    //avslutning
+         jsonstring=', ¬errMsg¬ : ¬'+%trim(error)+'¬ }';
+         exsr skrivjson;
+
+       endsr;
+
+
+       //**************************
+       begsr tstinput;
+       //**************************
+         select;
+
+         // Sendingsnr
+         when sndnr <> *blanks;
+           // 1. via innl.send.nr
+           if %subst(sndnr:17:1)<>' ' and %subst(sndnr:18:3)='   ';
+             sndnr = '401'+sndnr;
+           endif;
+           chain sndnr head39;
+
+           // 2. via fbr-nr frisok
+           *in35 = not %found;
+           if *in35 = '1';
+N02          fskode = 'IFB';
+             fssok = %subst(sndnr:4:17);
+             chain ( fskode : fssok ) frisol01;
+             *in35 = not %found;
+             if *in35 = *off;
+               fmavd = fsavd;
+               fmopd = fsopd;
+               chain ( fmavd : fmopd ) headf;
+               *in35 = not %found;
+             endif;
+           endif;
+
+           // 3. via avd/oppdr.nr
+           if *in35 = '1' and %subst(sndnr:5:1)='/';
+             monitor;
+               fmavd  = %int(%subst(sndnr:1:4));
+             on-Error;
+               fmavd  = 0;
+             endmon;
+             monitor;
+               fmopd  = %int(%subst(sndnr:6:7));
+             on-Error;
+               fmopd  = 0;
+             endmon;
+             chain ( fmavd : fmopd ) headf;
+             *in35 = not %found;
+           endif;
+           // 35 ON= fant ikke sendingen
+           if *in35 = '1';
+             error = 'Finner ikke sending ' + sndnr;
+           endif;
+
+         // Kollinr
+         when kllnr <> *blanks;
+           if %subst(kllnr:18:1) <> ' ' and %subst(kllnr:19:2)='  ';
+             kllnr='00'+kllnr;
+           endif;
+           fmmrk1 = %subst(kllnr:3:18);
+           chain fmmrk1 dokufm1;
+           *in35 = not %found;
+           if *in35 = *off;
+             chain ( fmavd : fmopd ) headf;
+             *in35 = not %found;
+           endif;
+           // 35 ON= fant ikke kolliet/sendingen
+           if *in35 = '1';
+             error = 'Finner ikke kolli ' + kllnr;
+           endif;
+         other;
+           error = 'Sendingsnr eller kollinr må '
+           +'angis som søkeparameter';
+         endsl;
+
+       endsr;
+
+       //**************************
+       begsr dspfrisok;
+       //**************************
+         // liste-start ubetinget
+         jsonstring=', ¬trackbarRef¬ : [';
+         exsr skrivjson;
+
+         // VIS TRACKBAR SØKEVEI
+         firstfri = 'Y';
+         // Innland sendt med transportør som er trackbar..
+         if hxsndn <> *blanks and hepro <> *zeros;
+           exsr innltransp;
+         endif;
+         // frie søkeveier som er trackbare.. (herunder IFB fraktbrev..)
+         setll ( heavd : heopd ) frisok;
+         reade ( heavd : heopd ) frisok;
+         dow not %eof(frisok);
+           kfsttu = *blanks;
+           chain fskode kodfri;
+           if %found;
+             if fskode = 'IFB';
+               exsr tstfbr;
+             endif;
+             exsr tstlaglink;
+           endif;
+           reade ( heavd : heopd ) frisok;
+         enddo;
+         // avslutt liste ubetinget
+         jsonstring=']';
+         exsr skrivjson;
+
+
+         // VIS IKKE-TRACKBAR SØKEVEI
+
+         // liste-start ubetinget
+         jsonstring=', ¬andreRef¬ : [';
+         exsr skrivjson;
+
+         firstfri = 'Y';
+         setll ( heavd : heopd ) frisok;
+         reade ( heavd : heopd ) frisok;
+         dow not %eof(frisok);
+           chain fskode kodfri;
+           if %found and %scan('A':kfsodk)>0;             // dokkode=A = vis på web
+             if fskode = 'IFB';
+               exsr tstfbr;
+             endif;
+             // Har denne frisok-kode peker til Track&Trace-URL-definisjon?
+             kfkod = kfsttu;
+             chain ( 'TRACKPREFI' : kfkod ) kofast;
+             if not %found;
+               if firstfri='Y';
+                 jsonstring=*blanks;
+                 firstfri = 'N';
+               else;
+                 jsonstring=', ';
+               endif;
+               jsonstring=%trim(jsonstring)+'{'
+                  +'¬type¬ : ¬'+%trim(kfsotx)+'¬, '
+                  +'¬verdi¬ : ¬'+%trim(fssok)+'¬} ';
+               exsr skrivjson;
+             endif;
+           endif;
+           reade ( heavd : heopd ) frisok;
+           enddo;
+         // avslutt liste ubetinget
+         jsonstring=']';
+         exsr skrivjson;
+       endsr;
+
+
+       //**************************
+       begsr tstfbr;
+       //**************************
+       // Test om transportør på fraktbrev overstyrer T&T-URL-kode
+       // fri søkevei er fraktbrevsnr innland - da er det turens transporør som gjelder
+         if fssok = snr;
+           leavesr;
+         endif;
+         // samme fr.brevsnr på flere oppdrag ?  finn det rette
+         setll fssok dokuf7;
+         reade fssok dokuf7;
+         dow not %eof(dokuf7);
+           if dfavd = heavd and dfopd = heopd;
+             leave;
+           endif;
+           reade fssok dokuf7;
+         enddo;
+         if %eof(dokuf7) or dftran = 0;
+           leavesr;
+         endif;
+         chain ( bifirm : dftran ) tran;
+         if not %found or vmintp = *blanks;
+           leavesr;
+         endif;
+         kfsttu  = vmintp;
+         kfsotx  = 'Fr.brevsnr ' + dfnat;
+       endsr;
+
+
+
+       //**************************
+       begsr innltransp;
+       //**************************
+         // Sendingsnr i tr.modul innland - transportør med T&T-URL-kode ??
+
+         chain hepro turer14;
+         if not %found;
+           leavesr;
+         endif;
+
+         dftran = tuknt2;
+         chain ( bifirm : dftran ) tran;
+         if not %found or vmintp = *blanks;
+           leavesr;
+         endif;
+
+         // OK fant tur med tansportør som har peker til tracking - lag lenke
+         kfsttu  = vmintp;
+         kfsotx  = 'Fr.brevsnr ' + vmnavn;
+         fssok   = snr;
+         exsr tstlaglink;
+       endsr;
+
+
+       //**************************
+       begsr tstlaglink;
+       //**************************
+         // Har denne frisok-kode peker til Track&Trace-URL-definisjon?
+         kfkod = kfsttu;
+         chain ( 'TRACKPREFI' : kfkod ) kofast;
+         if %found;
+           // Verdi som vises i link..
+           wssok = fssok;
+           // URL som skal utføres
+           wssokurl = kftxt;
+           // append linje 2 (engelsk tekst når siste tegn er A)
+           if %subst(kftxte:50:1) = 'A';
+             %subst(kftxte:50:1) = ' ';
+             wssokurl = %trimr(wssokurl) + kftxte;
+           endif;
+           wssokurl = %trimr(wssokurl) + fssok;
+           // Suffix i søkestrengen..
+           chain ( 'TRACKSUFFI' : kfkod ) kofast;
+           if %found;                                                           //   3<-B
+             wssokurl = %trimr(wssokurl) + kftxt;
+           endif;                                                               //   3<-E
+
+           if firstfri='Y';
+             jsonstring=*blanks;
+             firstfri = 'N';
+           else;
+             jsonstring=', ';
+           endif;
+           jsonstring=%trim(jsonstring)+'{'
+              +'¬type¬ : ¬'+%trim(kfsotx)+'¬, '
+              +'¬verdi¬ : ¬'+%trim(wssok)+'¬, '
+              +'¬url¬ : ¬'+%trim(wssokurl)+'¬} ';
+           exsr skrivjson;
+         endif;                                                                 //  2<-E
+       endsr;
+
+       //**************************
+       begsr trackinfo;
+       //**************************
+       // INFO FRA T&T -LOGG
+         //tabellstart ubetinget
+         jsonstring=', ¬trackTraceEvents¬ : [';
+         exsr skrivjson;
+
+         firsttt = 'Y';
+         kfkod = *blanks;
+
+         // HENDELSER I T&T
+         setll ( heavd : heopd ) trackl01;
+         reade ( heavd : heopd ) trackl01;
+         dow not %eof(trackl01);
+           visweb = ' ';
+           %subst(kfkod:1:3) = ttacti;
+           chain ( 'TRACKT    ' : kfkod ) kofast;
+           if ttacti = 'POD' or ttacti = 'AVV';
+             if ttfbnr <> 0;
+               visweb = ' ';
+             endif;
+           endif;
+           if visweb = 'J';
+             if ttacti = 'POD';
+               uttext = kftxtb + tttext;
+             else;
+               uttext = tttext;
+             endif;
+           //tttim4 = tttime/100;
+             eval datoTid2=TTDG+'/'+TTMN+' '+TTTI+':'+TTMI;
+             if firsttt='Y';
+               jsonstring=*blanks;
+               firsttt  = 'N';
+             else;
+               jsonstring=', ';
+             endif;
+             jsonstring=%trim(jsonstring)+'{'
+                +'¬dato¬ : ¬'+%trim(%editw(ttdate:'    .  .  '))+'¬,'
+                +'¬tid¬ : ¬'+%trim(%editw(tttim4:'  :  '))+'¬,'
+                +'¬datoTid2¬ : ¬'+%trim(datoTid2)+'¬,'
+                +'¬tekst¬ : ¬'+%trim(uttext)+'¬} ';
+             exsr skrivjson;
+N01      // Ta vare lå last event
+N01          LastDate    =  ttdate;
+N01          LastTim4    =  tttim4;
+N01          LastDatoTid2=  datoTid2;
+N01          LastUtText    = uttext;
+             if ttacti = 'POD';
+               // normalt er evt signatur sendingsnr.gif
+               snr = hxsndn;
+               if %subst(hxsndn:20:1)<>' ';
+                 snr = %subst(hxsndn:4:17);
+               endif;
+               exsr getgif;
+             if gifok <> 'J';
+               snrgm = snr;
+               dsavd = %editc(heavd:'X');
+               strek = '_';
+               dsopd = %editc(heopd:'X');
+               snr    = dsavop;
+               exsr getgif;
+               snr = snrgm;
+             endif;
+             endif;
+
+             // vis evt gif ved COL/TEI/TEU/TE2
+             if ttacti = 'COL'
+               or ttacti = 'TEI'
+               or ttacti = 'TEU'
+               or ttacti = 'TE2';
+               exsr getgif2;
+               if gifok <> 'J';
+                 snrgm = snr;
+                 dsavd = %editc(heavd:'X');
+                 strek = '_';
+                 dsopd = %editc(heopd:'X');
+                 snr    = dsavop;
+                 exsr getgif2;
+                 snr = snrgm;
+               endif;
+             endif;
+
+           endif;
+           reade ( heavd : heopd ) trackl01;
+         enddo;
+
+         // finnes det kvittert fraktbrev??
+         uttext = *blanks;
+         bhrkvfb ( heavd : heopd : uttext : ttdate : tttime );
+         if uttext <> *blanks;
+           if firsttt='Y';
+             jsonstring=*blanks;
+           else;
+             jsonstring=', ';
+           endif;
+           firsttt  = 'N';
+           jsonstring=%trim(jsonstring)+'{'
+              +'¬dato¬ : ¬¬,'
+              +'¬tid¬ : ¬¬,'
+              +'¬tekst¬ : ¬'+%trim(uttext)+'¬} ';
+           exsr skrivjson;
+           uttext = *blanks;
+         endif;
+
+         // avslutt liste - ubetinget
+         jsonstring=']';
+         exsr skrivjson;
+
+N01      // skriv siste event   i egen tag
+N01      ttdate  = LastDate;
+N01      tttim4  = LastTim4;
+N01      datoTid2= LastDatoTid2;
+N01      uttext  = LastUtText;
+N01      jsonstring=', ¬lastTrackTraceEvent¬ : {'
+N01        +'¬dato¬ : ¬'+%trim(%editw(ttdate:'    .  .  '))+'¬,'
+N01        +'¬tid¬ : ¬'+%trim(%editw(tttim4:'  :  '))+'¬,'
+N01        +'¬datoTid2¬ : ¬'+%trim(datoTid2)+'¬,'
+N01        +'¬tekst¬ : ¬'+%trim(uttext)+'¬} ';
+N01        exsr skrivjson;
+       endsr;
+
+
+       //**************************
+       begsr getgif;
+       //**************************
+
+         gifok = 'N';
+         ubane = '/syspeddev/signatur/'+%trim(snr)+ '.gif';
+         bhrurlcl ( ubane : gifok );
+         // gif fantes ikke, prøv med bmp.
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+%trim(snr)+ '.bmp';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+%trim(snr)+ '.jpg';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+%trim(snr)+ '.png';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok = 'J';
+           uttext = '<img src="'+%trim(ubane)+'">';
+           if firsttt='Y';
+             jsonstring=*blanks;
+             firsttt  = 'N';
+           else;
+             jsonstring=', ';
+           endif;
+           jsonstring=%trim(jsonstring)+'{'
+              +'¬dato¬ : ¬'+%trim(%editw(ttdate:'    .  .  '))+'¬,'
+              +'¬tid¬ : ¬'+%trim(%editw(tttim4:'  :  '))+'¬,'
+              +'¬tekst¬ : ¬'+%trim(uttext)+'¬} ';
+           exsr skrivjson;
+           uttext = *blanks;
+         endif;
+       endsr;
+
+
+       //**************************
+       begsr getgif2;
+       //**************************
+
+         gifok = 'N';
+         ubane = '/syspeddev/signatur/'+ttacti+'_'+%trim(snr)+ '.gif';
+         bhrurlcl ( ubane : gifok );
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+ttacti+'_'+%trim(snr)+ '.bmp';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+ttacti+'_'+%trim(snr)+ '.jpg';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok <> 'J';
+           ubane = '/syspeddev/signatur/'+ttacti+'_'+%trim(snr)+ '.png';
+           bhrurlcl ( ubane : gifok );
+         endif;
+         if gifok = 'J';
+           uttext = '<img src="'+%trim(ubane)+'">';
+           if firsttt='Y';
+             jsonstring=*blanks;
+             firsttt  = 'N';
+           else;
+             jsonstring=', ';
+           endif;
+           jsonstring=%trim(jsonstring)+'{'
+              +'¬dato¬ : ¬'+%trim(%editw(ttdate:'    .  .  '))+'¬,'
+              +'¬tid¬ : ¬'+%trim(%editw(tttim4:'  :  '))+'¬,'
+              +'¬tekst¬ : ¬'+%trim(uttext)+'¬} ';
+           exsr skrivjson;
+           uttext = *blanks;
+         endif;
+       endsr;
+
+
+
+       //**************************
+       begsr init;
+       //**************************
+       // prepare HTMLbuffer - write top section
+         gethtmlifs('/syspeddev/html/JSON.html':'/CGITAG/');
+         wrtsection('top');
+
+         open bridf;
+         chain user bridf;
+         if not %found;
+         // kall på SkrivJSON/jsonescape (extpg JSONESC) kan feile om ikke libl er satt..
+         //         - alternativt må vi ALLTID sørge for at JSONESC ligger i SYSPED
+           jsonstring='{"errMsg" : "Ugyldig userid"}';
+           updhtmlvar2('JSONstring':%addr(jsonstring):%len(jsonstring));
+           wrtsection('JSONlin');
+           // send htmlbuffer + avslutt
+           wrtsection('*fini');
+           close bridf;
+           *inlr = *on;
+           return;
+         else;
+           if bilibl = *blanks;
+             incgi ( bistdl );              // standardliste via nr
+           else;
+             bilibl_001();                  // helt egen libl
+           endif;
+           open headf;
+           open head39;
+           open dokufm1;
+           open trackl01;
+           open kofast;
+           open frisok;
+           open frisol01;
+           open kodfri;
+           open dokuf7;
+           open tran;
+           open turer14;
+         endif;
+
+       endsr;
+
+       //**************************
+       begsr skrivjson;
+       //**************************
+         callp jsonescape(jsonstring);
+         updhtmlvar2('JSONstring':%addr(jsonstring):%len(jsonstring));
+         wrtsection('JSONlin');
+       endsr;
+
+N01    //**************************
+N01    begsr berETA;
+N01    //**************************
+       //....
+       // ETA-logikk
+       //...
+         if etaDt = *blanks;
+N01        etaDt='-UKJENT-';
+         endif;
+N01    endsr;
+      /end-free

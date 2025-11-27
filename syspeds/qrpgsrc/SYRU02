@@ -1,0 +1,479 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 SH  PTF10 Internref for de som har det
+10XXX * 02 SH  PTF11 flere parametre ved sending
+********************************************************************
+      ****************************************************************************************
+      * Generere RUCKATTEST / Purremail                                                      *
+      *      Enten KUN ETT OPPDRAG eller ...                                                 *
+      *      Alle med status P=Purret, og der det er gått xx-dager                           *
+      *      Alle med status Blank (ennå ikke purret )                                       *
+      *   Dersom oppdraget NÅ har løpenr - oppdater status                                   *
+      *   Elles hent maiadresse via *RUCKATTEST - generer mail oppdater datoer               *
+      ****************************************************************************************
+      * OBS! ved behov for spesialer i selve mailtekst: Se CL SYRU02CM                       *
+      ****************************************************************************************
+N01  FFRISOK    IF   E           K DISK
+     FRUCKDFT   IF   E             DISK
+     FRUCKP     UF   E           K DISK
+     FRUCKPL03  UF   E           K DISK
+     F                                     RENAME(RUCKPR:RUCKPR3)
+     FHEADF     IF   E           K DISK
+     FCUNDC03   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FKODTA     IF   E           K DISK
+     FCUNDL01   IF   E           K DISK
+     Farksrc    O    E             DISK    USROPN
+     F                                     RENAME(arksrc:arcdat)
+      *Array over adresser en vil sende mail til
+     D MoNa            S             50    DIM(5)
+     D MAIL            S             50    DIM(5)
+      *Definisjon av variabler
+     D POS             S             15
+     D EMNE            S             70
+     D XXavTlf         S             50
+N02  D XXavep          S             50
+     D                 DS
+     D  GMDTÅ                  1      4  0
+     D  GMDTM                  5      6  0
+     D  GMDTD                  7      8  0
+     D  GMDTPS                 1      8  0
+     D                 DS
+     D  GMDTD2                 1      2  0
+     D  GMDTM2                 3      4  0
+     D  GMDTÅ2                 5      8  0
+     D  GMDTPS2                1      8  0
+      *
+     C                   exsr      INIT
+      *
+      * Behandle EN gitt post
+     c     UOPD          Ifne      *blanks
+     c                   exsr      EnPost
+     c                   else
+      * Behandle alle som er purret, men der det er gått mer enn xx dg siden purring
+     c                   move      'P'           Status            1
+     C                   exsr      LES
+      * Behandle alle som ennå ikke er purret..
+     c                   move      ' '           Status            1
+     C                   exsr      LES
+     c                   end
+      *
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     Les           BEGSR
+      ******************************************************************************
+     C* Les alle med status ' ' / P
+     C     Status        setll     RUCKPL03
+     C     Status        READE     RUCKPL03                               35
+     C     *in35         DOWEQ     '0'
+     c                   exsr      EnPost
+     C     Status        READE     RUCKPL03                               35
+     C                   END
+      *
+     C     SluttLes      Endsr
+      *
+      ******************************************************************************
+     C     EnPost        BEGSR
+      ******************************************************************************
+      *  Husk gammel dato siste purring (for test og mail)
+     c                   Move      RUDTPS        GMDTPS            8 0
+     c                   Move      RUANTP        GMANTP            2 0
+      *  Sett status / dato siste purring
+      *  Alle poster behandles m.ht status , men de som er purret etter xxx PURRES IKKE NÅ.
+     c     HeaKey        chain     HEADF                              33
+     C     *IN33         cabeq     '1'           UtOpd
+      * Oppdraget har alt fått løpenr eller nytt godsnr (slettet)  - oppdater status
+     c     HETLL         ifne      *blanks
+     c     HEGNN         orne      *blanks
+     c     HEGN          oreq      *blanks
+     c     HEST          oreq      'S'
+     C                   eval      RUST = 'O'
+     c                   else
+      * ellers skal det purres (hvis ikke...)
+     C     RUDTPS        CABGE     Tildt         Utopd                          Ikke ferskere enn...
+      * sjekk om det finnes kontaktpersoner å sende mail til (med funksjon *RUCKATTEST)
+     c                   exsr      MailAdr
+      * Både avsender/motaker må finnes (k.pers med funksjon *RUCKATTEST )
+     C     XXavNa        CABeq     *blanks       Utopd
+     C     mn            CABeq     0             Utopd
+      *
+      * SKAL PURRES: oppdater antall purringer/siste purredato  (husk gammel siste for mail..)
+     C                   eval      RUST = 'P'
+     c                   add       1             RUANTP
+     c                   eval      RUDTPS  =  Today
+     c                   select
+     c     RUDTP1        wheneq    *zeros
+     c                   eval      RUDTP1  =  Today
+     c     RUDTP2        wheneq    *zeros
+     c                   eval      RUDTP2  =  Today
+     c     RUDTP3        wheneq    *zeros
+     c                   eval      RUDTP3  =  Today
+     c                   endsl
+     c                   end
+      *
+      * Oppdater Status og/eller siste purredato
+     c     UOPD          IFNE      *blanks
+     C                   update    RUCKPR
+     c                   else
+     C                   update    RUCKPR3
+     c                   end
+      * IKKE send mail dersom....
+     C     GMDTPS        CABGE     Tildt         UtOpd                          Ikke ferskere enn...
+     C     RUST          CABeq     'O'           UtOpd                          HAR NÅ fått L.nr
+     C     RUKU          CABeq     *zeros        UtOpd                          Ikke kundenr
+      *
+     c                   exsr      SndMail
+      *
+     C     UtOpd         ENDSR
+      *
+      ******************************************************************************
+     C     MailAdr       BEGSR
+      ******************************************************************************
+      * sjekk om det finnes kontaktpersoner på avdelingens kundenummer (avsender)
+     c                   Movel     *blanks       XXavNa
+     c                   movel     *blanks       XXavAD
+     c                   movel     *blanks       XXavTlf
+N02  c                   movel     *blanks       XXavep
+     c     AvdKey        chain     KODTA                              33
+     c                   move      KOAKNR        YYRUKU
+     C     KUNKEY        chain     CundL01                            33
+     c  n33              eval      fift=knavn
+     C     CONKEY        chain     Cundc03                            33
+     C  n33CEMAIL        COMP      *Blanks                                33
+     C  n33CCONTA        COMP      *Blanks                                33
+     c     *in33         cabeq     '1'           UtMaila
+     c                   Movel     CCONTA        XXavNa
+     c                   movel     CEMAIL        XXavAD
+     c     CPHONE        ifne      *blanks
+     c     CMOBIL        orne      *blanks
+     c     CFAX          orne      *blanks
+     c                   eval      XXavTlf = 'Tlf: ' +%trim(CPHONE)
+     c                   eval      XXavTlf = 'Tlf: ' +%trim(CPHONE)
+     c     CMOBIL        ifne      *blanks
+     c                   eval      XXavTlf = %trim(XXavTlf) +
+     c                             '   Mob: ' +%trim(CMOBIL)
+     c                   end
+     c     CFAX          Ifne      *blanks
+     c                   eval      XXavTlf = %trim(XXavTlf) +
+     c                             '   Fax: ' +%trim(CFAX)
+     c                   end
+     c                   end
+n02  c     CEMAIL        ifne      *blanks
+n02  c                   eval      XXavep = CEMAIL
+n02  c                   end
+      * sjekk om det finnes kontaktpersoner på avdelingens kundenummer (avsender)
+     c                   clear                   mail
+     c                   move      *zeros        mn                2 0
+     c                   move      RUKU          YYRUKU
+     C     CONKEY        setll     Cundc03
+     C     CONKEY        reade     Cundc03                                34
+     C     *in34         DOWEQ     '0'
+     C     Mn            andlt     5
+     C     CEMAIL        Ifne      *Blanks
+     C     CCONTA        andne     *Blanks
+     c                   add       1             mn
+     c                   movel     CCONTA        mona(mn)
+     c                   movel     CEMAIL        mail(mn)
+     c                   end
+     C     CONKEY        reade     Cundc03                                34
+     C                   END
+      *
+     C     UtMaila       ENDSR
+      ******************************************************************************
+     C     SndMail       BEGSR
+      ******************************************************************************
+      *  Fyll opp sourcefil som brukes som body
+     C                   open      arksrc
+     c                   move      *zeros        srcseq
+      *
+     C                   eval      SRCDTA = 'PURRING PÅ RUCKATTEST - ' +
+     C                             FIFT
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'En gjennomgang i våre systemer '+
+     C                             'viser at vi ennå ikke har mottatt '
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'RUCKATTEST fra Dere på denne '+
+     C                             'sendingen:'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C     HEPOS2        IFEQ      *ZEROS
+     C                   EVAL      POS = HEPOS1
+     C                   ELSE
+     C                   EVAL      POS = %trim(HEPOS1) +'/' +
+     C                             %trim(%editc(HEPOS2:'Z'))
+     C                   END
+      * ...
+     C                   eval      SRCDTA = 'Godsnummer: ' + HEGN +
+     C                             '  Posisjon: ' + POS
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vår ref:  '+
+     C                             %trim(%editc(HEAVD:'Z'))+'/'+
+     C                             %trim(%editc(HEOPD:'Z'))+'/'+HESG
+N01  C     FRIKEY        CHAIN     FRISOK                             37
+N01  C     *IN37         IFEQ      '0'
+N01  C     SRCDTA        CAT       '/ EXTref:':1 SRCDTA
+N01  C     SRCDTA        CAT       FSSOK:1       SRCDTA
+N01  C                   END
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      * Tidligere purret?  RUDTPS
+     c     GMDTPS        ifne      *zeros
+     c                   move      GMDTÅ         GMDTÅ2
+     c                   move      GMDTM         GMDTM2
+     c                   move      GMDTD         GMDTD2
+     C                   eval      SRCDTA = 'Saken er tidligere purret'
+     c     GMANTP        ifgt      1
+     C                   eval      SRCDTA = %trim(SRCDTA) + ' ' +
+     C                             %trim(%editc(GMANTP:'Z')) +
+     C                             ' ganger. Senest'
+     c                   end
+     C                   eval      SRCDTA = %trim(SRCDTA) + ' ' +
+     C                             %trim(%editw(GMDTPS2:'  .  .    '))
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+     c                   end
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Avs.: ' + HENAS
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS1
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS2
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADS3
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Mot.: ' + HENAK
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK1
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK2
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + HEADK3
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Varebeskrivelse: ' +
+     C                             %trim(%editc(HENT:'Z')) + ' ' +
+     c                             %trim(HEVS1) +' '+ %trim(HEVS2)
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vekt: ' +
+     C                             %trim(%editc(HEVKT:'Z'))
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'Vennligst returner ruckattest '+
+     C                             'på ovennevnte sak snarest,'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = 'med påført ekspedisjonsenhet/'+
+     C                             'løpenr/dato eller nytt godsnummer/dato.'
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      * svar skal til avdelingens kundenr
+     c                   move      KOAKNR        YYRUKU
+s02  c* n33              eval      fift=knavn
+     C     KUNKEY        chain     CundL01                            33
+n02  c  n33              eval      fift=knavn
+      *
+     c                   move      POSTNR        PONRA             4
+     C                   eval      SRCDTA = 'Til.: ' + KNAVN
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + ADR1
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' + ADR2
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = '      ' +
+     C                             PONRA +' ' +%trim(ADR3)
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+     C                   eval      SRCDTA = *blanks
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+s02  C*                  eval      SRCDTA = 'For: ' + FIFT
+s02  c*                  add       1             srcseq
+s02  C*                  WRITE     arcdat
+      *
+s02  C*                  eval      SRCDTA = XXAvNa
+s02  c*                  add       1             srcseq
+s02  C*                  WRITE     arcdat
+      *
+     C                   eval      SRCDTA = XXAvTlf
+     c                   add       1             srcseq
+     C                   WRITE     arcdat
+      *
+      *
+     c     xxavep        ifne      *blanks
+n02  C                   eval      SRCDTA = 'Epost: ' + XXavep
+n02  c                   add       1             srcseq
+n02  C                   WRITE     arcdat
+n02  c                   end
+      *
+     C                   close     arksrc
+      *
+     C                   eval      EMNE = 'Purring RUCKATTEST, Godsnr: ' +
+     C                             HEGN +' fra ' + FIFT
+     C                   eval      EMNE = 'Purring RUCKATTEST ' + HEGN
+      *
+     C                   MOVEL     MAIL(1)       XXINT1
+     C                   MOVEL     MAIL(2)       XXINT2
+     C                   MOVEL     MAIL(3)       XXINT3
+     C                   MOVEL     MAIL(4)       XXINT4
+     C                   MOVEL     MAIL(5)       XXINT5
+     C                   MOVEL     MONA(1)       XXNAV1
+     C                   MOVEL     MONA(2)       XXNAV2
+     C                   MOVEL     MONA(3)       XXNAV3
+     C                   MOVEL     MONA(4)       XXNAV4
+     C                   MOVEL     MONA(5)       XXNAV5
+N02  c                   move      heavd         heavda            4
+N02  c                   move      heopd         heopda            7
+N02  c                   move      hepro         heproa            8
+N02  c                   move      ruku          ruku8             8
+     C                   CALL      'SYRU02CM'
+     C                   PARM                    UUnik
+     C                   PARM                    Emne
+     C                   PARM                    XXavNa           50
+     C                   PARM                    XXavAd           50
+     C                   PARM                    XXNAV1           50
+     C                   PARM                    XXINT1           50
+     C                   PARM                    XXNAV2           50
+     C                   PARM                    XXINT2           50
+     C                   PARM                    XXNAV3           50
+     C                   PARM                    XXINT3           50
+     C                   PARM                    XXNAV4           50
+     C                   PARM                    XXINT4           50
+     C                   PARM                    XXNAV5           50
+     C                   PARM                    XXINT5           50
+     C                   PARM                    heavda
+     C                   PARM                    heopda
+     C                   PARM                    heproa
+     C                   PARM                    ruku8
+     C                   ENDSR
+      *
+      *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *entry        PLIST
+     c                   parm                    Uavd              4
+     c                   parm                    Uopd              7
+     c                   parm                    UUnik             7
+     c     UOpd          ifne      *blanks
+     C                   move      Uavd          RUAVD
+     C                   move      Uopd          RUOPD
+     c     HeaKey        Chain     RUCKP                              34
+     c                   end
+      *
+     C     *loval        setll     FIRM
+     c  N34              read      FIRM                                   34
+      *
+     C  N341             CHAIN     RUCKDFT                            34
+      * Noe mangler - avslutt
+     C     *IN34         ifeq      *ON
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     c                   end
+      *  Tildato  (antall dager før dagens som IKKE skal purres)
+     C                   Z-ADD     0             DAGER
+     C                   CALL      'SYGE20'
+     C                   PARM      'SUB'         FUNK              3
+     C                   PARM      0             INNDT             8 0
+     C                   PARM                    ToDay             8 0
+     C                   PARM                    DAGER             5 0
+      *  Tildato  (antall dager før dagens som IKKE skal purres)
+     C                   Z-ADD     RDDGT         DAGER
+     C                   CALL      'SYGE20'
+     C                   PARM      'SUB'         FUNK              3
+     C                   PARM      0             INNDT             8 0
+     C                   PARM                    TILDt             8 0
+     C                   PARM                    DAGER             5 0
+      * Key i RUCKP
+     C     HEAKey        KLIST
+     C                   KFLD                    RUAVD
+     C                   KFLD                    RUOPD
+N01   * Key i RUCKP
+N01  C     FRIKEY        KLIST
+N01  C                   KFLD                    RUAVD
+N01  C                   KFLD                    RUOPD
+N01  C                   KFLD                    EXKODE            3
+N01  C                   MOVE      '*CR'         EXKODE
+     C     CONKEY        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    YYTYPE           30
+     C                   KFLD                    YYRUKU            8 0
+     C                   eval      YYTYPE     =  '*RUCKATTEST'
+     C     AvdKey        KLIST
+     C                   KFLD                    KOAUNI
+     C                   KFLD                    HEAVD
+     C                   MOVE      'A'           KOAUNI
+     C     KunKEY        KLIST
+     C                   KFLD                    FIFIRM
+s02  C*                  KFLD                    KOAKNR
+n02  C                   KFLD                    YYRUKU
+      *
+     c                   move      *zeros        GMDTPS
+     c                   move      *zeros        GMDTPS2
+     C                   ENDSR

@@ -1,0 +1,213 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/EPOMS04C MODULE(*LIBL/EPOMS04C *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      *********************************************************************
+      *  Virkemåte:
+      *  1) allerde i INIT kalles CL EPOMS04CC som genererer printer-fil
+      *     Dersom det er ZEBRA/LASER pakkes den inn i HTML tagger samt javscript for printdialog
+      *     Dersom det er ELTRON blir det en plain txt-fil
+      *  2) Når CL er ferdig går genererer EPOMS04C en dummy HTML som sørger for den videre behandl.
+      *     Dersom det er Zebra så replacer den seg selv med den tidligere genererte IFS-fila
+      *         typisk /syspeddev/temp/ZBARCxxxxxxxxYYYYYYY.htm (som så automatisk går i prt-dialog)
+      *     Dersom der er ELTRON kalles TK-printerdriver (/syspeddev/TKspooler/TKspooler.aplication
+      *     som må motta hele pathen som parameter "?Path=".....
+      *         typisk http://84.49.8.66/syspeddev/temp/ELTRONxxxxxxxxYYYYYYY.txt
+      *   OBS! - KAN kalles med POREF = KundenrPOnr (og Lay = HE på ferdig oppdrag)
+      *********************************************************************
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FEPOL      UF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D S_address       S            256
+     D Path            S            256
+     D WSUSER          S             10
+     D UsrSpcName      s             10
+     D UNIK            S              7
+     D UNIK6           S              6  0
+     D WSKN            S              8
+     D WSKNN           S              8  0
+     D WSBES           S             10
+     D WSLIN           S              7
+     D WSLINN          S              7  0
+     D WSULIN          S              5
+     D WSULINN         S              5  0
+     D WSNTKL          s              7
+     D WSNTKLN         s              7  0
+     D IFSFIL          S            150
+     D LabelTyp        S              1
+     D CopyPrt         S              1
+     D Lay             S              2
+     D timeData        S               Z                                        Z=Timestamfield
+      * Number of records matching search criteria
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * hent IP fra env-variable
+     C                   eval      S_Address  =getenv('SERVER_ADDR':
+     C                             qusec)
+     C                   eval      S_Port     =getenv('SERVER_PORT':
+     C                             qusec)
+      *-dummy html for å få kjørt prog                                      ******
+      * "bytter ut seg selv" med (Html)fil i IFS umiddelbart                ******
+     c     LabelTyp      ifeq      'Z'
+     C                   eval      IFSFil = 'ZBARC'+%trim(POREF)+'.html'
+     c                   endif
+     c     LabelTyp      ifeq      'E'
+     C                   eval      IFSFil = 'ELTRON'+%trim(POREF)+'.txt'
+     C                   eval      Path   = 'http://'+%trim(S_Address)+
+     C                                      ':'+%trim(S_Port)+'/syspeddev'+
+     C                                      '/TEMP/ELTRON'+%trim(POREF)+'.txt'
+     c                   end
+     c     LabelTyp      ifeq      'L'
+     C                   eval      IFSFil = 'LASLAB'+%trim(POREF)+'.pdf'
+      * legg på dummy TS-parameter for lure brosercache..
+     C                   time                    Timedata
+     C                   movel     timedata      TS               26            må være 26 lang
+     C                   eval      IFSFil = %trim(IFSFil)+'?TS='+TS
+     C                   endif
+     C                   callp     updhtmlvar('IFSFIL':IFSFIL)
+     C                   callp     updhtmlvar('LABTYP':LabelTyp)
+     C                   callp     updhtmlvar('PATH':PATH)
+     C                   callp     wrtsection('top')
+      *------------------                                                   ******
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRIDF
+     C                   close     EPOL
+     C                   eval      *inlr = *on
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   EVAL      WSKN    = zhbgetvar('WSKN')
+     C                   eval      WSKNN   = c2n2(WSKN)
+     C                   EVAL      WSBES   = zhbgetvar('WSBES')
+     C                   EVAL      WSLIN   = zhbgetvar('WSLIN')
+     C                   eval      WSLINN  = c2n2(WSLIN)
+     C                   EVAL      WSULIN   = zhbgetvar('WSULIN')
+     C                   eval      WSULINN  = c2n2(WSULIN)
+     C                   eval      WSNTKL  = zhbgetvar('WSNTKL')
+     C                   EVAL      WSNTKLN = c2n2(WSNTKL)
+     C                   eval      LabelTyp = zhbgetvar('LabelTyp')
+     C                   eval      CopyPrt  = zhbgetvar('CopyPrt')
+     C                   eval      Lay      = zhbgetvar('Lay')
+     C     Lay           Ifeq      *blanks
+     C                   eval      Lay      = 'WW'
+     C                   end
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'EPOMS04C'
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   OPEN      EPOL
+      *
+     c     Key           klist
+     C                   kfld                    WSKNN
+     c                   kfld                    WSBES
+     c                   kfld                    WSLINN
+     c                   kfld                    WSULINN
+      *
+     c                   eval      Unik = UsrSpcName
+     c     Unik          ifeq      *blanks
+     c                   eval      Unik6    = random(1:999999)
+     c                   move      Unik6         Unik
+     c                   movel     'W'           Unik
+     c                   end
+      *  Kall prog for å generere html
+     C                   MOVEL     WSKNN         POREF            18
+     C                   MOVE      WSBES         POREF
+     C                   MOVE      WSLINN        WSLIN
+     C                   MOVE      WSULINN       WSULIN
+      *
+     C     KEY           CHAIN     EPOL                               33
+     C  N33              IF        ELSTA < 'B'
+     C                   EVAL      ELSTA = 'B'
+     C                   END
+     C  N33              IF        ELNTKL <> WSNTKLN
+     C                   EVAL      ELNTKL = WSNTKLN
+     C                   UPDATE    EPOLR
+     C                   CALL      'EPOMS04B'
+     C                   PARM                    ELKUND
+     C                   PARM                    ELBES
+     C                   PARM                    ELLIN
+     C                   PARM                    ELULIN
+     C                   ELSE
+     C                   UPDATE    EPOLR
+     C                   END
+      *
+     C                   call      'EPOMS04CC'
+     C                   parm                    WSUSER
+     C                   parm                    BIFIRM
+     C                   parm                    POREF
+     C                   parm                    WSLIN
+     C                   parm                    WSULIN
+     C                   parm                    Labeltyp
+     C                   parm                    CopyPrt
+     C                   parm                    Lay
+     C                   parm                    UNIK
+      *
+     C                   endsr

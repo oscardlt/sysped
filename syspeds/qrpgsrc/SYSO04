@@ -1,0 +1,356 @@
+      *********************************************************************
+      * Manuell merking av gods mottak
+      * PROGRAM BEHANDLER INPUT FRA SYSO01
+CRTPG+* CRTPGM SYSPED/SYSO04 MODULE(*LIBL/SYSO04
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     UF   E           K DISK    USROPN
+     FHEADF     UF   E           K DISK    USROPN
+     FTRACKF    O  A E             DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D OddEven         s             10
+      * Variables received from the input string
+     D lng             s              2
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSAVD           S              4
+     D BSAVD           S              4  0
+     D WSOPD           S              7
+     D BSOPD           S              7  0
+     D WSSGM           S             10
+     D WSDTMO          S             10
+     D WSKLMO          S              5
+     D WSIN            S              1
+     D AVSLUTT         S              1
+     D PGM             C                   CONST('*LIBL/CHECKUSR')
+     D FMELDNR         S              2
+     D FEILMELDING     S             80
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D                 DS
+     D BSDTMO                  1      8  0
+     D BSDTMOÅ                 1      4  0
+     D BSDTMOM                 5      6  0
+     D BSDTMOD                 7      8  0
+     D                 DS
+     D BSKLMO                  1      4  0
+     D BSKLMOT                 1      2  0
+     D BSKLMOM                 3      4  0
+      *
+     D FEIL01          C                   CONST('Signatur må oppgis.')
+     D FEIL01EN        C                   CONST('Signature haves to be given.')
+     D FEIL02          C                   CONST('Dato er ugyldig.')
+     D FEIL02EN        C                   CONST('Date is not valid.')
+     D FEIL03          C                   CONST('Time is not valid.')
+     D FEIL03EN        C                   CONST('Tid er ugyldig.')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      *
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      *
+     C                   IF        WSIN = 'J'
+     C     HEADFK        CHAIN(N)  HEADF                              33
+     C                   MOVE      HESGM         WSSGM
+     C                   MOVE      HEDTMO        BSDTMO
+     C                   MOVE      HEKLMO        BSKLMO
+     C                   ELSE
+     C                   exsr      TESTIN
+     C                   END
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *
+     C     SLUTT         TAG
+     C                   EXSR      EXIT
+     C                   return
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSAVD   = zhbgetvar('WSAVD')
+     C                   EVAL      BSAVD   = c2n2(WSAVD)
+     C                   eval      WSOPD   = zhbgetvar('WSOPD')
+     C                   EVAL      BSOPD   = c2n2(WSOPD)
+     C                   eval      WSSGM   = zhbgetvar('WSSGM')
+     C                   eval      WSSGM   = uppify(WSSGM)
+     C                   eval      WSDTMO  = zhbgetvar('WSDTMO')
+     C                   EVAL      BSDTMO  = c2n2(WSDTMO)
+     C                   eval      WSKLMO  = zhbgetvar('WSKLMO')
+     C                   EVAL      BSKLMO  = c2n2(WSKLMO)
+     C                   eval      WSIN    = zhbgetvar('WSIN')
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('WSNA':BIBESK)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+      *
+     C                   callp     updHtmlVar('WSAVD':
+     C                             %trim(%editc(BSAVD:'Z')))
+     C                   callp     updHtmlVar('WSOPD':
+     C                             %trim(%editc(BSOPD:'Z')))
+     C                   callp     updHTMLvar('WSSGM':WSSGM)
+     C                   callp     updHtmlVar('WSDTMO':
+     C                             %trim(%editw(BSDTMO:'    .  .  ')))
+     C                   callp     updHtmlVar('WSKLMO':
+     C                             %trim(%editw(BSKLMO:'  :  ')))
+      *
+     C                   callp     updHTMLvar('WSIN':'N')
+     C                   callp     updHTMLvar('AVSLUTT':AVSLUTT)
+     C                   callp     updhtmlvar('FEILMELDING':
+     C                             FEILMELDING)
+     C                   callp     updhtmlvar('FMELDNR':FMELDNR)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYSO04'
+     C                   CAT       XSPRÅK:0      MBR
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Server protocol
+     C                   callp     updhtmlvar('PROTOCOL':S_Protocol)
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *
+      *////////////////////////////////////////////////////////////
+     C     TESTIN        BEGSR
+      *////////////////////////////////////////////////////////////
+      *
+      * TEST SIGNATUR
+     C                   IF        WSSGM = *BLANKS
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEIL01EN      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   END
+     C                   MOVE      '01'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+      * TEST DATO FOR MOTTAK
+     C                   IF        BSDTMO <> 0
+     C                   MOVE      BSDTMOD       UDD               2 0
+     C                   MOVE      BSDTMOM       UMM               2 0
+     C                   MOVE      BSDTMOÅ       UÅÅ               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UÅÅ
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        IFEQ      1
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEIL02EN      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   END
+     C                   MOVE      '02'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   ENDIF
+     C                   END
+      *
+      * TEST TID FOR MOTTAK
+     C                   IF        (((BSKLMO = 0) OR
+     C                               (BSKLMOT > 23)) OR
+     C                               (BSKLMOM > 59))
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEIL03EN      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   END
+     C                   MOVE      '03'          FMELDNR
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+      * OPPDATER POD
+     C                   MOVE      'Y'           AVSLUTT
+     C     HEADFK        CHAIN     HEADF                              33
+     C                   IF        *IN33 = *OFF
+     C                   EXSR      OPDLOG
+     C                   MOVE      WSSGM         HESGM
+     C                   MOVE      BSDTMO        HEDTMO
+     C                   MOVE      BSKLMO        HEKLMO
+     C                   UPDATE    HEADFR
+     C                   END
+      *
+     C     SLTBDT        ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+     C     OPDLOG        BEGSR
+      *////////////////////////////////////////////////////////////
+      *
+     C                   MOVE      BSAVD         TTAVD
+     C                   MOVE      BSOPD         TTOPD
+     C                   MOVE      WDT           TTDATE
+     C                   MOVE      WTM           TTTIME
+     C                   MOVE      WDT           TTDATL
+     C                   MOVE      WTM           TTTIML
+     C                   MOVE      'POD'         TTACTI
+     C                   EVAL      TTUSER = 'SYSO04'
+     C                   MOVE      HEDTMO        XAN08             8
+     C                   EVAL      TTTEXT = 'POD changed from '
+     C                             + %TRIM(XAN08) + ' to '
+     C                             + %TRIM(WSDTMO) + ' by '
+     C                             + %TRIM(WSUSER)
+     C                   WRITE     TRACKFR
+      *
+     C                   ENDSR
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C     HEADFK        KLIST
+     C                   KFLD                    BSAVD
+     C                   KFLD                    BSOPD
+      *
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C                   OPEN      HEADF
+     C                   OPEN      TRACKF
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+     C                   callp     wrtsection('end')
+     C                   callp     wrtsection('*fini')
+     C                   close     BRIDF
+     C                   close     HEADF
+     C                   close     TRACKF
+     C                   eval      *inlr = *on
+      *
+     C                   endsr
+      *

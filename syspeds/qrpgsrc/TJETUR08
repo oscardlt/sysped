@@ -1,0 +1,182 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJETUR08 MODULE(*LIBL/TJETUR08 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FFREETUR1  IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D WSAVD           S              4
+     D WBAVD           S              4S 0
+     D WSTUR           S              8
+     D WBTUR           S              8S 0
+     D PART            S              1
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬wsavd¬ : ¬'+%trim(WSAVD)+'¬, '
+        +'¬wstur¬ : ¬'+%trim(WSTUR)+'¬, '
+        +'¬part¬ : ¬'+%trim(PART)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"freetextlist" : ['
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Liste
+      *
+     c     Error         ifeq      *blanks
+     C     FREEKEY       SETLL     FREETUR1
+     C     FREEKEY       READE     FREETUR1                               55
+     C     *IN55         DOWEQ     '0'
+      * Skal denne med med hensyn til part, f.eksempel S=Selger K=Kjøper.........
+     C     PART          IFNE      *BLANKS
+     C     FRTKOD        ANDNE     'B'
+     C     PART          CABNE     FRTKOD        READNEXT
+     C                   ENDIF
+     C                   Add       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬frtdt¬ : ¬'+%trim(%editc(frtdt:'Z'))+'¬, '
+          +'¬frtli¬ : ¬'+%trim(%editc(frtli:'Z'))+'¬, '
+          +'¬frttxt¬ : ¬'+%trim(frttxt)+'¬, '
+          +'¬frtkod¬ : ¬'+%trim(frtkod)+'¬, '
+          +'¬frtles¬ : ¬'+%trim(frtles)+'¬}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+
+
+     C     READNEXT      TAG
+     C     FREEKEY       READE     FREETUR1                               55
+     C                   ENDDO
+     c                   ENDIF
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%addr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     FREETUR1
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     C                   EVAL      WSAVD  = zhbgetvar('WSAVD')
+     C                   EVAL      WBAVD  = c2n2(WSAVD)
+     C                   EVAL      WSTUR  = zhbgetvar('WSTUR')
+     C                   EVAL      WBTUR  = c2n2(WSTUR)
+     C                   EVAL      PART   = zhbgetvar('PART')
+     C                   EVAL      PART   = 'G'
+     c                   endsr
+      *
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+      *
+     C     FREEKEY       KLIST
+     C                   KFLD                    WBAVD
+     C                   KFLD                    WBTUR
+     C                   Z-ADD     1             X                 3 0
+      *
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      FREETUR1
+
+     c                   endsr

@@ -1,0 +1,516 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 jov PTF10 omskrivinger vedr TTSR/FIXDISP, Oppdater M=manko,   gammel merking fjernet
+      * 02 jov PTF10 et kolli kan ha vært M=manko inn, og så dukke opp igjen (f.eks UT.)
+      * 03 jov PTF10 teksting:  on terminal -> terminal
+10172 * 04 SH  PTF10 norsk text til Track and trace
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 05 JOV PTF11 hardkodet 'IN   '/'OUT  ' byttet: IN.../OU... - bedret teksting mm..
+      *              Slettede linjer IKKE MERKET for bedre oversikt (se evt gml i SYSPEDS)
+      * 06 JOV PTF11 logikk for å oppdatere andre oppdrag i kjeden endret/utvidet. Frigi alle IN/I2
+********************************************************************
+     FDOKUFM    UF   E           K DISK
+     FDOKUFN1   IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+S06  F*OKUF7    IF   E           K DISK
+     Fheadf     IF   E           K DISK
+     FDISP      UF   E           K DISK
+     FTRACKL02  IF A E           K DISK
+     FFIRM      IF   E           K DISK
+s06  D*                DS
+s06  D* HXSNDN                 1     20
+s06  D* HXSNDN1_10             1     10
+s06  D* HXSNDN11_20           11     20
+s06  D* HXSNDN4_20             4     20
+N06  D                 DS
+N06  D  DUP                    1   1100  0
+N06  D                                     DIM(100)
+N06  D                 DS
+N06  D  AvdOpd                 1     11  0
+N06  D   DsAvd                 1      4  0
+N06  D   DsOpd                 5     11  0
+     D                 DS
+     D  FMMRK1                 1     35
+     D  FMCLID                 1     18
+     D                 DS
+     D  KOID                   1     20
+     D  KOID18                 3     20
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D                 DS
+     D UUDatTid                1     14  0
+     D WDsDTT12                1     12  0
+     D  UUDT                   1      8  0
+     D  UUKL                   9     14  0
+     D                 DS
+     D FN_DTT12                1     12  0
+     D  FNDATE                 1      8  0
+     D  FNTIME                 9     14  0
+     D                 DS
+     D  PAVRDA                 1     50
+     D  PAVRDA1_5              1      5
+N01  D  PAVRDA6                6      6
+     D  PAVRDA7_46             7     46
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *
+     C                   EXSR      MAIN
+      *
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+      *
+      *
+      *******************************************************
+     C     MAIN          BEGSR
+      *******************************************************
+      *
+      * Sjekk om ALLE KOLLIIDs på aktuell sending dermed er ankommet (ignorer annet..)
+      * I dokuFM kan det ligge YMSE kollimerking, Normalt bare Kolli-IDS - KolliId har STATUS
+      *    FMST = I = Internt tildelt 20 lang strekkode (hvorav lagret kun 18 site)
+      *    FMST = E = Ekternt tildelt 20 lang strekkode (hvorav lagret kun 18 site)
+      *    FMST = M = MERKET MANKO (settes ved denne avsl.kontroll eller manuelt..)
+      *
+     c                   move      *zeros        AntKli            3 0
+     c                   move      *zeros        AntLest           3 0
+     c                   move      *zeros        AntMan            3 0
+     C     DokKey        SETLL     DOKUFM
+     C     DokKey        READE     DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+E05  c                   if        %subst(UUTERM:1:2)='IN'
+E05  c                             and UUFUNK='M' and FMST='M'
+     c                   add       1             AntKli
+     c                   add       1             AntMan
+     c                   goto      NextClID
+     c                   end
+     c     FMST          ifne      'I'
+     c     FMST          andne     'E'
+N02  c     FMST          andne     'M'
+     c                   goto      NextClID
+     c                   end
+      *
+     c                   add       1             AntKli
+     c                   select
+      * IN
+E05  c                   when      %subst(UUTERM:1:2)='IN'
+     c     UUFUNK        ifne      'M'
+     C     FMITER        cabeq     ' '           UtLes                          løpend kontr -> UT
+     c                   else
+     C     FMITER        ifeq      ' '
+     c                   add       1             AntMan                         Sluttkontroll->tell
+     c                   move      'M'           FMST                           Merk manko
+     c                   end
+     c                   end
+      * OUT
+E05  c                   when      %subst(UUTERM:1:2)='OU'
+     c     UUFUNK        ifne      'M'
+     C     FMUTER        cabeq     ' '           UtLes                          løpend kontr -> UT
+     c                   else
+     C     FMUTER        ifeq      ' '
+     c                   add       1             AntMan                         løpend kontr -> UT
+     c                   end
+     c                   end
+     c                   other
+      * FREMMED
+      *skyting på fremmed Terminal kan forekomme flere ganger - sjekk siste
+      * MÅ finnes / ikke være eldre enn xx (TSTTIM)timer
+     c     FremKeyMax    setgt     DOKUFN1
+     C     FremKey       readpe    DOKUFN1                                33
+      * eldre enn xx time, regnes som tilhørende tidlige skyting(= NY finnes ikke=ikke komplett)
+      *    200908271635 - 200908271534 = 101 (1 time 1 minutt)
+     c  N33WDsDTT12      sub       FN_DTT12      Diff             12 0
+     c  N33Diff          comp      TSTTIM                             33  33
+     c     UUFUNK        ifne      'M'
+     c   33              move      'J'           IkkeKompFr        1
+     c   33              goto      UtLes
+     c                   else
+     c   33              add       1             AntMan
+     c                   end
+     c                   endsl
+     c     NextClID      tag
+     c                   update    DOKUFMR
+     C     DokKey        READE     DOKUFM                                 33
+     C                   end
+      *
+     c     UtLes         tag
+      *
+      * Ved IKKE kollimerket gods kan en IKKE vite noe om kommet/ikke kommet
+     c     AntKli        cabeq     *zero         UtOppd2
+      *
+      * DET FINNES KOLLI-IDS...
+      * Ved Funksjon ULIK M=Mankokontroll...( ved Løpende kontroll etter skutt kolli..)
+      *    ER kommet hit ENTEN fordi en har funnet en som IKKE var skutt
+      *    eller Kom gjennom alle kolli uten blank..Alle kommet = oppdater KOMPLETT Inn/Ut/Fremmed
+      * Ved Funksjon M=Mankokontroll/slutt-kontroll
+      *    Er en kommet hit etter at alle er lest, manko/tot er talt opp..
+     c                   select
+E05  c                   when      %subst(UUTERM:1:2)='IN'
+N06  c                             or %subst(UUTERM:1:2)='I2'
+     c     UUFUNK        ifne      'M'                                          Løpende kontroll
+     C     FMITER        IFNE      ' '                                          Komplett
+     C                   exsr      Fixdisp
+     C                   exsr      TTSR
+     c                   endif
+     c                   else                                                   Sluttkontroll
+     C                   exsr      TTSR
+     c                   end
+      *
+E05  c                   when      %subst(UUTERM:1:2)='OU'
+N06  c                             or %subst(UUTERM:1:2)='O2'
+     c     UUFUNK        ifne      'M'                                          Løpende kontroll
+     C     FMUTER        IFNE      ' '                                          Komplett
+     C                   exsr      TTSR
+     c                   endif
+     c                   else                                                   Sluttkontroll
+     C                   exsr      TTSR
+     c                   end
+      *
+     c                   other
+     c     UUFUNK        ifne      'M'                                          Løpende kontroll
+     c     IkkeKompFr    ifne      'J'                                          Komplett
+     C                   exsr      TTSR
+     c                   endif
+     c                   else                                                   Sluttkontroll
+     C                   exsr      TTSR
+     c                   end
+     c                   endsl
+      *
+     C     UtOppd2       ENDSR
+      *////////////////////////////////////////////////////////////
+     C     FixDisp       BEGSR
+      *////////////////////////////////////////////////////////////
+      *
+     C     OPDKEY        CHAIN     DISP                               33
+     C     *in33         IFEQ      *OFF
+     C     DISTA1        IFEQ      'E'
+     C     DISTA1        OREQ      'V'
+     C                   move      ' '           DISTA1
+     C                   END
+     c                   update    DISPR
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *
+     C***********************************************
+     C     TTSR          BEGSR
+     C***********************************************
+     C     OPDKEY        CHAIN     HEADF                              33
+N06
+N06   * Finn ut om oppdraget er en del av en "DUP-struktur" - legg alle i ARRAY
+N06   * FINN TOPP-NIVÅET
+N06  C     TROPD0        DOWNE     0
+N06  C     HEAKY0        CHAIN     HEADF                              33
+N06  C                   ENDDO
+N06  C* Legg inn topp-oppdraget som start i array
+N06  c                   clear                   DUP
+N06  c                   z-add     1             Nr                3 0
+N06  c                   movel     heavd         Dup(Nr)
+N06  c                   move      heopd         Dup(Nr)
+N06  c     1             do        100           Cur               3 0
+N06  c     Dup(Cur)      cabeq     *zeros        UtAdd
+N06  c                   move      Dup(Cur)      AvdOpd
+N06  C     DSHeaKey      CHAIN     HEADF                              33
+N06  C  N33TrOpd1        IFNE      *ZEROS
+N06  C                   add       1             Nr
+N06  c                   movel     TrAvd1        Dup(Nr)
+N06  c                   move      TrOpd1        Dup(Nr)
+N06  C                   ENDIF
+N06  C  N33TrOpd2        IFNE      *ZEROS
+N06  C                   add       1             Nr
+N06  c                   movel     TrAvd2        Dup(Nr)
+N06  c                   move      TrOpd2        Dup(Nr)
+N06  C                   ENDIF
+N06  c                   enddo
+N06  C     UtAdd         tag
+      *
+     c                   move      *blanks       ExtraTxt         30
+     c     Antman        ifgt      *zeros
+     c     AntKli        sub       AntMan        AntLest
+     c                   eval      ExtraTxt= ' Checked: '
+     c                             + %trim(%editc(AntLest:'3'))
+     c                             + '/' + %trim(%editc(AntKli:'3'))
+     c                   end
+s06  C*                  MOVE      HEAVD         TTAVD
+s06  C*                  MOVE      HEOPD         TTOPD
+N06  C                   MOVE      FMAVD         TTAVD
+N06  C                   MOVE      FMOPD         TTOPD
+     C                   MOVE      *zeros        TTFBNR
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     c                   select
+E05  c                   when      %subst(UUTERM:1:2)='IN'
+     c     Antman        iflt      AntKli
+     C                   MOVE      'TEI'         TTACTI
+     c                   else
+     C                   MOVE      'TES'         TTACTI
+     c                   end
+E05  c                   when      %subst(UUTERM:1:2)='OU'
+     c     Antman        iflt      AntKli
+     C                   MOVE      'TEU'         TTACTI
+     c                   else
+     C                   MOVE      'TUS'         TTACTI
+     c                   end
+     c                   other
+     c     Antman        iflt      AntKli
+     C                   MOVE      'TE2'         TTACTI
+     c                   else
+     C                   MOVE      'T2S'         TTACTI
+     c                   end
+     c                   endsl
+N05   * T&T-tekst samlet for å forenkle.. (fysisk slette fra logikk over...)
+N05  C                   EVAL      TTTEXT='Scanned '+%trim(TermNavn)+ExtraTxt
+N05  C                   EVAL      TTTEXL='Skannet '+%trim(TermNavnL)+ExtraTxt
+N05   * Helmano??
+N05  c                   if        TTACTI='TES' or TTACTI='TUS' or TTACTI='T2S'
+N05  C                   EVAL      TTTEXT='SHORT!! '+%trim(TermNavn)+ExtraTxt
+N05  C                   EVAL      TTTEXL='MANKO!! '+%trim(TermNavnL)+ExtraTxt
+N05  C                   endif
+     c
+     C                   MOVEL     UUTERM        TTDEPO
+     C                   MOVE      UUDT          TTDATE
+     C                   MOVEL     UUKL          TTTIME
+     C                   MOVE      ULDT          TTDATL
+     C                   MOVE      XULTM         TTTIML
+     C                   MOVEL     UUSER         TTUSER
+     c                   move      'S'           TTMANU
+     C                   WRITE     TRACKFR
+      *
+     c                   move      ' '           TTMANU
+S06   *
+S06   * OPPDATER EV. BESTILLENDE OPPDRAG (DERSOM DETTE ER INNLAND DUP AV.. / via Fr.brev...)
+S06  C*    HXSNDN        IFNE      *BLANKS
+S06  C*                  clear                   DF1004
+S06  C*    HXSNDN11_20   ifne      *blanks
+S06  C*                  movel     HXSNDN4_20    DF1004
+S06  C*                  else
+S06  C*                  movel     HXSNDN1_10    DF1004
+S06  C*                  end
+S06   *
+S06  C* frakktbrev på andre oppdrag enn distr.oppdraget... Oppdater T&T
+S06  C*    DF1004        setll     DOKUF7
+S06  C*    DF1004        reade     DOKUF7                                 33
+S06  C*    *in33         doweq     '0'
+S06  C*    DFAVD         IFNE      HEAVD
+S06  C*    DFOPD         andne     HEOPD
+S06  C*                  MOVE      DFAVD         TTAVD
+S06  C*                  MOVE      DFOPD         TTOPD
+S06  C*                  MOVE      DFFBNR        TTFBNR
+S06  C*                  WRITE     TRACKFR
+S06   * SJEKK OM HENDELSE FINNES OPPDR.NIVÅ...
+S06   *(DETTE BØR FORBEDRES EMD TEST OM ALLE F.BREV HAR HENDELSEN... )
+S06   *(DERSOM DET ER TE2-HENDELSE SÅ MÅ EN JO OGSÅ TA HENSYN TIL TERM/TID..)
+S06  C*                  MOVE      *zeros        TTFBNR
+S06  C*                  CALL      'SYGE46'
+S06  C*                  PARM                    TTAVD
+S06  C*                  PARM                    TTOPD
+S06  C*                  PARM                    NULFBNR           3 0
+S06  C*                  PARM                    TTACTI            3
+S06  C*                  PARM      'S'           XXTYPE            1
+S06  C*                  PARM                    XXDATE            8 0
+S06  C*                  PARM                    XXTIME            6 0
+S06  C*                  PARM                    XXANTA            5 0
+S06  C*    XXDATE        IFEQ      *ZEROS
+S06  c*                  move      'S'           TTMANU
+S06  C*                  WRITE     TRACKFR
+S06  c*                  move      ' '           TTMANU
+S06  C*                  ENDIF
+S06  C*
+S06  C*                  end
+S06  C*    DF1004        reade     DOKUF7                                 33
+S06  C*                  end
+s06  C*                  END
+     C*
+N06  c                   exsr      DupOppd
+     C*
+     C     UtTT          ENDSR
+N06   **************************************************************************
+N06  C     DupOppd       begsr
+N06   **************************************************************************
+N06  C                   MOVE      'KOP'         TTEDRE                         KOPI FRA ANNET...
+N06  c                   movel     FMAVD         AvdOpdN          11 0
+N06  c                   move      FMOPD         AvdOpdN
+N06   * Dupliser hendelse til alle oppdrag i "DUP-struktur"
+N06  c     1             do        100           Nr
+N06  c     Dup(Nr)       cabeq     *zeros        UtDupArr
+N06  c                   move      Dup(Nr)       AvdOpd
+N06  c     AvdOpd        ifne      AvdopdN
+N06  C                   MOVE      DsAvd         TTAVD
+N06  C                   MOVE      DsOpd         TTOPD
+N06  C                   WRITE     TRACKFR
+N06   * dersom 'IN..' Terminla - sjekk frigiveing av evt E/V .
+N06  c                   If        %subst(UUTERM:1:2)='IN'
+N06  c                             or %subst(UUTERM:1:2)='I2'
+N06  c                   If        UUFUNK <> 'M' and                            Løpende kontroll
+N06  C                             FMITER<>' '                                  Komplett
+N06  C                   MOVE      DsAvd         FMAVD
+N06  C                   MOVE      DsOpd         FMOPD
+N06  C                   exsr      Fixdisp
+N06  c                   endif
+N06  c                   endif
+N06  C                   ENDIF
+N06  c                   enddo
+N06  C     UtDupArr      tag
+N06  C                   MOVE      *BLANKS       TTEDRE                         EVENT PÅ DETTE ..
+N06  C                   ENDSR
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+      *////////////////////////////////////////////////////////////
+     c     *entry        plist
+     c                   parm                    UAVD              4
+     c                   parm                    UOPD              7
+     c                   parm                    UFBNR             3
+     c                   parm                    UUterm            5
+     c                   parm                    UUFunk            1
+     c                   parm                    TIMER             2
+     c                   parm                    UUSER            10
+     c                   parm                    UDATTID          14
+     c                   move      UDATTID       UUDatTid
+      *
+     c                   move      UAVD          FMAVD
+     c                   move      UOPD          FMOPD
+     c                   move      UFBNR         FMFBNR
+     c                   move      TIMER         TIMERN            2 0
+     c     TimerN        ifeq      *zeros
+     c                   eval      Timer  ='01'
+     c                   eval      TimerN = 1
+     c                   end
+     c     TimerN        mult      100           TSTTIM            4 0
+      *
+     C     *loval        setll     FIRM
+     C                   read      firm
+      *
+      *
+     C     OPDKEY        KLIST
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C     DOKKEY        KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+     C                   MOVE      'F'           FMRI
+     C                   MOVE      *ZEROS        FMLINR
+n06  C     DsHeaKey      KLIST
+N06  C                   KFLD                    DsAVD
+n06  C                   KFLD                    DsOPD
+N06  C     HEAKY0        KLIST
+n06  C                   KFLD                    TRAVD0
+N06  C                   KFLD                    TROPD0
+      *
+      **
+      * ER alt komplett INN/UT av aktuell terminal??  I så fall - hopp UT
+      *  men om dette er fremmed terminal OG mer en en time siden er det ok (retur eller forsøk mm)
+     C     TTKEY         KLIST
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    TTFBNR
+     C                   KFLD                    TTACTI
+      *
+     c                   select
+     c     UUTERM        wheneq    'IN   '
+     C                   MOVE      'TEI'         TTACTI
+     c     UUTERM        wheneq    'OUT  '
+     c                   other
+     C                   MOVE      'TE2'         TTACTI
+     c                   endsl
+     c     TTKEY         setgt     TRACKL02
+     c     TTKEY         readpe    TRACKL02                               33
+     c     *in33         doweq     '0'
+     c     UUTERM        ifeq      TTDEPO
+     c     UUTERM        ifeq      'IN   '
+     c     UUTERM        oreq      'OUT  '
+     c                   move      *on           *inlr
+     c                   return
+     c                   else
+      * Fremmed - finnes, men eldre enn en time - OK (lag ny)
+      *    200908271635 - 200908271534 = 101 (1 time 1 minutt)"låner FNDATE/TIME for å kalkkulere
+     c                   move      TTDATE        FNDATE
+     c                   move      TTTIME        FNTIME
+     c  N33WDsDTT12      sub       FN_DTT12      Diff             12 0
+     c     Diff          iflt      100
+     c                   move      *on           *inlr
+     c                   return
+     c                   else
+     c                   leave                                                  eldste=mer enn....
+     c                   end
+     c                   end
+     c                   end
+     c     TTKEY         readpe    TRACKL02                               33
+     c                   enddo
+      *
+      *
+     c     FremKeyMax    Klist
+     c                   Kfld                    UUTERM
+     c                   kfld                    FMCLID
+     c                   kfld                    MaxDate
+     c                   move      99999999      Maxdate           8 0
+     c
+     c     FremKey       Klist
+     c                   Kfld                    UUTERM
+     c                   kfld                    FMCLID
+      *
+     C     BrParKey      KLIST
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+S05  C*                  MOVE      UUSER         PABRID
+N05   * Term-tekst SKAL hentes fra firmanivå for å sikre at det er enheltig..
+N05  C                   MOVE      '*KUNDFT*  '  PABRID
+N05  C                   MOVE      FIFIRM        PABRID
+     C                   MOVE      *zeros        PAKUNR
+     C                   MOVEL     'TERMK'       PAID
+     c                   move      *blanks       Termnavn         40
+N05  c                   move      *blanks       TermnavnL        40            Local language
+N05   * Terminal-navn
+N05   * evt avvikende tekst for Norsk/ local language ligger med L i pos 6
+N05  c     BrParKey      setll     BRPARF
+N05  c     BrParKey      reade     BRPARF                                 33
+N05  c     *in33         doweq     '0'
+N05  c     Pavrda1_5     ifeq      UUTERM
+N05  c     Pavrda6       andeq     'L'
+N05  c                   eval      TermNavnL=Pavrda7_46
+N05  c                   leave
+N05  c                   end
+N05  c     BrParKey      reade     BRPARF                                 33
+N05  c                   end
+N05   * Henter engelsk/felles/generelt terminal-navn til slutt (for å avsl.parametre derfra)
+     c     BrParKey      setll     BRPARF
+     c     BrParKey      reade     BRPARF                                 33
+     c     *in33         doweq     '0'
+     c     Pavrda1_5     ifeq      UUTERM
+N05  c     Pavrda6       andne     'L'
+     c                   eval      TermNavn= Pavrda7_46
+     c                   leave
+     c                   end
+     c     BrParKey      reade     BRPARF                                 33
+     c                   end
+      *
+     c     TermNavn      ifeq      *blanks
+N05  c                   if        UUTERM = 'IN   ' or  UUTERM = 'OUT  '
+N05  c                   eval      TermNavn= %trim(FIKRTN) +' '+UUTERM
+N05  c                   else
+     c                   eval      TermNavn= UUTERM
+N05  c                   endif
+     c                   end
+N05   * eget navn Local language
+N05  c     TermNavnL     ifeq      *blanks
+N05  c                   eval      TermNavnL=TermNavn
+N05  c                   end
+     C                   ENDSR
+      *

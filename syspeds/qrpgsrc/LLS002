@@ -1,0 +1,722 @@
+      *********************************************************************
+      * Hent f.om./t.o.m. dato for å vise bevegelse i en periode
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/LLS002 MODULE(*LIBL/LLS002
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 EXCEL
+10XXX * 02 YBC PTF10 HINDRE PROGRAMFEIL NÅR BRUKER OPPGIR FLERE ENN 8 SIFRE PÅ DATO
+********************************************************************
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+     FBRIDF     UF   E           K DISK    USROPN
+     FLLWW01    if   e           k disk    USROPN
+     FLLVARE01  if   e           k disk    USROPN
+     FLLGRPK05  if   e           k disk    USROPN
+     FLLAGJD01  if   e           k disk    USROPN
+     FLLAGJL03  if   e           k disk    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+      * Variables received from the input string
+     D lng             s              2
+     D artnr           s             15
+     D MAXANR          s             15
+N01  D artnrL          s             15
+N01  D MAXANRL         s             15
+     D vagrp           s              5
+     D inkansv         s             30
+     D minpros         s              2
+     D eier            s              5
+     D BevDato         S             10
+N02  D BevDato10       S             10  0
+     D DatoN           S              8  0
+     D Datofr          s             10
+N02  D Datofr10        s             10  0
+     D Datoti          s             10
+N02  D Datoti10        s             10  0
+     D FORSTGANG       S              1
+     D USER            S             10
+     D UsrSpcName      s             10
+N01  D WSCSV           s              1
+N01  D CSVFILE         s             50
+     D bminpros        s              2s 0
+     D Diffpros        s             15s 2
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     D FMELDNR         S              2
+     D FEILMELDING     S             60
+     D FEIL01          C                   CONST('Fra og med dato er ugyldig.')
+     D FEIL02          C                   CONST('Til og med dato er ugyldig.')
+     D FEIL03          C                   CONST('T.o.m. dato kan ikke være tid-
+     D                                     ligere enn f.o.m. dato.')
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D NIER            s             15a   inz('999999999999999')
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *Array for innsetting av 9999... bak i søkebegrep
+     D A               S              1    DIM(15)
+     D VG              S              5    DIM(10)
+     D VE              S              5    DIM(10)
+      *
+     D                 DS
+     D  DatofrN                1      8  0
+     D  DTFRNÅÅ                1      4  0
+     D  DTFRNMM                5      6  0
+     D  DTFRNDD                7      8  0
+     D                 DS
+     D  DatotiN                1      8  0
+     D  DTTINÅÅ                1      4  0
+     D  DTTINMM                5      6  0
+     D  DTTINDD                7      8  0
+N01  D                 DS
+N01  D  XPARM                  1    512
+N01  D  XSSTR                  1      1
+N01  D  XSARTNR                2     16
+N01  D  XSARTNRL              17     31
+N01  D  XSMAXANR              32     46
+N01  D  XSMAXANRL             47     61
+N01  D  XSVAGRP               62     66
+N01  D  XSINKANSV             67     96
+N01  D  XSMINPROS             97     98
+N01  D  XSEIER                99    103
+N01  D  XSBEVDATO            104    113
+N01  D  XSDATON              114    121  0
+N01  D  XSDATOFR             121    130
+N01  D  XSDATOFRN            131    138  0
+N01  D  XSDATOTI             148    157
+N01  D  XSDATOTIN            158    165  0
+N01  D  XSFORSTGANG          166    166
+N01  D  XSEND                512    512
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      *
+     C                   IF        FORSTGANG = 'N'
+     C                   EXSR      TESTB
+     C                   END
+      *
+     C                   IF        ((FORSTGANG = 'J') OR (FMELDNR <> *BLANKS))
+     C                   EXSR      HENTDT
+     C                   ELSE
+     C                   EXSR      VISSALDO
+     C                   END
+     C                   callp     wrtsection('*fini')
+      *
+     C     SLUTT         TAG
+     C                   close     BRIDF
+     C                   close     LLWW01
+     C                   close     LLAGJD01
+     C                   close     LLAGJL03
+     C                   close     LLGRPK05
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      user   = zhbgetvar('user')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      lng     = zhbgetvar('lng')
+N01   *
+N01  C                   eval      WSCSV  = zhbgetvar('CSV')
+N01  C                   IF        WSCSV  = 'Y'
+N01  C                   eval      XPARM  = zhbgetvar('XPARM')
+N01  C                   eval      ARTNR      = XSARTNR
+N01  C                   eval      MAXANR     = XSMAXANR
+N01  C                   eval      ARTNRL     = XSARTNRL
+N01  C                   eval      MAXANRL    = XSMAXANRL
+N01  C                   eval      VAGRP      = XSVAGRP
+N01  C                   eval      INKANSV    = XSINKANSV
+N01  C                   eval      MINPROS    = XSMINPROS
+N01  C                   eval      EIER       = XSEIER
+N01  C                   eval      BEVDATO    = XSBEVDATO
+N01  C                   eval      DATON      = XSDATON
+N01  C                   eval      DATOFR     = XSDATOFR
+N01  C                   eval      DATOFRN    = XSDATOFRN
+N01  C                   eval      DATOTI     = XSDATOTI
+N01  C                   eval      DATOTIN    = XSDATOTIN
+N01  C                   eval      FORSTGANG  = XSFORSTGANG
+N01   *
+N01  C                   ELSE
+N01   *
+     C                   eval      artnr   = zhbgetvar('artnr')
+     C                   eval      MAXANR  = ARTNR
+     C                   CAT       NIER:0        MAXANR
+     C                   eval      vagrp   = zhbgetvar('varegrp')
+     C                   eval      inkansv = zhbgetvar('inkansv')
+     C                   eval      minpros = zhbgetvar('minpros')
+     C                   eval      eier    = zhbgetvar('eier')
+     C                   eval      bevDato = zhbgetvar('bevdato')
+S02  C*                  eval      DATON   = c2n2(Bevdato)
+N02  C                   eval      BEVDATO10 = c2n2(Bevdato)
+N02  C                   MOVE      BEVDATO10     DATON
+     C                   eval      DATOFR  = zhbgetvar('DATOFR')
+S02  C*                  EVAL      DATOFRN = c2n2(DATOFR)
+N02  C                   EVAL      DATOFR10 = c2n2(DATOFR)
+N02  C                   MOVE      DATOFR10      DATOFRN
+     C                   eval      DATOTI  = zhbgetvar('DATOTI')
+S02  C*                  EVAL      DATOTIN = c2n2(DATOTI)
+N02  C                   EVAL      DATOTI10 = c2n2(DATOTI)
+N02  C                   MOVE      DATOTI10      DATOTIN
+     C                   eval      FORSTGANG  = zhbgetvar('FORSTG')
+N01   *
+N01  C                   END
+N01   *
+      *
+      *
+     C                   endsr
+      *////////////////////////////////////////////////////////////
+     C     TESTB         BEGSR
+      *////////////////////////////////////////////////////////////
+     C                   MOVE      DTFRNDD       UDD               2 0
+     C                   MOVE      DTFRNMM       UMM               2 0
+     C                   MOVE      DTFRNÅÅ       UÅÅ               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UÅÅ
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        IFEQ      1
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   MOVE      '01'          FMELDNR
+     C                   GOTO      SLTB
+     C                   ENDIF
+      *
+     C                   MOVE      DTTINDD       UDD               2 0
+     C                   MOVE      DTTINMM       UMM               2 0
+     C                   MOVE      DTTINÅÅ       UÅÅ               2 0
+     C                   CALL      'TESTDATO'
+     C                   PARM                    UDD
+     C                   PARM                    UMM
+     C                   PARM                    UÅÅ
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        IFEQ      1
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   MOVE      '02'          FMELDNR
+     C                   GOTO      SLTB
+     C                   ENDIF
+      *
+     C                   IF        DATOFRN > DATOTIN
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   MOVE      '03'          FMELDNR
+     C                   GOTO      SLTB
+     C                   ENDIF
+      *
+     C     SLTB          ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+     C     HENTDT        BEGSR
+      *////////////////////////////////////////////////////////////
+     C                   exsr      SetSklDT
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   exsr      RtvEnvVar
+     C                   exsr      SetTopDT
+     C                   callp     wrtsection('top')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSklDT      begsr
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+      * "HTMLSRC  " er dft = NORSK, ved å trykke på FLAGGET i inng.
+      * kan dette endre stil "HTMLSRCXX" avh. av støttede språk
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'LLS002'
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTopDT      begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':USER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * Repeat ART   NR for the next invocation
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updhtmlvar('ARTNR':artnr)
+     C                   callp     updhtmlvar('VAREGRP':vagrp)
+     C                   callp     updhtmlvar('INKANSV':inkansv)
+     C                   callp     updhtmlvar('MINPROS':minpros)
+     C                   callp     updhtmlvar('eier':eier)
+     C                   callp     updhtmlvar('BEVDATO':BEVDATO)
+     C                   callp     updhtmlvar('DATOFR':DATOFR)
+     C                   callp     updhtmlvar('DATOTI':DATOTI)
+     C                   callp     updhtmlvar('FORSTG':'N')
+     C                   callp     updHTMLvar('FMELDNR':FMELDNR)
+     C                   callp     updHTMLvar('FEILMELDING':FEILMELDING)
+      *
+     C                   endsr
+      *////////////////////////////////////////////////////////////
+     C     VISSALDO      BEGSR
+      *////////////////////////////////////////////////////////////
+     C                   exsr      SetSkl
+     C                   exsr      SetTop
+     C                   callp     wrtsection('stdtop')
+     C                   callp     wrtsection('top')
+      *
+     C                   Move      *zeros        AntSnd
+     C                   Move      *zeros        AntRcd
+     C     MaxSnd        IFEQ      *ZEROS
+     C                   Z-add     1000          MaxSnd
+     C                   END
+     C     MaxRcd        IFEQ      *ZEROS
+     C                   Z-add     5000          MaxRcd
+     C                   END
+      *
+      * FINNE ARTIKKEL
+     C     BIKUNR        CHAIN     LLGRPK05                           33
+     c                   MOVE      GKGRP         LWWGRUa           8
+     c                   MOVE      BIKUNR        LWWKNa            8
+     C                   MOVE      'A'           XXTØM             1
+     C     LLVARE1K      SETLL     LLVARE01
+     C     LLVARE1K0     READE     LLVARE01                               50
+     C                   DOW       *IN50 = *OFF
+     C                   IF        LVANR > MAXANR
+     C                   LEAVE
+     C                   END
+      *
+     C                   Add       1             AntRcd
+     C     AntRcd        CabGe     MaxRcd        SLHENTART
+      *
+     C                   EXSR      RecordSlt
+     C                   IF        Selected = 'Y'
+      * Legg ut i arb.fil
+     C                   call      'LLWW01C'
+     C                   PARM                    LWWGRUa
+     C                   PARM                    LWWKNa
+     C                   PARM                    LVANR
+     C                   PARM                    XXTØM
+     C                   MOVE      'N'           XXTØM
+     C                   ENDIF
+     C     LLVARE1K0     READE     LLVARE01                               50
+     C  N50              ENDDO
+      *
+     C                   MOVE      *BLANKS       XXART            15
+     C     LLWW01K       SETGT     LLWW01
+     C     STVIS         TAG
+     C     LLWW01K1      READPE    LLWW01                                 50
+     C                   IF        *IN50 = *OFF
+     C                   SELECT
+     C                   WHEN      ((LWWART <> XXART) AND (XXART <> *BLANKS))
+     C                   EXSR      SetTabRow
+     C                   callp     wrtsection('row')
+      *
+     C                   Add       1             AntSnd
+     C     AntSnd        CabGe     MaxSnd        SLHENTART
+      *
+     C                   MOVE      *ZEROS        XXINNGANG         7 0
+     C                   MOVE      *ZEROS        XXSALG            7 0
+     C                   MOVE      *ZEROS        XXJUST            7 0
+     C                   MOVE      LWWART        XXART
+     C     LLVARE1K1     CHAIN     LLVARE01                           33
+     C                   Z-ADD     LVSALD        XXTILGANG         7 0
+     C                   WHEN      XXART = *BLANKS
+     C                   MOVE      LWWART        XXART
+     C     LLVARE1K1     CHAIN     LLVARE01                           33
+     C                   Z-ADD     LVSALD        XXTILGANG
+     C                   ENDSL
+     C     LWWDAT        CABLT     DATOFRN       STVIS
+      *
+     C                   IF        LWWDAT > DATOTIN
+     C                   SUB       LWWANT        XXTILGANG
+     C                   ELSE
+     C                   SELECT
+     C                   WHEN      LWWTYP = 'I'
+     C                   ADD       LWWANT        XXINNGANG
+     C                   WHEN      LWWTYP = 'J'
+     C                   SUB       LWWANT        XXJUST
+     C                   OTHER
+     C                   SUB       LWWANT        XXSALG
+     C                   ENDSL
+     C                   ENDIF
+      *
+     C                   GOTO      STVIS
+      *
+     C                   ELSE
+     C                   IF        XXART <> *BLANKS
+     C                   EXSR      SetTabRow
+     C                   callp     wrtsection('row')
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C     SLHENTART     TAG
+     C                   callp     updHTMLvar('ANTSND':
+     C                             %trim(%editc(ANTSND:'3')))
+     C                   callp     updHTMLvar('MaxSnd':
+     C                             %trim(%editc(MaxSnd:'3')))
+     C                   callp     updHTMLvar('ANTRCD':
+     C                             %trim(%editc(ANTRCD:'3')))
+     C                   callp     updHTMLvar('MaxRcd':
+     C                             %trim(%editc(MaxRcd:'3')))
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')
+     C                   callp     wrtsection('stdbot')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+     C*  Select a Recd
+      *=====================================================================******
+     C     RecordSlt     begsr
+     C                   move      'N'           selected          1
+      * 0 i vekt = Ikke aktiv
+     C     LvVkt0        cabeq     0             RecordSltX
+      *
+     C                   IF        VG(1) <> *BLANKS
+     C     1             DO        10            XN                3 0
+     C                   IF        VG(XN) <> *BLANKS
+     C     VG(XN)        IFEQ      LVAG01
+     C     VG(XN)        OREQ      LVAG02
+     C     VG(XN)        OREQ      LVAG03
+     C     VG(XN)        OREQ      LVAG04
+     C     VG(XN)        OREQ      LVAG05
+     C                   GOTO      RecordSlt1
+     C                   END
+     C                   ELSE
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   goto      RecordSltX
+     C     RECORDSLT1    TAG
+     C                   END
+      *
+     C                   IF        VE(1) <> *BLANKS
+     C     1             DO        10            XN                3 0
+     C                   IF        VE(XN) <> *BLANKS
+     C     VE(XN)        IFEQ      LVEIER
+     C                   GOTO      RecordSlt2
+     C                   END
+     C                   ELSE
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   goto      RecordSltX
+     C     RECORDSLT2    TAG
+     C                   END
+      *
+      * seleksjon på gruppe..
+     C     vagrp         ifne      *blanks
+     C     vagrp         andne     LVag01
+     C     vagrp         andne     LVag02
+     C     vagrp         andne     LVag03
+     C     vagrp         andne     LVag04
+     C     vagrp         andne     LVag05
+     C                   goto      RecordSltX
+     C                   end
+      *
+      * seleksjon på innkjøpsansvarlig
+     C     inkansv       ifne      *blanks
+     C     inkansv       andne     LVans
+     C                   goto      RecordSltX
+     C                   end
+     C*
+      *
+      * Seleksjon på "saldomargin" mindre enn xx % over MINIMUM
+     C     minpros       ifne      *blanks
+     C     minpros       andne     *zeros
+      * vis da kun poster hvor minimum er angitt
+     C     LvMstk        cabeq     0             RecordSltX
+     C     LVsald        sub       LVMstk        XXDiff            5 0
+     C                   eval      DiffPros = XXDiff / LvMstk * 100
+     C     DiffPros      cabgt     bminpros      RecordSltX
+     C                   end
+      * seleksjon på gruppe..
+     C     eier          ifne      *blanks
+     C     eier          andne     LVeier
+     C                   goto      RecordSltX
+     C                   end
+      * seleksjon på Ingen bevegelse etter dato (= Finn "hyllevarmere")
+      * (Da er det kun artikler med poitiv saldo som sjekkes...)
+     C     DATON         IFNE      *ZEROS
+     C     LVSALD        CABEQ     0             RecordSltX
+     C                   EXSR      TstBev
+     C     BEVEG         CABEQ     'Y'           RecordSltX
+     C                   end
+     C*  Recd is selected
+     C                   move      'Y'           selected
+     C*
+     C     RecordSltX    tag
+     C                   endsr
+      *=====================================================================******
+      *  Test Bevegelse etter dato....
+      *=====================================================================******
+     C     TSTBEV        begsr
+      * Hensikten med å sjekke "kun poster uten bevegelse" er å finne
+      * "hyllevarmere"..  sjekker derfor kun blant varer med positiv saldo
+     C                   MOVE      'N'           Beveg             1
+     C     BevKeyH       Setll     llagjL03
+     C     BevKeyH       Reade     llagjL03                               33
+     c     *IN33         DOWEQ     '0'
+     C                   IF        ((VADATO >= DATON) AND (VADATO <> 99999999))
+     C                   move      'Y'           Beveg
+     C                   goto      UtBev
+     C                   END
+      * ---
+      * finnes dato som er høyere enn DATON ??
+     C     BevKeyDH      SetGT     llagjd01
+     C     BevKeyD       ReadPe    llagjd01                               33
+     c     *IN33         DOWEQ     '0'
+     C     VDLDAT        IFGE      DATON
+     c                   move      'Y'           Beveg
+     c                   goto      UtBev
+     c                   end
+     C     BevKeyD       ReadPe    llagjd01                               33
+     c                   end
+      * ---
+     C     BevKeyH       Reade     llagjL03                               33
+     c                   end
+      *
+     C     UtBev         endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+     C                   callp     updhtmlvar('USER':USER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * Repeat ART   NR for the next invocation
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updhtmlvar('ARTNR':artnr)
+     C                   callp     updhtmlvar('WSANR':artnr)
+     C                   callp     updhtmlvar('VAREGRP':vagrp)
+     C                   callp     updhtmlvar('INKANSV':inkansv)
+     C                   callp     updhtmlvar('MINPROS':minpros)
+     C                   callp     updhtmlvar('eier':eier)
+     C                   callp     updhtmlvar('BEVDATO':BEVDATO)
+     C                   callp     updhtmlvar('DATOFR':DATOFR)
+     C                   callp     updhtmlvar('DATOTI':DATOTI)
+     C                   callp     updHTMLvar('FORSTG':'N')
+     C                   callp     updHTMLvar('FMELDNR':FMELDNR)
+     C                   callp     updHTMLvar('FEILMELDING':FEILMELDING)
+N01   *
+N01  C                   EVAL      XPARM   = *BLANKS
+N01  C                   EVAL      XSSTR   = '*'
+N01  C                   eval      XSARTNR    = ARTNR
+N01  C                   eval      XSMAXANR   = MAXANR
+N01  C                   eval      XSARTNRL   = ARTNRL
+N01  C                   eval      XSMAXANRL  = MAXANRL
+N01  C                   eval      XSVAGRP    = VAGRP
+N01  C                   eval      XSINKANSV  = INKANSV
+N01  C                   eval      XSMINPROS  = MINPROS
+N01  C                   eval      XSEIER     = EIER
+N01  C                   eval      XSBEVDATO  = BEVDATO
+N01  C                   eval      XSDATON    = DATON
+N01  C                   eval      XSDATOFR   = DATOFR
+N01  C                   eval      XSDATOFRN  = DATOFRN
+N01  C                   eval      XSDATOTI   = DATOTI
+N01  C                   eval      XSDATOTIN  = DATOTIN
+N01  C                   eval      XSFORSTGANG= FORSTGANG
+N01  C                   EVAL      XSEND   = '*'
+N01  C                   callp     updhtmlvar('XPARM':XPARM)
+N01  C                   movel     timedata1     time26           26
+N01  C                   eval      csvfile = %trim(USER)+'_'+Time26
+N01  C                   callp     updHTMLvar('CSVFILE':CSVFILE)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+      *
+     C                   callp     updhtmlvar('LVANR':XXART)
+N01  C     LLVARE1K1     CHAIN     LLVARE01                           33
+N01  C                   callp     updhtmlvar('LVANRL':LVANRL)
+     C                   callp     updhtmlvar('LVVB':LVVB)
+     C                   callp     updHTMLvar('XXINNGANG':
+     C                             %trim(%editc(XXINNGANG:'L')))
+     C                   callp     updHTMLvar('XXTILGANG':
+     C                             %trim(%editc(XXTILGANG:'L')))
+     C                   Z-ADD     XXTILGANG     XXTILGANG2        7 0
+     C                   SUB       XXINNGANG     XXTILGANG2
+     C                   ADD       XXSALG        XXTILGANG2
+     C                   ADD       XXJUST        XXTILGANG2
+     C                   callp     updHTMLvar('XXTILGANG2':
+     C                             %trim(%editc(XXTILGANG2:'L')))
+     C                   callp     updHTMLvar('XXSALG':
+     C                             %trim(%editc(XXSALG:'L')))
+     C                   callp     updHTMLvar('XXJUST':
+     C                             %trim(%editc(XXJUST:'L')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Server protocol
+     C                   callp     updhtmlvar('PROTOCOL':S_Protocol)
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+cccccC                   eval      IfsMultIndicators = gethtmlifsmult(
+cccccC                             '/syspeddev/html/Header/eSpedTop.html -
+cccccC                             /syspeddev/html/LLS003.html -
+cccccC                             /syspeddev/html/Footer/eSpedBot.html':
+cccccC                             '/CGITAG/')
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   open      LLWW01                               50
+     C                   open      LLVARE01                             50
+     C                   open      LLGRPK05                             50
+     C                   open      LLAGJD01                             50
+     C                   open      LLAGJL03                             50
+     C     BIKUNR        chain     LLGrpK05                           33
+      *
+     C     LLVARE1K      klist
+     C                   kfld                    LWWGRU
+     C                   kfld                    LWWKN
+     C                   kfld                    ARTNR
+     C     LLVARE1K0     klist
+     C                   kfld                    LWWGRU
+     C                   kfld                    LWWKN
+     C     LLVARE1K1     klist
+     C                   kfld                    LWWGRU
+     C                   kfld                    LWWKN
+     C                   kfld                    XXART
+     C     LLWW01K       klist
+     C                   kfld                    LWWGRU
+     C                   kfld                    LWWKN
+     C                   kfld                    XWART            15
+     C     LLWW01K1      klist
+     C                   kfld                    LWWGRU
+     C                   kfld                    LWWKN
+     c     BevKeyH       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    LVANR
+     c     BevKeyDH      klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    VAMN
+     c                   kfld                    xxVN              3 0
+     c     BevKeyD       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    VAMN
+      *
+     C                   z-add     GKGRP         LWWGRU
+     C                   z-add     BIKUNR        LWWKN
+     c                   move      999           xxVN
+     c                   EVAL      XWART = '999999999999999'
+      *
+     C                   endsr
+      *

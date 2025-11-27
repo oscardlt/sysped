@@ -1,0 +1,167 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVI060R MODULE(*LIBL/TSVI060R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FSVIFZ     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D DATUM           S              8
+     D DATUMN          S              8S 0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬datum¬ : ¬'+%trim(DATUM)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   CALL      'JSONFIX'
+     c                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   EVAL      JSONstring ='"listexternfakt" : ['
+     C                   CALLP     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     wrtsection('JSONlin')
+      *
+      * Liste Ærende
+      *
+     c     Error         IFEQ      *blanks
+     C                   READ      SVIFZ                                  55
+     C     *IN55         DOWEQ     '0'
+
+     C*                  IF        DATUMN > 0
+     C*    SVIF_SYDT     CABLT     DATUMN        HOPP
+     C*                  ENDIF
+     C     SVIF_SYOP     CABNE     *ZEROS        HOPP
+
+     C                   ADD       1             AntLest
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬svif_syav¬ : ¬'+%trim(%editc(SVIF_SYAV:'Z'))+'¬, '
+          +'¬svif_syop¬ : ¬'+%trim(%editc(SVIF_SYOP:'Z'))+'¬, '
+          +'¬svif_faty¬ : ¬'+%trim(SVIF_FATY)+'¬, '
+          +'¬svif_fatx¬ : ¬'+%trim(SVIF_FATX)+'¬, '
+          +'¬svif_vakd¬ : ¬'+%trim(SVIF_VAKD)+'¬, '
+          +'¬svif_vaku¬ : ¬'+%trim(%editc(SVIF_VAKU:'4'))+'¬, '
+          +'¬svif_fabl¬ : ¬'+%trim(%editc(SVIF_FABL:'4'))+'¬, '
+          +'¬svif_unik¬ : ¬'+%trim(%editc(SVIF_UNIK:'Z'))+'¬, '
+          +'¬svif_reff¬ : ¬'+%trim(SVIF_REFF)+'¬}';
+      /end-free
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     wrtsection('JSONlin')
+
+     C     HOPP          TAG
+
+     C                   READ      SVIFZ                                  55
+     C                   ENDDO
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar('JSONstring':JSONstring)
+     C                   CALLP     wrtsection('JSONlin')
+      * Quit
+     C                   EXSR      Exit
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     SVIFZ
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   CALLP     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+     C                   ENDSR
+      *********************************************************
+     C     Parse         BEGSR
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      DATUM   = zhbgetvar('DATUM')
+     C                   EVAL      DATUMN  = c2n2(DATUM)
+      * Er dato= blank eller 0, sett  da dato 14 dager tilbake
+     C                   IF        DATUMN = *ZEROS
+     C                   CALL      'SYGE20'
+     C                   PARM      'SUB'         UFUNK             3
+     C                   PARM      DATUMN        UDAT1             8 0
+     C                   PARM                    UDAT2             8 0
+     C                   PARM      14            UDGR              5 0
+     C                   EVAL      DATUMN=UDAT2
+     C                   ENDIF
+     C                   ENDSR
+      *********************************************************
+     C     INIT          BEGSR
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        IFEQ      *blanks
+     C                   callb     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+     C   50              EVAL      Error = 'Invalid userID'
+     C  N50              OPEN      SVIFZ
+
+     c                   ENDSR

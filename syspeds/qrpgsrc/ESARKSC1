@@ -1,0 +1,373 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/ESARKSC1 MODULE(*LIBL/ESARKSC1 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 Filnav som hidden var til HTML (hvis det begynner på Z9_..)
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FFIRMARC   IF   E           K DISK    usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+OddEvD OddEven         s             10
+      * Client input variables
+     D USER            S             10
+     D KAT             S             50
+      *
+     D KAT2            S            120
+     D KOBL            S            100
+     D TYPE            S              2
+     D AVD             S              4
+     D OPD             S              7
+     D UND             S             10
+      *_____________________________
+      * Prototype for API prosedyrer
+      *"""""""""""""""""""""""""""""
+     Dlstat            PR            10I 0 EXTPROC('lstat')
+     D                                 *   VALUE
+     D                                 *   VALUE
+
+     Dopendir          PR              *   EXTPROC('opendir')
+     D                                 *   VALUE
+
+     Dreaddir          PR              *   EXTPROC('readdir')
+     D                                 *   VALUE
+
+     Dclosedir         PR            10I 0 EXTPROC('closedir')
+     D                                 *   VALUE
+     D SndPgmMsg       PR              N
+     D Qmsgid                         7    CONST
+     D Qmsgf                         20    CONST
+     D Qmsg                         128    CONST
+     D Qmsgtp                        10    CONST OPTIONS(*NOPASS)
+
+      *   stat data structure fra prosedyre: lstat()
+     D StatDS          DS           128
+     D  st_mode                      10U 0
+     D  st_ino                       10U 0
+     D  st_nlink                      5U 0
+     D  reserved1                     2A
+     D  st_uid                       10U 0
+     D  st_gid                       10U 0
+     D  st_size                      10U 0
+     D  st_atime                     10U 0
+     D  st_mtime                     10U 0
+     D  st_ctime                     10U 0
+     D  st_dev                       10U 0
+     D  st_blksize                   10I 0
+     D  st_allocsize                 10I 0
+     D  st_objtype                   10A
+     D  reserved2                     2A
+     D  st_codepage                   5U 0
+     D  st_reserved1                 62A
+     D  st_ino_gen_id                10U 0
+
+      *   direntry data structure fra prosedyre: readdir()
+     D DirEntry        DS
+     D d_reserved1                   16A
+     D d_fileno_genid                10U 0
+     D d_fileno                      10U 0
+     D d_reclen                      10U 0
+     D d_reserved3                   10I 0
+     D d_reservedØ4                   6A
+     D d_reserved5                    2A
+     D d_ccsid                       10I 0
+     D d_country_id                   2A
+     D d_language_id                  3A
+     D d_nls_reserved                 3A
+     D d_namelen                     10U 0
+     D d_name                       640A
+
+     D Null            S              1A   Inz(X'00')
+     D RETURNInt       S             10I 0
+     D RETURNDir       S               *
+     D PtrToEntry      S               *
+     D RtnEntry        S                   BASED(PtrToEntry) Like(DirEntry)
+     D EntryName       S            120A
+     D EntryPath       S            256A
+     D EntryPath2      S            256A
+     D CmdLine         S            512
+     D CmdLen          S             15  5
+     D HHMMSS          S              6  0
+     D DirError        C                   'Feil ved åpning av katalog'
+
+      *   Input Parametere
+     D DirName         S            100A
+     D FullName        S            256A
+
+      *
+     D ObjVar          S             90
+     D ObjVarLen       S             10I 0 Inz(%size(ObjVar))
+     D ObjVarFmt       S              8
+     D ObjTyp          S             10
+
+     D APIERR          DS
+     D  ERRSIZ                 1      4B 0 INZ(256)
+     D  ERRLEN                 5      8B 0 INZ(0)
+     D  ERRMIC                 9     15
+     D  ERRNBR                16     16
+     D  ERRDTA                17    272
+
+     D*PSDS           SDS           512
+      *-----------------------------SLUTT----IFS PGM-----------------------------------
+
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   TIME                    timedata1
+      * Parse input / cvt to numeric
+     C                   EXSR      PARSE
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   EXSR      LoadHtml
+      * Set section variables
+     C                   EXSR      Settop
+     C                   CALLP     wrtsection('top')
+
+      * HOVEDRUTINE
+
+      * Vis liste over filer i katalogbane (gå i løkke)
+     C                   EXSR      LESKAT
+      * Compute run time
+     C                   TIME                    timedata2
+     C     timedata2     SUBDUR    timedata1     ms:*ms
+     C                   EVAL      sec = ms / 1000000
+     C                   CALLP     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+
+     C                   CALLP     wrtsection('bot')
+
+     C                   EXSR      Exit
+
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     PARSE         BEGSR
+      * Parse variables from QUERY_STRING environment variable
+     C                   EVAL      KAT      = zhbgetvar('KAT')
+      * Userid.....
+     C                   EVAL      USER = zhbgetvar('USER')
+     C                   ENDSR
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          BEGSR
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   CALLP     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     CUNDL01
+     C                   CLOSE     FIRMARC
+     C                   ENDSR
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      BEGSR
+     C                   CALLP     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'ESARKSC1':'/CGITAG/')
+     C                   ENDSR
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        BEGSR
+      *
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+     c                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   CALLP     updHTMLvar('USER':USER)
+     C                   CALLP     updHTMLvar('BESK':BIBESK)
+     C                   CALLP     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   CALLP     updHTMLvar('KNAVN':KNAVN)
+      * Søkeparam
+     C                   CALLP     updHTMLvar('KAT':KAT)
+
+     C                   ENDSR
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        BEGSR
+OddEvc     OddEven       IFEQ      ODD
+OddEvc                   eval      OddEven = EVEN
+OddEvc                   else
+OddEvc                   eval      OddEven = ODD
+OddEvc                   end
+OddEvC                   callp     updHTMLvar('ODDEVEN':OddEven)
+OddEv *
+     C                   CALLP     updHTMLvar('KAT2':KAT2)
+     C                   CALLP     updHTMLvar('KOBL':KOBL)
+N01  C                   CALLP     updHTMLvar('FNAM':EntryName)
+     C                   CALLP     updHTMLvar('TYPE':TYPE)
+     C                   CALLP     updHTMLvar('AVD':AVD)
+     C                   CALLP     updHTMLvar('OPD':OPD)
+     C                   CALLP     updHTMLvar('UND':UND)
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C     Qcmdexc       PLIST
+     C                   PARM                    CmdLine
+     C                   PARM                    Cmdlen
+      * Lag streng for katalognavn
+     C                   EVAL      DirName = KAT
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+      * En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   ENDIF
+
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+     C                   OPEN      CUNDL01
+     C                   OPEN      FIRMARC
+
+     C     KunKey        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    BIKUNR
+
+     C     KunKey        CHAIN     Cundl01                            33
+      * Spesialvri for å kunne deme uten å avsløre kundenavn
+     C                   MOVEL     USER          tstjov            4
+     C     tstjov        IFEQ      'JOVO'
+     C                   EVAL      KNAVN  = 'Jan Ottar Valderhaug'
+     C                   ENDIF
+      * Les firmapost
+     C                   READ      FIRMARC                                41
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Les fra katalog og legg ut oversikt               LESKAT /
+      *////////////////////////////////////////////////////////////
+     C     LESKAT        BEGSR
+     C                   EVAL      FullName = %trimr(DirName) + Null
+      * Åpne katalog
+     C                   EVAL      RETURNDir = opendir(%addr(FullName))
+      * Avslutt hvis feil ved åpning av katalog
+     C                   IF        RETURNDir = *Null
+     C                   CALLP     SndPgmMsg('CPF9898':'QCPFMSG'
+     C                                       :DirError)
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+     C                   ENDIF
+
+     C                   DOU       PtrToEntry = *Null
+      * Les neste katalog lenke
+     C                   EVAL      PtrToEntry = readdir(RETURNDir)
+      * Lenknavn er i feltet d_name
+     C                   IF        PtrToEntry <> *Null
+     C                   EVAL      DirEntry = RtnEntry
+      * Hent katalog lenknavn
+     C                   EVAL      EntryName = %str(%addr(d_name))
+      * Vilken typ av lenke ?
+     C                   EVAL      EntryPath = %trim(DirName) + '/'
+     C                             + %trimr(EntryName) + Null
+     C                   EVAL      RETURNInt = lstat(%addr(EntryPath)
+     C                                         : %addr(StatDS))
+      * Skriv til html entrypath2 inneholder hele lenken uten ip-adr
+     C                   IF        st_objtype='*STMF'
+     C                   EVAL      EntryPath2 = %trim(DirName) + '/'
+     C                             + %trimr(EntryName)
+     C                   EVAL      KAT2=*BLANKS
+     C                   EVAL      KAT2= '<a href="' + %trimr(EntryPath2)
+     C                             + '" target="bodyright">'
+     C                             + %trimr(EntryName) + '</A>'
+     C                   EVAL      KOBL= EntryPath2
+     C                   EXSR      Setrow
+     C                   CALLP     wrtsection('row')
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDDO
+      * Lukk katalog
+     C                   EVAL      RETURNInt = closedir(RETURNDir)
+     C                   ENDSR
+      *-------------------------------------------------------------------------
+      * Send pgm message
+      *-------------------------------------------------------------------------
+     P SndPgmMsg       B
+     D                 PI              N
+     D Msgid                          7    CONST
+     D MsgF                          20    CONST
+     D Msgdta                       128    CONST
+     D Msgtp                         10    CONST OPTIONS(*NOPASS)
+      * Work variables
+     D Qmsgid          S              7
+     D Qmsgf           S             20
+     D Qmsgdta         S            128
+     D Qmsgln          S             10I 0
+     D Qmsgtp          S             10
+     D Qmsgq           S             10
+     D Qmsgqn          S             10I 0 INZ(3)
+     D Qmsgky          S              4
+     D Qmsger          S             15
+      * Hvis bibliotek er lik blank set in *LIBL
+     C                   EVAL      Qmsgid = Msgid
+     C                   EVAL      Qmsgf = Msgf
+     C                   EVAL      Qmsgdta = Msgdta
+     C                   IF        %subst(Qmsgf:11:10) = *blank
+     C                   EVAL      %subst(Qmsgf:11:10) = '*LIBL'
+     C                   ENDIF
+     C                   EVAL      Qmsgln = %len(%trim(Qmsgdta))
+     C                   EVAL      Qmsgq = '*'
+     C                   EVAL      Qmsgtp = '*DIAG'
+     C                   IF        %PARMs > 3
+     C                   EVAL      Qmsgtp = Msgtp
+     C                   ENDIF
+     C                   IF        Qmsgtp = '*STATUS'
+     C                   EVAL      Qmsgq = '*EXT'
+     C                   ENDIF
+      *
+     C                   CALL      'QMHSNDPM'                           99
+     C                   PARM                    Qmsgid
+     C                   PARM                    Qmsgf
+     C                   PARM                    Qmsgdta
+     C                   PARM                    Qmsgln
+     C                   PARM                    Qmsgtp
+     C                   PARM                    Qmsgq
+     C                   PARM                    Qmsgqn
+     C                   PARM                    Qmsgky
+     C                   PARM      *LOVAL        Qmsger
+      *
+     C                   RETURN    *ON
+     P                 E

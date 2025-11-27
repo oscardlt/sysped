@@ -1,0 +1,252 @@
+      *  Obs ! Kompiler med tillat error 20  GENLVL(20)    (decedit angitt 2 ganger-siste ignoreres)
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/ESTK544b MODULE(*LIBL/ESTK544b *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF11 Språk
+********************************************************************
+     H decedit('0.')
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FBRPARF    IF   E           K DISK    USROPN
+     FQ         O  A F30000        DISK    Usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+     D JSONstring      s          32000
+      * Prototype
+     D JSONescape      PR                  ExtPgm('JSONESC')
+     D   JSONstr                  32000A
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     D                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+      * Client input variables
+     D userId          s             10
+N01  D Sprak           s              2
+     D DATA            s          30000
+     D ErrTxt          s            100
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D i2              s             10i 0
+      * Definere  hex 0D / 25 (CRLF)
+     D Hex0D           c                   x'0D'
+     D Hex25           c                   x'25'
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * File open / keys
+     C                   EXSR      INIT
+      * Set section variables
+     C                   exsr      SetAll
+      * Quit
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+      * Userid = PD+8 siffer (8 siffer er sjåførid)
+      * versjonsnr av klientprogramvare
+     C                   eval      DATA= ZhbGetVar('DATA')
+     C                   eval      USERID = %subst(DATA:1:10)
+N01  C                   eval      Sprak = zhbgetvar('S')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     BRPARF
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top , lin , Bot
+      *=====================================================================
+     C     SetAll        begsr
+     C                   move      *blanks       ErrTxt
+     C                   MOVE      'TKSDB'       PAID
+     C                   MOVE      'false'       okSlettDb         5
+     C     ParKey        CHAIN     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+     C     PAVRDA        IFEQ      'Y'                                          Internt J (el Y)
+     C     PAVRDA        OREQ      'J'
+N02  C                   MOVE      'true '       okSlettDb
+     C                   END
+     C                   END
+     c                   if        okSlettDb = 'false'
+N03  C                   select
+N03  C                   when      Sprak = 'EN'
+N03  C                   eval      ErrTxt = 'Error - You are not autorized to '
+N03  c                             +'delete the database. Contact the office.'
+N03  C                   other
+     c                   eval      ErrTxt = 'Feil - Du er ikke autorisert for '
+     c                             +'å slette databasen. Kontakt kontoret.'
+N03  C                   endsl
+     c                   endif
+      * Send section top
+     C                   callp     wrtsection('top')
+      *
+     c                   If        ErrTxt = *blanks
+     c                   exsr      SavData
+     c                   endif
+      *  Resultat
+      /free
+        JSONstring='{'
+        +'¬userId¬ : ¬'+%trim(userId)+'¬, '
+        +'¬error¬ : ¬'+%trim(ErrTxt)+'¬ }';
+        callp JSONescape(JSONstring);
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+      /end-free
+     C
+     C                   endsr
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     userId        CHAIN     BRIDF                              50
+      * Ukjent UserID
+     c     *in50         ifeq      '1'
+     C                   close     BRIDF
+      * Når datastrengen begynner slik ... betyr det at det ikke finnes data å slette
+      * credentials={"userId":"PD00000002","password":"p...
+      /free
+        wrtsection('top');
+        if userId = 'credential' ;
+N01       select;
+N01       when   Sprak = 'EN';
+N01         ErrTxt = 'Error - There are no data (trips/orders) to delete.';
+N01       other;
+N01         ErrTxt = 'Feil - Det finnes ingen data (turer/oppdrag) å slette.';
+N01       endsl;
+          JSONstring='{'
+          +'"userId" : "'+%trim(userId)+'", '
+N01       +'"error" : "'+%trim(ErrTxt)+'"}';
+S01    // +'"error" : "Det finnes ingen data (turer/oppdrag) å slette."}';
+        else;
+N01       select;
+N01       when   Sprak = 'EN';
+N01         ErrTxt = 'Error - Invalid UserID.';
+N01       other;
+N01         ErrTxt = 'Feil - Ugyldig UserID.';
+N01       endsl;
+          JSONstring='{'
+          +'"userId" : "'+%trim(userId)+'", '
+N01       +'"error" : "'+%trim(ErrTxt)+'"}';
+S01    // +'"error" : "UnKnown UserID"}';
+        endif;
+        updHTMLvar2('JSONstring':%addr(JSONstring):%len(JSONstring));
+        wrtsection('JSONlin');
+
+        wrtsection('*fini');
+      /end-free
+     C                   eval      *inlr = *on
+     C                   return
+     c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      * Kontoll av UsrSpcName (= sessionId)
+      * pr juli 2014 - ingen test av korrekt UsrSpcName (lage variant av CHECK-USER ??)
+     C*                  CALLB     PGMXXX
+     C*                  PARM                    BIBRID
+     C*                  PARM                    UsrSpcName
+     C*                  PARM                    UINN              1
+     C*                  IF        UINN = 'N'
+     C* .....
+     C*                  eval      *inlr = *on
+     C*                  return
+     C*                  END
+      *
+     C                   OPEN      BRPARF
+     C     PARKEY        klist
+     C                   kfld                    BIBRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     UtInit        endsr
+      *
+      **************************************************
+     C     SavData       begsr
+      **************************************************
+     C                   eval      rc = docmd(' +
+     C                             md "/syspeddev/tksmart/Del"+
+     C                             ')
+     C                   eval      rc = docmd(' +
+     C                             dltf FILE(QTEMP/Q)  +
+     C                             ')
+     C                   eval      rc = docmd(' +
+     C                             CRTPF FILE(QTEMP/Q) RCDLEN(30000) +
+     C                             ')
+     C                   OPEN      Q
+     C                   EXCEPT    QData
+     C                   close     Q
+     C                   time                    timedata1
+     c                   movel     timedata1     TS               26
+     C                   eval      rc = docmd(' +
+     C                             CPYTOSTMF  +
+     C                             FROMMBR("/QSYS.LIB/QTEMP.LIB/Q.FILE/Q.MBR") +
+     C                             TOSTMF("/syspeddev/tksmart/Del/'+TS+
+     C                             '.txt") STMFOPT(*REPLACE) +
+     C                             CVTDTA(*AUTO) STMFCODPAG(*PCASCII) +
+     C                             ENDLINFMT(*CRLF) +
+     C                             ')
+      * endre til full *RWX-tilgang (kan ikke være sikker på rettighetene
+      *  til den user som har åpnet nettverksstasjon/ starter retegne-prog.
+      *  ellers måtte denne ha *ALLOBJ-tilgang. dette  er nå unødig )
+     C                   eval      rc = docmd(' +
+     c                             CHGAUT +
+     C                             OBJ("/syspeddev/tksmart/Del/'+TS+
+     C                             '.txt") USER(*PUBLIC) DTAAUT(*RWX)+
+     C                             ')
+     C                   ENDSR
+     OQ         EADD         Qdata
+     O                       Data             30000
+      *

@@ -1,0 +1,1438 @@
+      ***********************************************************
+      *** PROGRAM SKAL VEDLIKEHOLDE KUNDER (SPEDISJON)        ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01 02 05 14 16-26                ***
+      *** LEDIGE INDIKATORER 32 39-50 52-85                   ***
+      ***********************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 adressenr minus 1 (0001-) er avvikende fakturaadresse.. (OGSÅ DDS)
+10XXX * 02 JOV PTF10 Søk på BetBet
+10XXX * 03 SH  PTF10 til arkiv
+10XXX * 04 JOV PTF10 Kontroll mot L1 saml-fakt droppet (Sy ulik blank --> J i L1..)
+10XXX * 05 SH  PTF10 Innført Landkode på vareadresse/faktura<adresse
+      * 06 JOV PTF10 Søkenavn blank = hent fra navn/test på språkkode
+      * 07 SH  PTF10 TEST LANDKODE
+      * 08 SH  PTF10 TEST LANDKODE ikke norge
+      * 09 SH  PTF10 DIFFERERER PNR/FRETN  I   L1
+      * 10 SH  PTF10 null i avd i cundc
+      * 11 SH  PTF10 flere felt i cundc
+      * 12 SH  PTF10 L1 epostadresse
+      * 13 JOV PTF10 Kan sette GeoPosisjon (lat/lon på kunden med F19)
+      * 14 SH  PTF10 CMERGE KOMMET
+      * 15 SH  PTF10 bestemme kundenummer ved L1 kunde
+      * 16 SH  PTF10 TESTER VED 15
+      * 17 SH  PTF10 nullstille betbet
+      *------------------------------------------------------------------
+      * 18 SH  PTF11 samlefaktkodwe
+      * 19 jov PTF11 Kall mot http://aspweb.systema.no/  ved F19 adressesøk
+      * 20 jov PTF11 skjermvarieble XXBRE/XXLEN byttet med WSBRE/WSLEN (ulikt cundf-variable)
+      * 21 jov PTF11 F19-Geo: IE videresender ikke '¬' og '¦' , byttes med '{' og '}' uten merking
+      * 22 sh  PTF11 innom kontaktpersonbildet
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+12001 * 23 YBC PTF12 MVA-registrert
+********************************************************************
+      * BRUK AV NOEN SENTRALE INDIKATORE....                    *
+      * 27 ON = I SAD-MODUL, KUNDEN FINNES IKKE!!! I L1.        *
+      *         KAN LAGE NYE (NR ANGIS PÅ INNGANG)              *
+      * 27 OFF= ORDINÆR SYSPED, NORMALT MÅ!! KUNDEN FINNES I L1!*
+      * 28 ON = (NÅR 27 OFF) TILLATT Å OPPRETTE "ADRESSE-KUNDER"*
+      * 29 ON = (NÅR 27 OFF) ER I FERD MED Å OPPRETTE/ENDRE     *
+      *         EN ADRESSEKUNDE (-> AKTKOD -> I)                *
+      ***********************************************************
+      *
+      *
+N13
+N13  H DFTACTGRP(*NO)
+N13   * inkluder div /copy ... for å kunne bruke funskjoner fra CGIDEV2 serviceprog
+N13   /copy syspeds/qrpgsrcpy,hspecs
+N13   /copy syspeds/qrpgsrcpy,hspecsbnd
+N12  FKORTL06   IF   E           K DISK
+     FKODAL01   IF   E           K DISK
+     FKUNDL01   UF A E           K DISK
+     FCUNDL01   UF A E           K DISK
+     F                                     RENAME(KUNDR:CUNDR)
+     FCUNDLFO   IF   E           K DISK
+     F                                     RENAME(kundr:kundrfo)
+     FKODTLIK   IF   E           K DISK
+N07  FKODTLK    IF   E           K DISK
+     FVADR      UF A E           K DISK
+     Fcum3lm    UF A E           K DISK
+     FCI2KUN    UF A E           K DISK
+     FVALUL01   IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FFIRKU     UF   E           K DISK
+     FCUSAPR    IF   E           K DISK
+     FSTED2D2   IF   E           K DISK
+     FCUSAAV    IF   E           K DISK
+N19  FSYPARL1   IF   E           K DISK
+     FVKUNDFM   CF   E             WORKSTN
+     F                                     INFDS(FBAREA)
+     FCUNDC01   UF A E           K DISK
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WSKN1                  1      5  0
+     D  WSKN2                  6      7  0
+     D  WSKONT                 1      7  0
+     D                 DS
+     D  SYBAGI                 1     15
+     D  BANKG                  1     35
+     D                 DS
+     D  SYPOGI                 1     20
+     D  POSTG                  1     35
+     D                 DS
+     D  SYRG                   1     14
+     D  SYFORE                 1     11
+     D  SYFOR2                10     11
+     D                 DS
+     D  WSFORE                 1     11
+     D  WSFOR9                 1      9
+     D  WSFOR2                10     11
+     D  WSFO31                10     10
+     D  WSFO32                11     11
+     D  WSFO41                 1      8
+     D  WSFO42                 9      9
+     D  WSFO51                 1     10
+     D  WSFO52                11     11
+     D  FO                     1     11
+     D                                     DIM(11)
+     D                 DS
+     D  WSFR05                 1      3
+     D  WSSAMT                 1      1
+s06  D*UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+S06  D*                                    UVWXYZ')
+S06  D*LO              C                   CONST('abcdefghijklmnopqrst-
+S06  D*                                    uvwxyz')
+s13  D*UP              C                   CONST('ABCDEFGHIJKLMNOPQRST-    Konflikt med /copy
+N13  D UPP             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+N06  D                                     UVWXYZÆØÅ')
+N06  D LO              C                   CONST('abcdefghijklmnopqrst-
+N06  D                                     uvwxyzæøå')
+N13   * inkluder div /copy ... for å kunne bruke funskjoner fra CGIDEV2 serviceprog
+N13   /copy syspeds/qrpgsrcpy,prototypeb
+N13   /copy syspeds/qrpgsrcpy,usec
+N13   /copy syspeds/qrpgsrcpy,variables3
+     IKUNDR
+     I              SFAKT                       SFAKTK
+     ICUNDR
+     I              BANKG                       SYBAGI
+     I              POSTG                       SYPOGI
+     Ikundrfo
+     I              BANKG                       SYBAGI
+     I              POSTG                       SYPOGI
+     I*                                       2   2 WSLEDI
+     I*                                       3   3 WSLED2
+      *
+     C                   EXSR      INIT
+     C     KUNDNR        IFNE      *ZEROS
+     C                   Z-ADD     KUNDNR        WSKNR
+     C                   SETOFF                                       33
+     C  N27KUND1K        CHAIN     KUNDL01                            33
+     C  N33KUND1K        CHAIN     CUNDL01                            34
+     C  N33
+     CANN34
+     CANN27KUND1K        CHAIN     KUNDL01                            33
+     C  N33
+     CANN34              UPDATE    CUNDR
+      * SKRIVER RECORD TIL KUNDEREGISTER SYSPED
+     C  N33
+     CAN 34              MOVE      SFAKTK        SFAKT
+     C  N33
+     CAN 34              MOVE      FIFIRM        FIRMA
+     C  N33
+     CAN 34              WRITE     CUNDR
+     C  N33
+     CAN 34FICI2         IFEQ      'J'
+     C                   MOVE      'N'           XNDKO1                           NY!!
+     C                   END
+     C  N33              GOTO      SSSS
+     C   33              GOTO      SLUTT
+     C                   END
+     C*
+     C     START         TAG
+s20  c*                  move      *zeros        XXBRE
+s20  c*                  move      *zeros        XXLEN
+     C                   EXFMT     BILDE01
+     C                   SETOFF                                       3099
+N16  C     *IN10         IFEQ      '1'
+N16  C     KUND1KNY      CHAIN     CUNDL01                            33
+N16  C  N33              MOVE      'SHU1448'     MSGNR
+N16  C  N33              seton                                        3099
+N16  C  N33              GOTO      START
+N16  C                   END
+     C*
+     C   03              GOTO      SLUTT
+     C   04              DO
+     C                   EXSR      SØKUNR
+     C                   GOTO      START
+     C                   END
+     C     WSFTNR        ifne      *blanks
+     c                   exsr      srfore
+     c                   move      *blanks       wsftnr
+     C                   GOTO      START
+     c                   end
+     C*
+     C     SSSS          TAG
+     C                   EXSR      TESTB1
+     c                   exsr      testm3
+     C   99              GOTO      START
+      * GJØR TEST FOR Å FINNE KUNDENAVN TIL ANDRE PARTER
+     C                   EXSR      TESTB2
+     C*
+     C     START2        TAG
+     C     *IN31         IFEQ      '1'
+     C                   MOVEA     '11'          *IN(35)
+     C                   MOVE      *BLANKS       INACT
+     C                   ELSE
+     C     AKTKOD        IFEQ      'I'
+     C                   MOVEL     'INACTIVE'    INACT
+     C                   ELSE
+     C                   MOVE      *BLANKS       INACT
+     C                   END
+     C                   END
+s20  c*    XXBRE         comp      *zeros                             5252
+N20  c     WSBRE         comp      *zeros                             5252
+     C                   EXFMT     BILDE02
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+     C                   SETOFF                                       309899
+     C                   SETOFF                                       929394
+     C                   SETOFF                                       898887
+     C                   SETOFF                                       959697
+     C                   SETOFF                                       91
+     C                   SETOFF                                       90
+     C*
+     C   03              GOTO      SLUTT
+      *
+      * 04 = SØKING ZIP KODE
+      *
+     C   04              DO
+     C                   EXSR      SOKDTA
+     C                   GOTO      START2
+     C                   END
+     C* VED OPPRETTING AV ADRESSEKUNDE ER DET 0 I KUNDENR HELT TIL
+     C* DET ER TASTET ENTER PÅ FERDIG UTFYLT POST (KRAVFELT)
+     C* (FOR Å UNNGÅ OPPRETTING VIA "UHELL")
+     C* FØLGENDE F-TASTER UGYLDIGE NÅR KUNDENR ER 0....
+     C     WSKNR         IFEQ      *ZEROS
+     C                   GOTO      NULLNR
+     C                   END
+     C* Vareadresse nr 1.(Kun ved spedisjon -27 Off- styrt av DDS)
+     C   06              DO
+     C   31              SETON                                        99
+     C   31              GOTO      START2
+     C                   EXSR      HENTAD
+     C                   GOTO      START3
+     C                   END
+     C* Samlefakt profil.(Kun ved 27 Off styrt av DDS)
+     C     *IN08         IFEQ      '1'
+     C                   MOVE      'J'           UPDATE            1
+     C                   CALL      'SYFA57B'
+     C                   PARM                    WSKNR
+     C                   PARM                    UPDATE
+     C                   GOTO      START2
+     C                   END
+     C* Samlefakt avd.liste (avvikende samlefakt.kode) (kun ved 27 off)
+     C     *IN09         IFEQ      '1'
+     C                   MOVE      'J'           UPDATE            1
+     C                   CALL      'SYFA57'
+     C                   PARM                    WSKNR
+     C                   PARM                    UPDATE
+     C                   GOTO      START2
+     C                   END
+     C* FRITEKST
+     C     *IN07         IFEQ      '1'
+     C                   EXSR      FRITXT
+     C                   GOTO      START2
+     C                   END
+     C* OPPDRAGSTILLEGG
+     C     *IN13         IFEQ      '1'
+     C                   CALL      'VCUNDOR'
+     C                   PARM                    FIFIRM
+     C                   PARM                    WSKNR
+     C                   GOTO      START2
+     C                   END
+     C* Slette (F10 tillatt kun ved ren SAD - 27 ON- styrt av DDS)
+     C   10              DO
+     C                   MOVE      WSKNR         KUNDNR
+     C     KUND1K        CHAIN     CUNDL01                            33
+     C  N33
+     CANN27KUND1K        CHAIN     KUNDL01                            33
+     C  N33
+     CANN27              DELETE    KUNDR
+     C  N33              DELETE    CUNDR
+     C                   GOTO      START
+     C                   END
+      *
+     C     NULLNR        TAG
+     C   12DIREKT        IFEQ      'J'
+     C                   GOTO      SLUTT
+     C                   END
+     C   12              GOTO      START
+     C*
+     C                   EXSR      TESTB2
+     C   30              GOTO      START2
+     C                   EXSR      OPDKUN
+     C* KONTAKTPERSONER
+     C     *IN11         IFEQ      '1'
+     C                   EXSR      CUNDCV
+     C     FICI2         IFEQ      'J'
+     C  N29
+     CANN27KUND1K        CHAIN     CI2KUN                             37           CI2000
+     C  N37
+     CANN29
+     CANN27              MOVE      'X'           ENDKO2
+     C  N37
+     CANN29
+     CANN27              UPDATE    CI2KUNR
+     C                   END
+     C                   GOTO      START2
+     C                   END
+     C     *IN14         IFEQ      *ON
+     C     KUNDNR        ANDNE     *ZEROS
+     C                   MOVE      KUNDNR        UKUNDA
+     C                   CALL      'SYPR03R'
+     C                   PARM                    UKUNDA            8
+     C                   PARM                    UAVDA             4
+     C                   PARM                    XXSER            10
+     C                   PARM                    XXLAGG            1
+     C                   GOTO      START2
+     C                   END
+      * VEDLIKEHOLD AV MILJØAVGIFT
+     C   15              DO
+     C                   CALL      'SAD014'
+     C                   PARM                    FIFIRM
+     C                   PARM      KUNDNR        UKN               8 0
+     C                   PARM                    KNAVN
+     C                   PARM                    UFLAGG
+     C     UFLAGG        CABEQ     1             START2
+     C                   END
+N03   * Arkiv
+N03  C     *IN16         IFEQ      *ON
+N03  C                   MOVEL     'K:'          uuparu
+N03  C                   MOVE      KUNDNR        uuparu           10
+N03  C                   CALL      'ARC003'
+N03  C                   PARM                    uuuavd            4 0
+N03  C                   PARM                    uuuopd            7 0
+N03  C                   PARM                    uuparu
+N03  C                   GOTO      START2
+N03  C                   END
+N13
+N13   * Sette Geo-posisjon på kunden
+N13  C     *IN19         IFEQ      *ON
+N13  c                   move      *blanks       GeoPonr           9
+N13  c                   if        Postnr <> 0
+N13  c                   movel     Postnr        GeoPonr
+N13  c                   else
+N13  c                   eval      GeoPonr = SYPOGE
+N13  c                   end
+N13  C                   eval      rc = docmd(' +
+N13  C                             STRPCO  +
+N13  C                             ')
+N13   * dersom kommando over 123.. erro : PCCMD exceeds 123 characters.
+N13   * start browser kommando tar kun EN streng('dokumentet som åpnes)- v/& og blank så kuttes det
+N13   * må 'lure systemet' med midlertidig erstatningstegn: { = &   og   } = Blank
+S19  c*                  movel     'NN'          ESUSR            10
+N13  c                   move      *blanks       URL             200
+N13  c                   move      *blanks       BrowserCmd      200
+N19   * Tjenesten mot Google kjøres alltid fra Systemas server (ASP/ASS-miljø) pga Google API-lisens
+N19   * Dersom Par TKGEO m/User i ASS-miljø (som setter Post-back-IP) mangler, gis info/feilmelding
+N19  c                   movel     'ASSNN     '  ESUSR            10
+N19  C                   move      'TKGEO'       SYPAID
+N19  C     SyParKey      CHAIN     SYPARL1                            33
+N19  c  N33              movel     SYVRDA        ESUSR
+N19  C*                  eval      URL='http://gw.systema.no'
+N19  C                   eval      URL='http://aspweb.systema.no'
+N13  C                             +'/sycgip/ESTK01.pgm?user='
+N13  c                             +%trim(ESUSR)
+E21  C                             +'{K='+%trim(%editc(KUNDNR:'Z'))
+E21  C                             +'{Ad='+%trim(ADR1)+' '
+N13  c                             +%trim(GeoPonr)+' '+%trim(ADR3)+' '+SYLAND
+N13  c                   move      *zeros        urlLen           10 0
+N13  c                   eval      urlLen = %len(%trim(URL))
+E21  c     ' ':'}'       xlate     URL           URL
+N13  c                   eval      URL=%subst(URL:1:urlLen)
+N13  c                   eval      BrowserCmd ='start '+%trim(URL)
+N19  c                   eval      BrowserCmd =%subst(BrowserCmd:1:123)         PCO=max123 tegn
+N13  C                   CALL      'SAD105CP'
+N13  c                   parm                    BrowserCmd
+N13  C                   GOTO      START
+N13  C                   END
+     C*
+     C     DIREKT        IFEQ      'J'
+     C                   GOTO      SLUTT
+     C                   END
+N22  C                   EXSR      CUNDCV
+     C                   GOTO      START
+     C*
+     C     START3        TAG
+     C                   EXFMT     BILDE03
+     C                   SETOFF                                       309897
+N01  c     *in06         Ifeq      *on
+N01  c                   call      'SYFA05'
+N01  c                   parm      KUNDNR        XXKUNDNR          8 0
+N01  C                   EXSR      HENTAD
+N01  C                   GOTO      START3
+N01  c                   end
+     C   12              GOTO      START2
+     C*
+     C                   EXSR      TESTB3
+     C   30              GOTO      START3
+     C                   GOTO      START2
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     TESTB1        BEGSR
+     C***********************************************
+      * 27 ON = FRITTSTÅENDE VEDLIKEHOLD (SOM DEL AV SAD-MODUL)
+      * 27 OFF= ORDINÆR SYSPED (KUNDEN MÅ OGSÅ FINNES I LØSN.1 - KUNDF)
+      * 28 ON = TILLATT Å OPPRETTE "ADRESSEKUNDE"
+      * 29 ON = ADRESSEKUNDE ER I FERD MED Å BLI OPPRETTET/VEDLIKEHOLDT
+     C   27              MOVE      *ZEROS        FORETN
+N09  C   27              MOVE      *ZEROS        PERNKU           11 0
+     C   27              MOVE      *BLANKS       SELGER
+     C                   MOVE      WSKNR         KUNDNR
+     C* NY L1-KUNDE....
+     C     *IN10         IFEQ      '1'
+     C                   SETOFF                                       29
+     C                   SETON                                        31         = NY
+     C                   MOVE      'J'           NYL1              1
+s15  C*                  MOVE      *ZEROS        WSKNR
+     C                   MOVE      *ZEROS        FORETN
+N09  C                   MOVE      *ZEROS        PERNKU
+     C                   MOVE      *BLANKS       SELGER
+     C                   GOTO      UTHENT
+     C                   END
+      *
+     C     *IN28         IFEQ      '1'
+     C* NY ADR.KUNDE....
+     C     *IN06         IFEQ      '1'
+     C                   SETON                                        29
+     C                   SETON                                        31         = NY
+     C                   MOVE      *ZEROS        WSKNR
+     C                   MOVE      *ZEROS        FORETN
+N09  C                   MOVE      *ZEROS        PERNKU
+     C                   MOVE      *BLANKS       SELGER
+     C                   GOTO      UTHENT
+     C                   ELSE
+     C     WSKNR         COMP      FIKUFR                             29  29
+     C   29WSKNR         COMP      FIKUTI                               2929
+     C                   END
+     C                   END
+     C* HVIS VEDLIKEHOLD AV ADR.KUNDE....
+     C     *IN29         IFEQ      '1'
+     C     KUND1K        CHAIN(N)  CUNDL01                            31         SKAL FINNES
+     C     KUND1K        CHAIN(N)  KUNDL01                            33         SKAL IKKE!!
+     C   31              SETON                                        99
+     C  N33              SETON                                        99
+     C   99              MOVE      'SPK0001'     MSGNR
+     C   99
+     CANN33              MOVE      'JOV0996'     MSGNR
+     C                   ELSE
+     C* VEDLIKEHOLD AV "VANLIG" KUNDE.( SENET I SAD ELLER SYSPED...)
+     C     KUND1K        CHAIN(N)  CUNDL01                            31
+     C  N31
+     CANN27KUND1K        CHAIN(N)  KUNDL01                            31
+     C   31
+     CANN27              SETON                                        99
+     C   99              MOVE      'SPK0001'     MSGNR
+     C                   END
+     C   99              SETON                                        30
+     C   99              GOTO      SLTB1
+     C*
+     C  N31              DO
+     C                   MOVE      KNAVN         WSNAK
+n18  c     sfakt         ifeq      ' '
+n18  c     sfaktk        andeq     'J'
+n18  c                   move      sfaktk        sfakt
+n18  c                   end
+     C                   MOVE      SFAKT         WSSAMG
+     C                   MOVE      ADR1          WSAD1
+     C                   MOVE      ADR2          WSAD2
+     c                   move      betbet        wsbet
+     c                   move      pnpbku        wspb
+     c                   move      kundgr        wskugr
+     c                   move      rnraku        wsmva
+N23  C                   MOVE      SYMVJN        WSMVJN
+N23  C                   MOVE      SYMVSP        WSMVSP
+     c                   move      eori          wseori
+     C                   MOVE      POSTNR        WSPNR
+     C                   MOVE      ADR3          WSAD3
+     C                   MOVE      KPERS         WSKPNR
+s13  C*    LO:UP         XLATE     KPERS         kpold            30
+n13  C     LO:UPP        XLATE     KPERS         kpold            30
+     C                   MOVE      TLF           WSTLF
+     C                   MOVE      SYLAND        WSLAND
+     C     LAND          IFNE      *BLANKS
+     C                   MOVEL     LAND          WSLAND
+     C                   END
+     C                   MOVE      SONAVN        WSSØNA
+     C                   MOVE      VALKOD        WSVK
+     C                   MOVE      SPRAAK        WSSPRA
+     C                   MOVE      DKUND         WSDKUN
+     C                   MOVE      FMOT          WSFMNR
+     C                   MOVE      AKNRKU        WSAKNR
+     C                   MOVE      SYEPOS        WSEPOS
+N12  C     SYEPOS        IFEQ      *blanks
+N12  C     KUND1K        chain     kortl06                            35
+N12  C  N35              movel     emnrko        wsepos
+N12  C                   end
+     C                   MOVE      SYREGN        WSREGN
+     C                   MOVE      SYKONT        WSKONT
+     C                   MOVE      SYFR02        WSFR02
+     C                   MOVEL     SYFR04        WSSECU
+     C                   MOVE      SYFR05        WSFR05
+     C                   MOVE      SYLIKV        WSLIKV
+     C                   MOVE      SYOPDT        WSOPDT
+     C                   MOVE      SYMINU        WSMINU
+     C                   MOVE      SYUTLP        WSUTLP
+     C                   MOVE      SYFR03        WSFR03
+     C                   MOVE      TFAXNR        WSFAXN
+     C                   SELECT
+     C     POSTNU        WHENNE    *BLANKS
+     C     *IN27         ANDEQ     *OFF
+     C     *IN29         ANDEQ     *OFF
+     C                   MOVEL     POSTNU        WSPOGE
+     C     SYPOGE        WHENNE    *BLANKS
+     C                   MOVE      SYPOGE        WSPOGE
+     C                   OTHER
+     C                   MOVE      *BLANKS       WSPOGE
+     C                   ENDSL
+     C                   MOVE      SYFORE        WSFORE
+s09  C* N27SYFOR2        IFEQ      *BLANKS
+s09  C*    FORETN        ANDNE     0
+n09  C  N27FORETN        IFNE      *ZEROS
+     C     *IN29         ANDEQ     *OFF
+     C                   MOVEL     FORETN        WSFORE
+     C                   END
+N09  C  N27PERNKU        IFNE      0
+N09  C     *IN29         ANDEQ     *OFF
+N09  C                   MOVEL     PERNKU        WSFORE
+N09  C                   END
+     C  N27              MOVE      SELGER        WSSELG
+     C                   MOVE      GOLK          WSGOLK
+N20  c                   move      XXBRE         WSBRE
+N20  c                   move      XXLEN         WSLEN
+     C                   MOVE      '0'           *IN31
+      * Finnes samlef. profil / avd.liste???? Sett indikator..
+     C     KUNDNR        CHAIN     CUSAPR                             35
+     C     KUNDNR        CHAIN     CUSAAV                             36
+     C                   END
+      ** NY POST
+     C     UTHENT        TAG
+     C   31              DO
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVEA     '11'          *IN(35)
+     C                   MOVE      *BLANKS       WSNAK
+     C                   MOVE      SFAKT         WSSAMG
+     C                   MOVE      *BLANKS       WSAD1
+     C                   MOVE      *BLANKS       WSGOLK
+     C                   MOVE      *BLANKS       WSAD2
+N17  c                   move      *zeros        wsbet
+     C                   MOVE      *ZEROS        WSPNR
+     C                   MOVE      *BLANKS       WSAD3
+     C                   MOVE      *BLANKS       WSKPNR
+     C                   MOVE      *blanks       kpold
+     C                   MOVE      *BLANKS       WSTLF
+     C                   MOVE      *BLANKS       WSLAND
+     C                   MOVE      *BLANKS       WSSØNA
+     C                   MOVE      *BLANKS       WSVK
+     C                   MOVE      *ZEROS        WSFMNR
+     C                   MOVE      *ZEROS        WSREGN
+     C                   MOVE      *ZEROS        WSKONT
+     C                   MOVE      *BLANKS       WSFR02
+     C                   MOVE      *BLANKS       WSSECU
+     C                   MOVE      *BLANKS       WSFR05
+     C                   MOVE      *BLANKS       WSLIKV
+     C                   MOVE      *BLANKS       WSOPDT
+     C                   MOVE      *ZEROS        WSMINU
+     C                   MOVE      *ZEROS        WSUTLP
+     C                   MOVE      *BLANKS       WSFAXN
+     C                   MOVE      *BLANKS       WSPOGE
+     C                   MOVE      *BLANKS       WSFORE
+N20  c                   move      *ZEROS        WSBRE
+N20  c                   move      *ZEROS        WSLEN
+     C                   END
+     C*
+     C     SLTB1         ENDSR
+     C*
+     C***********************************************
+     C     HENTAD        BEGSR
+     C***********************************************
+      * Vareadresser
+N01  C                   Z-ADD     1             XVADNR            5 0
+s01  C*    VADRK         CHAIN     VADR                               33
+N01  C     VADRK         CHAIN(N)  VADR                               33
+     C  N33              DO
+s01  C*                  UPDATE    VADRR
+     C                   MOVE      VADRNA        W2NAV
+     C                   MOVE      VADRN1        W2AD1V
+     C                   MOVE      VADRN2        W2AD2V
+     C                   MOVEL     VADRN3        W2AD3V
+N05  C                   MOVEL     VALAND        W2LK
+     C                   END
+     C   33              DO
+     C                   MOVE      *BLANKS       W2NAV
+     C                   MOVE      *BLANKS       W2AD1V
+     C                   MOVE      *BLANKS       W2AD2V
+     C                   MOVE      *BLANKS       W2AD3V
+N05  C                   MOVE      *BLANKS       W2LK
+     C                   END
+      * Avvikende fakturaadresse
+N01  C                   Z-SUB     1             XVADNR            5 0
+N01  C     VADRK         CHAIN(N)  VADR                               33
+N01  C  N33              DO
+N01  C                   MOVE      VADRNA        W3NAV
+N01  C                   MOVE      VADRN1        W3AD1V
+N01  C                   MOVE      VADRN2        W3AD2V
+N01  C                   MOVEL     VADRN3        W3AD3V
+N05  C                   MOVEL     VALAND        W3LK
+N01  C                   END
+N01  C   33              DO
+N01  C                   MOVE      *BLANKS       W3NAV
+N01  C                   MOVE      *BLANKS       W3AD1V
+N01  C                   MOVE      *BLANKS       W3AD2V
+N01  C                   MOVE      *BLANKS       W3AD3V
+N05  C                   MOVE      *BLANKS       W3LK
+N01  C                   END
+     C                   ENDSR
+     C***********************************************
+     C     testm3        BEGSR
+     C***********************************************
+      * henter omregning m3 lm
+     C     m3lmkey       CHAIN(n)  cum3lm                             33
+     C  N33              DO
+     C                   MOVE      m3m3          wsm3
+     C                   MOVE      mllm          wslm
+     C                   END
+     C   33              DO
+     C                   MOVE      *zeros        wsm3
+     C                   MOVE      *zeros        wslm
+     C                   END
+     c                   endsr
+     C*
+     C*
+     C***********************************************
+     C     TESTB2        BEGSR
+     C***********************************************
+     C     WSNAK         COMP      *BLANKS                                97
+     C   97              SETON                                        30
+     C   97              MOVE      'SPN0015'     MSGNR
+     C   97              GOTO      SLTB2
+     C*
+     C* TEST AV POSTSTED/ZIP-KODE
+     C*
+     C     ZIPCOD        IFEQ      'J'
+     C                   MOVE      WSPOGE        WSZIP
+     C     WSPNR         IFNE      0
+     C                   MOVE      *BLANKS       WSZIP
+     C                   MOVEL     WSPNR         WSZIP
+     C                   END
+     C     WSZIP         IFEQ      *BLANKS
+     C                   SETON                                        9030
+     C   90              MOVE      'SHU0529'     MSGNR
+     c   90              z-add     9             linnbr
+     c   90              z-add     31            posnbr
+     C   90              GOTO      SLTB2
+     C                   END
+     C     KEYZIP        CHAIN     STED2D2                            90
+     C   90              SETON                                        30
+     C   90              MOVE      'SHU0529'     MSGNR
+     c   90              z-add     9             linnbr
+     c   90              z-add     31            posnbr
+     C   90              GOTO      SLTB2
+      *
+      * poststed
+      *
+     C                   MOVEL     ST2NVN        WSAD3
+     C                   END
+     C     WSAD3         COMP      *BLANKS                                96
+     C   96              SETON                                        30
+     C   96              MOVE      'SPA0022'     MSGNR
+     c   96              z-add     9             linnbr
+     c   96              z-add     57            posnbr
+     C   96              GOTO      SLTB2
+     C*
+      * søkenavn
+      *
+      * siden L1 aksepterer å skape SØnavn auto hvis blank...
+N06  c     WSSØNA        ifeq      *blanks
+N06  c                   movel     WSNAK         WSSØNA
+s13  c*    LO:UP         xlate     WSSØNA        WSSØNA
+N13  c     LO:UPP        xlate     WSSØNA        WSSØNA
+N06  c                   endif
+     C     WSSØNA        COMP      *BLANKS                                95
+     C   95              SETON                                        30
+     C   95              MOVE      'SPS0034'     MSGNR
+     c   95              z-add     11            linnbr
+     c   95              z-add     31            posnbr
+     C   95              GOTO      SLTB2
+      *
+      * LANDKODE
+      *
+N08  C     WSLAND        IFNE      *BLANK
+N07  C     KEYLAND       CHAIN     KODTLK                             86
+N07  C   86              SETON                                        30
+N07  C   86              MOVE      'SPL0001'     MSGNR
+N07  c   86              z-add     10            linnbr
+N07  c   86              z-add     31            posnbr
+N07  C   86              GOTO      SLTB2
+N08  C                   end
+     C*
+      *
+      * valutakode
+      *
+     C     WSVK          IFNE      *BLANKS
+     C     VALU1K        CHAIN     VALUL01                            94
+     C   94              SETON                                        30
+     C   94              MOVE      'SPV0001'     MSGNR
+     c   94              z-add     10            linnbr
+     c   94              z-add     36            posnbr
+     C   94              GOTO      SLTB2
+     C                   END
+N06   * Språkkod
+N06   *
+N06  C     WSSPRA        ifne      ' '
+N06  C     WSSPRA        andne     'E'
+N06  C     WSSPRA        andne     'T'
+N06  c                   seton                                        30
+N06  C                   MOVE      'JOV1548'     MSGNR
+N06  c                   z-add     10            linnbr
+N06  c                   z-add     42            posnbr
+N06  C                   GOTO      SLTB2
+N06  c                   endif
+     C*
+     C* TESTER AVTALEKUNDE
+     C*
+     C                   MOVE      *BLANKS       AVNAVN
+     C     WSAKNR        IFNE      0
+     C                   MOVE      SFAKTK        SFAKGM            1
+     C                   MOVE      WSAKNR        KUNDNR
+     C                   SETOFF                                       89
+     C  N27KUND1K        CHAIN(N)  KUNDL01                            89
+     C  N89KUND1K        CHAIN(N)  CUNDL01                            89
+     C  N89              MOVE      KNAVN         AVNAVN
+     C   89              SETON                                        30
+     C   89              MOVE      'SPK0053'     MSGNR
+     c   89              z-add     12            linnbr
+     c   89              z-add     31            posnbr
+     C   89              GOTO      SLTB2
+     C                   MOVE      SFAKGM        SFAKTK
+     C                   END
+     C*
+     C*
+     C* TESTER FAKTURAMOTTAGER
+     C*
+     C                   MOVE      *BLANKS       FMNAVN
+     C     WSFMNR        IFNE      0
+     C                   MOVE      SFAKTK        SFAKGM            1
+     C                   MOVE      WSFMNR        KUNDNR
+     C                   SETOFF                                       93
+     C  N27KUND1K        CHAIN(N)  KUNDL01                            93
+     C  N93KUND1K        CHAIN(N)  CUNDL01                            93
+     C  N93              MOVE      KNAVN         FMNAVN
+     C   93              SETON                                        30
+     C   93              MOVE      'SPK0031'     MSGNR
+     c   93              z-add     13            linnbr
+     c   93              z-add     31            posnbr
+     C   93              GOTO      SLTB2
+     C                   MOVE      SFAKGM        SFAKTK
+     C                   END
+     C*
+      * likviditetskode
+      *
+     c     *in30         ifeq      '0'
+     C     WSLIKV        IFNE      *BLANKS
+     C     KODLIK        CHAIN     KODTLIK                            92
+     C   92              SETON                                        30
+     C   92              MOVE      'SPL0012'     MSGNR
+     c   92              z-add     19            linnbr
+     c   92              z-add     69            posnbr
+     C                   END
+     C                   END
+      *
+     C     WSFOR9        IFEQ      *BLANKS
+     C                   MOVE      *BLANKS       WSFOR2
+     C                   ELSE
+     C                   MOVE      'X'           XTST              1
+     C     1             DO        9             XN                3 0
+     C     FO(XN)        IFEQ      ' '
+     C     FO(XN)        ORGE      '0'
+     C     FO(XN)        ANDLE     '9'
+     C                   SELECT
+     C     XTST          WHENEQ    'X'
+     C     FO(XN)        IFEQ      ' '
+     C                   MOVE      ' '           XTST
+     C                   ELSE
+     C                   MOVE      'N'           XTST
+     C                   END
+     C     XTST          WHENEQ    'N'
+     C     FO(XN)        IFEQ      ' '
+     C                   MOVE      'YBC1835'     MSGNR
+     C                   SETON                                        3088
+     c                   z-add     20            linnbr
+     c                   z-add     69            posnbr
+     C                   LEAVE
+     C                   END
+     C     XTST          WHENEQ    ' '
+     C     FO(XN)        IFNE      ' '
+     C                   MOVE      'YBC1835'     MSGNR
+     C                   SETON                                        3088
+     c                   z-add     20            linnbr
+     c                   z-add     69            posnbr
+     C                   LEAVE
+     C                   END
+     C                   ENDSL
+     C                   ELSE
+     C                   MOVE      'YBC1835'     MSGNR
+     C                   SETON                                        3088
+     c                   z-add     20            linnbr
+     c                   z-add     69            posnbr
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C  N88WSFOR2        IFNE      *BLANKS
+     C     WSFO31        IFEQ      ' '
+     C                   MOVE      ' '           WSFO32
+     C                   ELSE
+     C     WSFO31        IFLT      '0'
+     C     WSFO31        ORGT      '9'
+     C                   SETON                                        3088
+     C  N30              MOVE      'YBC1835'     MSGNR
+     C                   END
+     C     WSFO32        IFNE      ' '
+     C     WSFO32        IFLT      '0'
+     C     WSFO32        ORGT      '9'
+     C                   SETON                                        3088
+     C  N30              MOVE      'YBC1835'     MSGNR
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+     C  N88              SELECT
+     C     WSFOR9        WHENNE    *BLANKS
+     C     WSFOR2        ANDEQ     *BLANKS
+     C                   MOVE      *ZEROS        XMOD11           21
+     C                   MOVE      WSFO41        XMOD11
+     C                   CALL      'SYGE09B'
+     C                   PARM                    XMOD11
+     C                   PARM                    XCTL11            1 0
+     C                   MOVE      XCTL11        XCTL              1
+     C     WSFO42        IFNE      XCTL
+     C                   SETON                                        3088
+     C                   MOVE      'YBC1835'     MSGNR
+     C                   END
+     C     WSFO32        WHENNE    *BLANKS
+     C                   MOVE      *ZEROS        XMOD11
+     C                   MOVE      WSFO51        XMOD11
+     C                   CALL      'SYGE09B'
+     C                   PARM                    XMOD11
+     C                   PARM                    XCTL11
+     C                   MOVE      XCTL11        XCTL
+     C     WSFO52        IFNE      XCTL
+     C                   SETON                                        3088
+     C                   MOVE      'YBC1835'     MSGNR
+     C                   END
+     C                   ENDSL
+     C                   END
+     c   88              z-add     20            linnbr
+     c   88              z-add     69            posnbr
+S04   *
+S04   * samlefaktura gruppe
+S04   *
+S04  c*    *in30         ifeq      '0'
+S04  C* N27SFAKTK        IFEQ      'J'
+S04  C*    WSSAMG        IFEQ      ' '
+S04  C*                  SETON                                        9130
+S04  C*                  END
+S04  C*                  ELSE
+S04  C*    WSSAMG        IFNE      ' '
+S04  C*                  SETON                                        9130
+S04  C*                  END
+S04  C*                  END
+S04  C*  91              MOVE      'SHU0025'     MSGNR
+S04  c*  91              z-add     20            linnbr
+S04  c*  91              z-add     31            posnbr
+S04  c*                  end
+     C*
+      *
+      * betalngsbetingelse
+      *
+     c     *in30         ifeq      '0'
+     C     *IN29         ANDEQ     '0'
+     c     keybet        chain     kodal01                            87
+     c   87              seton                                        30
+     C   87              MOVE      'SHU1201'     MSGNR
+     c   87              z-add     20            linnbr
+     c   87              z-add     37            posnbr
+     C   87              GOTO      SLTB2
+     c                   endif
+     C     SLTB2         ENDSR
+     C*
+     C***********************************************
+     C     OPDKUN        BEGSR
+     C***********************************************
+     C     NYL1          IFEQ      'J'
+     C     WSKNR         ANDEQ     *ZEROS
+     C                   CALL      'VKUNDNYL1'
+     C                   PARM                    FIFIRM
+     C                   PARM                    WSKNR
+     C                   END
+      * HVIS ADRESSE-KUNDE OG 0 I NR- HENT NESTE
+     C     *IN29         IFEQ      '1'
+     C     WSKNR         ANDEQ     *ZEROS
+     C     FIFIRM        CHAIN     FIRKU                              31
+     C     *IN31         IFEQ      '0'
+     C     FIKUNE        ANDLE     FIKUTI
+     C                   MOVE      FIKUNE        WSKNR
+     C                   ADD       1             FIKUNE
+     C                   UPDATE    FIRKUR
+     C                   END
+     C                   END
+     C                   MOVE      WSKNR         KUNDNR
+     C                   SETOFF                                       31
+     C     FICI2         IFEQ      'J'
+     C  N29
+     CANN27KUND1K        CHAIN     CI2KUN                             37           CI2000
+     C                   END
+     C  N29
+     CANN27KUND1K        CHAIN     KUNDL01                            31
+     C  N31KUND1K        CHAIN     CUNDL01                            31
+     C*
+     C  N31              DO
+     C                   MOVE      WSNAK         KNAVN
+     C                   MOVE      WSAD1         ADR1
+     C                   MOVE      WSAD2         ADR2
+     c                   move      wsbet         betbet
+     c                   move      wspb          pnpbku
+     c                   move      wskugr        kundgr
+     c                   move      wsmva         rnraku
+N23  C                   MOVE      WSMVJN        SYMVJN
+N23  C                   MOVE      WSMVSP        SYMVSP
+     c                   move      wseori        eori
+     C                   MOVE      WSPNR         POSTNR
+     C                   MOVE      WSAD3         ADR3
+     C                   MOVE      WSKPNR        KPERS
+     C                   MOVE      WSTLF         TLF
+     C                   MOVE      WSLAND        SYLAND
+     C                   MOVEL     WSLAND        LAND
+     C                   MOVE      WSSØNA        SONAVN
+     C                   MOVE      WSVK          VALKOD
+     C                   MOVE      WSSPRA        SPRAAK
+     C                   MOVE      WSDKUN        DKUND
+     C                   MOVE      WSFMNR        FMOT
+     C                   MOVE      WSAKNR        AKNRKU
+     C                   MOVE      WSEPOS        SYEPOS
+     C                   MOVE      WSREGN        SYREGN
+     C                   MOVE      WSKONT        SYKONT
+     C                   MOVE      WSFR02        SYFR02
+     C                   MOVEL     WSSECU        SYFR04
+     C                   MOVE      WSFR05        SYFR05
+     C                   MOVE      WSLIKV        SYLIKV
+     C                   MOVE      WSOPDT        SYOPDT
+     C                   MOVE      WSMINU        SYMINU
+     C                   MOVE      WSUTLP        SYUTLP
+     C                   MOVE      WSFR03        SYFR03
+     C                   MOVE      WSFAXN        TFAXNR
+     C                   MOVE      WSPOGE        SYPOGE
+     C                   MOVEL     WSPOGE        POSTNU
+     C                   MOVE      WSGOLK        GOLK
+     C     *IN27         IFEQ      *ON
+     C     *IN29         OREQ      *ON
+     C                   MOVE      *BLANKS       POSTNU
+     C                   END
+     C                   MOVEL     WSFORE        SYRG
+     C                   MOVEL     WSSELG        SYSELG
+     C     WSFOR2        IFEQ      *BLANKS
+     C     WSFOR9        ANDNE     *BLANKS
+     C     *IN27         ANDEQ     *OFF
+     C     *IN29         ANDEQ     *OFF
+     C                   MOVEL     WSFORE        FORETN
+     C                   ELSE
+     C                   MOVE      *ZEROS        FORETN
+     C                   END
+N09  C     WSFOR2        IFNE      *BLANKS
+N09  C     WSFOR9        ANDNE     *BLANKS
+N09  C     *IN27         ANDEQ     *OFF
+N09  C     *IN29         ANDEQ     *OFF
+N09  C                   MOVEL     WSFORE        PERNKU
+N09  C                   ELSE
+N09  C                   MOVE      *ZEROS        PERNKU
+N09  C                   END
+     C                   MOVEL     WSSELG        SELGER
+     C                   END
+     C   31              DO
+     C                   MOVE      WSKNR         KUNDNR
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      WSNAK         KNAVN
+     C                   MOVE      WSAD1         ADR1
+     C                   MOVE      WSAD2         ADR2
+     c                   move      wsbet         betbet
+     c                   move      wspb          pnpbku
+     c                   move      wskugr        kundgr
+     c                   move      wsmva         rnraku
+N23  C                   MOVE      WSMVJN        SYMVJN
+N23  C                   MOVE      WSMVSP        SYMVSP
+     c                   move      wseori        eori
+     C                   MOVE      WSPNR         POSTNR
+     C                   MOVE      WSAD3         ADR3
+     C                   MOVE      WSKPNR        KPERS
+     C                   MOVE      WSTLF         TLF
+     C                   MOVE      WSLAND        SYLAND
+     C                   MOVEL     WSLAND        LAND
+     C                   MOVE      WSSØNA        SONAVN
+     C                   MOVE      WSVK          VALKOD
+     C                   MOVE      WSDKUN        DKUND
+     C                   MOVE      WSFMNR        FMOT
+     C                   MOVE      WSAKNR        AKNRKU
+     C                   MOVE      WSEPOS        SYEPOS
+     C                   MOVE      WSREGN        SYREGN
+     C                   MOVE      WSKONT        SYKONT
+     C                   MOVE      WSFR02        SYFR02
+     C                   MOVEL     WSSECU        SYFR04
+     C                   MOVE      WSFR05        SYFR05
+     C                   MOVE      WSLIKV        SYLIKV
+     C                   MOVE      WSOPDT        SYOPDT
+     C                   MOVE      WSMINU        SYMINU
+     C                   MOVE      WSUTLP        SYUTLP
+     C                   MOVE      WSFR03        SYFR03
+     C                   MOVE      WSFAXN        TFAXNR
+     C                   MOVE      WSPOGE        SYPOGE
+     C                   MOVEL     WSPOGE        POSTNU
+     C                   MOVE      WSGOLK        GOLK
+     C     *IN27         IFEQ      *ON
+     C     *IN29         OREQ      *ON
+     C                   MOVE      *BLANKS       POSTNU
+     C                   END
+     C                   MOVEL     WSFORE        SYRG
+     C                   MOVEL     WSSELG        SYSELG
+     C     WSFOR2        IFEQ      *BLANKS
+     C     WSFOR9        ANDNE     *BLANKS
+     C     *IN27         ANDEQ     *OFF
+     C     *IN29         ANDEQ     *OFF
+     C                   MOVEL     WSFORE        FORETN
+     C                   ELSE
+     C                   MOVE      *ZEROS        FORETN
+     C                   END
+     C                   MOVEL     WSSELG        SELGER
+N09  C     WSFOR2        IFNE      *BLANKS
+N09  C     WSFOR9        ANDNE     *BLANKS
+N09  C     *IN27         ANDEQ     *OFF
+N09  C     *IN29         ANDEQ     *OFF
+N09  C                   MOVEL     WSFORE        PERNKU
+N09  C                   ELSE
+N09  C                   MOVE      *ZEROS        PERNKU
+N09  C                   END
+N09  C                   END
+      * samlefakturakode i L1 er J/blank (i Sysped tillates ulike koder, også  annet enn J)
+N04  C     WSSAMG        ifeq      ' '
+N04  C                   MOVE      ' '           SFAKTK                         L1
+N04  C                   else
+N04  C                   MOVE      'J'           SFAKTK                         L1
+     C                   END
+     C     *IN29         IFEQ      '0'
+     C  N31
+     CANN27              UPDATE    KUNDR
+     C   31
+     CANN27              WRITE     KUNDR
+     C                   ELSE
+     C                   MOVE      'I'           AKTKOD
+     C                   END
+     C                   MOVE      WSSAMG        SFAKT                          SY
+     C  N31              UPDATE    CUNDR
+     C   31              WRITE     CUNDR
+     C                   EXSR      CUNDCA
+     C                   SETOFF                                       31
+      * LEGG UT LOGGPOST I CI2000-OPPDATERINGSFIL
+     C     FICI2         IFEQ      'J'
+N01  C                   Z-ADD     1             XVADNR            5 0
+     C     VADRK         CHAIN(N)  VADR                               38
+     C     *IN38         IFEQ      '1'
+     C                   MOVE      *BLANKS       VADRNA
+     C                   MOVE      *BLANKS       VADRN1
+     C                   MOVE      *BLANKS       VADRN2
+     C                   MOVE      *BLANKS       VADRN3
+     C                   END
+     C   37              MOVE      XNDKO1        ENDKO1
+     C   37              MOVE      *BLANKS       ENDKO2
+     C   37
+     CANN27
+     CANN29              WRITE     CI2KUNR
+     C  N37
+     CANN27
+     CANN29              UPDATE    CI2KUNR
+     C                   END
+     C*
+     C     m3lmkey       CHAIN     cum3lm                             38
+     c     wsm3          ifeq      *zeros
+     c     wslm          andeq     *zeros
+     c  n38              delete    cum3lmr
+     c                   else
+     c                   move      wslm          mllm
+     c                   move      wsm3          m3m3
+     c   38              move      fifirm        m3firm
+     c   38              move      wsknr         m3kund
+     c  n38              update    cum3lmr
+     c   38              write     cum3lmr
+     c                   end
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TESTB3        BEGSR
+     C***********************************************
+N01  C*  Vareadrese 1
+N01  C                   Z-ADD     1             XVADNR            5 0
+N01  c     W2AD3V        IFNE      *blanks
+     C     W2NAV         COMP      *BLANKS                                98
+     C   98              SETON                                        30
+     C   98              MOVE      'SPN0014'     MSGNR
+     C   98              GOTO      SLTB3
+N01  c                   end
+     C*
+N01  c     W2NAV         IFNE      *blanks
+     C     W2AD3V        COMP      *BLANKS                                97
+     C   97              SETON                                        30
+     C   97              MOVE      'SPA0019'     MSGNR
+     C   97              GOTO      SLTB3
+N01  c                   end
+     C*
+     C                   MOVE      WSSØNA        XXXSOK           10
+     C     VADRK         CHAIN     VADR                               33
+N01  c     W2NAV         IFNE      *blanks
+     C                   MOVE      XXXSOK        SONAVN
+     C                   MOVE      W2NAV         VADRNA
+     C                   MOVE      W2AD1V        VADRN1
+     C                   MOVE      W2AD2V        VADRN2
+     C                   MOVE      W2AD3V        VADRN3
+N05  C                   MOVE      W2LK          VALAND
+     C   33              DO
+     C                   MOVE      'A'           AKTKOD
+     C                   MOVE      '00000'       JOURNR
+     C                   MOVE      FIFIRM        FIRMA
+     C                   MOVE      WSKNR         KUNDNR
+     C                   Z-ADD     1             VADRNR
+     C                   END
+     C   33              WRITE     VADRR
+     C  N33              UPDATE    VADRR
+N01  C                   else
+N01  C  N33              DELETE    VADRR
+N01  C                   END
+     C*
+N01  C*  Avvikende fakturaadresse...
+N01  C                   Z-SUB     1             XVADNR            5 0
+N01  c     W3AD3V        IFNE      *blanks
+N01  C     W3NAV         COMP      *BLANKS                                98
+N01  C   98              SETON                                        30
+N01  C   98              MOVE      'SPN0014'     MSGNR
+N01  C   98              GOTO      SLTB3
+N01  c                   end
+N01  C*
+N01  c     W3NAV         IFNE      *blanks
+N01  C     W3AD3V        COMP      *BLANKS                                97
+N01  C   97              SETON                                        30
+N01  C   97              MOVE      'SPA0019'     MSGNR
+N01  C   97              GOTO      SLTB3
+N01  c                   end
+N01  C*
+N01  C                   MOVE      WSSØNA        XXXSOK           10
+N01  C     VADRK         CHAIN     VADR                               33
+N01  c     W3NAV         IFNE      *blanks
+N01  C                   MOVE      XXXSOK        SONAVN
+N01  C                   MOVE      W3NAV         VADRNA
+N01  C                   MOVE      W3AD1V        VADRN1
+N01  C                   MOVE      W3AD2V        VADRN2
+N01  C                   MOVE      W3AD3V        VADRN3
+N05  C                   MOVE      W3LK          VALAND
+N01  C   33              DO
+N01  C                   MOVE      'A'           AKTKOD
+N01  C                   MOVE      '00000'       JOURNR
+N01  C                   MOVE      FIFIRM        FIRMA
+N01  C                   MOVE      WSKNR         KUNDNR
+N01  C                   Z-SUB     1             VADRNR
+N01  C                   END
+N01  C   33              WRITE     VADRR
+N01  C  N33              UPDATE    VADRR
+N01  C                   else
+N01  C  N33              DELETE    VADRR
+N01  C                   END
+     C*
+     C     SLTB3         ENDSR
+     C*
+     C***********************************************
+     C     SØKUNR        BEGSR
+     C***********************************************
+     C                   MOVE      *BLANKS       USØKKN           30
+     C                   CALL      'SOEKKUN'
+     C                   PARM                    WSKNR
+     C                   PARM                    FIFIRM
+     C                   PARM                    USØKKN           30
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     FRITXT        BEGSR
+     C***********************************************
+     C                   MOVE      'KUNDER: '    XTXT              8
+     C                   Z-ADD     1             UFLAGG            1 0
+     C                   MOVE      'V'           DELSY             1
+     C                   CALL      'FRITXTSK'
+     C                   PARM                    FIFIRM
+     C                   PARM                    WSKNR
+     C                   PARM                    XTXT
+     C                   PARM                    UFLAGG
+     C                   PARM                    DELSY
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+N07  C     KEYLAND       KLIST
+N07  C                   KFLD                    XLK
+N07  C                   KFLD                    WSLAND
+N07  C                   MOVE      'LK '         XLK               3
+     C     KEYBET        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WSBET
+     C     KUfokey       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WSRG14           14
+     C     KEYZIP        KLIST
+     C                   KFLD                    WSLAND
+     C                   KFLD                    WSZIP             9
+     C     KODLIK        KLIST
+     C                   KFLD                    XLIUNI
+     C                   KFLD                    WSLIKV
+N16  C     KUND1KNY      KLIST
+N16  C                   KFLD                    FIFIRM
+N16  C                   KFLD                    WSKNR
+     C     KUND1K        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C     VADRK         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WSKNR
+     C                   KFLD                    XVADNR
+     C     m3lmkey       KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WSKNR
+     C     VALU1K        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    WSVK
+N03  C     SYPARKEY      KLIST
+N03  C                   KFLD                    FIRKNR            8 0
+N03  C                   KFLD                    SYPAID
+     C*
+     C     *ENTRY        PLIST
+     C                   PARM                    UIN01             1
+     C                   PARM                    UFIRM             2
+     C                   PARM                    CUNDNR            8
+     C                   Z-ADD     0             KUNDNR
+     C     CUNDNR        IFNE      *BLANKS
+     C                   MOVE      'J'           DIREKT            1
+     C                   MOVE      CUNDNR        KUNDNR
+     C                   END
+     C     UIN01         COMP      '1'                                    27
+     C*
+     C                   MOVE      'LIKO'        XLIUNI            4
+     C                   Z-ADD     1             XVADNR            5 0
+     C                   MOVE      *BLANKS       SYRG
+     C                   MOVE      *BLANKS       WSFORE
+     C                   MOVE      *BLANKS       SYSELG
+     C*
+     C                   MOVE      *BLANKS       FIFIRM
+     C     FIFIRM        SETLL     FIRM                               33
+     C                   READ      FIRM                                   33
+     C*
+     C     UFIRM         IFNE      *BLANKS
+     C     UFIRM         ANDNE     FIFIRM
+     C                   SETON                                        LR
+     C                   RETURN
+     C                   END
+     C* KUNDENR OMRÅDE FOR RENE ADRESSEKUNDENR
+     C*(DERSOM VERDI ER GITT, ER DET TILLATT (OG F6 VISES...)    )
+     C                   SETOFF                                       2829
+     C     FIFIRM        CHAIN(N)  FIRKU                              33
+     C     FIKUFR        COMP      *ZEROS                             2828
+      *
+      * J/N FOR OM NOTES, CI2000 SALGSSYSTEM ER INSTALLERT
+      * HARDKODET I FØRSTE OMGANG
+     C                   MOVE      'J'           FICI2             1
+     C                   MOVE      ' '           XNDKO1            1            HOVED..     .
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     SOKDTA        BEGSR
+     C***********************************************
+     C*
+     C*SØK PÅ ZIP
+     C*
+     C     LINNBR        IFEQ      9
+     C     POSNBR        ANDGE     31
+     C     POSNBR        ANDLE     39
+     C                   MOVE      *BLANKS       UNVN
+     C                   CALL      'SYFI10N'
+     C                   PARM                    WSSDFF            9
+     C                   PARM                    UNVN             30
+     C                   PARM                    WSLAND
+     C     WSLAND        IFEQ      'NO'
+     C                   MOVEL     WSSDFF        WSPNR
+     C                   MOVE      *BLANKS       WSPOGE
+     C                   ELSE
+     C                   MOVE      WSSDFF        WSPOGE
+     C                   MOVE      *ZEROS        WSPNR
+     C                   END
+     C     UNVN          IFNE      *BLANKS
+     C                   MOVEL     UNVN          WSAD3
+     C                   END
+     C                   GOTO      SLSOK
+     C                   END
+     C*
+     C*
+     C* LANDKODESØK
+     C*
+     C     LINNBR        IFEQ      10
+     C     POSNBR        ANDGE     31
+     C     POSNBR        ANDLE     32
+     C                   MOVE      'J'           USPED             1
+     C                   CALL      'SYFI10L'
+     C                   PARM                    WSLAND
+     C                   PARM                    USPED
+     C                   GOTO      SLSOK
+     C                   END
+     C*
+     C*
+     C     LINNBR        IFEQ      19
+     C     POSNBR        ANDGE     31
+     C     POSNBR        ANDLE     32
+     C                   CALL      'SYFI10C'
+     C                   PARM                    WSOPDT
+     C                   GOTO      SLSOK
+     C                   END
+     C*
+     C*
+     C*SØK PÅ LIKVIDITETSKODER
+     C*
+     C     LINNBR        IFEQ      19
+     C     POSNBR        ANDEQ     69
+     c                   move      'J'           plukk
+     C                   CALL      'SYFT19'
+     C                   parm                    plukk             1
+     C                   parm                    wslikv
+     C                   GOTO      SLSOK
+     C                   END
+     C*
+     C*SØK PÅ FRITEKSTKODE
+     C*
+     C     LINNBR        IFEQ      19
+     C     POSNBR        ANDEQ     34
+     C                   CALL      'SYFI10I'
+     C                   PARM                    WSFR03
+     C                   GOTO      SLSOK
+     C                   END
+N02  C*
+N02  C*SØK PÅ BetalingsBetingelse
+N02  C*
+N02  C     LINNBR        IFEQ      20
+N02  C     POSNBR        ANDEQ     37
+N02  C                   CALL      'VLEVE01'
+N02  C                   PARM                    FIFIRM
+N02  C                   PARM                    WSBet
+N02  C                   GOTO      SLSOK
+N02  C                   END
+      *
+      *
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+     C*
+     C     SLSOK         ENDSR
+     C***********************************************
+     C     CUNDCA        BEGSR
+     C***********************************************
+     C     KUNDKP        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+     C                   KFLD                    KPold
+      * totalt omskrevet
+      *
+      * ADD POST I CUNDC HVIS MANGLER
+     C     KUNDKP        CHAIN     CUNDC01                            51
+     c     CTYPtag       tag
+     C     *IN51         IFEQ      *ON
+S13  C*    LO:UP         XLATE     KPERS         CCONTA
+N13  C     LO:UPP        XLATE     KPERS         CCONTA
+     C                   MOVEL     FIFIRM        CFIRMA
+     C                   Z-ADD     KUNDNR        CCOMPN
+     C                   MOVEL     TFAXNR        CFAX
+     C                   MOVEL     TLF           CPHONE
+     C                   MOVEL     SYEPOS        CEMAIL
+     C                   MOVE      *blanks       CTYPE
+n10  c                   move      *zeros        cavd
+n11  c                   move      *blanks       copd
+n11  c                   move      *blanks       copdio
+n11  c                   move      *blanks       cavdio
+n14  c                   move      *blanks       cmerge
+     C                   WRITE     CUNDCR
+      * endre POST I CUNDC
+     C                   ELSE
+      * Dersom posten har en spes funksjon skipp den, fler på samme Kpers(fra CUNDF)??
+     C     CTYPE         IFNE      *blanks
+     C                   UPDATE    CUNDCR
+     C     KUNDKP        reade     CUNDC01                                51
+     c                   goto      CtypTag
+     c                   end
+S13  C*    LO:UP         XLATE     KPERS         CCONTA
+N13  C     LO:UPP        XLATE     KPERS         CCONTA
+     C                   MOVEL     TFAXNR        CFAX
+     C                   MOVEL     TLF           CPHONE
+     C                   MOVEL     SYEPOS        CEMAIL
+     C                   UPDATE    CUNDCR
+     C                   ENDIF
+     C                   ENDSR
+     C***********************************************
+     C     CUNDCV        BEGSR
+     C***********************************************
+      * ADD POST I CUNDC HVIS MANGLER
+      *
+     C                   CALL      'VCUNDCR'
+     C                   PARM                    FIFIRM
+     C                   PARM                    WSKNR
+     C                   PARM                    URRN             10 0
+     C                   PARM                    UEMFA             1
+     C                   PARM                    UCONTA           30
+     C                   ENDSR
+     C***********************************************
+     C     srfore        BEGSR
+     C***********************************************
+      *
+      * SØK Foretaksnummer viser umiddelbart hvis kun 1
+      *
+     c                   move      *zeros        wsknr
+     c                   movel     wsftnr        wsrg14
+     c     kufokey       setll     cundlfo
+     c     kufokey       reade     cundlfo                                33
+     c     *in33         ifeq      '0'
+     c     kufokey       reade     cundlfo                                33
+      * 1 POST FUNNET
+     c     *in33         ifeq      '1'
+     c                   move      kundnr        wsknr
+     c                   goto      utfore
+     C                   end
+     C                   end
+      *
+     C                   MOVE      *zeros        foknr             8 0
+     C                   MOVE      wsrg14        urg14
+     c                   CALL      'SYGE23'
+     C                   PARM                    uRG14            14
+     C                   PARM                    foknr
+     C                   move      foknr         wsknr
+     c     utfore        endsr
+     C*

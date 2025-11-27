@@ -1,0 +1,194 @@
+      *
+      * Foreløpig??? Rent RPG-program - ikke modul... (kompiler med 14)
+      *
+      *********** Endringer *******************************************
+      * 01 JOV PTF8 setter også Lagersted (stock position)
+      *             Kan kalle programmet for EN ordre INN på HUB
+      *****************************************************************
+     FGSSORL21  IF   E           K DISK
+     F                                     rename(GSSORFR:GSSOR21R)
+     FGSSTRF    UF   E           K DISK
+     FGSSOLF    UF   E           K DISK
+     FGSSORF    UF   E           K DISK
+     FGSSLGF    O    E             DISK
+     FSTSCLI    IF   E           K DISK
+     FSTSCLI2   UF   E           K DISK
+     F                                     rename(STSCLIR:STSCLI2R)
+     FBRPARF    IF   E           k disk
+     D XXTXT01         C                   CONST('Shipped. On way to')
+     D XXTXT02         C                   CONST('Shipped to customer.')
+     D XXTXT03         C                   CONST('Recieved at')
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UTNO2            11
+     C                   PARM                    UTYPE             3
+     C                   PARM                    USTED             5
+     C                   PARM                    UUSER            10
+     C                   MOVE      UTNO2         UTNO             11 0
+      *FLYTTET OPP
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+      *
+     C     BrParKey      klist
+     C                   kfld                    UUSER
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C                   MOVE      *zeros        PAKUNR
+      * INO-IN  EN ENKELT ORDRE
+     C     UTYPE         IFEQ      'INO'
+     C                   MOVE      'IN '         UTYPE
+     C                   Z-ADD     UTNO          ORONO
+     c                   Exsr      EnOrd
+     c                   Goto      SLUTT
+     C                   END
+      * ALLE PÅ EN TRIP...
+     C     UTNO          CHAIN     GSSTRF                             33
+     C     *IN33         CABEQ     '1'           SLUTT
+      *
+      * IND. 28 PÅ BETYR TRANSITT (båtkode blank og/el. location til utfylt)
+      * 28 OFF BETYR DIREKTE TIL SLUTTKUNDE. (BÅT UTFTYLT/ Loc. TIL Blank)
+     C     TRBCD         COMP      *BLANKS                                28
+     C  N28TRLOCT        COMP      *BLANKS                            2828
+      *
+     C     UTYPE         IFEQ      'OUT'
+     C   28              MOVE      '3'           TRST
+     C  N28              MOVE      '6'           TRST
+     c                   else
+      * Ved IN til HUB er det alltid fullføring av en transit..
+     C                   MOVE      '6'           TRST
+     c                   end
+     C                   UPDATE    GSSTRFR
+      *
+     C     UTNO          SETLL     GSSORL21                           33
+     C     UTNO          READE     GSSORL21                               33
+     C     *IN33         DOWEQ     '0'
+      * Behandling av en ordre samlet i SR ENORD - Linjer flyttet!!
+     C                   EXSR      ENORD
+     C     UTNO          READE     GSSORL21                               33
+     C                   END
+      *
+     C     SLUTT         TAG
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+      *
+      *********************************************************
+     C     ENORD         begsr
+      *********************************************************
+     C     ORONO         CHAIN     GSSORF
+     C     *IN33         CABEQ     '1'           UtEnOrd
+      * Ut fra Fabrikk (eller HUB/depot)
+     C     UTYPE         IFEQ      'OUT'
+     C     *IN28         IFEQ      '1'
+      * Transitt til annet depot.  STH = Shipped to HUB
+     C                   MOVE      '3'           ORST
+     C                   MOVEL     'STH  '       ORST2
+     C                   MOVE      ORLC2         ORLC3
+     C                   MOVE      ORLC          ORLC2
+     C                   MOVE      'ONWAY'       ORLC
+     C                   MOVE      ORDTL2        ORDTL3
+     C                   MOVE      ORDTL         ORDTL2
+     C                   MOVE      TRDTL         ORDTL
+      *
+     C                   EVAL      LGTXT = XXTXT01
+     C                   CAT       TRLOCT:1      LGTXT
+     C                   EXSR      OPDLOGG
+     C                   ELSE
+      * Sluttkunde  NOP = No POD received - Shipped to customer.
+     C                   MOVE      '3'           ORST
+     C                   MOVEL     'NOP  '       ORST2
+     C                   EVAL      LGTXT = XXTXT02
+     C                   EXSR      OPDLOGG
+     C                   END
+      * Eventuelle EXTRA's, som matcher tidligere manko??
+      * .. sett t=Transfered
+     C                   exsr      MankoT
+     C                   ELSE
+      * IN *
+      * Plasseres på lagersted utfra bruker som skyter inn..
+     C                   MOVE      'SSWAR'       PAID
+     C     BrParKey      Chain     BRPARF                             33
+     c  n33              MoveL     PAVRDA        InWareH           5
+     c   33              MoveL     USTED         InWareH           5
+      *
+      * IN er alltid TIL  HUB/depot  ONH = On HUB
+     C                   MOVE      '0'           ORST
+     C                   MOVEL     'ONH  '       ORST2
+     C                   MOVEL     InWareH       ORPOS1
+     C                   MOVE      ORTNO2        ORTNO3
+     C                   MOVE      ORTNO         ORTNO2
+     C                   MOVE      *ZEROS        ORTNO
+     C                   MOVE      TRLOCT        ORLC
+      *
+     C                   EVAL      LGTXT = XXTXT03
+     C                   CAT       TRLOCT:1      LGTXT
+     C                   EXSR      OPDLOGG
+      *
+      * Fjern turnr fra kollipostene (nødvendig for å skyte INN)
+     c     ORONO         SETLL     GSSOLF
+     c     ORONO         READE     GSSOLF                                 34
+     c     *in34         DOWEQ     *OFF
+     c                   move      InWareH       OLSTD
+     c                   move      *zeros        OLTNO
+     C                   UPDATE    GSSOLFR
+     c     ORONO         READE     GSSOLF                                 34
+     c                   end
+      *
+     C                   END
+     C                   UPDATE    GSSORFR
+     C     UtEnOrd       ENDSR
+      *********************************************************
+     C     MankoT        begsr
+      *********************************************************
+      * Eventuelle EXTRA's, som matcher tidligere manko??
+      * .. sett t=Transfered (Hindre at den ved skyting av fremmed/tidligere
+      *    manko(se STS111) på et annet fbr, skal bli tatt inn som "Extra" )
+     C     CLIKEY        KLIST
+     C                   KFLD                    YSTED             5
+     C                   KFLD                    YPRO              8 0
+     C                   KFLD                    YAVD              4 0
+     C                   KFLD                    YOPD              7 0
+     C                   KFLD                    YFBNR             3 0
+      *
+     C                   MOVEL     USTED         YSTED
+     C                   MOVEL     UTNO          YAVD
+     C                   MOVE      UTNO          YOPD
+     C                   Z-ADD     1             YFBNR
+     C     CliKey        Setll     STSCLI
+     C     CliKey        READE     STSCLI                                 33
+     C     *in33         DOWEQ     '0'
+     C     SCSTAT        IFEQ      'X'
+      *
+     C     SCCLID        Setll     STSCLI2
+     C     SCCLID        READE     STSCLI2                                34
+     C     *in34         DOWEQ     '0'
+     C     SCSTAT        IFEQ      'M'
+     C                   Move      'T'           SCSTAT
+     C                   End
+     c                   Update    STSCLI2R
+     C     SCCLID        READE     STSCLI2                                34
+     c                   End
+      *
+     c                   End
+     C     CliKey        READE     STSCLI                                 33
+     C                   END
+     C                   ENDSR
+      *=====================================================================
+      *  Oppdater loggen
+      *=====================================================================
+     C     OPDLOGG       begsr
+      *
+     C                   MOVE      UUSER         LGUSER
+     C                   MOVE      WDT           LGDT
+     C                   MOVE      WTM           LGTID
+     C                   Z-ADD     1             LGLN
+     C                   MOVEL     'STS113'      LGPGM
+     C                   MOVE      WDT           LGHDT
+     C                   MOVEL     WTM           LGHTID
+     C                   Z-ADD     3             LGNIVÅ
+     C                   MOVEL     'MAIN'        LGFTYP
+     C                   MOVE      ORONO         LGONO
+     C                   MOVE      *ZEROS        LGLNO
+     C                   WRITE     GSSLGFR
+      *
+     C                   endsr

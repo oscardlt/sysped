@@ -1,0 +1,645 @@
+      *=====================================================================
+      *  RPG ILE MODULE SYSPED/FUPLOAD
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/ESOVERS6 MODULE(*LIBL/ESOVERS6 *LIBL/CHECKUSR
+CRTPGM*         *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 hvis path IKKE inneholder \ sette start til 1.
+10XXX * 03 YBC PTF10 TAKLE LANG TEKST
+10XXX * 04 YBC PTF10 GLEMT Å LESE BRIDF
+10172 * 05 SH  PTF10 norsk text til Track and trace
+********************************************************************
+      *  Option switches:
+      *
+      *=====================================================================
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FARKIVP    O  A E             DISK    USROPN
+     FFIRMARC   IF   E           K DISK    USROPN
+     FARKTXT    IF   E           K DISK    USROPN
+     FARKEXT    IF   E           K DISK    USROPN
+     FTRACKF    O  A E             DISK    USROPN
+     FBRIDF     UF   E           K DISK    USROPN
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *=================================
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+     D lng             s              2
+     D XAVD            S              4A
+     D XSAVD           S              4  0
+     D XOPD            S              7A
+     D XSOPD           S              7  0
+     D KEY11           S             44A
+     D KEY12           S             44A
+     D KEY13           S             43A
+     D KEY14           S             49A
+     D NBRVARS         S             10i 0
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     Dsavedquerystring...
+     D                 s          32767    varying
+     D                 DS
+     D TXT                     1    512    DIM(512)
+     D TX512                   1    512
+     D                 DS
+     D FT                      1     70    DIM(70)
+     D FT70                    1     70
+      *=================================
+      * VARIABLES TO CONTROL INPUT FILE
+     D InDta           s          32767    based(InDtaP)
+     D InDtaLn         s             10i 0
+     D RspLn           s             10i 0
+     D SaveP           s               *
+     D StrOfDtaP       s               *
+     D CvtDtaArr       s              1a   dim(1000)
+     D CvtDta          s           1000a
+     D CvtDtaLn        s             10i 0
+     D PartSepLn       s             10i 0
+     D FileSize        s             10i 0
+     D FileName        s            512a
+     D ServerFile      s            500a
+N02  D ServerFile2     s            200a
+     D ServerDir       s            500a
+     D FileType        s            100a
+     D FileStrPos      s             10i 0
+      *=================================
+      * VARIABLES FOR IFS "STAT" FUNCTION
+      * Buffer for IFS stat function
+     D StatusBuffer    ds                  align
+     D  StsPermissions...
+     D                               10u 0
+     D  StsFileID                    10u 0
+     D  StsLinkCount                  5u 0
+     D  StsUserIDNbr                 10u 0
+     D  StsGroupIdNbr                10u 0
+     D  StsBytesInFile...
+     D                               10i 0
+     D  StsTimeLastAcc...
+     D                               10i 0
+     D  StsTimeLastChg...
+     D                               10i 0
+     D  StsTimeStsLastChg...
+     D                               10i 0
+     D  StsFileSysID                 10u 0
+     D  StsBlockSize                 10u 0
+     D  StsAllocBytes                10u 0
+     D  StsObjectType                11
+     D  StsCodePage                   5u 0
+     D                               62
+     D  StsGenerationID...
+     D                               10u 0
+     D  CodePage       s             10u 0 inz(819)
+     D FileHandle      s             10i 0
+     D ErrNoRet        s             10i 0
+      *=================================
+      * VARIABLES TO CHECK AN IFS FILE
+     D rc              s             10i 0 inz(0)
+     D ThisSubProc     c                   'EAOVERS6: '
+      *=================================
+      * VARIABLES TO PROVIDE USER RESPONSE
+     D DoneSW          s              1a
+      *=================================
+      * VARIABLES TO HANDLE MESSAGES
+     D ErrorType       s             10i 0
+     D  msg1           s           1600a
+     D  msg2           s           1600a
+     D  msg3           s           1600a
+     D  msg4           s           1600a
+     D  msg5           s           1600a
+     D                 DS
+     D msg                     1   1600
+     D msgid                   1      7
+     D msgsev                  8      9
+     D msgtxt1                10    521
+     D msgtxt2               522   1600
+      *=================================
+      * MISCELLANEOUS VARIABLES
+     D EOR             s              2a   inz(x'0D25')
+     D key1            s             58a
+     D key2            s             13a   inz('Content-Type:')
+     D UserName        s            512a
+     D Cmd             s           1024a
+     D DlyNbr          s             10i 0
+     D i               s             10i 0
+     D j               s             10i 0
+     D k               s             10i 0
+     D l               s             10i 0
+     D m               s             10i 0
+     D r               s             10i 0
+     D s               s             10i 0
+     D t               s             10i 0
+     D x               s             10i 0
+     D y               s             10i 0
+      *=================================
+      * VARIABLES FOR PROGRAM STATUS SUBROUTINE
+     D psds           sds
+     D  psdsdata                    429
+     D pssrswitch      s              1    inz(*off)
+     D wrotetop        s              1    inz(*off)
+      *===========================================
+      * PART 0- PROLOG
+      *===========================================
+      * Initialize search keys
+     C                   eval      key1 = 'Content-Disposition: form-data;' +
+     C                             ' name="filesnt"; filename="'
+     C                   EVAL      KEY11 = 'Content-Disposition: form-data;' +
+     C                             ' name="WSAVD"'
+     C                   EVAL      KEY12 = 'Content-Disposition: form-data;' +
+     C                             ' name="WSOPD"'
+     C                   EVAL      KEY13 = 'Content-Disposition: form-data;' +
+     C                             ' name="USER"'
+     C                   EVAL      KEY14 = 'Content-Disposition: form-data;' +
+     C                             ' name="UsrSpcName"'
+      * Get externally described HTML, start response
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'ESOVERS6'
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+     C                   callp     wrtsection('top')
+     C                   eval      wrotetop = *on
+      * Retrieve logged-in user name (if protection active)
+     C                   eval      UserName = getenv('REMOTE_USER':qusec)
+      *====================================================================
+      * PART 1 - ASK USER INPUT
+      *====================================================================
+      * Get content length
+     C                   eval      InDtaLn = contlen
+     C                   if        InDtaLn = 0
+     C                   eval      nbrVars =
+     C                             zhbgetinput(SAVEDQUERYSTRING:qusec)
+     C                   eval      WSUSER = zhbgetvar('USER')
+     C                   eval      USRSPCNAME= zhbgetvar('USRSPCNAME')
+     C                   eval      XAVD = zhbgetvar('WSAVD')
+     C                   eval      XOPD= zhbgetvar('WSOPD')
+     C                   EVAL      RC = DOCMD('OVRDBF FILE(BRIDF) +
+     C                             TOFILE(*LIBL/BRIDF) SECURE(*YES)')
+     C                   open      BRIDF                                50
+     C     WSUSER        CHAIN     BRIDF                              30
+     C                   CLOSE     BRIDF                                50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     UpdHTMLVar('USER':WSUSER)
+     C                   callp     UpdHTMLVar('UsrSpcName':USRSPCNAME)
+     C                   callp     UpdHTMLVar('WSAVD':XAVD)
+     C                   callp     UpdHTMLVar('WSOPD':XOPD)
+     C                   callp     wrtsection('step1')
+     C                   exsr      Exit
+     C                   endif
+     C*                  callp     wrtsection('step1')
+      *====================================================================
+      * PART 2- ALLOCATE STORAGE TO RECEIVE INPUT
+      *         RECEIVE INPUT
+      *====================================================================
+      * Allocate storage for content-length bytes.  Save pointer.
+     C                   alloc(e)  InDtaLn       InDtaP
+     C                   if        InDtaP = *null
+     C                   exsr      AllocErr
+     C                   endif
+     C                   eval      SaveP = InDtaP
+      * Read standard input using API instead of any of FUPLOAD's
+      * getinput because length can easily be larger than getinput's
+      * maximum buffer size of 32767.
+     C                   callb     'QtmhRdStin'
+     C                   parm                    InDta
+     C                   parm                    InDtaLn
+     C                   parm                    RspLn
+     C                   parm                    qusec
+      *====================================================================
+      * PART 3 -  DETAIL ANALYSIS OF INPUT DATA
+      *====================================================================
+      * Convert initial input data to EBCDIC
+      *   - establish the length of the data to be copied
+     C                   eval      CvtDtaLn = %len(CvtDta)
+     C                   if        InDtaLn < CvtDtaLn
+     C                   eval      CvtDtaLn = InDtaLn
+     C                   endif
+     C                   if        CvtDtaLn > 1000
+     C                   eval      CvtDtaLn = 1000
+     C                   endif
+      *   - copy "InDta" to "CvtDta" one byte at a time
+      *     (need to move the pointer "InDtaP")
+     C                   eval      i = 1
+     C                   dow       i <= CvtDtaLn
+     C                   eval      CvtDtaArr(i) = %subst(InDta:1:1)
+     C                   eval      InDtaP = InDtaP + 1
+     C                   eval      i = i +1
+     C                   enddo
+     C                   movea     CvtDtaArr     CvtDta
+      *   - restore the pointer "InDtaP" to its initial value
+     C                   eval      InDtaP = SaveP
+      *   - convert "CvtDta" contents from ASCII to EBCDIC
+     C                   eval      CvtDta = xlatwCCSIDS(*on:CvtDta)
+      * Retrieve control data:
+      *  1-path and name of the local file to be uploaded
+     C                   eval      r = %scan(key1:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r)
+     C                   eval      FileName = %subst(CvtDta:
+     C                             r + %len(key1):
+     C                             s - (r + %len(key1))-1)
+     C                   endif
+      *  2-type of the local file to be uploaded
+     C                   eval      r = %scan(key2:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r)
+     C                   eval      FileType = %subst(CvtDta:
+     C                             r + %len(key2):
+     C                             s - (r + %len(key2)))
+     C                   endif
+      *  3-start position (in the buffer) of the file to be uploaded
+     C                   eval      FileStrPos = s +4
+      *
+      * TEST BRUKER-ID OG USERSPACENAME
+     C                   eval      r = %scan(KEY13:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r+50)
+     C                   eval      WSUSER = %subst(CvtDta:
+     C                             r + %len(KEY13) + 4:
+     C                             s - (r + %len(KEY13))-4)
+     C                   endif
+     C                   eval      r = %scan(KEY14:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r+60)
+     C                   eval      UsrSpcName = %subst(CvtDta:
+     C                             r + %len(KEY14) + 4:
+     C                             s - (r + %len(KEY14))-4)
+     C                   endif
+     C                   open      BRIDF                                50
+N04  C     WSUSER        CHAIN     BRIDF                              30
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   EXSR      TSTUSER
+     C                   CLOSE     BRIDF                                50
+      *
+      * HENT REFERANSE
+     C                   eval      r = %scan(KEY11:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r+49)
+     C                   eval      XAVD   = %subst(CvtDta:
+     C                             r + %len(KEY11) + 4:
+     C                             s - (r + %len(KEY11))-4)
+     C                   endif
+     C                   eval      r = %scan(KEY12:CvtDta)
+     C                   if        r>0
+     C                   eval      s = %scan(EOR:CvtDta:r+49)
+     C                   eval      XOPD    = %subst(CvtDta:
+     C                             r + %len(KEY12) + 4:
+     C                             s - (r + %len(KEY12))-4)
+     C                   endif
+     C                   eval      XSAVD   = c2n2(XAVD)
+     C                   eval      XSOPD   = c2n2(XOPD)
+      *
+      *  4a-length of part separator "------------------..."
+     C                   eval      PartSepLn = %scan(EOR:CvtDta)
+      *  4b-size of the file to be uploaded
+     C                   eval      FileSize = InDtaLn - FileStrPos -
+     C                             PartSepLn -4
+      *  5-path and name of the server IFS file to be created
+     C                   IF        FILENAME <> *BLANKS
+     C                   open      FIRMARC                              50
+     C                   open      ARKTXT                               50
+     C                   open      ARKEXT                               50
+     C                   open      ARKIVP                               50
+     C                   open      TRACKF                               50
+     C     ARKEXTK       KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    ARKLAG
+      *
+     C     'ZO'          CHAIN     ARKTXT                             33
+     C  N33ARKLAG        COMP      *BLANKS                                33
+     C                   IF        *IN33
+     C     BIFIRM        CHAIN     FIRMARC                            33
+     C                   ELSE
+     C     ARKEXTK       CHAIN     ARKEXT                             33
+     C                   END
+      *
+      * FINN FILNAVN
+     C     '\'           SCAN      FILENAME      WPOS              3 0    51
+     C                   DOW       *IN51
+     C                   ADD       1             WPOS
+     C                   Z-ADD     WPOS          XN                3 0
+     C     '\'           SCAN      FILENAME:WPOS WPOS              3 0    51
+     C                   ENDDO
+N01  c                   IF        XN = 0
+N01  C                   Z-ADD     1             XN
+N01  c                   END
+      * FJERNE ALLE BLANKE PÅ FILNAVN
+     C                   MOVE      *ZEROS        XN3               3 0
+     C                   EVAL      FT70  = *BLANKS
+     C                   EVAL      TX512 = FILENAME
+     C     XN            DO        512           XN2               3 0
+     C                   IF        TXT(XN2) <> ' '
+     C                   ADD       1             XN3
+     C                   MOVE      TXT(XN2)      FT(XN3)
+     C                   IF        XN3 = 70
+     C                   LEAVE
+     C                   END
+     C                   END
+     C                   ENDDO
+      * FINN DOKUMENTTYPE
+     C     '.'           SCAN      FT70          WP1               3 0    33
+     C                   MOVE      *BLANKS       XDOKTY           10
+     C                   IF        *IN33
+     C                   DOW       *IN33
+     C                   MOVE      WP1           WP2               3 0
+     C                   ADD       1             WP1
+     C     '.'           SCAN      FT70:WP1      WP1               3 0    33
+     C                   ENDDO
+S03  C*                  EVAL      WP1    = 41 - WP2
+N03  C                   EVAL      WP1    = 71 - WP2
+     C                   IF        WP1 > 10
+     C                   Z-ADD     10            WP1
+     C                   END
+     C                   EVAL      XDOKTY = %subst(FT70:WP2:WP1)
+     C                   END
+      *
+N04  C                   CALL      'SYGE15C'
+N04  C                   PARM                    WDT               8
+N04  C                   PARM                    WTM               6
+     C                   MOVE      'A'           ARSTAT
+     C                   MOVE      'ZO'          ARTYPE
+     C                   MOVE      BIFIRM        ARFIRM
+     C                   MOVE      XSAVD         ARAVD
+     C                   MOVE      XSOPD         AROPD
+     C                   MOVE      BIBRID        ARUSER
+     C                   MOVE      WDT           ARDATE
+     C                   MOVE      WTM           ARTIME
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN           10
+     C                   EVAL      ARLINK = 'ZO'
+     C                   MOVEL     WDT           XAN04             4
+     C                   CAT       XAN04:0       ARLINK
+     C                   MOVEL     XSAVD         XAN04
+     C                   CAT       XAN04:0       ARLINK
+     C                   MOVEL     XSOPD         XAN07             7
+     C                   CAT       XAN07:0       ARLINK
+     C                   CAT       NEWRAN:0      ARLINK
+     C                   CAT       XDOKTY:0      ARLINK
+     C                   EVAL      ARRFK = FT70
+     C                   WRITE     ARKIVR
+      * TRACKF
+S04  C*                  CALL      'SYGE15C'
+S04  C*                  PARM                    WDT               8
+S04  C*                  PARM                    WTM               6
+     C                   MOVE      XSAVD         TTAVD
+     C                   MOVE      XSOPD         TTOPD
+     C                   MOVE      'UPL'         TTACTI
+     C                   EVAL      TTTEXT=%trim(ARRFK)
+     C                             + ' is uploaded by '
+     C                             + %trim(BIBRID)
+n05  C                   EVAL      TTTEXL=%trim(ARRFK)
+n05  C                             + ' er opplastet av '
+n05  C                             + %trim(BIBRID)
+     C                   MOVE      WDT           TTDATE
+     C                   MOVE      WTM           TTTIME
+     C                   MOVE      WDT           TTDATL
+     C                   MOVE      WTM           TTTIML
+     C                   MOVEL     BIBRID        TTUSER
+     C                   EVAL      TTDEPO = 'ESOVERS6'
+     C                   WRITE     TRACKFR
+      *
+N02   * Via tmp i IFS for og deretter copy (direkte fil til nas skaper problemer- kan ikke leses)
+N02   * (skulle sikkert vørt styt bedre via en parameter i APIen for å skape IFS-fil..)
+N02  C                   eval      ServerFile = '/tmp/'
+N02  C                             + %TRIM(ARLINK)
+s02  C*                  eval      ServerFile2= '/'
+     C                   eval      ServerFile2= '/'
+     C                             + %TRIM(ARCANE)
+     C                             + '/'
+     C                             + %TRIM(ARLINK)
+      *
+     C                   CLOSE     FIRMARC
+     C                   CLOSE     ARKTXT
+     C                   CLOSE     ARKEXT
+     C                   CLOSE     ARKIVP
+     C                   CLOSE     TRACKF
+      *
+      *=====================================================================
+      * PART 5 - COPY INPUT FILE TO SREAM FILE
+      *=====================================================================
+     C                   exsr      WrtDta
+     C                   END
+      *=====================================================================
+      * PART 6 - PROVIDE USER RESPONSE
+      *=====================================================================
+      * Write out the input file information
+     C                   callp     UpdHTMLVar('USER':WSUSER)
+     C                   callp     UpdHTMLVar('UsrSpcName':USRSPCNAME)
+     C                   callp     UpdHTMLVar('WSAVD':XAVD)
+     C                   callp     UpdHTMLVar('WSOPD':XOPD)
+     C                   callp     wrtsection('step1')
+     C                   callp     UpdHTMLVar('filename':FileName)
+     C                   callp     UpdHTMLVar('filetype':FileType)
+     C                   callp     UpdHTMLVar('filesize':
+     C                             %trim(%editc(FileSize:'J')))
+     C                   callp     wrtsection('strresult')
+      * Display result of operation
+     C                   callp     updhtmlvar('serverfile':ServerFile)
+     C                   if        doneSW = 'Y'
+     C                   callp     wrtsection('done')
+     C                   else
+     C                   callp     wrtsection('notdone')
+     C                   exsr      DspErrMsg
+     C                   endif
+     C                   callp     wrtsection('donee')
+      *
+     C                   exsr      Exit
+      *=====================================================================
+      * Back to caller
+      *=====================================================================
+     C     Exit          begsr
+      * Close html and send buffer
+     C                   callp     wrtsection('endhtml *fini')
+      * Back to caller
+     C                   eval      *inlr = *on
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Create and write the IFS output file
+      *=====================================================================
+     C     WrtDta        begsr
+      * Assume it fails
+     C                   eval      DoneSW = 'N'
+     C                   eval      ErrorType = 0
+      * Unlink (delete) the file if it already exists.
+     C                   eval      dlynbr = 0
+     C                   dow       stat(%trim(ServerFile):
+     C                             %addr(StatusBuffer)) = 0
+     C                   eval      rc = unlink(%trim(ServerFile))
+     C                   if        rc <> 0
+     C                   eval      dlynbr = dlynbr +1
+     C                   if        dlynbr > 5
+     C                   leave
+     C                   endif
+     C                   eval      rc = docmd('dlyjob 10')
+     C                   endif
+     C                   enddo
+      * Open stream file
+     C                   eval      FileHandle = open(%trim(ServerFile):
+     C                             O_CREAT + O_WRONLY +
+     C                             O_TRUNC + O_TEXTDATA + O_CODEPAGE:
+     C                             S_IRWXU + S_IROTH + S_IXOTH:CodePage)
+     C                   if        FileHandle = -1
+     C                   eval      ErrNoRet = errno
+     C                   eval      msg1 = ThisSubProc + 'Open of IFS file ' +
+     C                             %trim(ServerFile) +
+     C                             ' failed.  Message text is ' +
+     C                             errnotxt(ErrNoRet)
+     C                   callp     wrtdebug(msg1:*on)
+     C                   eval      ErrorType = 1
+     C                   goto      WrtDtaX
+     C                   endif
+      * Write buffer to the streamfile
+     C                   eval      StrOfDtaP = InDtaP + FileStrPos -1
+     C                   eval      rc = write(FileHandle:
+     C                             StrOfDtaP:FileSize)
+     C                   if        rc = -1
+     C                   eval      ErrNoRet = errno
+     C                   eval      msg1 = ThisSubProc + 'Write into IFS -
+     C                             file ' + %trim(ServerFile) +
+     C                             ' failed.  Message text is ' +
+     C                             errnotxt(ErrNoRet)
+     C                   callp     wrtdebug(msg1:*on)
+     C                   eval      ErrorType = 3
+     C                   goto      WrtDtaX
+     C                   endif
+      * Close streamfile
+     C                   eval      rc = close(FileHandle)
+     C                   if        rc = -1
+     C                   eval      ErrNoRet = errno
+     C                   eval      msg1 = ThisSubProc + 'Close of IFS file '+
+     C                             %trim(ServerFile) +
+     C                             ' failed.  Message text is ' +
+     C                             errnotxt(ErrNoRet)
+     C                   callp     wrtdebug(msg1:*on)
+     C                   eval      ErrorType = 2
+     C                   goto      WrtDtaX
+     C                   endif
+      * File was correctly created and written
+     C                   eval      DoneSW = 'Y'
+n02   * Flytte objekt
+n02  c                   movel     ServerFile    TMPfile         100
+n02  C                   CALL      'ESARKS2C'
+n02  C                   PARM                    TMPfile
+n02  C                   PARM                    ServerFile2
+      *
+     C     WrtDtaX       tag
+     C                   endsr
+      *====================================================================
+      * Memory allocation error
+      *====================================================================
+     C     AllocErr      begsr
+     C                   callp     updhtmlvar('indtaln':
+     C                             %editc(InDtaLn:'J'))
+     C                   callp     wrtsection('allocerr')
+     C                   exsr      Exit
+     C                   endsr
+      *====================================================================
+      * Display error messages
+      *====================================================================
+     C     DspErrMsg     begsr
+     C                   eval      msg = msg1
+     C                   exsr      MsgRow
+     C                   eval      msg = msg2
+     C                   exsr      MsgRow
+     C                   eval      msg = msg3
+     C                   exsr      MsgRow
+     C                   eval      msg = msg4
+     C                   exsr      MsgRow
+     C                   eval      msg = msg5
+     C                   exsr      MsgRow
+     C                   endsr
+      *=====================================================================
+      * Issue a message row
+      *=====================================================================
+     C     MsgRow        begsr
+     C                   IF        msgid <> ' '
+     C                   callp     updhtmlvar('msgid':msgid)
+     C                   callp     updhtmlvar('msgsev': msgsev)
+     C                   callp     updhtmlvar('msgtxt1':msgtxt1)
+     C                   eval      l = %size(msgtxt2)
+      *
+     C                   eval      r = %scan('&N':msgtxt2)
+     C                   dow       r > 0
+     C                   if        r = 1
+     C                   eval      msgtxt2 = %subst(msgtxt2:3:l-2)
+     C                   else
+     C                   eval      msgtxt2 = %subst(msgtxt2:1:r-1) +
+     C                             '<br>' + %subst(msgtxt2:r+2:l-r-1)
+     C                   endif
+     C                   eval      r = %scan('&N':msgtxt2)
+     C                   enddo
+      *
+     C                   eval      r = %scan('&P':msgtxt2)
+     C                   dow       r > 0
+     C                   if        r = 1
+     C                   eval      msgtxt2 = %subst(msgtxt2:3:l-2)
+     C                   else
+     C                   eval      msgtxt2 = %subst(msgtxt2:1:r-1) +
+     C                             '<br>' + %subst(msgtxt2:r+2:l-r-1)
+     C                   endif
+     C                   eval      r = %scan('&P':msgtxt2)
+     C                   enddo
+      *
+     C                   eval      r = %scan('&B':msgtxt2)
+     C                   dow       r > 0
+     C                   if        r = 1
+     C                   eval      msgtxt2 = %subst(msgtxt2:3:l-2)
+     C                   else
+     C                   eval      msgtxt2 = %subst(msgtxt2:1:r-1) +
+     C                             '<li>' + %subst(msgtxt2:r+2:l-r-1)
+     C                   endif
+     C                   eval      r = %scan('&B':msgtxt2)
+     C                   enddo
+      *
+     C                   callp     updhtmlvar('msgtxt2':msgtxt2)
+     C                   callp     wrtsection('msgrow1')
+     C                   if        msgtxt2 <> ' '
+     C                   callp     wrtsection('msgrow2')
+     C                   endif
+     C                   ENDIF
+     C                   endsr
+      *=====================================================================
+      * PROGRAM STATUS SUBROUTINE
+      *=====================================================================
+     C     *pssr         begsr
+     C                   if        pssrswitch=*on
+     C                   eval      *inlr = *on
+     C                   return
+     C                   endif
+     C                   eval      pssrswitch=*on
+     C                   if        wrotetop=*off
+     C                   callp     wrtsection('top')
+     C                   endif
+     C                   callp     wrtsection('pssr *fini')
+     C                   callp     wrtpsds(psds)
+     C                   eval      *inlr = *on
+     C                   return
+     C                   endsr
+      *////////////////////////////////////////////////////////////
+     C     TSTUSER       BEGSR
+      *////////////////////////////////////////////////////////////
+      /copy syspeds/qrpgsrcpy,tstuser
+      *
+     C                   endsr

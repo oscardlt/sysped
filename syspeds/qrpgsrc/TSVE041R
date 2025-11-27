@@ -1,0 +1,258 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TSVE041R MODULE(*LIBL/TSVE041R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+      * Varible for
+     D WSUSER          S             10
+     D WLEVA           S              8
+     D WLEVN           S              8S 0
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d myrows          s             10i 0
+     d  X              S              5  0
+     d  WERR           S              1
+     d MyPoDS          ds                  Qualified  dim(10000)
+     d  SVEW_KNSO                    35
+     d  SVEW_KOTA                     5S 0
+     d  SVEW_KOSL                     4
+     d  SVEW_VASL                    70
+     d  SVEW_GODM                    42
+     d  SVEW_VATA                     8
+     d  SVEW_ULKD                     2
+     d  SVEW_BRUT                    14S 3
+     d  SVEW_EUP1                     4
+     d  SVEW_NETO                    14S 3
+     d  SVEW_KONO                     3
+     d  SVEW_ANKV                    10S 0
+     d  SVEW_SUKO                     5
+     d  SVEW_SUTX                    70
+     d  SVEW_ATIN                     3
+     d  SVEW_FABL                    11S 3
+     d  SVEW_BETK                     1
+     d  SVEW_KOMR                    70
+     d  SVEW_FNKD                     4
+     d  SVEW_BIT1                     4
+     d  SVEW_BII1                    35
+     d  SVEW_CALL                     2
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+        /free
+
+        // Parse input
+         exsr Parse;
+        // Open files etc
+         exsr Init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //...........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬levenr¬ : ¬'+%trim(WLEVA)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       //...........................................................................................
+       // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+       //..........................................................................................
+       jsonstring ='"kundvarlist" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         // Hæmta til array
+         exsr sok;
+         // Les array
+         exsr lesarr;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // Quit
+       exsr exit;
+
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+         // Quit
+         *inlr = *on;
+         return;
+       endsr;
+       //********************************************************
+       begsr parse;
+       //********************************************************
+       // Get input
+         wsuser  = zhbgetvar('USER');
+         wleva = zhbgetvar('LEVENR');
+         wlevn = c2n2(wleva);
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+         *in50 = not %found;
+
+         if *in50 = *off;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       endsr;
+        // __________________________________________________
+        // Kør SQL in i array                             SOK
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sok;
+
+          exec sql declare  A33  cursor for
+
+          SELECT SVEW_KNSO, SVEW_KOTA, SVEW_KOSL, SVEW_VASL, SVEW_GODM,
+          SVEW_VATA, SVEW_ULKD, SVEW_BRUT, SVEW_EUP1, SVEW_NETO, SVEW_KONO,
+          SVEW_ANKV, SVEW_SUKO, SVEW_SUTX, SVEW_ATIN, SVEW_FABL, SVEW_BETK,
+          SVEW_KOMR, SVEW_FNKD, SVEW_BIT1, SVEW_BII1, SVEW_CALL
+          FROM SVEW
+          WHERE SVEW_KNNR = :WLEVN
+          FOR READ ONLY;
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                   LESARR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr lesarr;
+
+               werr='X';
+
+       for x = 1 to myrows;
+
+
+             if %found;
+
+             if mypods(x).svew_knso <> ' ';
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬svew_knso¬ : ¬'+%trim(mypods(x).SVEW_KNSO)+'¬, '
+          +'¬svew_kota¬ : ¬'+%trim(%editc(mypods(x).SVEW_KOTA:'4'))+'¬, '
+          +'¬svew_kosl¬ : ¬'+%trim(mypods(x).SVEW_KOSL)+'¬, '
+          +'¬svew_vasl¬ : ¬'+%trim(mypods(x).SVEW_VASL)+'¬, '
+          +'¬svew_godm¬ : ¬'+%trim(mypods(x).SVEW_GODM)+'¬, '
+          +'¬svew_vata¬ : ¬'+%trim(mypods(x).SVEW_VATA)+'¬, '
+          +'¬svew_ulkd¬ : ¬'+%trim(mypods(x).SVEW_ULKD)+'¬, '
+          +'¬svew_brut¬ : ¬'+%trim(%editc(mypods(x).SVEW_BRUT:'4'))+'¬, '
+          +'¬svew_eup1¬ : ¬'+%trim(mypods(x).SVEW_EUP1)+'¬, '
+          +'¬svew_neto¬ : ¬'+%trim(%editc(mypods(x).SVEW_NETO:'4'))+'¬, '
+          +'¬svew_kono¬ : ¬'+%trim(mypods(x).SVEW_KONO)+'¬, '
+          +'¬svew_ankv¬ : ¬'+%trim(%editc(mypods(x).SVEW_ANKV:'4'))+'¬, '
+          +'¬svew_suko¬ : ¬'+%trim(mypods(x).SVEW_SUKO)+'¬, '
+          +'¬svew_sutx¬ : ¬'+%trim(mypods(x).SVEW_SUTX)+'¬, '
+          +'¬svew_atin¬ : ¬'+%trim(mypods(x).SVEW_ATIN)+'¬, '
+          +'¬svew_fabl¬ : ¬'+%trim(%editc(mypods(x).SVEW_FABL:'4'))+'¬, '
+          +'¬svew_betk¬ : ¬'+%trim(mypods(x).SVEW_BETK)+'¬, '
+          +'¬svew_komr¬ : ¬'+%trim(mypods(x).SVEW_KOMR)+'¬, '
+          +'¬svew_fnkd¬ : ¬'+%trim(mypods(x).SVEW_FNKD)+'¬, '
+          +'¬svew_bit1¬ : ¬'+%trim(mypods(x).SVEW_BIT1)+'¬, '
+          +'¬svew_bii1¬ : ¬'+%trim(mypods(x).SVEW_BII1)+'¬, '
+          +'¬svew_call¬ : ¬'+%trim(mypods(x).SVEW_CALL)+'¬}';
+        //end-free
+        //free
+         jsonfix (JSONstring);
+        //end-free
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+             endif;
+             endif;
+        endfor;
+
+       endsr;
+      /end-free

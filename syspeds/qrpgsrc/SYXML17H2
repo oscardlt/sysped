@@ -1,0 +1,160 @@
+      * VIKTIG forutsetning: tar IKKE med justeringer mottatt på dagens dato for å
+      *                      sikre at varer ikke ligger kun allokert men ennå ikke fortollet
+      *
+     FLLJUSL01  UF   E           K DISK
+     FLLAGJD01  If   E           K DISK
+     FLLAGJL01  UF   E           K DISK
+     FSADH      IF   E           K DISK
+     FLLHEAD07  IF   E           K DISK
+     FKODTVAL2  IF   E           K DISK
+     FLLJUSD    O  A E             DISK
+      *
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D                 DS
+     D  LinDatTid              1     14  0
+     D   VDBDAT                1      8  0
+     D   VDBKL                 9     14  0
+     D                 DS
+     D  JusDatTid              1     14  0
+     D   LJS1DT                1      8  0
+     D   LJS1TI                9     14  0
+      * Utnytter 3 siste av tekst der norsk fortolling er utført til å "flagge reberegning!"
+     D                 DS
+     D  VDTEXT                 1     30
+     D   VDTX26_27            26     27
+     D   VDTX28_30            28     30
+      *
+     C                   EXSR      INIT
+     C                   EXSR      LES
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      *
+      ***********************************************
+     C     LES           BEGSR
+      ***********************************************
+      * DET KAN finnes flere åpne endringer (flere just) på samme vareinngang.
+      * behandle en og en separat (KUNNE tatt laveste som før-verdi/høyeste som nåverdi...)
+     C     ' '           setll     LLJUSL01                                     STATUS2
+     C     ' '           reade     LLJUSL01                               94
+     C     *in94         doweq     '0'
+     c     LJS1DT        IFLT      ULDT
+     c                   move      'F'           LJSTA2
+     c                   move      ULDT          LJS2DT
+     c                   move      XULTM         LJS2TI
+     c                   update    LLJUSFR
+      * status U = Urørt saldo - trengs ikke behandles.
+     C     LJSTA1        ifne      'U'
+     C                   EXSR      LESDET
+     c                   endif
+     c                   endif
+     C     ' '           reade     LLJUSL01                               94
+     C                   enddo
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     LESDET        BEGSR
+      ***********************************************
+      * kun linjer som ER skapt FØR JUSTERINGEN skal etterbregnes
+      * kun linjer som ER knyttet opp mot Norsk fortolling skal etterberegnes
+     c     LLagJDKey     setll     LLAGJD01
+     c     LLagJDKey     reade     LLAGJD01                               33
+     c     *in33         doweq     '0'
+     C     LinDatTid     iflt      JusDatTid
+     C     VDopd         andne     *ZEROS
+     c     LLH07Key      chain     LLhead07
+     c     *in33         ifeq      '0'
+     c     LHBLK         ifeq      *blanks
+     c     LHBLK         oreq      'NO'
+      *
+     c                   move      VDVN          LJDLNR
+     c                   move      VDLANT        LJDANT
+     c                   move      VDAVD         LJDAVD
+     c                   move      VDOPD         LJDOPD
+     c     LLH07KEY      chain     SADH                               33
+     c     *in33         ifeq      '1'
+     c                   move      *blanks       LJDDTG
+     c                   move      *blanks       LJDTLE
+     c                   move      *blanks       LJDTLL
+     c                   move      *blanks       LJDGN
+     c                   move      *blanks       LJDVAL
+     c                   move      *zeros        LJDKUR
+     c                   move      *zeros        LJDOMR
+     c                   move      *zeros        LJDLBG
+     c                   move      *zeros        LJDLBN
+     c                   else
+     c                   move      SIDTG         LJDDTG
+     c                   move      SITLE         LJDTLE
+     c                   move      SITLL         LJDTLL
+     c                   move      SIGN          LJDGN
+     c                   exsr      FinnVerdi
+     c                   endif
+     C     LLagJDKey     chain     LLAGJL01                           33
+     c     *in33         ifeq      '1'
+     c                   move      *blanks       LJDART
+     c                   else
+     c                   move      VAANR         LJDART
+     c                   endif
+     c                   write     LLJUSDR
+     c                   endif
+     c                   endif
+     C                   endif
+     c     LLagJDKey     reade     LLAGJD01                               33
+     C                   enddo
+     C                   ENDSR
+      *
+      ***********************************************
+     C     FinnVerdi     BEGSR
+      ***********************************************
+      * Finn originalens Valytasats (prim rett fakt.nr/sekundært-samma val på saden.)
+     c                   move      LJGVAL        LJDVAL
+      * slå opp i kursregister via dato.
+      * OBS!!!-BURDE hente fra SADH/SADF basert på faktnr for å finne ev avvikende kurs
+      *        det er kun ved original at SAD061 benytter SIDT, ved menge feil i inp-kontroll
+      *        kan en vel risikere at Innsendingsdato er senere enn SIDT ???
+     C     KODTVAL2K     SETGT     KODTVAL2
+     C     LJDVAL        READPE    KODTVAL2                               33
+     C     *IN33         IFEQ      '0'
+     C                   END
+     c                   move      KVAKRS        LJDKUR
+     c                   z-add     KVAOMR        LJDOMR
+     c                   eval      LJDLBG = LJDANT*(LJGVRD*LJDKUR/LJDOMR)
+      * forutsetter at gamel/ny valuta er like
+     c                   eval      LJDLBN = LJDANT*(LJNVRD*LJDKUR/LJDOMR)
+     C                   ENDSR
+      *
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   Z-ADD     10            XPNR              8 0
+     c     LLagJDKey     KLIST
+     c                   KFLD                    XKJED
+     c                   KFLD                    XPNR
+     c                   KFLD                    LJMN
+     c     LLH07KEY      KLIST
+     c                   KFLD                    VDAVD
+     c                   KFLD                    VDOPD
+     C     KODTVAL2K     KLIST
+     C                   KFLD                    LJDVAL
+     C                   KFLD                    SIDT
+      *
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+      * ULDT er nå dagens dato i form HHÅÅMMDD / XULTM  = klokka 6 lang
+     C                   ENDSR
+      *

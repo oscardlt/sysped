@@ -1,0 +1,222 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJINQFORP MODULE(*LIBL/TJINQFORP *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FENHETF    IF   E           K DISK    USROPN
+     FENHETL01  IF   E           K DISK    USROPN
+     F                                     RENAME(ENHETFR:ENHET01)
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *
+      * Varible for
+     D WSUSER          S             10
+     D Kode            S              7
+     D KodeLest        S              7
+     D KodeMax         S              7
+     D Tekst           S             30
+     D TekstLest       S             30
+     D TekstMax        S             30
+     D GetVal          S              1                                         J=Get/validate
+     D FullInfo        S              1                                         J=Ret. full info
+     D JSONstring      s          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     D MaxLes          S              9  0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+
+      * Parse input
+     C                   exsr      Parse
+      * Open files etc
+     C                   EXSR      INIT
+      *
+     c                   callp     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   callp     wrtsection('top')
+      *
+      * ............................................................................................
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      * ............................................................................................
+      *
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬kode¬ : ¬'+%trim(kode)+'¬, '
+        +'¬tekst¬ : ¬'+%trim(tekst)+'¬, '
+        +'¬getVal¬ : ¬'+%trim(getVal)+'¬, '
+        +'¬fullInfo¬ : ¬'+%trim(fullInfo)+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     c                   call      'JSONFIX'
+     c                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * ............................................................................................
+      * Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+      * ............................................................................................
+     c                   eval      JSONstring ='"forpaknKoder" : ['
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Hente koder
+      * (ved begge utfylt er kode prio 1/tekstsøk blankes)
+     c     Error         ifeq      *blanks
+     c                   eval      KODEMAX=%trim(KODE)+'999999999'
+     c                   eval      TEKSTMAX=%trim(TEKST)+'999999999'
+     c                   IF        KODE<>*blanks or TEKST=*blanks
+     c                   eval      TEKST = *blanks
+     C     KODE          SETLL     ENHETF                                       søk via kode
+     C                   READ      ENHETF                                 55
+     c                   else
+     C     TEKST         SETLL     ENHETL01                                     søk via tekst
+     C                   READ      ENHETL01                               55
+     c                   endif
+     C     *IN55         DOWEQ     *OFF
+     c                   eval      KodeLest  = ENKODE
+     c                   eval      TekstLest = ENTEXT
+     c                   IF        KODE <> *blanks and
+     c                             KodeLest  > KODEMAX
+     c                   goto      Utles
+     c                   ENDIF
+     c                   IF        TEKST<> *blanks and
+     c                             TekstLest > TEKSTMAX
+     c                   goto      Utles
+     c                   ENDIF
+     C                   Add       1             AntLest
+     c     Antlest       cabgt     maxles        Utles
+      * posten skal med ..
+      * ............................................................................................
+      * Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+      * ............................................................................................
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬enkode¬ : ¬'+%trim(ENKODE)+'¬, '
+          +'¬entext¬ : ¬'+%trim(ENTEXT)+'¬ ';
+       if FullInfo='J';
+        JSONstring=%trim(JSONstring)+', '
+          +'¬enlen¬ : ¬'+%trim(%editc(ENLEN:'Z'))+'¬,'
+          +'¬enbrd¬ : ¬'+%trim(%editc(ENBRD:'Z'))+'¬,'
+          +'¬enhoy¬ : ¬'+%trim(%editc(ENHOY:'Z'))+'¬,'
+          +'¬enlm2¬ : ¬'+%trim(%editc(ENLM2:'4'))+'¬, '
+          +'¬enlm¬ : ¬'+%trim(%editc(ENLM:'4'))+'¬ ';
+       endif;
+       JSONstring=%trim(JSONstring)+'}';
+      /end-free
+     C                   call      'JSONFIX'
+     C                   parm                    JSONstring
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ved get/Validate  er det kun en
+     c     GetVal        ifeq      'J'
+     c                   leave
+     c                   endif
+
+     C     NEXT          TAG
+
+     C                   IF        KODE<>*blanks or TEKST=*blanks
+     C                   READ      ENHETF                                 55
+     C                   ELSE
+     C                   READ      ENHETL01                               55
+     C                   ENDIF
+     C                   ENDDO
+     C     UTLES         TAG
+     c                   endif
+      * ............................................................................................
+      * Skriv JSON-Liste/Array  Avslutning
+      * ............................................................................................
+     c                   eval      JSONstring =']'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      * ............................................................................................
+      * Skriv JSON-string Avsluttning
+      * ............................................................................................
+     c                   eval      JSONstring ='}'
+     C                   callp     updHTMLvar('JSONstring':JSONstring)
+     C                   callp     wrtsection('JSONlin')
+      *
+      * Quit
+     C                   exsr      Exit
+
+
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Lukk fil
+     C                   CLOSE     BRIDF
+     C  N50              CLOSE     ENHETF
+     C  N50              CLOSE     ENHETL01
+
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   MOVE      *ON           *INLR
+     C                   return
+     C                   endsr
+      *
+      *********************************************************
+     C     Parse         Begsr
+      *********************************************************
+      * Get input
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      KODE    = zhbgetvar('KODE')
+     C     LO:UPC        XLATE     KODE          KODE
+     C                   EVAL      TEKST   = zhbgetvar('TEKST')
+     C     LO:UPC        XLATE     TEKST         TEKST
+     C                   EVAL      GetVal  = zhbgetvar('GetVal')
+     C                   EVAL      FullInfo= zhbgetvar('FullInfo')
+     C
+     c                   endsr
+      *********************************************************
+     C     INIT          Begsr
+      *********************************************************
+     C                   OPEN      BRIDF
+      * Test innlogging
+     C     WSUSER        CHAIN     BRIDF                              50
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C                   call      BILIBL
+     C                   end
+
+
+     C   50              eval      Error = 'Invalid userID'
+     C  N50              OPEN      ENHETF
+     C  N50              OPEN      ENHETL01
+      *
+     c                   IF        MAXLES = 0
+     c                   z-add     100           MAXLES
+     c                   ENDIF
+      *
+     C                   IF        *IN50=*OFF
+     C                   IF        GetVal='J'
+     C     KODE          CHAIN     ENHETF                             30
+     C   30              eval      Error = 'Angitt forpakningskode finnes ikke'
+     C                   ENDIF
+     C                   ENDIF
+     c                   endsr

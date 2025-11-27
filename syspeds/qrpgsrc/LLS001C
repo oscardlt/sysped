@@ -1,0 +1,422 @@
+      *********************************************************************
+      * SPØRRING PÅ LAGERPOSTER
+      * PROGRAM BEHANDLER INPUT FRA LLS001B  OG VISER UTVALGT(E) POST(ER)
+      *********************************************************************
+      *  RPG ILE MODULE *LIBL/LLS001C
+      *  BASERT PÅ RPG ILE MODULE CGIDEV2/BOATSCH2
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/LLS001C  MODULE(*LIBL/LLS001C *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *
+      * 1 - Receives input from BOATSCH1 output html
+      *     (see member BOATSCH1 in source file CGIDEV2/BOATHTML)
+      *     telling which boats should be displayed
+      *     from file CGIDEV2/BOATSALE1 (boats for sale)
+      * 2 - Loads the html output skeleton from
+      *     member BOATSCH2 in source file CGIDEV2/BOATHTML
+      * 3 - If the first time through,
+      *     overrides and opens file BOATSALE1
+      * 4 - Writes html output section /$top
+      * 5 - Retrieves the occurrencies of "serno" in the input string.
+      *     For each entry (boat serial number) in this array:
+      *     - gets related boat data from BOATSALE1 record
+      *     - sets variables (boat gif, boat length, make, etc)
+      *       and writes html output section /$found
+      *     - retrieves and writes out boat dependent html
+      *       This is rather tricky.
+      *       Boat dependent html text (boat features, interior jpg's, etc)
+      *       cannot be in the skeleton html text. Instead, the skeleton
+      *       contains a section, named /$text, with a single variable,
+      *       named /%text%/.
+      *       On the other side, in library CGIDEV2 there is a source
+      *       physical file (named BOATTXTS), with an html text member
+      *       for each boat serial number.
+      *       The following is done:
+      *        -assign and open the appropriate member
+      *         of file CGIDEV2/BOATTXTS
+      *        -read each record, set variable /%text%/ to contain
+      *         the corresponding html text line, write section /$text.
+      * 6 - When no more occurrencies of "serno" in the input string,
+      *     writes html output section /$htmlend (end html),
+      *     and returns.
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Boats for sale data base file (LF on BOATSALE by boat serial number)
+     FBRIDF     if   e           k disk    usropn
+     FLLVARE01  if   e           k disk    USROPN
+     FLLGrpK05  if   e           k disk    USROPN
+     FKUNKO2    IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype definitions and standard system API error structure
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Variables common to CGI programs
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * VARIABLES SPECIFIC TO THIS PROGRAM
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D quit            s              4
+     D UserId          s             10
+      * Variables used to load the external html source member
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      * Boats serial numbers received in the input string
+     D ItemCount       s             10i 0
+     D SernoC          s             15a
+     D i               s             10i 0
+      * Varegrupper 1 - 5
+     D                 DS
+     D  VAGDS                  1     30
+     D  LVAG01                 1      5
+     D  LVAG02                 7     11
+     D  LVAG03                13     17
+     D  LVAG04                19     23
+     D  LVAG05                25     29
+      * Command to be executed
+     D Command         s            256a
+      * Switches
+     D GmUserId        s             10
+     D GmBiLibl        s             10
+     D GmBiStdL        s              1
+     D GmKunr          s              8s 0
+     D BridSw          s              1
+      *
+     D Align           s              5a
+     D r               s             10i 0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESSING LINE
+      *=====================================================================
+xxxxx * Get program start time for calculating execution time
+xxxxxC                   time                    timedata1
+      * Parse input string
+     C                   exsr      Parse
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html into core
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      * User changed?? - Set libl ..
+     C                   exsr      UserInit
+      *
+      *Midlertidig.. skal inn i fila ???
+      * Gif navn.. (Dft = Art.nr)
+      * OBS! Blanking hardkodet også lenger nede...!!
+     C                   move      *blanks       LvGif            15
+      * Gif Alignment L/R (L=dft)
+     C                   move      *blanks       LvGifA            1
+      * Gif Horizontal spacing (dft = 8)
+     C                   move      *zeros        LvGifH            1 0
+      * Gif Vertical spacing (dft = 5)
+     C                   move      *zeros        LvGifV            1 0
+      *
+      * Issue html section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *------------------
+      * Retrieve number of boats to be shown
+     C                   eval      ItemCount = ZhbGetVarCnt('serno')
+      * Show the requested boats
+     C                   eval      i =1
+     C     i             DOUGT     ItemCount
+     C                   eval      SernoC = ZhbGetVar('serno':i)
+     C                   move      *BLANKS       LvAnr
+     C                   movel     SernoC        LvAnr
+     C     VareKey       chain     LLVARER                            60
+     C     *in60         ifeq      '0'
+     C                   exsr      SetFound
+     C                   callp     wrtsection('found')
+     C                   else
+     C                   callp     wrtsection('notfound')
+     C                   endif
+     C                   eval      i = i +1
+     C                   ENDDO
+      * If no boats selected
+     C     ItemCount     ifeq      0
+     C                   callp     wrtsection('noselect')
+     C                   endif
+      * Send output buffer and quit
+     C                   exsr      Exit
+      *=====================================================================
+      * Send output buffer and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Compute and display run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C     quit          ifne      *blank
+     C                   close     BRIDF
+     C                   close     LLVARE01
+     C                   close     LLGrpK05                             30
+     C                   close     KunKo2                               30
+     C                   eval      *inlr = *on
+     C                   endif
+      *
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      userid = zhbgetvar('userid')
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   eval      quit    = zhbgetvar('quit')
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+      * Repeat UserId for the next invocation
+     C                   callp     updhtmlvar('USERID':userid)
+      * Color for text, background, links, visited links, active links
+     C                   exsr      SetColor
+      * Protocol
+     C                   callp     updHtmlVar('PROTOCOL':S_Protocol)
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$found (display a boat)
+      *=====================================================================
+     C     SetFound      begsr
+      * Hent Leverandør
+     C                   MOVE      *BLANKS       LEVID            28
+     C     KunkoKey      chain     KUNKO2                             33
+     C  N33              MOVEL     KUINTN        LEVID
+     C  N33              MOVE      KUALFA        LEVID
+      * Sett inn i HTMLvariabler
+     C                   callp     updHtmlVar('LVANR':lvanr)
+     C                   callp     updHtmlVar('LVVB':lvvb)
+     C     vagds         ifeq      *blanks
+     C                   callp     updhtmlvar('VAGRP':spaces)
+     C                   else
+     C                   callp     updHTMLvar('VAGRP':vagds)
+     C                   endif
+     C     lvans         ifeq      *blanks
+     C                   callp     updhtmlvar('LVANS':spaces)
+     C                   else
+     C                   callp     updHtmlVar('LVANS':lvans)
+     C                   endif
+     C     lvtxt         ifeq      *blanks
+     C                   callp     updhtmlvar('LVTXT':spaces)
+     C                   else
+     C                   callp     updHtmlVar('LVTXT':lvtxt)
+     C                   endif
+     C                   callp     updHTMLvar('LEVER':levid)
+     C                   callp     updhtmlvar('LVSALD':
+     C                             %trim(%editc(lvsald:'J')))
+     C                   callp     updhtmlvar('LVMSTK':
+     C                             %trim(%editc(lvmstk:'J')))
+      * prosent  over minimumsnivå..
+     C     LvMstk        IFEQ      0
+     C                   z-add     100,00        DiffPros          8 2
+     C                   else
+     C     LVsald        sub       LVMstk        XXDiff            5 0
+     C                   eval      DiffPros = XXDiff / LvMstk * 100
+     C                   end
+     C                   callp     updhtmlvar('DIFFPROS':
+     C                             %trim(%editc(DiffPros:'J')))
+      * gif name
+     C                   move      *blanks       LvGif            15
+     C     LvGif         ifeq      *blanks
+     C                   move      LvAnr         LvGif
+     C                   endif
+     C                   callp     updhtmlvar('LVGIF':LvGif)
+     c* Gif alignment
+     C     LvGifA        ifeq      *blank
+     C                   eval      LvGifA ='L'
+     C                   endif
+     C     LvGifA        ifeq      'R'
+     C                   eval      align = 'right'
+     C                   else
+     C                   eval      align = 'left'
+     C                   endif
+     C                   callp     updhtmlvar('ALIGN':align)
+     c* Gif horizontal spacing
+     C     LvGifH        ifeq      0
+     C                   eval      LvGifH =8
+     C                   endif
+     C                   callp     updhtmlvar('LVGIFH':
+     C                             %trim(%editc(LvGifH:'1')))
+     c* Gif vertical spacing
+     C     LvGifV        ifeq      0
+     C                   eval      LvGifV=5
+     C                   endif
+     C                   callp     updhtmlvar('LVGIFV':
+     C                             %trim(%editc(LvGifV:'1')))
+      *
+      *
+     C                   endsr
+      *=====================================================================
+      * Color for text, background, links, visited links, active links
+      *=====================================================================
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+      *=====================================================================
+      * Set html output skeleton member before its read into memory
+      *=====================================================================
+     C     SetSkl        begsr
+     C                   eval      lng = uppify(lng)
+JOVO C*                  eval      Lib = 'CGIDEV2'
+JOVO C*                  eval      Fn  = 'DEMOHTML' + lng
+JOVO C*                  eval      Mbr = 'BOATSCH2'
+JOVO C                   eval      Lib = '*LIBL'
+JOVO C                   eval      Fn  = 'HTMLSRC' + lng
+JOVO C                   eval      Mbr = 'LLS001C'
+     C                   endsr
+      *=====================================================================
+      *  Retrieve environment variables
+      *=====================================================================
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Different User than last invocation
+      *=====================================================================******
+     C     UserInit      begsr
+      * Ved første gangs kall må også User-id-fil åpnes
+      * Den ligger i SYCGI (=CURLIB), så libl er her ikke av betydning
+     C     BridSW        ifeq      *blank
+     C                   open      BRIDF
+     C                   eval      BridSW = 'x'
+      * Definisjon av diverse keys
+     c     VareKey       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    LVANR
+     c     KunkoKey      klist
+     c                   kfld                    LVPNR
+     c                   kfld                    LVLNR
+      *
+     C                   endif
+      *
+      *
+     C* Annen Userid enn forige kall?? - Libl og/eller kundenr endret??
+     C     UserID        ifne      GmUserID
+     C                   move      UserID        GmUserId
+     C     UserID        CHAIN     BRIDF                              30
+      *
+      * --------------------------------------
+      * Annen library list enn forige kall??
+      * I så fall close filer - override på ny - open filer
+     C     *IN30         ifeq      *off
+     C     BILIBL        ifne      GmBiLibl
+     C     BISTDL        orne      GmBiStdL
+     C                   move      BILIBL        GmBilibl
+     C                   move      BISTDL        GmBiStdL
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   close     LLVare01                             30
+     C                   close     LLGrpK05                             30
+     C                   close     KunKo2                               30
+     C                   eval      rc = docmd('OVRDBF FILE(LLVare01) +
+     C                             TOFILE(*LIBL/LLVare01) +
+     C                             SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(LLGrpK05) +
+     C                             TOFILE(*LIBL/LLGrpK05) +
+     C                             SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(KUNKO2) +
+     C                             TOFILE(*LIBL/KUNKO2) SECURE(*YES)')
+     C                   open      LLVare01
+     C                   open      LLGrpK05
+     C                   open      KunKo2
+     C                   end
+      *
+      * -----------------------------------------------
+      * Annen kunde enn forige kall? I så fall hent gruppe..
+     C     BiKunr        ifne      GmKunr
+     C                   move      BiKunr        GmKunr
+     C     BiKunr        chain     LLGrpK05                           33
+     C     *IN33         IFEQ      *ON
+      * her burde ligge avvisning - feilmelding - retur
+     C                   else
+     C                   move      GKGRP         LVGRUP
+     C                   move      GKPNR         LVPNR
+     C                   end
+     C                   end
+      *
+      * -----------------------------------------------
+      *
+     C                   end
+     C                   endif
+      *
+      *
+      *
+     C                   endsr

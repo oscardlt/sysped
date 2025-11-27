@@ -1,0 +1,654 @@
+      *OBS!!!! MIDLERTIDIG LIGGER DET hardkodede  FILOVERSTYRINGER!!!!!
+      *********************************************************************
+      * SPØRRING PÅ LAGERPOSTER
+      * PROGRAM BEHANDLER INPUT FRA LLS001A  (UTVALG/FILTER) OG VISER LISTE
+      *********************************************************************
+      * RPG ILE MODULE *LIBL/LLS001B
+      * BASERT PÅ  RPG ILE MODULE CGIDEV2/BOATSCH1
+      *
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/LLS001B  MODULE(*LIBL/LLS001B *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *
+      * 1 - Receives input from an html form
+      *     (see member START in source file CGIDEV2/BOATHTML)
+      *     telling what kind of Recds should be searched
+      *     in file CGIDEV2/LLVare01 (Recds for sale)
+      * 2 - Prepares the html output skeleton from
+      *     member BOATSCH1 in source file CGIDEV2/BOATHTML,
+      *     writes html output section /$top
+      * 3 - Scans file CGIDEV2/LLVare01 to find how many Recds
+      *     match the search criteria (subroutine "Recdsnumb"),
+      *     writes html output section /$howmany
+      * 4a- If no Recds match search criteria,
+      *     writes html output section /$0found, then goes to step 10
+      * 4b- If more than 30 Recds match search criteria,
+      *     writes html output section /$30more
+      * 5 - writes html output section /$tablestr (beginning of table)
+      * 6 - rereads file CGIDEV2/LLVare01;
+      *     for each matching record (Recd)
+      *     writes html output section /$tablerow (table row)
+      * 7 - at file-end
+      *     writes html output section /$tableend (table end)
+      * 8 - if some matching record (Recd) from previous search
+      *     writes html output section /$foundsome
+      * 9 - if more than 30 matching record (Recd) from previous search
+      *     writes html output section /$showmore (show more vessels)
+      *10 - writes html output section /$htmlend (end html),
+      *     and quits.
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     if   e           k disk    usropn
+     FLLVare01  if   e           k disk    USROPN
+     FLLGrpK05  if   e           k disk    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D quit            s              4
+     D UserId          s             10
+     D artnr           s             15
+     D varegrp         s              5
+     D inkansv         s             30
+     D minpros         s              2
+     D lstbrd          s              1
+      * Variables received from the input string
+      * and converted to numeric
+     D zeros           s             15a   inz('000000000000000')
+     D l1              s              3s 0
+     D l2              s              3s 0
+     D bminpros        s              2s 0
+      * Number of records matching search criteria
+     DRecordCnt        s              5S 0
+      * Array to uppercase names (for search)
+     Dboatnam          S              1    dim(256)                             variable names
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D GmUserId        s             10
+     D GmBiLibl        s             10
+     D GmBiStdL        s              1
+     D GmKunr          s              8s 0
+     D BridSw          s              1
+     D unitstype       s              1
+     D unitsdiv        s              4s 3
+     D Work500         s            500
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D Diffpros        s             15s 2
+      *Array for innsetting av 9999... bak i max-key søkebegrep
+     D A               S              1    DIM(15)
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+xxxxx * Get program start time for calculating execution time
+xxxxxC                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      * User changed?? - Set libl ..
+     C                   exsr      UserInit
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *------------------                                                   ******
+      *------------------                                                   ******
+      * Go to the last Recd already shown (1. time = from top)
+     C                   exsr      GotoRecord
+      *------------------                                                   ******
+      * Find number of Recds matching selection criteria
+     C                   exsr      Recdsnumb
+      *------------------                                                   ******
+      * Write HTML sections
+      *
+      * 2-Section /$howmany
+     C                   exsr      SetHowMany
+     C                   callp     wrtsection('howmany')
+      * 2a-Section /$0found
+     C     RecordCnt     ifeq      0
+     C                   callp     wrtsection('0found')
+     C                   goto      endhtml
+     C                   endif
+      * 2b-Section /$30more
+     C     RecordCnt     ifgt      30
+     C                   callp     wrtsection('30more')
+     C                   endif
+      * 3-Section /$tablestr
+     C                   exsr      SetTabStr
+     C                   callp     wrtsection('tablestr')
+      * 4-Sections /$tablerow
+      *           go to the last Recd already shown
+     C                   exsr      GotoRecord
+     C                   z-add     0             bseq              2 0
+     C     ReadKey       reade     LLVareR                                50
+     C     *in50         doweq     '0'
+     C     bseq          cabge     30            eopage
+     C     MaxAnr        ifne      *blanks
+     C     LvAnr         andgt     MaxAnr
+     C                   goto      eopage
+     C                   endif
+      *              select Recd
+     C                   exsr      RecordSlt
+     C     selected      ifeq      'Y'
+     C     *like         define    LvAnr         lastLvAnr
+     C                   move      LvAnr         lastLvAnr
+     C                   eval      bseq=bseq + 1
+     C                   exsr      SetTabRow
+     C                   callp     wrtsection('tablerow')
+     C                   endif
+     C     ReadKey       reade     LLVareR                                50
+     C                   enddo                                                  *hival
+      *
+     C     eopage        tag
+      * 5-Section /$tableend
+     C                   callp     wrtsection('tableend')
+      * 5a-Section /$foundsome
+     C     RecordCnt     ifgt      0
+     C                   exsr      SetFndSome
+     C                   callp     wrtsection('foundsome')
+     C                   endif
+      * 5b-Section /$showmore (show more vessels)
+     C**   RecordCnt     ifgt      30
+     C     RecordLft     ifgt      0
+     C                   exsr      SetShowMor
+     C                   callp     wrtsection('showmore')
+     C                   endif
+      * 6-Section /$endhtml
+     C     endhtml       tag
+     C                   exsr      SetEnd
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C     quit          ifne      *blanks
+     C                   close     BRIDF
+     C                   close     LLGrpK05
+     C                   close     LLVare01
+     C                   eval      *inlr = *on
+     C                   endif
+     C                   return
+      *
+      *
+      *
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      userid = zhbgetvar('userid')
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      BckGnd  = zhbgetvar('bckgnd')
+     C                   eval      quit    = zhbgetvar('quit')
+     C                   eval      LastLvAnr = zhbgetvar('lastlvanr')
+     C                   eval      artnr   = zhbgetvar('artnr')
+      *
+     C                   eval      artnr   = uppify(artnr)
+     C                   move      artnr         MaxAnr           15
+     C     artnr         ifne      *blanks
+     C                   moveA     MaxAnr        A
+     C                   z-add     15            nr                2 0
+     C     A(nr)         DOWEQ     ' '
+     C                   MOVE      '9'           A(nr)
+     C                   SUB       1             nr
+     C                   END
+     C                   movea     A             MaxAnr
+     C                   end
+      *
+     C                   eval      varegrp = zhbgetvar('varegrp')
+     C                   eval      varegrp = uppify(varegrp)
+     C                   eval      inkansv = zhbgetvar('inkansv')
+     C                   eval      minpros = zhbgetvar('minpros')
+     C                   eval      lstbrd  = zhbgetvar('lstbrd')
+      * Convert numeric inputs
+     C                   exsr      CvtNumInp
+     C                   endsr
+      *=====================================================================******
+      * Convert numeric inputs
+      *=====================================================================******
+     C     CvtNumInp     begsr
+      *
+     C     minpros       ifeq      *blanks
+     C                   eval      minpros = zeros
+     C                   endif
+      *
+      * Convert inputs to numeric after shifting right
+      *
+     C                   testn                   minpros              41
+     C     *in41         ifeq      '1'
+     C                   move      minpros       bminpros
+     C                   else
+     C     ' '           checkr    minpros       l2
+     C                   eval      l1 = 2 - l2
+     C     l1            ifgt      0
+     C                   eval      minpros = %subst(zeros:1:l1) +
+     C                             %subst(minpros:1:l2)
+     C                   endif
+     C                   endif
+     C                   testn                   minpros              41
+     C     *in41         ifeq      '1'
+     C                   move      minpros       bminpros
+     C                   else
+     C                   eval      bminpros = 0
+     C                   endif
+ *    *
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+      * Repeat UserId for the next invocation
+     C                   callp     updhtmlvar('USERID':userid)
+      * Color for text, background, links, visited links, active links
+     C                   exsr      setcolor
+      * ArtNr
+     C     artnr         ifeq      *blanks
+     C                   callp     updhtmlvar('ARTNR':spaces)
+     C                   else
+     C                   callp     updhtmlvar('ARTNR':artnr)
+     C                   endif
+      * VareGrp
+     C     varegrp       ifeq      *blanks
+     C                   callp     updhtmlvar('VAREGRP':spaces)
+     C                   else
+     C                   callp     updhtmlvar('VAREGRP':varegrp)
+     C                   endif
+      * Innkjøper
+     C     inkansv       ifeq      *blanks
+     C                   callp     updhtmlvar('INKANSV':spaces)
+     C                   else
+     C                   callp     updhtmlvar('INKANSV':inkansv)
+     C                   endif
+      * Mindre enn xx %
+     C     minpros       ifeq      '00'
+     C                   callp     updhtmlvar('MINPROS':spaces)
+     C                   else
+     C                   callp     updhtmlvar('MINPROS':minpros)
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$howmany
+      *=====================================================================******
+     C     SetHowMany    begsr
+     C* Overall Recds count
+     C     RecordCnt     ifgt      0
+     C                   callp     updhtmlvar('RecordCnt':
+     C                             %trim(%editw(RecordCnt:'   0 ')))
+     C                   else
+     C                   callp     updhtmlvar('RecordCnt':'Ingen')
+     C                   endif
+     C* More Recds to be shown
+     C                   callp     updhtmlvar('RecordLft':
+     C                             %trim(%editc(RecordLft:'J')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablestr (table start)
+      *=====================================================================******
+     C     SetTabStr     begsr
+     C     lstbrd        ifeq      'Y'
+     C                   callp     updhtmlvar('LB':'0')
+     C                   else
+     C                   callp     updhtmlvar('LB':'1')
+     C                   endif
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$tablerow (table row)
+      *=====================================================================******
+     C     SetTabRow     begsr
+     c* Sequence of this Recd (numeric, converted to char)
+     C                   move      bseq          bseqchar          2
+     C                   callp     updhtmlvar('SEQ':bseqchar)
+     c* Saldo  (numeric, edited)
+     C     lvsald        ifeq      *zeros
+     C                   callp     updhtmlvar('LVSALD':spaces)
+     c                   else
+     C                   callp     updhtmlvar('LVSALD':
+     C                             %trim(%editc(LvSald:'Z')))
+     c                   end
+     c* Minimum (numeric, edited)
+     C                   callp     updhtmlvar('LVMSTK':
+     C                             %trim(%editc(LvMstk:'Z')))
+      * Hent variabler til
+     C                   callp     updhtmlvar('LVANR':LvAnr)
+     C                   callp     updhtmlvar('LVVB':LvVb)
+     C                   callp     updhtmlvar('LVANS':LvAns)
+     C*                  callp     updhtmlvar('xxPRICE':
+     C*                            %trim(%editw(xxprice:'  ,   ,   , 0 $')))
+      * Repeat background color
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$foundsome (some Recds were found)
+      *=====================================================================******
+     C     SetFndSome    begsr
+      * Repeat background color
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$showmore (show more vessels)
+      *=====================================================================******
+     C     SetShowMor    begsr
+      * Repeat national language
+     C                   callp     updhtmlvar('LNG':lng)
+      * Repeat background color
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      * Recds left to be seen
+     C                   callp     updhtmlvar('RecordLft':
+     C                             %trim(%editc(RecordLft:'J')))
+     c* Recd number to start after
+     C                   callp     updhtmlvar('LAST':LastLvAnr)
+     c* Repeat list border
+     C                   callp     updhtmlvar('BRD':lstbrd)
+      *
+      * Bevar søkekriteria i HIDDEN variabler
+     c* Repeat Recd type
+     C                   callp     updhtmlvar('A':artnr)
+     c* Repeat Recd make
+     C                   callp     updhtmlvar('B':varegrp)
+     c* Repeat length units
+     C                   callp     updhtmlvar('C':inkansv)
+     c* Repeat minimum length
+     C                   eval      work500 = *blanks
+     C                   movel     minpros       work500
+     C                   callp     updhtmlvar('D':work500)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Server protocol
+     C                   callp     updhtmlvar('PROTOCOL':S_Protocol)
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      * Color for font, background, links, visited links, active links
+      *=====================================================================******
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+      *=====================================================================******
+     C*  Find number of Recds matching search criteria
+      *=====================================================================******
+     C     Recdsnumb     begsr
+     C                   eval      RecordCnt = 0
+     C     ReadKey       setll     LLVARER
+     C     ReadKey       reade     LLVareR                                50
+     C     *in50         DoWeq     '0'
+     C     MaxAnr        ifne      *blanks
+     C     LvAnr         andgt     MaxAnr
+     C                   leave
+     C                   endif
+     C                   exsr      RecordSlt
+     C     selected      ifeq      'Y'
+     C                   eval      RecordCnt = RecordCnt + 1
+     C                   endif
+     C     ReadKey       reade     LLVareR                                50
+     C                   enddo                                                  *hival
+      *  Recds left to be seen
+     C     RecordCnt     sub       30            RecordLft         7 0
+      *  re-position to top of file
+     C     ReadKey       setll     LLVARER
+     C                   endsr
+      *=====================================================================******
+     C*  Go to the last Recd aleady shown
+      *=====================================================================******
+     C     GotoRecord    begsr
+     C     LastKey       setll     LLVARER
+     C     LastLvAnr     cabeq     ' '           GotoRecordX
+      *
+     C     Bseq          Ifne      0
+     C     LastKey       reade     LLVareR                                50
+     C                   end
+      *
+     C     GotoRecordX   tag
+     C                   endsr
+      *=====================================================================******
+     C*  Select a Recd
+      *=====================================================================******
+     C     RecordSlt     begsr
+     C                   move      'N'           selected          1
+      * 0 i vekt = Ikke aktiv
+     C     LvVkt0        cabeq     0             RecordSltX
+      *
+      * Ved seleksjon på artnr (key) leses fra start... hopp over lavere!!
+      * (i leseloop hoppes det ut når høyeste matych er passert)
+      * OGSÅ NEDRE GRENSE BØR SELVSAGT STYRES AV KEY, MEN HAR FORELØPIG LITT
+      * PROBLEM MED Å SKILLE PÅ PÅ 1 / 2. GANGS VISNING(MORE) OG FÅR TULL
+      * MED AT LISTEN BEGYNNER FRA TOPP OGSÅ VED MORE..... FIXES SENERE
+     C     artnr         ifne      *blanks
+     C     LvAnr         andlt     artnr
+     C                   goto      RecordSltX
+     C                   end
+      *
+      * seleksjon på gruppe..
+     C     varegrp       ifne      *blanks
+     C     varegrp       andne     LVag01
+     C     varegrp       andne     LVag02
+     C     varegrp       andne     LVag03
+     C     varegrp       andne     LVag04
+     C     varegrp       andne     LVag05
+     C                   goto      RecordSltX
+     C                   end
+      *
+      * seleksjon på innkjøpsansvarlig
+     C     inkansv       ifne      *blanks
+     C     inkansv       andne     LVans
+     C                   goto      RecordSltX
+     C                   end
+     C*
+      *
+      * Seleksjon på "saldomargin" mindre enn xx % over MINIMUM
+     C     minpros       ifne      *blanks
+     C     minpros       andne     *zeros
+      * vis da kun poster hvor minimum er angitt
+     C     LvMstk        cabeq     0             RecordSltX
+     C     LVsald        sub       LVMstk        XXDiff            5 0
+     C                   eval      DiffPros = XXDiff / LvMstk * 100
+     C     DiffPros      cabgt     bminpros      RecordSltX
+     C                   end
+     C*  Recd is selected
+     C                   move      'Y'           selected
+     C*
+     C     RecordSltX    tag
+     C                   endsr
+      *=====================================================================******
+     C*  Convert a name (variable "myname") to uppercase
+      *=====================================================================******
+     C     upper         begsr
+     C                   movea     myname        boatnam
+     C                   z-add     1             i                 3 0
+     C     i             dougt     256
+     C                   biton     '1'           boatnam(i)
+     C                   eval      i= i + 1
+     C                   enddo
+     C                   movea     boatnam       myname          256
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+      * "HTMLSRC  " er dft = NORSK, ved å trykke på FLAGGET i inng.
+      * kan dette endre stil "HTMLSRCXX" avh. av støttede språk
+JOVO C                   eval      Lib = '*LIBL'
+JOVO C                   eval      Fn  = 'HTMLSRC' + lng
+JOVO C                   eval      Mbr = 'LLS001B'
+      *------------------
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Different User than last invocation
+      *=====================================================================******
+     C     UserInit      begsr
+      * Ved første gangs kall må også User-id-fil åpnes
+      * Den ligger i SYCGI (=CURLIB), så libl er her ikke av betydning
+     C     BridSW        ifeq      *blank
+     C                   open      BRIDF
+     C                   eval      BridSW = 'x'
+      * Definisjon av diverse keys
+     c     ReadKey       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c     LastKey       klist
+     c                   kfld                    LVGRUP
+     c                   kfld                    LVPNR
+     c                   kfld                    LastLVANR
+      *
+     C                   endif
+      *
+      *
+     C* Annen Userid enn forige kall?? - Libl og/eller kundenr endret??
+     C     UserID        ifne      GmUserID
+     C                   move      UserID        GmUserId
+     C     UserID        CHAIN     BRIDF                              30
+      *
+      * --------------------------------------
+      * Annen library list enn forige kall??
+      * I så fall close filer - override på ny - open filer
+     C     *IN30         ifeq      *off
+     C     BILIBL        ifne      GmBiLibl
+     C     BISTDL        orne      GmBiStdL
+     C                   move      BILIBL        GmBilibl
+     C                   move      BISTDL        GmBiStdL
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+     C                   close     LLVare01                             30
+     C                   close     LLGrpK05                             30
+     C                   eval      rc = docmd('OVRDBF FILE(LLVare01) +
+     C                             TOFILE(*LIBL/LLVare01) +
+     C                             SECURE(*YES)')
+     C                   eval      rc = docmd('OVRDBF FILE(LLGrpK05) +
+     C                             TOFILE(*LIBL/LLGrpK05) +
+     C                             SECURE(*YES)')
+     C                   open      LLVare01
+     C                   open      LLGrpK05
+     C                   end
+      *
+      * -----------------------------------------------
+      * Annen kunde enn forige kall? I så fall hent gruppe..
+     C     BiKunr        ifne      GmKunr
+     C                   move      BiKunr        GmKunr
+     C     BiKunr        chain     LLGrpK05                           33
+     C     *IN33         IFEQ      *ON
+      * her burde ligge avvisning - feilmelding - retur
+     C                   else
+     C                   move      GKGRP         LVGRUP
+     C                   move      GKPNR         LVPNR
+     C                   end
+     C                   end
+      *
+      * -----------------------------------------------
+      *
+     C                   end
+     C                   endif
+      *
+      *
+      *
+     C                   endsr

@@ -1,0 +1,843 @@
+      * ***************************************************************
+      *    DETTE PROGRAM SKRIVER ETIKETT PÅ ELTRON SKRIVER
+      * ***************************************************************
+      *
+      * COMMAND Q=LENGDE / MELLOMROM M.M
+      * Q p1,p2 (p1=lengde i dots, p2=mellomrom i dots )
+      *
+      * MÅLES I "DOTS",  PÅ ORION: 8 DOT PR MM
+      * TOTALLENGDE MELLOM PERFORERING = 195MM  = 1560 DOTS
+      * LENGDE PÅ DEN ENKELT LAPP      = 192MM  = 1536 DOTS
+      * LENGDE PÅ MELLOMROM(GAP)       =   3MM  =   24 DOTS
+      * (LENGDE FRA PERF.TIL START LAPP= 1,5MM  =   12 DOTS)
+      * Kommandoer for tekst begynner på A, deretter 8 parametre :
+      * A=ASCII-TEKST, PARAMETRE...
+      *   P1=KOLONNE,P2=LINJE,P3=ROTASJON,P4=FONT,P5=HORIS MULTIPL,
+      *   P6=VERTIKAL MULTIPL, P7=N=NORMAL/R=REVERSE,P8=DATA (i "   ")
+      * Kommandoer for barcode begynner på B...
+      * SE EPL2en.pdf side 244   (.f.eks )
+      *       http://web.chd.lv/download/EPL2en.pdf
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 HEUNIK er 9 lang , før avd+opd, 9 høyre av avd + opd
+10XXX * 02 JOV PTF10 skriv CTA-info på label ved MYPACK mm.
+10XXX * 03 JOV PTF10 Ventekode på fraktbrev tolkes som UTL.forbehold/printes på label
+10179 * 04 jov PTF10 Print fra oppdrag/innland(dokuf mangler) hent send-nr fra HEADF
+      * 05 JOV PTF10 DIGIT OR SIGN.. DFPNLS
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+10XXX * 06 JOV PTF11 IKKE forsøk å chaine DOKUF mm når layout er HZ - booking Z-filer
+10XXX * 07 JOV PTF11 ta hensyn til evt avvikende adresse i CMR     ..
+10XXX * 08 JOV PTF11 Behandle Interne/eksterne KolliIDs, Original/Kopi likt  (SAMORDNE M(SYFA12SN))
+********************************************************************
+     FDOKUF     IF   E           K DISK
+N02  FDOKUFE    IF   E           K DISK
+N07  FDOKEC     IF   E           K DISK
+N07  FCUNDL01   IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FKOFAST    IF   E           K DISK
+     FDOKUFM    UF A E           K DISK
+     FZOKUFM1   UF A E           K DISK
+     F                                     RENAME(dokufmr:zokufmr)
+     FZEADL02   UF   E           K DISK
+     F                                     RENAME(headfr:zeadfr)
+     FKODFRI    IF   E           K DISK
+     FFRISOK    IF A E           K DISK
+     FZRISOL01  IF A E           K DISK
+     F                                     RENAME(frisokr:zrisokr)
+     FKODTLK    IF   E           K DISK
+     FFIRFB     UF   E           K DISK
+     FSYLA03P   O    F   80        PRINTER OFLIND(*INOF)
+      *
+     D                 DS
+     D  DS_INFO                1   1024
+     D  DS_TRAN                1      8  0
+     D  DS_NAT                11     31
+     D  DS_DUMMY            1024   1024
+     D                 DS
+     D  DFAVD                  1      4  0
+     D  DFOPD                  5     11  0
+     D  DFFBNR                12     14  0
+     D  DFAVDA                 1      4
+     D  DFOPDA                 5     11
+     D  DFFBNA                12     14
+      * OPPRINNELIG OPPDRAG VED DUP..
+     D                 DS
+     D  OpprDs                 1     15
+     D  OpprTx                 1      3
+     D  TRAVD0                 4      7  0
+     D  OpprSt1                8      8
+     D  TROPD0                 9     15  0
+     D                 DS
+     D  HXSNDN                 1     20
+     D  HXSNDN1_10             1     10
+     D  HXSNDN11_20           11     20
+     D  HXSNDN4_20             4     20
+     D                 DS
+     D  HEFT1                  1     51
+     D  HEFT1A                 1     30
+     D  HEFT1B                31     45
+     D                 DS
+     D  WS1004                 1     35
+     D  WSSNDA                 1      2
+     D  WSSNDB                 3      7
+     D  WSSNDC                 8     17
+     D  WSSNDI                 1     17
+     D                 DS
+     D  KLKNVN                 1     30
+     D  DsLkNr                28     30
+     D                 DS
+     D  KOID                   1     18
+     D  DSIDPK                 1      1
+     D  DSIDLA                 2      3
+     D  DSIDLE                 4      8
+     D  DSIDNR                 9     18
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D  WTIDA                  1      2
+     D  WTIDB                  3      4
+     D  WDDA                   7      8
+     D  WMMA                   9     10
+     D  WÅÅA                  11     14
+      * Input Parameter
+     C     *ENTRY        PLIST
+     C                   PARM                    WFIRM             2                         ID
+     C                   PARM                    WMLAYO            2                         ID
+     C                   PARM                    AVD               4 0                       ID
+     C                   PARM                    OPD               7 0                       ID
+     C                   PARM                    FBN               3 0                       ID
+     C                   PARM                    uukopi            1
+      *
+     C                   EXSR      SRINIT
+      *
+     C     *IN90         IFEQ      *ON
+     C                   GOTO      ENDPGM
+     C                   ENDIF
+      * LOOP FOR NO OF COPIES
+     C                   DO        DFNTLA        WCOPN             4 0
+      * Send field data to printer
+     C                   EXSR      SR100
+      * END LOOP
+     C                   ENDDO
+      * End Program
+     C     ENDPGM        TAG
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+      *_____________________________________________________
+      * Send all data fields
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SR100         BEGSR
+     C                   MOVE      *BLANKS       KOID
+S08  c*    uukopi        ifeq      'J'
+     c                   z-add     wcopn         FMMKNR
+     c                   move      '0'           *in33
+     C     DOKUFMKE2     SETLL     DOKUFM
+     C     DOKUFMKE2     READE(N)  DOKUFM                                 33
+     C     *IN33         DOWEQ     '0'
+     C     FMST          IFEQ      'I'
+     C     FMST          OREQ      'E'
+     C                   MOVEL     FMMRK1        KOID
+     C                   goto      utkoid
+     C                   END
+     C     DOKUFMKE2     READE     DOKUFM                                 33
+     C                   END
+     C     UTKOID        TAG
+      * hvis ikke finner kolliid på posisjonen hentes id
+     C     KOID          IFEQ      *blanks
+     c     kollii        andeq     'J'
+     c                   sub       1             FMMKNR
+     C                   end
+S08  C*                  END
+      * Hent kolli-id, dersom dette er definert
+     C     KOLLII        IFEQ      'J'
+     c     koid          andeq     *blanks
+     C     WFIRM         CHAIN     FIRFB                              33                    3
+     C                   ADD       1             FIIDNR
+     C                   UPDATE    FIRFBR
+     C                   MOVE      '3'           DSIDPK
+     C                   MOVE      FIIDLA        DSIDLA
+     C                   MOVE      FIIDLE        DSIDLE
+     C                   MOVEL     FIIDNR        DSIDNR
+     C                   MOVE      *ZEROS        UAN22            22
+     C                   MOVE      KOID          UAN22
+     C                   CALL      'SYGE08'
+     C                   PARM                    UAN22
+     C                   MOVE      UAN22         KOID
+     C                   ADD       1             FMMKNR
+     C                   MOVEL     KOID          FMMRK1
+     C     WMLAYO        IFNE      'HZ'
+     C                   WRITE     DOKUFMR
+     C                   ELSE
+     C                   MOVE      HEUNIK        FMUNIK
+     C                   MOVE      HEREFF        FMREFF
+     C                   WRITE     ZOKUFMR
+     C                   END
+     C                   END
+      *
+      ******************************************************
+      * Her begynner selve produksjon av utdata til merkelapp
+      ******************************************************
+      * Kommandoer for tekst begynner på A, deretter 8 parametre :
+      * Prm v/A: 1=Kol,2=Lin,3=Rot,4=Fon,5=Brd,6=Høy,7Nor/Rev,8=Dta(i "..")
+      *
+      * Ved lapp 2,3,4, endres kun variable data ( xx AV YY og kol-ID)
+     C     *IN50         CABEQ     '1'           VARI1
+      * FRA (AVSENDER)
+      * Ledetekst
+     C                   eval      DATA = 'A18,40,0,2,1,1,N,"Fra/From"'
+     C                   EXCEPT    SYLA01
+      *
+     C                   eval      DATA = 'A400,40,0,2,1,1,N,"'+
+     C                             'Print Dato  '+
+     C                             WDDA+'/'+WMMA+'/'+WÅÅA+'  '+
+     C                             WTIDA+':'+WTIDB+'"'
+     C                   EXCEPT    SYLA01
+      * utlev.forbehold??  - REV IMAGE / på tvers ute til høyre
+     C     HEFT1A        IFNE      *blanks                                       UTLforbehold
+     C     HEKFT1        ANDEQ     *blanks                                       IKKE KVITTE
+     C                   eval      DATA = 'A755,65,1,3,3,3,R,"'+
+     C                             %trim(HEFT1A)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+      * Data
+      * Avs.navn
+     C                   eval      DATA = 'A40,65,0,1,2,2,N,"'+
+     C                             %trim(DFNAVS)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Avs.adr1
+     C                   eval      DATA = 'A40,95,0,1,2,2,N,"'+
+     C                             %trim(DFAD1S)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Avs.Postnr /sted
+     C                   MOVE      DFPNLS        PNRALF            4
+     C                   eval      DATA = 'A40,125,0,1,2,2,N,"'+
+     C                             %trim(PNRALF)+' '+
+     C                             %trim(DFAD3S)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *
+      * STREK
+     C                   eval      DATA = 'LE10,150,666,6'
+     C                   EXCEPT    SYLA01
+      *
+      * Til (MOTTAKER)
+      * Ledetekst
+     C                   eval      DATA = 'A18,170,0,2,1,1,N,"Til/To"'
+     C                   EXCEPT    SYLA01
+      *
+      * Data
+     C     DFNAVL        IFNE      *BLANKS
+     C                   eval      DATA = 'A40,190,0,2,2,2,N,"'+
+     C                             %trim(DFNAVL)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   eval      DATA = 'A40,240,0,2,2,2,N,"'+
+     C                             %trim(DFAD1L)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *norsk
+     C     DFLKL         IFEQ      *blanks
+     C                   MOVEL     DFPOUL        PNRALF
+N07  C                   MOVEL     DFADUL        DFADUL25         25
+     C                   eval      DATA = 'A40,290,0,2,2,2,N,"'+
+     C                             %trim(PNRALF)+' '+
+S07  C*                            %trim(DFADUL)+
+N07  C                             %trim(DFADUL25)+
+     C                             '"'
+     C                   else
+     C                   eval      DATA = 'A40,290,0,2,2,2,N,"'+
+     C                             %trim(DFLKL)+' '+
+     C                             %trim(DFPNUL)+' '+
+     C                             %trim(DFADUL)+
+     C                             '"'
+     c                   end
+     C                   EXCEPT    SYLA01
+     C                   ELSE
+     C                   eval      DATA = 'A40,190,0,2,2,2,N,"'+
+     C                             %trim(DFNAVM)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   eval      DATA = 'A40,240,0,2,2,2,N,"'+
+     C                             %trim(DFAD1M)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   eval      DATA = 'A40,290,0,2,2,2,N,"'+
+     C                             %trim(DFAD3M)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   end
+      *
+      * STREK
+     C                   eval      DATA = 'LE10,350,666,6'
+     C                   EXCEPT    SYLA01
+      *
+      * TRANSPORTØR
+      * Ledetekst
+     C                   eval      DATA = 'A18,360,0,2,1,1,N,"'+
+     C                             'Transportør/Carrier'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+N07  c                   if        CMRTRAN <> *blanks
+N07  c                   eval      DFNAT = CMRTRAN
+N07  c                   endif
+     C                   eval      DATA = 'A40,385,0,4,1,2,N,"'+
+     C                             %trim(DFNAT)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+N02   * ved Mypack skrives PRODUKT   bak transportør
+N02  c     DFPROK        ifeq      'TG9M'
+N02  C                   eval      DATA = 'A450,385,0,4,1,2,N,+
+N02  C                             "MyPack"'
+N02  C                   EXCEPT    SYLA01
+N02  c                   ELSE
+      *
+      * TOLLPASS ??  (ALDRI PÅ MYPACK - BENYTT SAMME PLASS)
+     C     DFTOLL        IFNE      *ZEROS
+S02  C*                  eval      DATA = 'A18,360,0,2,1,1,N,"'+
+     C                   eval      DATA = 'A450,385,0,4,1,2,R,"'+
+     C                             'TOLLPASS!!'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+N02  c                   end
+      *
+N02   * ved Mypack skrives PRODOKT   bak transportør
+N02  c     DFPROK        ifne      'TG9M'
+      * TRANSPORT-PRODUKT - KODETEKST
+      * Ledetekst
+     C                   eval      DATA = 'A18,440,0,2,1,1,N,"'+
+     C                             'Produkt/Product'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+     C     DFPROK        IFNE      *BLANKS
+     C     KOKEY         CHAIN     KOFAST                             56
+     C     *IN56         IFEQ      '0'
+      *
+     C     DFPROK        IFEQ      'TG91 '
+     C                   eval      DATA='A480,65,0,3,2,2,N,"EKSPRESS10"'
+     C                   EXCEPT    SYLA01
+     C                   end
+      * data - prod.kode
+     C                   eval      DATA = 'A40,460,0,2,1,2,N,"'+
+     C                             %trim(KFTXT)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+     C                   END
+N02  c                   else
+N02   * MYPACK ENDELIG MOTTAKER
+N02  C                   eval      DATA = 'A18,430,0,2,1,1,N,"'+
+N02  C                             'Mottaker:'+
+N02  C                             '"'
+N02  C                   EXCEPT    SYLA01
+N02   *
+N02   * Mott. navn/tlfnr
+N02  C                   eval      DATA = 'A40,450,0,1,1,2,N,"'+
+N02  C                             %trim(DFNAVM)
+N02  c     TLFnr         ifne      *blanks
+N02  c                   eval      Data  =%trim(data)
+N02  c                             + '     Tlf: ' + %trim(TLFnr)
+N02  c                   end
+N02  c                   eval      Data  =%trim(data)+'"'
+N02  C                   EXCEPT    SYLA01
+N02   *
+N02  C                   eval      DATA = 'A40,480,0,1,1,2,N,"'+
+N02  C                             %trim(DFAD1M)+',   '+
+N02  C                             %trim(DFAD3M)+' '+
+N02  C                             '"'
+N02  C                   EXCEPT    SYLA01
+N02  c                   END
+      *
+      * MERKE
+      * Ledetekst
+     C                   eval      DATA = 'A18,505,0,2,1,1,N,"'+
+     C                             'Merke/Marks'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+     C                   eval      DATA = 'A40,525,0,2,1,2,N,"'+
+     C                             %trim(DFGM)+' '+
+     C                             %trim(DFGM2)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *
+      * SENDERS REF      / A-REF
+      * Ledetekst 1
+     C                   eval      DATA = 'A18,555,0,2,1,1,N,"'+
+     C                             'Senders ref'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C     HERFA         IFNE      *BLANKS
+      * Ledetekst 2
+     C                   eval      DATA = 'A450,555,0,2,1,1,N,"'+
+     C                             'A-ref'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+      * Data 1
+     C     wmlayo        IFne      'HZ'
+     C                   eval      DATA = 'A180,555,0,2,1,2,N,"'+
+     C                             %trim(DFAVDA)+'/'+
+     C                             %trim(DFOPDA)+'/'+
+     C                             %trim(DFFBNA)+'/'+
+     C                             %trim(DFSG)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *
+     C     TROPD0        IFNE      *ZEROS
+      * Opprinnelig oppdr ved dup
+     C                   eval      DATA = 'A18,585,0,2,1,1,N,"'+
+     C                             OpprDs+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+     C                   end
+     C     HERFA         IFNE      *BLANKS
+      * Data 2
+     C                   eval      DATA = 'A450,575,0,2,1,2,N,"'+
+     C                             %trim(HERFA)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C                   END
+      *
+      * ANTALL ... AV...
+      * Ledetekst
+     C                   eval      DATA = 'A18,610,0,2,1,1,N,"'+
+     C                             'Kolli'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+     C     VARI1         TAG
+      * Data ( xx AV yy )
+     C                   eval      DATA = 'A110,610,0,3,2,2,N,"'+
+     C                             %trim(%editc(WCOPN:'Z'))+' AV '+
+     C                             %trim(%editc(DFNTLA:'Z'))+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Ved lapp 2,3,4, endres kun variable data ( xx AV yy og kol-ID)
+     C     *IN50         CABEQ     '1'           VARI2
+      *
+      * STREK
+     C                   eval      DATA = 'LE10,650,666,6'
+     C                   EXCEPT    SYLA01
+      *
+      * FRAKTBREVSNR
+      * Ledetekst
+     C                   eval      DATA = 'A18,670,0,2,1,1,N,"'+
+     C                             'Sendings-ID/Consignment'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+     C                   eval      DATA = 'B18,690,0,1E,4,8,220,B,"'+
+     C                             '401'+%trim(DF1004)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *
+      * TIL POSTNR
+      * Ledetekst
+     C                   eval      DATA = 'A18,950,0,2,1,1,N,"'+
+     C                             'Til/To'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+     C                   MOVEL     DFPOUL        PNRALF
+     C                   move      *blanks       xxlkpn           12
+      * norsk
+     C                   Eval      XXLKPN = '578'+PNRALF
+      * utenlandsk
+     C     DFLKL         IFNE      *blanks
+     c     LKKEY         Chain     KODTLK                             33
+     c     *in33         Ifeq      *off
+     c     DsLKnr        ANDGE     '000'
+     c     DsLKnr        ANDLE     '999'
+     C                   Eval      XXLKPN = DsLKnr+DFPNUL
+     c                   end
+     c                   end
+     C                   eval      DATA = 'B18,970,0,1E,4,8,220,B,"'+
+     C                             '421'+%trim(XXLKPN)+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      *
+      * KOLLIID
+      * Ledetekst
+     C                   eval      DATA = 'A18,1240,0,2,1,1,N,"'+
+     C                             'Kolli-ID/Licence plate'+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Data
+     C     VARI2         TAG
+     C                   eval      DATA = 'B18,1260,0,1E,4,8,220,B,"'+
+     C                             '00'+KOID+
+     C                             '"'
+     C                   EXCEPT    SYLA01
+      * Print 1 eksemplar
+     C                   eval      DATA = 'P1'
+     C                   EXCEPT    SYLA01
+      *
+     C                   MOVE      *ON           *IN50                           FØRSTE FERD
+      *
+     C                   ENDSR
+      *_____________________________________________________
+      * Initialise subroutine, set character set
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     SRINIT        BEGSR
+     C                   MOVE      *OFF          *IN50
+      *
+     C                   Z-ADD     0             ØX                3 0          Index for Ø
+     C                   MOVE      *BLANKS       ØAN              12            Num alpha
+     C                   MOVE      'N'           ØADEC             1            Decimal Indicator
+     C                   Z-ADD     0             ÆX                3 0
+     C                   Z-ADD     0             X                 1 0
+     C                   Z-ADD     0             Y                 1 0
+     C                   MOVE      *BLANKS       MSGVAR            7            Message Variabel
+     C     DOKKEY        KLIST
+     C                   KFLD                    DFRI
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C                   KFLD                    FBN
+     C                   MOVE      'F'           DFRI
+N02  C     DOKUFEKEY     KLIST
+N02  C                   KFLD                    AVD
+N02  C                   KFLD                    OPD
+N02  C                   KFLD                    FBN
+N02  C                   KFLD                    WE_N3035
+N02  C     *LIKE         DEFINE    FE_N3035      WE_N3035
+N02  C                   EVAL      WE_N3035='CN '
+     C     DOKMKE        KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+     C     DOKUFMKE2     KLIST
+     C                   KFLD                    FMRI
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C                   KFLD                    FMFBNR
+     C                   KFLD                    FMLINR
+     c                   KFLD                    FMMKNR
+N07  C     FFKEY         KLIST
+N07  C                   KFLD                    WFIRM
+N07  C                   KFLD                    DCKNFF
+     C     KOKEY         KLIST
+     C                   KFLD                    KFTYP
+     C                   KFLD                    DFPROK
+     C                   MOVEL     'FRBREVPR'    KFTYP
+     C                   MOVE      'O '          KFTYP
+     C     HEAKEY        KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C     FRISOKKEY     KLIST
+     C                   KFLD                    AVD
+     C                   KFLD                    OPD
+     C                   KFLD                    XXSOK
+     C                   move      'IFB'         XXSOK             3
+     C     LKKEY         KLIST
+     C                   KFLD                    KLKUNI
+     C                   KFLD                    DFLKL
+     C                   MOVEL     'LK '         KLKUNI
+      * OpprinnelIG OPPDRAG VED DUP
+     C                   MOVEL     'Op:'         OpprTx
+     C                   MOVE      *zeros        TRAVD0
+     C                   MOVEL     '/'           OpprSt1
+     C                   MOVE      *zeros        TROPD0
+N05  C     WMLAYO        Ifne      'HZ'
+      * HENT FRAKTBREV
+     C     DOKKEY        CHAIN     DOKUF                              90
+N02  c                   move      *blanks       TLFnr            15
+N02  C     DOKUFEKEY     CHAIN     DOKUFE                             33
+N02  c     *in33         ifeq      '0'
+N02  c                   movel     FE_C3148D     TLFnr                          Sms
+N02  c     TLFnr         ifeq      *blanks
+N02  c                   movel     FE_C3148B     TLFnr                          Mob
+N02  c                   end
+N02  c     TLFnr         ifeq      *blanks
+N02  c                   movel     FE_C3148A     TLFnr                          tlf
+N02  c                   end
+N02  c                   end
+     C     HEAKEY        CHAIN     HEADF                              33
+N05  C                   endif
+      * Basert på headf eller ZEADF - fyll DF..-variable med HE..-data
+     c     WMLAYO        IFeq      'HE'
+     c     WMLAYO        OREQ      'HZ'
+     c                   EXSR      GetHead
+     c                   end
+      * SKAL KOLLI-ID TILDELES??
+S08  C*                  Move      *zeros        AntExtL           4 0
+     C                   MOVE      'N'           KOLLII            1
+     C     WFIRM         CHAIN(N)  FIRFB                              33                    3
+     C     *IN33         IFEQ      '0'
+     C     FIIDNR        ANDNE     *ZEROS
+     C                   MOVE      'J'           KOLLII
+      * SLETT EVT. TIDLIGERE TILDELT KOLLIID
+     c                   move      *zeros        LnrIE             4 0
+     C                   MOVE      DFRI          FMRI
+     C                   MOVE      DFAVD         FMAVD
+     C                   MOVE      DFOPD         FMOPD
+     C                   MOVE      DFFBNR        FMFBNR
+     C                   MOVE      *ZEROS        FMLINR
+      * ikke slett hvis uukopi = J
+     C     DOKMKE        SETLL     DOKUFM
+     C     DOKMKE        READE     DOKUFM                                 33                   33
+     C     *IN33         DOWEQ     '0'
+      * EKSTERNE MED MED FEIL FORMAT - BEVAR MED KODE 'O'  (MÅ VÆRE 18 LANG)
+     C     FMST          IFEQ      'E'
+N08  C                   IF        %SUBST(FMMRK1:18:1) = ' ' OR
+N08  C                             %SUBST(FMMRK1:19:1) <> ' '
+N08  C                   move      'O'           FMST                           O=Original/Ompakket
+N08  C                   ENDIF
+S08  C*                  ADD       1             AntExtL
+     C                   END
+     C     FMST          IFEQ      'I'
+N08  C     FMST          OREQ      'E'
+N08  c                   add       1             LnrIE
+N08  C                   ENDIF
+S08  C*    uukopi        ifne      'J'
+S08  C*                  DELETE    DOKUFMR
+S08  C*                  else
+S08  C*                  UPDATE    DOKUFMR
+S08  C*                  end
+S08  C*                  ELSE
+S08  C*                  UPDATE    DOKUFMR
+S08  C*                  END
+N08   * FLERE KOLLI-IDS ENN PÅ FRAKTBREVET - MERK OVERSKYTENDE
+N08  C     LNRIE         ifgt      DFNTLA
+N08  C                   move      'O'           FMST                           O=Original/Ompakket
+N08  c                   endif
+N08  C                   UPDATE    DOKUFMR
+     C     DOKMKE        READE     DOKUFM                                 33                   33
+     C                   END
+      * INITIER FOR UTLEGGING AV NYE
+     C                   MOVE      *ZEROS        FMMKNR
+     C                   MOVE      *ZEROS        FMLONR
+     C                   MOVE      *BLANKS       FMMRK1
+     C                   MOVE      'I'           FMST
+     C                   END
+     C* Initiering/ Printparam / label size
+     C                   MOVE      *BLANKS       DATA             80
+     C                   EXCEPT    SYLA01
+     C                   MOVEL     'N       '    DATA
+     C                   EXCEPT    SYLA01
+     C                   MOVEL     'D12     '    DATA
+     C                   EXCEPT    SYLA01
+     C                   MOVEL     'S2      '    DATA
+     C                   EXCEPT    SYLA01
+     C                   MOVEL     'Q1536,24'    DATA
+     C                   EXCEPT    SYLA01
+     C                   MOVEL     'q760    '    DATA
+     C                   EXCEPT    SYLA01
+      *
+      *
+S08   * Eksterne lapper er funnet, simuler kopi.
+S08  C*    AntExtL       IFNE      *zeros
+S08  C*                  Move      'J'           uukopi
+S08  C*                  z-add     AntExtL       DFNTLA
+S08  C*                  END
+      *
+      * HENTE DAGENS DATO OG TID
+     C                   TIME                    WTIME
+      *
+N03   * EDI ventekode telle som utlev.forbehold
+N03  c     DFVEN         Ifne      ' '
+N03  c     HEFT1A        ifeq      *blanks                                      Ikke utlev.forb.h.
+N03  c     HEKFT1        orne      *blanks                                      eller er utkvittert
+N03  c                   eval      HEFT1a='Ventekode '
+N03  c                             +DFVEN+' på fr.br'
+N03  c                   eval      HEKFT1=' '
+N03  c                   endif
+N03  c                   endif
+      *
+     C                   ENDSR
+      *
+      *_____________________________________________________
+      * Hent data fra HEADF / ZEADF
+      *"""""""""""""""""""""""""""""""""""""""""""""""""""""
+     C     GetHead       BEGSR
+      * 90 OFF - DATA ER FUNNET
+     C     WMlayo        IFEQ      'HE'
+     C     *IN33         ANDEQ     *OFF
+     C                   MOVE      *OFF          *IN90
+     C                   END
+      *
+     C     WMlayo        IFEQ      'HZ'
+n01   * Heunik = 9 lang.
+s01  c*                  Movel     AVD           HEUNIK
+s01  c*                  Move      OPD           HEUNIK
+n01  c                   Movel     AVD           TMP11            11
+n01  c                   Move      OPD           TMP11
+n01  c                   Move      Tmp11         HEUNIK
+     C     HEUNIK        CHAIN     ZEADL02                            90
+     C     *in90         ifeq      '0'
+     c                   move      'P'           HEPK3
+     C                   update    zeadfr
+     c                   end
+     c                   end
+      * merkelapper lagres på fraktbrev 1
+     c                   z-add     1             DFFBNR
+      *
+     c                   MOVE      ' '           DFST
+     c                   select
+     c     heur          wheneq    'B'
+     c                   MOVE      'U'           DFST
+     c     heur          wheneq    'H'
+     C     HETRI         IFNE      'NO'
+     c                   MOVE      'U'           DFST
+     c                   end
+     c                   endsl
+N07   * export / CMR finnes - evt avvikende lev.adresse derfra
+N07  C     HEAKEY        CHAIN     DOKEC                              33
+N07  C     *in33         ifeq      *off
+N07  C     FfKey         CHAIN     CUNDL01                            33        Fraktfører = transp
+N07  C  N33              movel     KNAVN         CMRTRAN          30
+N07  C     DCNAL         ifne      *blanks
+N07  c                   move      DCNAL         HENAK
+N07  c                   move      DCADL1        HEADK1
+N07  c                   move      DCADL2        HEADK2
+N07  c                   move      DCADL3        HEADK3
+N07  C                   endif
+N07  C                   endif
+      * Flytt HE-felt inn i DF felt..
+     C                   MOVE      'F'           DFRI
+     C                   MOVE      HEavd         DFavd
+     C                   MOVE      HEopd         DFopd
+     C                   MOVE      HESG          DFSG
+     C                   MOVEL     HENAS         DFNAVS
+     C                   MOVEL     HEADS1        DFAD1S
+     C                   MOVEL     HEADS2        DFAD2S
+S05  C*                  MOVEL     HEADS3        DFPNLS
+N05  C                   MOVEL     HEADS3        TMPPUL            4
+N05  C                   TESTN                   TMPPUL               34
+N05  C     *IN34         IFEQ      '1'
+N05  C                   MOVE      TMPPUL        DFPNLS
+N05  C                   end
+     C                   MOVE      HEADS3        DFAD3S25         25
+     C                   MOVEL     DFAD3s25      DFAD3S
+     C                   MOVEL     HENAK         DFNAVM
+     C                   MOVEL     HEADK1        DFAD1M
+     C                   MOVEL     HEADK2        DFAD2M
+     C                   MOVEL     HEADK3        DFAD3M
+     C     DFST          IFEQ      'U'
+      * scan finner første blank for å skille Postnr /sted
+     C                   MOVE      HETRI         DFLKM
+     C                   MOVE      HETRI         DFLKL
+     C     ' '           SCAN      HEADK3        pos               2 0    33
+     c     pos           ifgt      3
+     c     pos           andlt     10
+     C                   EVAL      DFPNUM      = %SUBST(HEADK3:1:pos-1)
+     C                   EVAL      DFAD3M      = %SUBST(HEADK3:pos+1)
+     C                   MOVE      DFPNUM        DFPNUL
+     C                   end
+     C                   else
+     C                   MOVE      *ZEROS        DFPOUL                          UTL.POSTNR
+     C                   MOVEL     HEADK3        TMPPUL            4
+     C                   TESTN                   TMPPUL               34
+     C     *IN34         IFEQ      '1'
+     C                   MOVE      TMPPUL        DFPOUL                          UTL.POSTNR
+     C                   end
+     C                   end
+     C                   Z-ADD     HENT          DFNTLA
+     C                   Z-ADD     HENT          DFNT
+     C                   MOVEL     HEGM1         DFGM
+     C                   MOVEL     HEGM2         DFGM2
+      * sendingsnr - hent fra FRISOK - finnes ikke / skap...
+      *              MEN dersom innland - hent fra oppdraget  (ta hensyn til kort/lang)
+     C     HXSNDN        ifne      *blanks
+     C     HXSNDN11_20   ifne      *blanks
+     c                   movel     HXSNDN4_20    DF1004
+     C                   else
+     c                   movel     HXSNDN1_10    DF1004
+     C                   end
+     c     TROPD0        ifne      *zeros
+     c                   call      'SYFA12DUF'
+     c                   parm                    DF1004
+     c                   parm                    UINFO          1024
+     c                   move      Uinfo         DS_INFO
+     c                   move      DS_TRAN       DFTRAN
+     c                   move      DS_NAT        DFNAT
+     c                   end
+     c                   goto      FbnrOK
+     C                   end
+     c     wmlayo        IFEQ      'HZ'
+      * På ZEADF
+     c     HEUNIK        setll     Zrisol01
+     c     HEUNIK        Reade     Zrisol01                               33
+     c     *in33         doweq     '0'
+     c     FSKODE        IFEQ      'IFB'
+     c                   movel     FSSOK         DF1004
+     c                   goto      FbnrOK
+     c                   end
+     c     HEUNIK        Reade     Zrisol01                               33
+     c                   end
+     c                   else
+      * På HEADF
+N04   * innland..
+N04  c                   IF        Heur='H' and HXSNDN<>*blanks
+N04  c                   IF        %subst(HXSNDN:20:1)<>*blanks
+N04  c                   eval      DF1004= %subst(HXSNDN:4:17)
+N04  c                   else
+N04  c                   eval      DF1004=HXSNDN
+N04  c                   endif
+N04  c                   goto      FbnrOK
+N04  c                   endif
+     C     FRISOKKEY     CHAIN     FRISOK                             33
+     c     *IN33         IFEQ      '0'
+     c                   movel     FSSOK         DF1004
+     c                   goto      FbnrOK
+     c                   end
+     c                   end
+      * Fant ikke nummer - tildel..
+      * TAR HENSYN KUN TIL EAN...
+     C     WFIRM         CHAIN     FIRFB                              33
+     C     *IN33         IFEQ      '0'
+     C     FIRECN        IFNE      *ZEROS
+     C                   ADD       1             FIRECN
+     C                   MOVE      FISNLA        WSSNDA
+     C                   MOVE      FISNLE        WSSNDB
+     C                   MOVEL     FIRECN        WSSNDC
+     C                   END
+     C                   UPDATE    FIRFBR
+     C                   MOVE      *ZEROS        UAN22            22
+     C                   MOVE      WSSNDI        UAN22
+     C                   CALL      'SYGE08'
+     C                   PARM                    UAN22
+     C                   MOVE      UAN22         WSSNDI
+     C                   MOVEL     WS1004        DF1004
+     C                   END
+      *
+     c                   move      HEAVD         FSAVD
+     c                   move      HEOPD         FSOPD
+     c                   move      'IFB'         FSKODE
+     C                   MOVEL     DF1004        FSSOK
+     c                   move      HEDTOP        FSDTOP
+     c                   move      *BLANKS       FSDOKK
+     C     FSKODE        CHAIN     KODFRI                             33
+     C                   IF        *IN33
+     C                   MOVE      *BLANKS       FSDOKK
+     C                   ELSE
+     C                   MOVE      KFSODK        FSDOKK
+     C                   END
+     c     wmlayo        IFEQ      'HZ'
+     c                   move      HEUNIK        FSUNIK
+     c                   move      HEREFF        FSREFF
+     C                   write     ZRISOKR
+     C                   else
+     C                   write     FRISOKR
+     C                   end
+      *
+     c     FbnrOK        tag
+      *
+     C                   endsr
+     OSYLA03P   E            SYLA01
+     O                       DATA                80
+      *
+      *

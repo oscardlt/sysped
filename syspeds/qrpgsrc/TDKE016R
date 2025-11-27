@@ -1,0 +1,212 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TDKE016R MODULE(*LIBL/TDKE016R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FTVINF     IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+     ‚*  Prototype for 'JSONFIX'
+     d jsonfix         pr                  extpgm('JSONFIX')
+     d jsonstring_                         like(jsonstring)
+     ‚*  Prototype for 'INCGI'
+     d incgi           pr                  extproc('INCGI')
+     d bistdl_                             like(bistdl)
+     ‚*  Prototype for variabel program
+     D Varpgm          Pr                  ExtPgm(BILIBL)
+
+      * Varible for
+     D WSUSER          S             10
+     D WFMNA           S              9
+     D WFMN            S              9  0
+     D JSONstring      S          32000
+     D Error           S            150
+     D AntLest         S              9  0
+     d myrows          s             10i 0
+     d  X              S              2  0
+     d  WERR           S              1
+     d MyPoDS          ds                  Qualified  dim(64)
+     d  F0078A                       70
+     d  F0078B                       70
+     d  F0078C                       70
+
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+      /free
+
+        // Parse input
+         exsr Parse;
+        // Open files etc
+         exsr Init;
+
+       gethtmlifs(
+       '/syspeddev/html/JSON.html':
+       '/CGITAG/');
+       wrtsection('top');
+
+       //..........................................................................................
+       //skriv JSON-Object start (alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+       //...........................................................................................
+
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬fmn¬ : ¬'+%trim(%editc(WFMN:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+
+       //JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+
+       jsonfix ( jsonstring );
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+        //..........................................................................................
+        // Skriv JSON-LISTE Start (en liste er EN parameter(fra [ til   )
+        //..........................................................................................
+       jsonstring ='"loggtext" : [';
+
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       if error = *blanks;
+         // Hæmta til array
+         exsr sok;
+         // Les array
+         exsr lesarr;
+       endif;
+       // ..........................................................................................
+       // Skriv JSON-Liste/Array  Avslutning
+       // ..........................................................................................
+       jsonstring =']';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+       // ..........................................................................................
+       // Skriv JSON-string Avsluttning
+       // ..........................................................................................
+       jsonstring ='}';
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+       wrtsection('JSONlin');
+
+       // Quit
+       exsr exit;
+
+       //=====================================================================
+       // Close output html and quit
+       //=====================================================================
+       begsr exit;
+         // Lukk fil
+         close bridf;
+         close tvinf;
+
+         // Do not delete the call to wrtsection with section name *fini.  It is needed
+         // to ensure that all output html that has been buffered gets output.
+         wrtsection('*fini');
+         // Quit
+         *inlr = *on;
+         return;
+       endsr;
+       //********************************************************
+       begsr parse;
+       //********************************************************
+       // Get input
+         wsuser  = zhbgetvar('USER');
+         wfmna = zhbgetvar('FMN');
+         wfmn  = c2n2(wfmna);
+
+       endsr;
+       //********************************************************
+       begsr init;
+       //********************************************************
+         open bridf;
+         // Test innlogging
+         chain wsuser bridf;
+         *in50 = not %found;
+
+         if *in50 = *off;
+           if bilibl = *blanks;
+             incgi ( bistdl );
+           else;
+
+             Monitor;
+                   Varpgm();
+                 On-Error;
+                   //
+                 EndMon;
+
+         open tvinf;
+
+           endif;
+         else;
+
+           error = 'Invalid userID';
+         endif;
+
+       endsr;
+        // __________________________________________________
+        // Kør SQL in i array                             SOK
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sok;
+
+          exec sql declare  A33  cursor for
+
+          SELECT F0078A, F0078B, F0078C
+          FROM TVINF
+          WHERE FMN = :WFMN FOR READ ONLY;
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                   LESARR
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr lesarr;
+
+       for x = 1 to myrows;
+
+             if mypods(x).f0078a <> ' ';
+
+        // Lægg ut Json stræng
+           AntLest = AntLest + 1;
+
+        // Skriv en JSON-Array-linje pr menypunkt - komma før hvert nytt element
+
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+          +'¬f0078a¬ : ¬'+%trim(mypods(x).f0078a)+'¬, '
+          +'¬f0078b¬ : ¬'+%trim(mypods(x).f0078b)+'¬, '
+          +'¬f0078c¬ : ¬'+%trim(mypods(x).f0078C)+'¬}';
+         jsonfix (JSONstring);
+       updhtmlvar2('JSONstring'
+                  :%addr(jsonstring)
+                  :%len(jsonstring));
+         wrtsection ('JSONlin');
+
+             endif;
+        endfor;
+
+       endsr;
+      /end-free

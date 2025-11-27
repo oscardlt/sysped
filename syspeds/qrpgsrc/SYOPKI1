@@ -1,0 +1,572 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/SYOPKI1 MODULE(*LIBL/SYOPKI1 *LIBL/INCGI)
+CRTPGM*         ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 kolonne for AREF, + ta hensyn til norske tegn i uppify
+10XXX * 02 JOV PTF10 kunne vise som csv
+10XXX * 03 JOV PTF10 Omlegging til ifsmult/eksternhtml - tablesort
+10XXX * 04 JOV PTF10 Ved søke på sendingsnr/ikke treff i innland - gå over i FRISOK
+      *%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 05 JOV PTF11 Interne brukere kan angi avvikende kunde
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     IF   E           K DISK    USROPN
+     FCUNDL01   IF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+     FHEAD39    IF   E           K DISK    USROPN
+     F                                     RENAME(HEADFR:HEAF39R)
+     Fhead38    IF   E           K DISK    usropn
+     F                                     RENAME(HEADFR:HEAF38R)
+N04  FFRISOL01  IF   E           K DISK    usropn
+     FDOKUFM1   IF   E           K DISK    usropn
+     Farkivl02  IF   E           K DISK    usropn
+     FFIRMARC   IF   E           K DISK    usropn
+     FARKTXT    IF   E           K DISK    usropn
+     FARKEXT    IF   E           K DISK    usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+OddEvD OddEven         s             10
+      * Client input variables
+     D user            s             10
+N05  D AVVKNR          S              8
+N05  D AVVKNN          S              8  0
+N05  D AVVKNTXT        S            200
+     D DATO            s             10
+     D AREF            s             15    VARYING
+     D MottNavn        s             20    VARYING
+     D MottPost        s             20    VARYING
+N03  D Title           S            100
+N03  D UPDF            S            256
+      *
+     D FraDT8          s              8  0
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D TSTSCAN15       s             15
+     D TSTSCAN30       s             30
+N02  D CSV             s              1
+N02  D CSVFILE         s             50
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+N03  D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+     D                 DS
+     D  KLLNR                  1     20
+     D  WSKLL0102              1     02
+     D  WSKLL0320              3     20
+     D                 DS
+     D  KLLNR35                1     35
+     D  WSKLL18                1     18
+     D                 DS
+     D  FMMRK1                 1     35
+     D  FMMRK18                1     18
+     D                 DS
+     D  SNDNR                  1     20
+     D  WSSND0103              1     03
+     D  WSSND1120             11     20
+     D  WSSND0117              1     17
+     D                 DS
+     D  DsAvdOpd               1     12
+     D  DsAVD                  1      4
+     D  DsSlash                5      5
+     D  DsOPD                  6     12
+     D                 DS
+     D  Hedtop                 1      8  0
+     D  HedtopÅ                1      4  0
+     D  HedtopM                5      6  0
+     D  HedtopD                7      8  0
+     D                 DS
+     D  XXDATO                 1      8  0
+     D  XXDATOD                1      2  0
+     D  XXDATOM                3      4  0
+     D  XXDATOÅ                5      8  0
+     D                 DS
+     D  DATON                  1      6  0
+     D  DATOND                 1      2  0
+     D  DATONM                 3      4  0
+     D  DATONÅ                 5      6  0
+N01  D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+N01  D                                     UVWXYZÆØÅ')
+N01  D LO              C                   CONST('abcdefghijklmnopqrst-
+N01  D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+N03  C                   callp     wrtsection('StdtopTab')
+     C                   callp     wrtsection('top')
+      *
+      * HOVEDRUTINE
+      *
+      * Vis liste over registrete leveringer
+      * manipuler sendnr / kll.nr m.h.t. prefix.
+     C     KLLNR         IFNE      *blanks
+      * Har tastet inn  20 langt  - stripp vekk 00
+     C*    WsKll0103     IFEQ      '003'
+     C     WsKll0102     IFEQ      '00'
+     C*                  MOVEL     WSKLL0220     KLLNR35          35
+     C                   MOVEL     WSKLL0320     KLLNR35          35
+     c                   else
+     C                   MOVEL     KLLNR         KLLNR35          35
+     C                   end
+     C                   end
+     C     SNDNR         IFNE      *blanks
+      * Har tastet inn  fullstendig eller kort  - bruk det som det er
+     C     WsSnd0103     IFEQ      '401'
+     C     WsSnd1120     oreq      *blanks
+     C                   MOVEL     SNDNR         SNDNR20          20
+     c                   else
+      * Har tastet inn  17 langt
+     C                   eval      SNDNR20 = '401' + WSSnd0117
+     C                   end
+     C                   end
+      *
+     C     MaxSnd        IFEQ      *ZEROS
+     C                   Z-add     500           MaxSnd
+     C                   END
+     C     MaxRcd        IFEQ      *ZEROS
+     C                   Z-add     2000          MaxRcd
+     C                   END
+      *
+     C                   Move      *zeros        AntSnd
+     C                   Move      *zeros        AntRcd
+      * ulike nøkler etter hva som er oppgitt
+     C                   select
+     C     KLLNR         Whenne    *blanks
+     C     KLLNR35       SETLL     DOKUFM1
+     c                   Read      DOKUFM1                                35
+     C  N35WSKLL18       COMP      FMMRK18                            3535
+     C  N35HeadfKey      CHAIN     HEADF                              35
+     C     SNDNR         Whenne    *blanks
+N04  c                   move      'N'           FSok              1
+     c     SNDNR20       setLL     head39
+     c     SNDNR20       ReadE     head39                                 35
+N04   * prøv via frisok
+N04  C     *in35         IFEQ      *on
+N04  C                   eval      FSKODE =  'IFB'
+N04  c                   eval      FSSOK  =  SNDNR
+N04  c     Fri1Key       setLL     FRISOL01
+N04  c     Fri1Key       ReadE     FRISOL01                               35
+N04  C  N35HefriKey      CHAIN     HEADF                              35
+N04  c  n35              move      'J'           FSok
+N04  c                   endif
+     c                   other
+     c     FraKey        setLL     head38
+     c     BIKUNR        ReadE     head38                                 35
+     c                   endsl
+      *
+     c     *IN35         doweq     '0'
+     C                   Add       1             AntRcd
+     C     AntRcd        CabGe     MaxRcd        Utles
+     c     HEST          CaBEQ     'S'           NextRec
+      *
+     c     AREF          ifne      *BLANKS
+N01  C     LO:UPC        XLATE     HERFA         HERFA
+     C                   eval      TSTSCAN15  = uppify(HERFA)
+     C     AREF          SCAN      TSTSCAN15                              33
+     c     *IN33         CaBEQ     *OFF          NextRec
+     C                   end
+      *
+      *
+     c     MottNavn      ifne      *BLANKS
+N01  C     LO:UPC        XLATE     HENAK         HENAK
+     C                   eval      TSTSCAN30  = uppify(HENAK)
+     C     MottNavn      SCAN      TSTSCAN30                              33
+     c     *IN33         CaBEQ     *OFF          NextRec
+     C                   end
+      *
+     c     MottPost      ifne      *BLANKS
+N01  C     LO:UPC        XLATE     HEADK3        HEADK3
+     C                   eval      TSTSCAN30  = uppify(HEADK3)
+     C     MottPost      SCAN      TSTSCAN30                              33
+     c     *IN33         CaBEQ     *OFF          NextRec
+     C                   end
+     C                   move      *blanks       UPDF
+     C     UPDF          CAT       '<img src="':0UPDF
+     C     UPDF          CAT       '/syspeddev':0UPDF
+     C     UPDF          CAT       '/Blank.':0   UPDF
+     C     UPDF          CAT       'gif">':0     UPDF
+     C     *in(41)       ifeq      '0'
+      * evt skannet originalbrev (ZS) har høyere proio
+      * enn BHR-utstedt (sb) brev
+     c     arkivkeyS     chain     arkivl02                           40
+     c   40arkivkey      chain     arkivl02                           40
+     c     *in(40)       ifeq      '0'
+     c                   exsr      fraktbrev
+     c                   else
+     c                   end
+     c                   end
+      * Ok - skriv
+     C                   exsr      Setrow
+     C                   callp     wrtsection('row')
+     C                   Add       1             AntSnd
+     C     AntSnd        CabGe     MaxSnd        Utles
+      *
+     c     NextRec       Tag
+     C                   select
+     C     KLLNR         Whenne    *blanks
+     c                   Read      DOKUFM1                                35
+     C  N35WSKLL18       COMP      FMMRK18                            3535
+     C  N35HeadfKey      CHAIN     HEADF                              35
+     C     SNDNR         Whenne    *blanks
+N04  C     Fsok          ifeq      'N'
+     c     SNDNR20       ReadE     head39                                 35
+N04  C                   else
+N04  c     Fri1Key       ReadE     FRISOL01                               35
+N04  C  N35HefriKey      CHAIN     HEADF                              35
+N04  C                   endif
+     c                   other
+     c     BIKUNR        ReadE     head38                                 35
+     c                   endsl
+     c                   end
+     C     UTLES         TAG
+     C                   callp     updHTMLvar('ANTSND':
+     C                             %trim(%editc(ANTSND:'3')))
+     C                   callp     updHTMLvar('MaxSnd':
+     C                             %trim(%editc(MaxSnd:'3')))
+     C                   callp     updHTMLvar('ANTRCD':
+     C                             %trim(%editc(ANTRCD:'3')))
+     C                   callp     updHTMLvar('MaxRcd':
+     C                             %trim(%editc(MaxRcd:'3')))
+      * Quit
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')
+N03  C                   callp     wrtsection('botPoweredBy')
+N03  C                   callp     wrtsection('botStd')
+      *
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      DATO     = zhbgetvar('DATO')
+     C                   eval      DATON    = c2n2(DATO)
+     C                   eval      SNDNR   = zhbgetvar('SNDNR')
+     C                   eval      KLLNR   = zhbgetvar('KLLNR')
+     C                   eval      MAXSN    = zhbgetvar('MaxSn')
+     C                   eval      MaxSnd   = c2n2(MAXSN)
+     C                   eval      MAXRC    = zhbgetvar('MaxRc')
+     C                   eval      MaxRcd   = c2n2(MAXRC)
+     C                   eval      AREF    = zhbgetvar('AREF')
+N01  C     LO:UPC        XLATE     AREF          AREF
+     C                   eval      AREF    = uppify(AREF)
+     C                   eval      MottNavn = zhbgetvar('MottNavn')
+N01  C     LO:UPC        XLATE     MottNavn      MottNavn
+     C                   eval      MottNavn = uppify(MottNavn)
+     C                   eval      MottPost = zhbgetvar('MottPost')
+N01  C     LO:UPC        XLATE     MottPost      MottPost
+     C                   eval      MottPost = uppify(MottPost)
+N02  C                   eval      CSV  = zhbgetvar('CSV')
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+N05  C                   eval      AVVKNR  = zhbgetvar('AVVKNR')
+N05  C                   eval      AVVKNN  = c2n2(AVVKNR)
+      * låner HEDTOP for datokonvertering
+     C     2000          Add       DATONÅ        HeDtOpÅ
+     C                   move      DATONM        HeDtOpM
+     C                   move      DATOND        HeDtOpD
+     C                   move      HeDtOp        FraDt8
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     cundl01
+     C                   CLOSE     head39
+     C                   CLOSE     head38
+N04  C                   CLOSE     FRISOL01
+     C                   CLOSE     headf
+     C                   CLOSE     dokufm1
+     C                   CLOSE     arkivl02
+     C                   CLOSE     arktxt
+     C                   CLOSE     ARKEXT
+     C                   CLOSE     firmarc
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+N02  c     CSV           ifeq      'Y'
+N02  C                   callp     gethtml('HTMLSRC':
+N02  C                             '*LIBL':
+N02  C                             'SYOPKI1S':'/CGITAG/')
+N02  c                   else
+s03  C*                  callp     gethtml('HTMLSRC':
+s03  C*                            '*LIBL':
+s03  C*                            'SYOPKI1':'/CGITAG/')
+N03  C                   eval      IfsMultIndicators = gethtmlifsmult(
+N03  C                             '/syspeddev/html/eSpedTop.html -
+N03  C                             /syspeddev/html/SYOPKI1.html -
+N03  C                             /syspeddev/html/eSpedBot.html':
+N03  C                             '/CGITAG/')
+N02  c                   end
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+N03  c                   eval      Title='e-Sped, Spørring på sendinger'
+N03  C                   callp     updhtmlvar('TITLE':Title)
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHTMLvar('BESK':BIBESK)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('KNAVN':KNAVN)
+N05  C                   callp     updHtmlVar('AVVKNR':
+N05  C                             %trim(%editc(AVVKNN:'Z')))
+N05  C     AVVKNN        ifne      *zeros
+N05  C                   eval      AVVKNTXT = 'Avvikende kundenr '
+N05  C                             + %trim(%editc(AVVKNN:'Z'))
+N05  C                   end
+N05  C                   callp     updHtmlVar('AVVKNTXT':AVVKNTXT)
+      * Søkeparam
+     C                   callp     updHTMLvar('DATO':
+     C                             %trim(%editw(DATON:'  .  .  ')))
+     C                   callp     updHTMLvar('SNDNR':SNDNR)
+     C                   callp     updHTMLvar('KLLNR':KLLNR)
+     C                   callp     updHTMLvar('AREF':AREF)
+     C                   callp     updHTMLvar('MOTTNAVN':MOTTNAVN)
+     C                   callp     updHTMLvar('MOTTPOST':MOTTPOST)
+      *
+N02  c                   movel     timedata1     time26           26
+N02  c*                  movel     time26        time14           14
+N02  c                   eval      csvfile = %trim(USER)+'_'+Time26
+N02  C                   callp     updHTMLvar('CSVFILE':CSVFILE)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+OddEvc     OddEven       IFEQ      ODD
+OddEvc                   eval      OddEven = EVEN
+OddEvc                   else
+OddEvc                   eval      OddEven = ODD
+OddEvc                   end
+OddEvC                   callp     updHTMLvar('ODDEVEN':OddEven)
+OddEv *
+     c     HXSNDN        Ifeq      *blanks
+     c                   MOVE      HEAVD         DsAvd
+     c                   MOVE      '/'           DsSlash
+     c                   MOVE      HEOPD         DsOpd
+     c                   MOVEL     DsAvdOpd      HXSNDN
+     c                   end
+     C                   callp     updHTMLvar('HXSNDN':HXSNDN)
+     C                   callp     updHTMLvar('UPDF':UPDF)
+N01  C                   callp     updHTMLvar('HERFA':HERFA)
+     C                   callp     updHTMLvar('HENAK':HENAK)
+     C                   callp     updHTMLvar('HEADK3':HEADK3)
+     C                   callp     updHTMLvar('HENT':
+     C                             %trim(%editc(HENT:'Z')))
+     C                   callp     updHTMLvar('HEVKT':
+     C                             %trim(%editc(HEVKT:'Z')))
+     C                   move      HedtopÅ       XXDATOÅ
+     C                   move      HedtopM       XXDATOM
+     C                   move      HedtopD       XXDATOD
+     C                   callp     updHTMLvar('XXDATO':
+     C                             %trim(%editw(XXDATO:'  .  .    ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+     C                   OPEN      Cundl01
+     C                   OPEN      head39
+     C                   OPEN      head38
+N04  C                   OPEN      FRISOL01
+     C                   OPEN      dokufm1
+     C                   OPEN      arkivl02
+     C                   OPEN      arktxt
+     C                   OPEN      ARKEXT
+     C                   OPEN      firmarc
+     C                   OPEN      headf
+      *
+     C     FraKey        KLIST
+     C                   KFLD                    BIKUNR
+     C                   KFLD                    FraDt8
+N04  C     Fri1Key       KLIST
+N04  C                   KFLD                    FSKODE
+N04  C                   KFLD                    FSSOK
+N04  C     HefriKey      KLIST
+N04  C                   KFLD                    FSAVD
+N04  C                   KFLD                    FSOPD
+     C     KunKey        KLIST
+     C                   KFLD                    BIFIRM
+     C                   KFLD                    BIKUNR
+     C     HeadfKey      KLIST
+     C                   KFLD                    FMAVD
+     C                   KFLD                    FMOPD
+     C     ARKEXTK       KLIST
+     C                   KFLD                    ARFIRM
+     C                   KFLD                    ARCEXT
+      * evt skannet brev (ZS) har høyere proio enn egenprodusert
+     C     arkivkeyS     KLIST
+     C                   KFLD                    unkode
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    atypeS            2
+     c                   move      'ZS'          atypeS
+     C     arkivkey      KLIST
+     C                   KFLD                    unkode
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    atype             2
+     C                   KFLD                    arunde           10
+     c                   move      'sb'          atype
+     c                   movel     '001F'        arunde
+     c                   move      'A'           unkode            1
+N05  c     AVVKNN        ifne      *zeros
+N05  C                   MOVE      AVVKNN        BIKUNR
+N05  c                   end
+     C     KunKey        CHAIN     Cundl01                            33
+s05   * Spesialvri for å kunne deme uten å avsløre kundenavn
+s05  c*                  MOVEL     USER          tstjov            4
+s05  c*    tstjov        ifeq      'JOVO'
+s05  c*                  eval      KNAVN  = 'Jan Ottar Valderhaug'
+s05  c*                  end
+      *
+     c                   read      firmarc                                41
+      *
+     C                   endsr
+      *
+     C***********************************************
+     C     FRAKTBREV     BEGSR
+     C***********************************************
+      * AVVIKENDE lagringsmappe for scannede brev...
+     c     artype        chain     arktxt                             33
+     C                   MOVE      ARKLAG        ARCEXT
+     C     ARKEXTK       CHAIN     ARKEXT                             33
+     C   33ARFIRM        CHAIN     FIRMARC                            33
+     C* genererer bane for lagring
+     C                   MOVE      HEAVD         AAVD              4
+     C                   MOVE      HEOPD         AOPD              7
+     C                   move      *blanks       UPDF
+S03  c*                  movel     '<a href="'   UPDF            120
+N03  c                   eval      UPDF = '<a target="_blank" href="'
+     C     UPDF          CAT       '/':0         UPDF
+     C     UPDF          CAT       arcane:0      UPDF
+     C     UPDF          CAT       '/':0         UPDF
+     C     ARLINK        IFNE      *Blanks
+     C     UPDF          CAT       ArLink:0      UPDF
+     c                   else
+     C     UPDF          CAT       aavd:0        UPDF
+V10   * TEST LINK
+V10  C                   EVAL      UXLINK = '/' + %TRIM(ARCANE)
+V10  C                             + '/' + AAVD + AOPD
+V10  C                             + %TRIM(ARTYPE)
+V10  C                             + %TRIM(ARUNDE)
+V10  C                             + '.pdf'
+V10  C                   MOVE      'J'           UXOK
+V10  C                   CALL      'CHECKLNK'
+V10  C                   PARM                    UXLINK           50
+V10  C                   PARM                    UXOK              1
+V10   *
+V10  C                   IF        UXOK = 'N'
+V10   * GAMMEL DOKUMENT MED 5 SIFRE OPPDRAGSNR
+V10  C                   MOVE      aopd          AOPD5             5
+V10  C                   CAT       aopd5:0       UPDF
+V10  C                   ELSE
+     C     UPDF          CAT       aopd:0        UPDF
+V10  C                   END
+     C     UPDF          CAT       artype:0      UPDF
+     C     UPDF          CAT       arunde:0      UPDF
+     c                   end
+     C     '.pdf'        SCAN      updf                                   33
+     C  N33'.PDF'        SCAN      updf                                   33
+      * scannede dokument inneholder extention som del av filnavn..
+     C     ArType        ifeq      'sb'
+     c     *in33         ifeq      *off
+     C     UPDF          CAT       '.pdf">':0    UPDF
+     c                   end
+     c                   else
+     C     UPDF          CAT       '">':0        UPDF
+     c                   end
+      * Legg til PDFsymbol som image
+     C     UPDF          CAT       '<img src="':0UPDF
+     C     UPDF          CAT       '/syspeddev':0UPDF
+     C     UPDF          CAT       '/PDF.gif">':0UPDF
+     c                   endsr

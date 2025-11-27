@@ -1,0 +1,180 @@
+     H DFTACTGRP(*NO)
+     FSVTX08F2  IF   E           K DISK
+     ‚*  Prototype for free2
+     d svi303r         pr
+     d uvtx15_01_                          like(uvtx15_01)
+     d ulk_                                like(ulk)
+     d sviv_fokd_                          like(sviv_fokd)
+     d uwtsat_                             like(uwtsat)
+     d uwtfti_                             like(uwtfti)
+     d uwtmti_                             like(uwtmti)
+     d uwtmuc_                             like(uwtmuc)
+     ‚*  Prototype for 'SYGE15C'
+     d syge15c         pr                  extpgm('SYGE15C')
+     d wdt_                                like(wdt)
+     d wtm_                                like(wtm)
+     ‚*  *ENTRY Interface for Main Procedure
+     d svi303r         pi
+     d uvtx15_01                     10
+     d ulk                            2
+     d sviv_fokd                      4
+     d uwtsat                        10S 3
+     d uwtfti                         2
+     d uwtmti                         3
+     d uwtmuc                         3
+     d  U_WTSAT        S             15
+     d  WERR           S              1
+     d  WULK           S              4
+     d  X              S              2  0
+     d wtm             s              6
+     d A1              S             10
+     d A2              S             10
+     d A3              S             10
+     d A4              S             10
+     d A5              S             10
+     d myrows          s             10i 0
+
+     d MyPoDS          ds                  Qualified  dim(99)
+     d  w01                          10
+     d  w02                           4
+     d  w04                           5
+     d  w10                          10
+     d  w11                          10
+     d  w31                          15
+     d  w33                           4
+     D                 DS
+     D  WDT                    1      8
+     D  WDTY                   1      4
+     D  WDTM                   5      6
+     D  WDTD                   7      8
+     D                 DS
+     D  WD                     1     10
+     D  WDY                    1      4
+     D  WD1                    5      5
+     D  WDM                    6      7
+     D  WD2                    8      8
+     D  WDD                    9     10
+
+        /free
+       exsr sra;
+       exsr srb;
+       exsr src;
+       *inlr = *on;
+
+        // __________________________________________________
+        // Init                                           SRA
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr sra;
+
+        // Fixa arbetsvariablar
+           WULK=ULK;
+
+        // Fixa søkning på 5 nivåer
+         A1=%subst(UVTX15_01:1:10);
+         A2=%subst(UVTX15_01:1:8) + '00';
+         A3=%subst(UVTX15_01:1:6) + '0000';
+         A4=%subst(UVTX15_01:1:4) + '000000';
+         A5=%subst(UVTX15_01:1:2) + '00000000';
+
+         // Hent dagens dato
+         syge15c ( wdt : wtm );
+         wd1='-';
+         wd2='-';
+         wdy=wdty;
+         wdm=wdtm;
+         wdd=wdtd;
+
+       endsr;
+
+        // __________________________________________________
+        // Kør SQL in i array                             SRB
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr srb;
+
+          exec sql declare  A33  cursor for
+          select SVTX15_01, SVTX15_02, SVTX15_04, SVTX15_10, SVTX15_11,
+                 SVTX15_31, SVTX15_33
+          from SVTX15F
+          where SVTX15_01 IN (:A1, :A2, :A3, :A4, :A5) AND
+                SVTX15_04 IN ('103', '106', '142') AND
+                SVTX15_31<>'0.0' AND SVTX15_31<>' ';
+
+          exec sql open A33 ;
+
+         Myrows = %elem(MyPoDS);
+         exec sql FETCH A33   for :MyRows rows
+                  INTO :MyPoDs;
+       endsr;
+        // __________________________________________________
+        // Læs array                                      SRC
+        // """"""""""""""""""""""""""""""""""""""""""""""""""
+           begsr src;
+
+       for x = 1 to 90;
+
+           werr=' ';
+
+         // Stæmmer datum ?
+
+         if mypods(x).w11 > wd;
+           werr='X';
+         endif;
+
+         if mypods(x).w10 < wd;
+           werr='X';
+         endif;
+
+         // Stämmer förmånskod med lägre preferanstull ? (142)
+
+         if mypods(x).w04 = '142';
+           if sviv_fokd < '200';
+             werr='X';
+           endif;
+         endif;
+
+         // Stämmer förmånskod med tullunionstull ? (104)
+
+         if mypods(x).w04 = '104';
+           if sviv_fokd < '200';
+             werr='X';
+           endif;
+         endif;
+
+         // Tredjelandstullsats ? (103)
+
+         if mypods(x).w04 = '103';
+           if sviv_fokd > '200';
+             werr='X';
+           endif;
+         endif;
+
+       // Er landkoden riktig ?
+
+         if werr=*blanks;
+           if mypods(x).w02 <> wulk;
+             werr='X';
+
+           // Eller stæmmer regionen ?
+
+           chain (wulk : mypods(x).w02) svtx08f2;
+             if %found;
+               werr=' ';
+             endif;
+           endif;
+         endif;
+
+       // Allt stæmmer, flytta til outputparametrar
+
+         if werr=*blanks;
+
+           uwtsat = %dec(mypods(x).w31:10:3);
+           uwtfti = *blanks;
+           uwtmti = mypods(x).w04;
+           uwtmuc = mypods(x).w33;
+
+         endif;
+        endfor;
+
+       endsr;
+
+      /end-free

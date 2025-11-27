@@ -1,0 +1,813 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 FEIL INDIKATOR BLE BRUKT
+10253 * 02 YBC PTF10 NY PAKKETYPE VS, BEHANLES SAMME SOM VR
+********************************************************************
+      *
+      ***********************************************************
+      *** PROGRAM SKAL ARBEIDE MED TET-IMPORT LOSSEMERKNADER  ***
+      *** INDIKATORER 01 - 26 KUN CMD-TASTER / ROLL TASTER    ***
+      *** LEDIGE INDIKATORER 01-03 05 06 08 09 11 13 14 16-22 24-26
+      *** LEDIGE INDIKATORER 31 32 34 35 38-87
+      ***        INDIKATOR   27 PÅ = SPØRRING                 ***
+      *** ALLE VARIABLER SOM STARTER MED 'X' ER ARBERDSVAR.   ***
+      ***   OG DEFINERES I PROGRAM                            ***
+      ***********************************************************
+      *
+     FEDIM1     UF   E           K DISK
+     FEDIM2     IF   E           K DISK
+     F                                     RENAME(EDIMR:EDIMR2)
+     FTRIH      UF   E           K DISK
+     FTRIHFS    IF   E           K DISK
+     FTRIHPK    IF   E           K DISK
+     FTRIL      IF   E           K DISK
+     FTRILKL    IF   E           K DISK
+     FTRIV      IF   E           K DISK
+     FTRKODL01  IF   E           K DISK
+     FTR064D    CF   E             WORKSTN
+     F                                     INFDS(FBAREA)
+     D FBAREA          DS
+     D  WSCLOC               370    371B 0
+     D  WSSUBN               378    379B 0
+     D                 DS
+     D  WSDTFD                 1      2  0
+     D  WSDTFM                 3      4  0
+     D  WSDTFÅ                 5      6  0
+     D  WSDTF                  1      6  0
+     D                 DS
+     D  TIDTFÅ                 1      4  0
+     D  TIDTFM                 5      6  0
+     D  TIDTFD                 7      8  0
+     D  TIDTF                  1      8  0
+     D                 DS
+     D  WSDTLD                 1      2  0
+     D  WSDTLM                 3      4  0
+     D  WSDTLÅ                 5      6  0
+     D  WSDTL                  1      6  0
+     D                 DS
+     D  NIDTLÅ                 1      4  0
+     D  NIDTLM                 5      6  0
+     D  NIDTLD                 7      8  0
+     D  NIDTL                  1      8  0
+      *
+     D                 DS
+     D  TIAVD                  1      4  0
+     D  TITDN                  5     11  0
+     D  UIN27                 12     12
+     D  UWS2                  18     27
+     D  TIKDC                 28     28
+     D  UPARM2                 1    128
+      *
+     C                   EXSR      INIT
+      *
+     C     START         TAG
+     C                   EXSR      TSTTK
+     C  N30
+     CANN04
+     CANN15              Z-ADD     14            LINNBR
+     C  N30
+     CANN04
+     CANN15              Z-ADD     13            POSNBR
+      *
+     C                   EXFMT     TR064D01
+     C                   MOVEA     '00000000'    *IN(92)
+     C                   MOVEA     '0000'        *IN(88)
+     C                   SETOFF                                       30
+      *
+      *  04 = SØK AVSENDER/MOTTAKER/HOVEDANSVARLIG
+     C   04              DO
+     C                   EXSR      SØKDT
+     C                   GOTO      START
+     C                   END
+      *
+      *  07 = SØKE OPPDRAG
+     C   07              DO
+     C                   MOVE      'S'           UTYPES            1
+     C                   CALL      'SYFM21'
+     C                   PARM                    UTYPES
+     C                   PARM                    UAVD
+     C                   PARM                    TITDN
+     C                   PARM                    TISG
+     C                   GOTO      START
+     C                   END
+      *
+      *  10 = SE OPPLYSNIGER OM GODKJENNELSE FRA TOLLVESENET (KUN KOMMUNIKASJON)
+     C   10              DO
+     C                   EXSR      VISTOL
+     C                   GOTO      START
+     C                   END
+      *
+      *  12 = AVBRYT, FRIGJØR E-MERKING OG GÅ TIL TR061D01
+     C   12              DO
+     C     UTYPE         IFNE      'DSP'
+     C     TRHK          CHAIN     TRIH                               33
+     C                   MOVE      XISTGM        TIST
+     C  N33              UPDATE    TRIHR
+     C                   END
+     C                   GOTO      SLUTT
+     C                   END
+      *
+     C   15              DO
+     C                   EXSR      TILKOD
+     C                   GOTO      START
+     C                   END
+      *
+     C     UTYPE         IFEQ      'DSP'
+     C                   GOTO      START2
+     C                   END
+      *
+     C                   EXSR      TESTB
+     C   30              GOTO      START
+      *
+      * ----- INGEN FEIL HITTIL     OPPDATER TRUH -----
+     C                   EXSR      OPDTRH
+      *
+      *===============================================
+      *
+     C     START2        TAG
+     C                   EXSR      TOTRV
+     C   12              GOTO      START
+      *
+     C     SLUTT         TAG
+     C     *IN12         IFEQ      '1'
+     C                   Z-ADD     1             UFLAGG
+     C                   ELSE
+     C                   Z-ADD     0             UFLAGG
+     C                   END
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+      *
+     C***********************************************
+     C     SØKDT         BEGSR
+     C***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+      * SPRÅKKODE TIL KONTROLL RESULTAT
+     C     LINNBR        IFEQ      15
+     C     POSNBR        ANDGE     35
+     C     POSNBR        ANDLE     37
+     C                   MOVE      '012'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVEL     WSCTSK        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2            3
+     C                   MOVEL     UKODE         WSCTSK
+     C                   Z-ADD     16            LINNBR
+     C                   Z-ADD     7             POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      * SPRÅKKODE TIL FORSEGLING
+     C     LINNBR        IFEQ      19
+     C     POSNBR        ANDGE     55
+     C     POSNBR        ANDLE     56
+     C                   MOVE      '012'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVEL     WSDFSK        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         WSDFSK
+     C                   Z-ADD     19            LINNBR
+     C                   Z-ADD     33            POSNBR
+     C                   GOTO      SLSØK
+     C                   END
+      * SPRÅKKODE TIL MERKNADER
+     C     LINNBR        IFEQ      20
+     C     POSNBR        ANDGE     33
+     C     POSNBR        ANDLE     34
+     C                   MOVE      '012'         UUNIK
+     C                   MOVE      *BLANKS       UKODE
+     C                   MOVEL     WSMNSK        UKODE
+     C                   CALL      'TR002R'
+     C                   PARM                    UUNIK
+     C                   PARM                    UKODE
+     C                   PARM                    UTYPE2
+     C                   MOVEL     UKODE         WSMNSK
+     C                   GOTO      SLSØK
+     C                   END
+      *
+     C                   MOVE      'DIV1037'     MSGNR
+     C                   SETON                                        30
+      *
+     C     SLSØK         ENDSR
+      *
+     C***********************************************
+     C     TILKOD        BEGSR
+     C***********************************************
+     C     WSCLOC        DIV       256           LINNBR
+     C                   MVR                     POSNBR
+      *
+     C     LINNBR        IFEQ      18
+     C                   CALL      'TR073R'
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    WSCTP
+     C                   PARM                    WSCTNV
+     C                   PARM                    UTYPE
+     C     *IN27         IFEQ      '0'
+     C     TRHK          CHAIN     TRIH                               33
+     C                   MOVEL     WSCTP         NICTP
+     C                   MOVE      WSCTNV        NICTNV
+     C                   UPDATE    TRIHR
+     C                   END
+     C                   END
+      *
+     C  N37LINNBR        IFEQ      19
+     C                   CALL      'TR069R'
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    TIDFKD
+     C                   PARM                    TIDFSK
+     C                   PARM                    WSDFKD
+     C                   PARM                    WSDFSK
+     C                   PARM                    UTYPE
+     C     *IN27         IFEQ      '0'
+     C     TRHK          CHAIN     TRIH                               33
+     C                   MOVE      WSDFKD        NIDFKD
+     C                   MOVE      WSDFSK        NIDFSK
+     C                   UPDATE    TRIHR
+     C                   END
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TESTB         BEGSR
+     C***********************************************
+     C                   CALL      'TESTDATO'
+     C                   PARM      WSDTLD        UDD               2 0
+     C                   PARM      WSDTLM        UMM               2 0
+     C                   PARM      WSDTLÅ        UÅÅ               2 0
+     C                   PARM                    UFLAGG            1 0
+     C     UFLAGG        COMP      1                                      99
+     C   99              MOVE      'SPD0001'     MSGNR
+     C   99              SETON                                        30
+      *
+     C     WSCTSK        IFNE      *BLANKS
+     C                   MOVE      '012'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     WSCTSK        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           97
+     C   97
+     CANN30              MOVE      'YBC0810'     MSGNR
+     C   97              SETON                                        30
+     C                   END
+      *
+     C     WSCTB2        IFNE      *BLANKS
+     C     WSCTNV        ORNE      *BLANKS
+     C                   MOVEL     WSCTP         XAN02             2
+     C     WSCTP         IFEQ      *BLANKS
+     C     XAN02         OREQ      '18'
+     C     WSCTP         ANDNE     '18#1'
+     C     WSCTP         ANDNE     '18#2'
+     C                   MOVE      '1'           *IN95
+     C     *IN30         IFEQ      '0'
+     C     WSCTP         IFEQ      *BLANKS
+     C                   MOVE      'YBC1773'     MSGNR
+     C                   ELSE
+     C                   MOVE      'YBC1904'     MSGNR
+     C                   END
+     C                   MOVE      '1'           *IN30
+     C                   END
+     C                   END
+     C                   ELSE
+     C                   MOVE      *BLANKS       WSCTP
+     C                   END
+      *
+     C     WSCTB2        IFNE      *BLANKS
+     C     WSCTP         ORNE      *BLANKS
+     C     WSCTNV        IFEQ      *BLANKS
+     C                   MOVE      '1'           *IN94
+     C     *IN30         IFEQ      '0'
+     C                   MOVE      'YBC1774'     MSGNR
+     C                   MOVE      '1'           *IN30
+     C                   END
+     C                   END
+     C                   ELSE
+     C                   MOVE      *BLANKS       WSCTNV
+     C                   END
+      *
+     C     TIDANT        IFEQ      0
+     C     TIDFKD        ANDEQ     *BLANKS
+     C                   MOVE      *BLANKS       WSDFST
+     C                   ELSE
+     C     WSDFST        IFNE      '0'
+     C     WSDFST        ANDNE     '1'
+     C  N30              MOVE      'YBC1774'     MSGNR
+     C                   MOVE      '1'           *IN93
+     C                   MOVE      '1'           *IN30
+     C                   END
+     C                   END
+S01   *
+S01  C*    WSDFST        IFEQ      '0'
+S01  C*    WSDANT        ANDEQ     0
+S01  C* N30              MOVE      'YBC1775'     MSGNR
+S01  C*                  MOVE      '1'           *IN92
+S01  C*                  MOVE      '1'           *IN30
+S01  C*                  END
+S01   *
+S01  C*    WSDFST        IFEQ      '0'
+S01  C*    WSDFKD        ANDEQ     *BLANKS
+S01  C* N30              MOVE      'YBC1776'     MSGNR
+S01  C*                  MOVE      '1'           *IN91
+S01  C*                  MOVE      '1'           *IN30
+S01  C*                  END
+      *
+     C     WSDFSK        IFNE      *BLANKS
+     C                   MOVE      '012'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     WSDFSK        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           90
+     C   90
+     CANN30              MOVE      'YBC0810'     MSGNR
+     C   90              SETON                                        30
+     C                   END
+      *
+     C     WSMNSK        IFNE      *BLANKS
+     C                   MOVE      '012'         YUNIK
+     C                   MOVE      *BLANKS       YKODE
+     C                   MOVEL     WSMNSK        YKODE
+     C     TRK01K        CHAIN     TRKODL01                           89
+     C   89
+     CANN30              MOVE      'YBC0810'     MSGNR
+     C   89              SETON                                        30
+     C                   END
+      *
+     C     WSKONF        IFEQ      0
+     C     WSMN1         ANDEQ     *BLANKS
+     C  N30              MOVE      'YBC1777'     MSGNR
+     C                   MOVE      '1'           *IN88
+     C                   MOVE      '1'           *IN30
+     C                   END
+      *
+     C   30              EXSR      SETCUR
+     C  N30WSDFST        IFEQ      '0'
+     C     WSDANT        ANDGT     0
+     C                   MOVE      0             WSKONF
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     SETCUR        BEGSR
+     C***********************************************
+     C   88              Z-ADD     21            LINNBR
+     C   88              Z-ADD     7             POSNBR
+     C   89              Z-ADD     19            LINNBR
+     C   89              Z-ADD     33            POSNBR
+     C   90              Z-ADD     18            LINNBR
+     C   90              Z-ADD     55            POSNBR
+     C   91              Z-ADD     18            LINNBR
+     C   91              Z-ADD     34            POSNBR
+     C   92              Z-ADD     19            LINNBR
+     C   92              Z-ADD     29            POSNBR
+     C   93              Z-ADD     19            LINNBR
+     C   93              Z-ADD     27            POSNBR
+     C   94              Z-ADD     17            LINNBR
+     C   94              Z-ADD     63            POSNBR
+     C   95              Z-ADD     18            LINNBR
+     C   95              Z-ADD     13            POSNBR
+     C   97              Z-ADD     15            LINNBR
+     C   97              Z-ADD     35            POSNBR
+     C   99              Z-ADD     14            LINNBR
+     C   99              Z-ADD     53            POSNBR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVW2         BEGSR
+     C***********************************************
+     C                   MOVE      TIDTFD        WSDTFD
+     C                   MOVE      TIDTFM        WSDTFM
+     C                   MOVE      TIDTFÅ        WSDTFÅ
+     C                   MOVE      NIKONF        WSKONF
+     C     NIDTL         IFEQ      0
+     C                   MOVE      '1'           WSFULF
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           NIDTL
+     C                   ELSE
+     C                   MOVE      NIFULF        WSFULF
+     C                   END
+     C                   MOVE      NIDTLD        WSDTLD
+     C                   MOVE      NIDTLM        WSDTLM
+     C                   MOVE      NIDTLÅ        WSDTLÅ
+     C                   MOVE      NICTSK        WSCTSK
+     C                   MOVE      NICTB         WSCTB
+     C                   MOVE      NICTB2        WSCTB2
+     C                   MOVEL     NICTP         WSCTP
+     C                   MOVE      NICTNV        WSCTNV
+     C                   MOVE      NIDFST        WSDFST
+     C                   MOVE      NIDANT        WSDANT
+     C                   MOVE      NIDFKD        WSDFKD
+     C                   MOVE      NIDFSK        WSDFSK
+     C                   MOVE      NIMNSK        WSMNSK
+     C                   MOVE      NIMN1         WSMN1
+     C                   MOVE      NIMN2         WSMN2
+      *
+      * SJEKK OM DET ER LOV Å ENDRE FORSELINGS-ID
+     C     TIDFKD        IFEQ      *BLANKS
+     C     TRHK          SETLL     TRIV
+     C     TRHK          READE     TRIV                                   37
+S01  C*    *IN33         DOWEQ     '0'
+N01  C                   DOW       *IN37 = *OFF
+     C     TVDFKD        IFNE      *BLANKS
+     C                   LEAVE
+     C                   END
+     C     TRHK          READE     TRIV                                   37
+     C  N37              ENDDO
+     C                   END
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     MOVTRH        BEGSR
+     C***********************************************
+     C                   MOVE      WSDTLD        NIDTLD
+     C                   MOVE      WSDTLM        NIDTLM
+     C     WSDTLÅ        ADD       2000          NIDTLÅ
+     C                   MOVE      WSKONF        NIKONF
+     C                   MOVE      WSFULF        NIFULF
+     C                   MOVE      WSCTSK        NICTSK
+     C                   MOVE      WSCTB         NICTB
+     C                   MOVE      WSCTB2        NICTB2
+     C                   MOVEL     WSCTP         NICTP
+     C                   MOVE      WSCTNV        NICTNV
+     C                   MOVE      WSDFST        NIDFST
+     C                   MOVE      WSDANT        NIDANT
+     C                   MOVE      WSDFKD        NIDFKD
+     C                   MOVE      WSDFSK        NIDFSK
+     C                   MOVE      WSMNSK        NIMNSK
+     C                   MOVE      WSMN1         NIMN1
+     C                   MOVE      WSMN2         NIMN2
+     C                   MOVE      *BLANKS       TIMF
+     C                   MOVE      *ZEROS        TIMP
+     C                   MOVE      *BLANKS       TIKDV
+     C                   MOVE      *BLANKS       TI0035
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     OPDTRH        BEGSR
+     C***********************************************
+     C     TRHK          CHAIN     TRIH                               33
+     C                   EXSR      MOVTRH
+      *
+     C                   MOVE      'E'           TIST
+     C                   UPDATE    TRIHR
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     TOTRV         BEGSR
+     C***********************************************
+      *
+     C                   MOVE      *IN27         UIN27
+     C                   CALL      'TR065R'
+     C     UPARM2        PARM      UPARM2        UPARM1          128
+     C                   PARM                    UFLAGG            1 0
+      *
+     C     *IN27         IFEQ      '0'
+     C                   MOVE      *ZEROS        WSVPOS            5 0
+     C                   MOVE      *ZEROS        WSVPN             5 0
+     C                   MOVE      *ZEROS        WSVKB            11 3
+     C                   MOVE      *ZEROS        WSNTK             7 0
+     C                   MOVE      'J'           X0MOTT            1
+     C                   MOVE      *ZEROS        XLTOTIBV         11 3
+     C                   MOVE      *ZEROS        XLTOTBVNE        11 3
+     C     TRHK          SETLL     TRIL
+     C     TRHK          READE     TRIL                                   33
+     C     *IN33         DOWEQ     '0'
+      * SUMMER OPPRINGLIG BRUTTOVEKT PÅ LINJER
+     C                   ADD       TVVKTB        XLTOTIBV
+      * SUMMER OPPRINGLIG BRUTTOVEKT PÅ ALLE NYE LINJER
+     C     NVCT          IFEQ      'NE'
+     C                   ADD       NVVKTB        XLTOTBVNE
+     C                   END
+      *
+     C     NVCT          IFEQ      'DI'
+     C     NVNT          ANDEQ     0
+     C     NVNTEH        ANDEQ     0
+     C                   MOVE      TVEH          XTVEH             2
+     C                   MOVE      TVNT          XTVNT             5 0
+     C                   MOVE      TVNTEH        XTVNTEH           5 0
+     C                   MOVE      NVEH          XNVEH             2
+     C                   MOVE      NVNT          XNVNT             5 0
+     C                   MOVE      NVNTEH        XNVNTEH           5 0
+     C                   MOVE      'J'           XHELMANKO         1
+     C     TRVK          SETLL     TRILKL
+     C     TRVK          READE     TRILKL                                 34
+     C     *IN34         DOWEQ     '0'
+     C     NVNT          IFNE      0
+     C                   MOVE      'N'           XHELMANKO
+     C                   GOTO      TAGTRV01
+     C                   END
+     C     TRVK          READE     TRILKL                                 34
+     C  N34              ENDDO
+     C     TAGTRV01      TAG
+     C                   MOVE      XTVEH         TVEH
+     C                   MOVE      XTVNT         TVNT
+     C                   MOVE      XTVNTEH       TVNTEH
+     C                   MOVE      XNVEH         NVEH
+     C                   MOVE      XNVNT         NVNT
+     C                   MOVE      XNVNTEH       NVNTEH
+     C                   ELSE
+     C                   MOVE      'N'           XHELMANKO
+     C                   END
+      *
+     C     NVCT          IFEQ      'DI'
+     C     XHELMANKO     ANDEQ     'J'
+     C                   SUB       1             WSVPOS
+     C                   END
+     C     NVCT          IFEQ      'DI'
+     C     NVNT          ANDEQ     0
+     C     NVNTEH        ANDEQ     0
+     C     X0MOTT        ANDEQ     'J'
+     C                   ELSE
+     C                   MOVE      'N'           X0MOTT
+     C                   END
+     C                   ADD       1             WSVPOS
+     C     TVVKTB        IFEQ      0
+     C                   ADD       1             WSVPN
+     C                   END
+     C     XHELMANKO     IFEQ      'N'
+     C                   ADD       NVVKTB        WSVKB
+     C                   END
+     C     NVNT          IFEQ      0
+     C                   ADD       NVNTEH        WSNTK
+     C                   ELSE
+     C                   ADD       NVNT          WSNTK
+     C                   END
+     C     NVEH          IFEQ      'VQ'
+     C     NVEH          OREQ      'VG'
+     C     NVEH          OREQ      'VL'
+     C     NVEH          OREQ      'VY'
+     C     NVEH          OREQ      'VR'
+     C     NVEH          OREQ      'VO'
+N02  C     NVEH          OREQ      'VS'
+     C                   ADD       1             WSNTK
+     C                   END
+      *
+     C     TRVK          SETLL     TRILKL
+     C     TRVK          READE     TRILKL                                 34
+     C     *IN34         DOWEQ     '0'
+     C     NVNT          IFEQ      0
+     C                   ADD       NVNTEH        WSNTK
+     C                   ELSE
+     C                   ADD       NVNT          WSNTK
+     C                   END
+     C     TRVK          READE     TRILKL                                 34
+     C  N34              ENDDO
+      *
+     C     TRHK          READE     TRIL                                   33
+     C  N33              ENDDO
+      * HVIS OPPRINGELIG BRUTTOVEKT = 0, SPØR ETTER BRUTTOVEKT FRA BRUKER
+      * MED DEFAULT VEKT = TOTAL BRUTTOVEKT + SUM AV NYE LINJES BRUTTOVEKT.
+     C     XLTOTIBV      IFEQ      0
+     C     WSVKB         ANDNE     0
+     C                   EVAL      WSVKB = TIVKB + XLTOTBVNE
+     C                   DOU       WSVKB <> 0
+     C                   EXFMT     TR064D03
+     C                   ENDDO
+     C                   END
+     C     TRHK          CHAIN     TRIH                               33
+     C     WSVPOS        IFEQ      TIVPOS
+     C                   MOVE      *ZEROS        NIVPOS
+     C                   ELSE
+     C     WSVPOS        IFEQ      0
+     C                   Z-SUB     1             NIVPOS
+     C                   ELSE
+     C                   MOVE      WSVPOS        NIVPOS
+     C                   END
+     C                   END
+     C     WSVKB         IFEQ      TIVKB
+     C                   MOVE      *ZEROS        NIVKB
+     C                   ELSE
+     C     X0MOTT        IFEQ      'J'
+     C     WSVKB         ANDEQ     0
+     C                   Z-SUB     1             NIVKB
+     C                   ELSE
+     C                   MOVE      WSVKB         NIVKB
+     C                   END
+     C                   END
+     C     TINTK         IFLT      0
+     C                   Z-SUB     TINTK         XINTK             7 0
+     C                   ELSE
+     C                   Z-ADD     TINTK         XINTK
+     C                   END
+     C     WSNTK         IFEQ      XINTK
+     C                   MOVE      *ZEROS        NINTK
+     C                   ELSE
+     C                   MOVE      WSNTK         NINTK
+     C                   END
+     C                   UPDATE    TRIHR
+     C                   END
+      *
+     C     UFLAGG        COMP      1                                      12
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     VISTOL        BEGSR
+     C***********************************************
+      *________________________
+      * Call på eksternt CL-pgm
+      *""""""""""""""""""""""""
+     C                   MOVE      '3'           WIN03             1
+     C                   CALL      'SAD003'
+     C                   PARM      TIAVD         UAVD
+     C                   PARM      TITDN         UTDN
+     C                   PARM                    WIN03
+      *
+     C                   ENDSR
+      *
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     TRHK          KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C     TRVK          KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    TVLI
+     C     TRK01K        KLIST
+     C                   KFLD                    YUNIK             3
+     C                   KFLD                    YKODE            10
+     C     M2KDCK        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C                   KFLD                    MAX0B
+     C                   KFLD                    MAX0C
+     C                   KFLD                    MAX0D
+     C     M2KD2K        KLIST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+     C     TVINMK        KLIST
+     C                   KFLD                    YST
+     C                   KFLD                    UAVD
+     C                   KFLD                    UTDN
+      *
+     C     *LIKE         DEFINE    TIWS          UWS
+     C     *LIKE         DEFINE    M0068A        MAX0B
+     C     *LIKE         DEFINE    M0068B        MAX0C
+     C     *LIKE         DEFINE    M0068C        MAX0D
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    UAVD
+     C                   PARM                    UTDN
+     C                   PARM                    UTYPE             3
+     C                   PARM                    UWS
+     C                   PARM                    UFLAGG            1 0
+      *
+     C                   MOVE      *BLANKS       UUNIK             3
+     C                   MOVE      *BLANKS       UKODE            10
+     C                   MOVE      '99999999'    MAX0B
+     C                   MOVE      '999999'      MAX0C
+     C                   MOVE      '99'          MAX0D
+     C                   MOVE      ' '           YST               1
+      *
+     C     UTYPE         COMP      'DSP'                                  27
+     C     *IN27         IFEQ      '0'
+     C                   EXSR      TSTMTY
+     C                   EXSR      TSTTRH
+     C                   ELSE
+     C     TRHK          CHAIN(N)  TRIH                               33
+     C                   MOVE      TIST          XISTGM            1
+     C                   END
+      *
+     C                   EXSR      MOVW2
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TSTTRH        BEGSR
+      ***********************************************
+     C     TRHK          CHAIN     TRIH                               33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   ELSE
+     C                   MOVE      TIST          XISTGM            1
+      * TIST = ' ' --> ÅPEN TRANSITTERING
+      *        'A' --> HOLD PÅ Å SENDE UT
+      *        'B' --> SENDT TIL IBM
+      *        'C' --> SENDT TIL TOLLVESENET
+      *        'E' --> HOLD PÅ Å BLI ENDRET
+      *        'M' --> FEILMELDING FRA TOLLVESENET
+      *        'N' --> FEILMELDING FRA TOLLVESENET IE58
+      *        'P' --> TRANSITTERING AVSLUTTET
+      *        'K' --> VENT PÅ Å BLI UTSKREVET
+      *        'Q' --> I UTGÅENDE POSTKASSE
+      *        'U' --> HAR FÅTT LOSSETILLATELSE
+     C                   SELECT
+     C     TILSTL        WHENGT    0
+      * VED PLL SENDS IKKE IE44
+     C                   UPDATE    TRIHR
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C     TIST          WHENEQ    'U'
+     C     TIST          OREQ      'N'
+     C     TIST          OREQ      'M'
+     C                   MOVE      'E'           TIST
+     C                   UPDATE    TRIHR
+     C     TIST          WHENEQ    'Q'
+      * SLIPP POST FØRST
+     C                   UPDATE    TRIHR
+     C     STTRH         TAG
+     C                   EXFMT     TR064D02
+     C     *IN12         IFEQ      '1'
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   END
+     C     *IN23         CABEQ     '0'           STTRH
+     C     TRHK          CHAIN     TRIH                               33
+     C                   IF        TIST <> 'Q'
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   ELSE
+     C                   MOVE      'E'           TIST
+     C                   UPDATE    TRIHR
+     C                   END
+     C                   MOVE      'U'           XISTGM            1
+     C     TVINMK        SETGT     EDIM1
+     C     STTRH2        TAG
+     C     TVINMK        READPE    EDIM1                                  33
+     C     *IN33         IFEQ      '0'
+     C     MSR           IFEQ      'S'
+     C     M1001         ANDEQ     'TEI'
+     C     M1N07         ANDEQ     '044'
+     C                   DELETE    EDIMR
+     C                   ELSE
+     C                   UPDATE    EDIMR
+     C                   GOTO      STTRH2
+     C                   END
+     C                   END
+     C                   OTHER
+      * FEIL! AVSLUTT
+     C                   UPDATE    TRIHR
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   ENDSL
+     C                   END
+      *
+     C                   ENDSR
+      *
+      ***********************************************
+     C     TSTMTY        BEGSR
+      ***********************************************
+     C     M2KDCK        SETLL     EDIM2                              33
+     C     STTSTM        TAG
+     C     M2KD2K        READPE    EDIM2                                  33
+     C     *IN33         IFEQ      '0'
+     C                   SELECT
+     C     M1001         WHENNE    'TEI'
+     C                   GOTO      STTSTM
+     C     M1N07         WHENEQ    '043'
+      * LOSSETILLATELSE --> OK FOR LOSSEMERKNADER
+     C                   GOTO      SLTSTM
+     C     M1N07         WHENEQ    '007'                                        ANKOMSTMELDING
+     C     M1N07         OREQ      '025'                                        TRANSIT AVSLUTTET
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   OTHER
+     C                   GOTO      STTSTM
+     C                   ENDSL
+     C                   ELSE
+     C                   MOVE      '1'           *INLR
+     C                   RETURN
+     C                   END
+      *
+     C     SLTSTM        ENDSR
+      *
+      ***********************************************
+     C     TSTTK         BEGSR
+      ***********************************************
+     C     TRHK          SETLL     TRIHPK
+     C     TRHK          READE     TRIHPK                                 33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      '1'           *IN28
+     C                   ELSE
+     C                   MOVE      '0'           *IN28
+     C                   END
+      *
+     C                   MOVE      TIDFKD        XXDFKD           20
+     C                   MOVE      TIDFSK        XXDFSK            2
+     C     TRHK          SETLL     TRIHFS
+     C     TRHK          READE     TRIHFS                                 33
+     C     *IN33         IFEQ      '0'
+     C                   MOVE      '1'           *IN29
+     C                   ELSE
+     C                   MOVE      '0'           *IN29
+     C                   END
+     C                   MOVE      XXDFKD        TIDFKD
+     C                   MOVE      XXDFSK        TIDFSK
+      *
+     C                   ENDSR
+      *

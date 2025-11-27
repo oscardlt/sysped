@@ -1,0 +1,126 @@
+     H DFTACTGRP(*NO) BNDDIR('HTTPAPI')
+
+     FQSYSPRT   O    F  132        PRINTER OFLIND(*INOF)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     D Incoming        PR
+     D   userdata                      *   value
+     D   depth                       10I 0 value
+     D   name                      1024A   varying const
+     D   path                     24576A   varying const
+     D   value                    32767A   varying const
+     D   Attrs                         *   dim(32767)
+     D                                     const options(*varsize)
+
+
+     D rc              s             10I 0
+     D url             s          32767A   varying
+     D PrintLine       s            132A
+     D filename        s             45A   varying
+     D Enc             s                   like(HTTP_URL_ENCODER)
+     D result          s              5I 0
+     D wait            s              1A
+      *
+     D fd              S             10I 0
+     D rddata          S          32000A
+     D len             S             10I 0
+     D msg             S             52A
+      *
+     D SID             s             20A
+
+     C                   EXSR      INIT
+     c     Start         tag
+
+      /free
+
+        *inlr = *on;
+
+        // ****************************************************
+        //  Bygg parametrene...
+        // ****************************************************
+        // SID ='40170797000009353628';
+          Enc = http_url_encoder_new();
+
+          http_url_encoder_addvar_s(Enc : 'mode'
+                                        : 'reference');
+          http_url_encoder_addvar_s(Enc : 'sid'
+                                        : %TRIM(SID));
+          http_url_encoder_addvar_s(Enc : 'action'
+                                        : 'directSearch');
+
+        // ****************************************************
+        //  Sett sammen URL/parametre
+        // ****************************************************
+          url = 'https://www.tracktrace.dsv.com/newtracking/'
+               +'public/PublicSearch.spr?'
+               + http_url_encoder_getstr(Enc);
+
+        // ****************************************************
+        //  Definer tempor{r til tempor{r IFS fil, KJ@R URLen som en GET
+        // ****************************************************
+        filename = http_tempfile() + '.txt';
+        rc = http_url_get( url : filename );
+        if (rc <> 1);
+           PrintLine = http_error();
+           except;
+           unlink(filename);
+           return;
+        endif;
+
+        // ****************************************************
+        //   let etter innhold i fila
+        // ****************************************************
+      /end-free
+     c                   move      *blanks       PodDato          19
+     c                   move      *blanks       PodTXT           50
+     c                   move      *blanks       PodLoc           50
+     c                   eval      fd = open(%trim(filename):
+     c                                    O_RDONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   eval      Msg = 'open(): failed for reading'
+     c                   dsply                   Msg
+     c                   eval      *inlr = *on
+     c                   return
+     c                   endif
+      *
+
+     c                   eval      len = read(fd: %addr(rddata):
+     c                                            %size(rddata))
+     c                   dow       1 <> 0
+     C     'Delivered at'SCAN      rddata        pos               5 0    33
+     c                   if        pos <> 0
+     c*                  exsr      WrtPOD
+     c                   eval      PodDato = %subst(rddata:pos-41:19)
+     c                   eval      PodTXT  = %subst(rddata:pos:21)
+     c*                  eval      PodLoc  = %subst(rddata:pos+71:19)
+      * bør steppe fram som...
+     c                   eval      pos = pos+71
+     C     '</td>'       SCAN      rddata:pos    pos2              5 0    33
+     c                   eval      PodLoc  = %subst(rddata:pos:pos2-pos)
+     c                   endif
+     c                   if        len < 32000
+     c                   leave
+     c                   endif
+     c                   eval      len = read(fd: %addr(rddata):
+     c                                            %size(rddata))
+     c                   enddo
+      *
+     c                   callp     close(fd)
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+
+      ***********************************************
+     C     INIT          BEGSR
+      ***********************************************
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    SID              20
+      *
+     C                   ENDSR
+      *
+
+     OQSYSPRT   E
+     O                       PrintLine          132

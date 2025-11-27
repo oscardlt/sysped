@@ -1,0 +1,548 @@
+     FEDIRE     IF   E           K DISK
+     FEDIS      O  A E             DISK
+     FEDIM      IF   E             DISK
+     D NU              S              1    DIM(15)
+     D KD              S              5    DIM(10)
+     D                 DS
+     D  WTIME                  1     14  0
+     D  WTID                   1      6  0
+     D  WDD                    7      8  0
+     D  WMM                    9     10  0
+     D  WÅÅ                   11     14  0
+     D                 DS
+     D  WDATO                  1      8  0
+     D  WÅ                     1      4  0
+     D  WM                     5      6  0
+     D  WD                     7      8  0
+     D  LDADTA         DS          1024
+     D  FE                     1    256
+     D                                     DIM(256)
+     D  FELT                   1    256
+     D  AA                   301    380
+     D                                     DIM(80)
+     D  AADS                 301    380
+     D  AB                   401    480
+     D                                     DIM(80)
+     D  ABDS                 401    480
+     D  U0065                501    506
+     D  SEGNAM               507    509
+     D  TN                   601    602  0
+     D  EOF                  603    605
+     D  TEGN                 606    606
+     D  LOKAHE               607    607
+     D  UMN                  608    616  0
+     D  UMBR                 617    626
+     D                 DS
+     D  XMBR                   1     10
+     D  XMBRA                  1      1
+     D  XMBRB                  2     10S 0
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+     C                   EXSR      SRINIT
+     C     SEGSTA        TAG
+     C  N91              EXSR      GETSEG
+     C   91              GOTO      SLUTT
+     C                   SELECT
+     C     SEGNAM        WHENEQ    'UNB'
+     C                   EXSR      UNB
+     C     SEGNAM        WHENEQ    'UNH'
+     C                   EXSR      UNH
+     C     SEGNAM        WHENEQ    'UCI'
+     C                   EXSR      UCI
+     C     SEGNAM        WHENEQ    'UCM'
+     C                   EXSR      UCM
+     C     XSVX104C      CABEQ     'J'           SLUTT
+     C     SEGNAM        WHENEQ    'UNT'
+     C                   EXSR      UNT
+     C     SEGNAM        WHENEQ    'UNZ'
+     C                   EXSR      UNZ
+     C                   ENDSL
+     C                   GOTO      SEGSTA
+     C     SLUTT         TAG
+     C                   IF        XSVX104C = 'J'
+     C                   CALL      'SVX104C'
+     C                   PARM                    WLIB
+     C                   PARM                    WFIL
+     C                   PARM                    WMBR
+     C                   ELSE
+     C                   EXSR      FILUPD
+     C                   END
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      * SR for init                                        SRINIT /
+      *////////////////////////////////////////////////////////////
+     C     SRINIT        BEGSR
+      * INPUT PARAMETERS
+     C     *ENTRY        PLIST
+     C                   PARM                    WLIB             10
+     C                   PARM                    WFIL             10
+     C                   PARM                    WMBR             10
+     C                   PARM                    WNUMR            10 0
+      * Open input file
+     C   91              GOTO      ENDINI
+      * HENTE DAGENS DATO OG TID
+     C                   TIME                    WTIME
+     C                   Z-ADD     WÅÅ           WÅ
+     C                   Z-ADD     WDD           WD
+     C                   Z-ADD     WMM           WM
+      * DUMMY CHAIN
+     C   91
+     CANN911             CHAIN     EDIM                               20
+      * INIT AV ARBEIDSFELT
+     C                   MOVE      *ZEROS        NUMVRD           15 0
+     C                   MOVE      *ZEROS        NUTEGN            1 0
+     C                   MOVE      *BLANKS       SEGNAM
+     C                   MOVE      *BLANKS       AADS
+     C                   MOVE      *BLANKS       ABDS
+     C                   MOVEA     *BLANKS       FE
+     C                   MOVEA     *BLANKS       NU
+     C                   MOVEA     *BLANKS       KD
+     C                   MOVE      *ZEROS        XN                3 0
+     C     *LIKE         DEFINE    *IN91         WIN91
+     C     *LIKE         DEFINE    *IN99         WIN99
+
+      * Datafelt AB i EDIRE (80 lang) går rett inn i array AB ved READ
+      * TN=81 soerger for automatisk overflyt array AB->AA ved kall av GETCH
+     C                   MOVE      '0'           *IN91
+     C                   MOVE      '0'           *IN98
+     C                   MOVE      '0'           *IN99
+     C                   EVAL      UMBR=WMBR
+     C     WMBR          SETLL     EDIRE
+     C     WMBR          READE     EDIRE                                  91
+     C     *IN91         DOWEQ     '0'
+     C     'UNB+'        SCAN      RDATA         TN                       20
+     C  N20WMBR          READE     EDIRE                                  91
+     C   91              GOTO      ENDINI
+     C  N20              ENDDO
+
+     C                   MOVE      RDATA         ABDS
+     C     TN            IFGT      1
+     C                   SUB       1             TN
+     C                   ELSE
+     C                   Z-ADD     81            TN
+     C                   ENDIF
+     C                   BITON     '17'          TEGN
+     C                   BITOFF    '023456'      TEGN
+     C                   MOVE      'NO '         EOF
+     C                   MOVE      ' '           LOKAHE
+
+      * Spesielt reserverte tegn defineres her med både grafisk verdi og
+      * med en logisk verdi. Den grafiske verdien testes det mot i rutinen
+      * som henter tegn. Finner denne rutinen at at tegnet er ment som en
+      * spesialverdi (ikke ? foran), byttes tegnet med tilsvarende LOGISK VERDI
+      * (De logiske verdiene er ikke lesbre tegn,og vil aldri forekomme i den
+      * innkommende datastroemmen). '?' når brukt som opphevelse foran annet
+      * spesialtegn vil bli "spist" av henterutinen (GETCH) og en vil derfor
+      * kunne betrakte spoersmålstegn som grafisk tegn i resten av programmet.
+
+      * Ved andre standarder for spesialtegn er det bare å bytte verdiene til
+      * de GRAFISKE tegnene her. (Programmet arbeider da med riktige verdier).
+     C                   MOVE      '?'           GRASPØ            1
+     C                   MOVE      '+'           GRAPLU            1
+     C                   MOVE      ':'           GRAKOL            1
+     C                   BITON     '123457'      GRAAPP            1
+     C                   BITOFF    '06'          GRAAPP
+      * Logiske verdier for spesialtegn
+      * LOGAPP = slutt på segmentet. I NODI er tegnet "'".
+     C                   BITON     '17'          LOGAPP            1
+     C                   BITOFF    '023456'      LOGAPP
+      * HVIS KOMMUNEDATA, INITIERE MED LOGAPP (GÅ RETT PÅ UNB)
+     C                   MOVE      LOGAPP        TEGN
+      * LOGPLU = sparasjonstegn for Tag/dataelement. I NODI er tegnet "+".
+     C                   BITON     '16'          LOGPLU            1
+     C                   BITOFF    '023457'      LOGPLU
+      * LOGKOL = sparasjonstegn for delelement. I NODI er tegnet ":".
+     C                   BITON     '167'         LOGKOL            1
+     C                   BITOFF    '02345'       LOGKOL
+      * LOGBLA = utenlandske måten å vise blank.
+     C                   BITON     '01234567'    LOGBLA            1
+
+     C     ENDINI        ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR før att uppdatera filer                         FILUPD /
+      *////////////////////////////////////////////////////////////
+     C     FILUPD        BEGSR
+
+     C                   CALL      'DKG101R'
+     C                   PARM                    S0026
+     C                   PARM                    UCI_0020
+     C                   PARM                    M0062
+     C                   PARM                    M0065
+     C                   PARM                    M0068
+     C                   PARM                    X0057
+     C                   PARM                    SSN
+     C                   PARM                    KD
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for å hente neste tegn i datastroem             GETCH  /
+      *////////////////////////////////////////////////////////////
+     C     GETCH         BEGSR
+      * Rutinen henter "TEGN" fra array AA. Ved slutten av AA "toemmes" AB inn
+      * i AA. (AB benyttes kun for alltid å kunne ha "lookahead-tegn" - LOKAHE)
+      * 91 settes når en ved "Toemming" finner at AB-arrayet er tomt.
+
+      * "?" spises av SR når "?" kun varsler grafisk betydning av spesialtegn.
+      *Når tegn ved utgang av SR er ',+ eller :  er betydningen av ind. 98 :
+      *    98 ON -> kun grafisk betydning (uforandret)
+      *    98 OFF-> spesialtegn (Bytt tegn mot ikke lesbar logisk verdi LOG???)
+     C                   MOVE      '0'           *IN98
+     C     STACH         TAG
+      * Må ny record hentes inn i array AA (fra AB)?????
+     C     TN            IFEQ      81
+     C     EOF           IFEQ      'YES'
+     C                   SETON                                            91
+     C                   GOTO      ENDCH
+     C                   ENDIF
+     C                   MOVE      ABDS          AADS
+     C  N99WMBR          READE     EDIRE                                  99
+     C  N99              MOVE      RDATA         ABDS
+     C   99              MOVE      *BLANKS       ABDS
+     C   99              MOVE      'YES'         EOF
+     C                   Z-ADD     1             TN
+     C                   ENDIF
+      * Hent det tegn som TN peker på - Tegnet etter er "Lookahead"
+     C                   MOVE      AA(TN)        TEGN
+     C                   ADD       1             TN
+     C     TN            IFLE      80
+     C                   MOVE      AA(TN)        LOKAHE            1
+     C                   ELSE
+     C                   MOVE      AB(1)         LOKAHE
+     C                   ENDIF
+      * Dersom TEGN er "?" og LOKAHE er spes.tegn - "spis" spoersmålstegnet
+      * Når 98 er on her betyr det at "?" foran spesialtegn alt er "spist"
+      *        evt. nytt "?" er da grafisk tegn - LOKAHE skal da IKKE testes.
+     C  N98TEGN          IFEQ      GRASPØ
+     C     LOKAHE        COMP      GRAAPP                                 98
+     C  N98LOKAHE        COMP      GRAPLU                                 98
+     C  N98LOKAHE        COMP      GRAKOL                                 98
+     C  N98LOKAHE        COMP      GRASPØ                                 98
+     C   98              GOTO      STACH
+     C                   END
+      * Ved N98 og ',+ eller : i TEGN betyr det at det IKKE var opphevelsestegn
+      * foran. Vi har med andre ord et LOGISK SPESIALTEN INNE
+     C  N98TEGN          IFEQ      GRAAPP
+     C                   MOVE      LOGAPP        TEGN
+     C                   ELSE
+     C     TEGN          IFEQ      GRAPLU
+     C                   MOVE      LOGPLU        TEGN
+     C                   ELSE
+     C     TEGN          IFEQ      GRAKOL
+     C                   MOVE      LOGKOL        TEGN
+     C                   ELSE
+     C     TEGN          IFEQ      LOGBLA
+     C                   MOVE      ' '           TEGN
+     C                   END
+     C                   END
+     C                   END
+     C                   END
+
+     C     ENDCH         ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for å hente neste Segment                       GETSEG /
+      *////////////////////////////////////////////////////////////
+     C     GETSEG        BEGSR
+      * "Spis tegn" til appostrof er lest
+     C     TEGN          DOWNE     LOGAPP
+     C                   EXSR      GETCH
+     C   91              GOTO      ENDSEG
+     C                   END
+     C* "Spis tegn" til første IKKE blanke
+     C                   MOVEA     *BLANKS       FE
+     C                   EXSR      GETCH
+     C     TEGN          DOWEQ     ' '
+     C                   EXSR      GETCH
+     C   91              GOTO      ENDSEG
+     C                   ENDDO
+     C                   MOVEA     TEGN          FE(1)
+      * Har nå lest appostrof - de 3 neste vil være SEGMENTNAVN
+     C     2             DO        3             NR                3 0
+     C                   EXSR      GETCH
+     C   91              GOTO      ENDSEG
+     C                   MOVEA     TEGN          FE(NR)
+     C                   END
+     C                   MOVEL     FELT          SEGNAM
+      * La TEGN være '+' etter segmentnavnet ved utgang av SR
+     C                   EXSR      GETCH
+      * Segmentnavn returneres nå i variabel 'SEGNAM'
+     C     ENDSEG        ENDSR
+      *////////////////////////////////////////////////////////////
+      * Get Data Element                                   GETDED /
+      *////////////////////////////////////////////////////////////
+     C     GETDED        BEGSR
+     C                   MOVEA     *BLANKS       FE
+     C     1             DO        256           NR                3 0
+     C                   EXSR      GETCH
+     C     TEGN          IFEQ      LOGAPP
+     C     TEGN          OREQ      LOGPLU
+     C     TEGN          OREQ      LOGKOL
+     C                   GOTO      ENDDED
+     C                   ENDIF
+     C                   MOVEA     TEGN          FE(NR)
+     C                   ENDDO
+     C     ENDDED        ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for å behandle UCI-segmentet                      UCI  /
+      *////////////////////////////////////////////////////////////
+     C     UCI           BEGSR
+      *_________________________
+      * 0020 ØVERFØRINGSREFERANS
+      *""""""""""""""""""""""""""
+      * 0020 Referans
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          UCI_0020         14
+      *_____________________________
+      * S002 ØVERFØRINGENS AVSÆNDARE
+      *"""""""""""""""""""""""""""""
+      * 0004 Avsændare
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGPLU        UCI002
+      * 0007 Kvalificerare
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGPLU        UCI002
+      * 0008 Adress før svarssændning
+     C                   EXSR      GETDED
+      *_____________________________
+      * S003 ØVERFØRINGENS MOTTAGARE
+      *"""""""""""""""""""""""""""""
+     C     UCI002        TAG
+      * 0010 Mottagare
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UCIEND
+      * 0007 Kvalificerare
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UCIEND
+      * 0014 Adress før vidaresændning
+     C                   EXSR      GETDED
+     C     UCIEND        TAG
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for å behandle UCI-segmentet                      UCM  /
+      *////////////////////////////////////////////////////////////
+     C     UCM           BEGSR
+      *_________________________
+      * LES FORBI 3 '+'
+      *""""""""""""""""""""""""""
+     C                   Z-ADD     0             XANTEL            3 0
+     C                   MOVE      'N'           XSVX104C          1
+     C     UCMSTR        TAG
+     C                   EXSR      GETDED
+     C                   DOW       TEGN = LOGKOL
+     C                   EXSR      GETDED
+     C                   ENDDO
+     C                   IF        ((FELT > 'SE015') AND (FELT < 'SE0159'))
+     C                   MOVE      'J'           XSVX104C          1
+     C                   GOTO      UCMEND
+     C                   END
+     C     TEGN          CABEQ     LOGAPP        UCMEND
+     C                   ADD       1             XANTEL
+     C     XANTEL        CABLT     3             UCMSTR
+      *_____________________________
+      * LES FEILKODE
+      *"""""""""""""""""""""""""""""
+     C                   MOVEA     *BLANKS       FE
+     C     1             DO        256           NR                3 0
+     C                   EXSR      GETCH
+     C     TEGN          IFEQ      LOGAPP
+     C     TEGN          OREQ      LOGPLU
+     C     TEGN          OREQ      LOGKOL
+     C                   LEAVE
+     C                   ENDIF
+     C                   MOVEA     TEGN          FE(NR)
+     C                   ENDDO
+     C                   ADD       1             XN
+     C                   MOVEL     FELT          KD(XN)
+      *
+     C     UCMEND        TAG
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for UNB                                           UNB  /
+      *////////////////////////////////////////////////////////////
+     C     UNB           BEGSR
+      *___________________
+      * Clear recordformat
+      *"""""""""""""""""""
+     C                   CLEAR                   EDISR
+     C                   EVAL      XMBR=WMBR
+     C                   EVAL      SSN=XMBRB
+      *_______________________
+      * S001 SYNTAX IDENTIFIER
+      *"""""""""""""""""""""""
+      * 0001 Syntax identifier
+     C                   EXSR      GETDED
+      * 0002 Syntax version number
+     C                   EXSR      GETDED
+      *________________________
+      * S002 INTERCHANGE SENDER
+      *""""""""""""""""""""""""
+      * 0004 Sender identification
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          S0004
+     C     TEGN          CABEQ     LOGPLU        UNB001
+      * 0007 Partner identification code qualifier
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGPLU        UNB001
+      * 0008 Address for reverse routing
+     C                   EXSR      GETDED
+      *___________________________
+      * S003 INTERCHANGE RECIPIENT
+      *"""""""""""""""""""""""""""
+     C     UNB001        TAG
+      * 0010 Recipient identification
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          S0010
+     C     TEGN          CABEQ     LOGPLU        UNB002
+      * 0007 Partner identification code qualifier
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGPLU        UNB002
+      * 0014 Routing address
+     C                   EXSR      GETDED
+      *______________________________
+      * S004 DATE/TIME OF PREPARATION
+      *""""""""""""""""""""""""""""""
+     C     UNB002        TAG
+      * 0017 Date of preparation
+     C                   EXSR      GETDED
+      * 0019 Time of preparation
+     C                   EXSR      GETDED
+      *___________________________________
+      * 0020 INTERCHANGE CONTROL REFERENCE
+      *"""""""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          S0020
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *___________________________________
+      * S005 RECIPIENTS REFERENCE PASSWORD
+      *"""""""""""""""""""""""""""""""""""
+      * 0022 Recipients reference/password
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+     C     TEGN          CABEQ     LOGPLU        UNB003
+      * 0025 Recipients reference/password qualifier
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *___________________________
+      * 0026 APPLICATION REFERENCE
+      *"""""""""""""""""""""""""""
+     C     UNB003        TAG
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          S0026
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *______________________________
+      * 0029 PROCESSING PRIORITY CODE
+      *""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *_____________________________
+      * 0031 ACKNOWLEDGEMENT REQUEST
+      *"""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *________________________________
+      * 0032 COMMUNICATION AGREEMENT ID
+      *""""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNBEND
+      *____________________
+      * 0035 TEST INDICATOR
+      *""""""""""""""""""""
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          S0035
+     C     UNBEND        ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for UNZ                                           UNZ  /
+      *////////////////////////////////////////////////////////////
+     C     UNZ           BEGSR
+      *_______________________________
+      * 0036 INTERCHANGE CONTROL COUNT
+      *"""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C                   MOVEA     FELT          NU
+     C                   MOVE      *ZEROS        NUMVRD
+     C     1             DO        6             NR                                         '+'
+     C     NU(NR)        IFLT      '0'
+     C     NU(NR)        ORGT      '9'
+     C                   GOTO      UNZ001
+     C                   END
+     C                   MULT      10            NUMVRD
+     C                   MOVE      NU(NR)        NUTEGN
+     C                   ADD       NUTEGN        NUMVRD
+     C                   END
+     C     UNZ001        TAG
+     C                   Z-ADD     NUMVRD        S0036
+      *_______________
+      * Skriv til EDIS
+      *"""""""""""""""
+     C                   MOVE      'C'           SST
+     C                   MOVE      'R'           SSR
+     C                   MOVEL     WDATO         SDT
+     C                   MOVEL     WTID          STM
+     C                   MOVEL     WLIB          SLIB
+     C                   MOVEL     WFIL          SFILE
+     C                   MOVEL     WMBR          SMBR
+     C     WNUMR         MULT      80            SMBRS
+     C                   WRITE     EDISR
+
+     C     UNZEND        ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for å behandle UNH-segmentet                      UNH  /
+      *////////////////////////////////////////////////////////////
+     C     UNH           BEGSR
+      *___________________
+      * Clear recordformat
+      *"""""""""""""""""""
+     C                   CLEAR                   EDIMR
+      *______________________________
+      * 0062 MESSAGE REFERENCE NUMBER
+      *""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          M0062
+      *________________________
+      * S009 MESSAGE IDENTIFIER
+      *""""""""""""""""""""""""
+      * 0065 Message identifier
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          M0065
+      * 0052 Message type version number
+     C                   EXSR      GETDED
+      * 0054 Message type release number
+     C                   EXSR      GETDED
+      * 0051 Controlling agency
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNHEND
+     C     TEGN          CABEQ     LOGPLU        UNH001
+      * 0057 Association assigned code
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          X0057            10
+     C     TEGN          CABEQ     LOGAPP        UNHEND
+      *_____________________________
+      * 0068 COMMON ACCESS REFERENCE
+      *"""""""""""""""""""""""""""""
+     C     UNH001        TAG
+     C                   EXSR      GETDED
+     C                   MOVEL     FELT          M0068
+     C     TEGN          CABEQ     LOGAPP        UNHEND
+      *____________________________
+      * S010 STATUS OF THE TRANSFER
+      *""""""""""""""""""""""""""""
+      * 0070 Sequence message transfer number
+     C                   EXSR      GETDED
+     C     TEGN          CABEQ     LOGAPP        UNHEND
+      * 0073 First/last sequence message transfer indication
+     C                   EXSR      GETDED
+     C     UNHEND        ENDSR
+      *////////////////////////////////////////////////////////////
+      * SR for UNT                                           UNT  /
+      *////////////////////////////////////////////////////////////
+     C     UNT           BEGSR
+      *_____________________________________
+      * 0074 NUMBER OF SEGMENTS IN A MESSAGE
+      *"""""""""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+      *______________________________
+      * 0062 MESSAGE REFERENCE NUMBER
+      *""""""""""""""""""""""""""""""
+     C                   EXSR      GETDED
+      *
+     C                   ENDSR

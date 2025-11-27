@@ -1,0 +1,94 @@
+             PGM
+             DCL        VAR(&FRALIB) TYPE(*CHAR) LEN(10) /* +
+                          Driftbibliotek */
+             DCL        VAR(&TILLIB) TYPE(*CHAR) LEN(10) /* +
+                          Bibliotek for oppbevaring av filer fra V9. */
+             DCL        VAR(&HIST) TYPE(*CHAR) LEN(1) /* om +
+                          konvertering av historikk bibliotek */
+             DCL        VAR(&SAD) TYPE(*CHAR) LEN(1) /* Om +
+                          konvertering av SAD */
+             DCL        VAR(&TOMME) TYPE(*CHAR) LEN(1) /* Om tømming +
+                          av gamle filer etter konvertering. */
+             DCL        VAR(&JOBQ) TYPE(*CHAR) LEN(1) /* Om benytt +
+                          av jobbkø. */
+             DCL        VAR(&FLAGG) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&FB) TYPE(*CHAR) LEN(1) /* Om +
+                          forbehandling (oppbygging av nye/endrede +
+                          logiske filer). */
+             DCLF       FILE(V9FKD00) RCDFMT(BILDE01) /* Hente +
+                          driftbibliotek og info. for konvertering. */
+             CHGJOB     JOB(*) LOG(4 00 *SECLVL) LOGCLPGM(*YES)
+             OVRDBF     FILE(V9FNF) TOFILE(V9SYSF/V9FNF)
+             OVRDBF     FILE(V9DSPDBR) TOFILE(V9SYSF/V9DSPDBR)
+
+LOOP1:
+             SNDRCVF    DEV(*FILE) RCDFMT(*FILE)
+             IF         COND(&IN03 = '1') THEN(GOTO CMDLBL(SLUTT))
+             CHGVAR     VAR(&IN30) VALUE('0')
+             CHGVAR     VAR(&IN31) VALUE('0')
+
+             CHKOBJ     OBJ(QSYS/&FRALIB) OBJTYPE(*LIB) /* Test om +
+                          inntastet driftbibliotek finnes fra før. */
+             MONMSG     MSGID(CPF9801 CPF9810) EXEC(CHGVAR +
+                          VAR(&IN30) VALUE('1'))
+
+             IF         COND(&IN30 = '1' *OR &IN31 = '1') THEN(GOTO +
+                          CMDLBL(LOOP1))
+
+             IF         COND(&IN10 = '1') THEN(CHGVAR VAR(&JOBQ) +
+                          VALUE('J'))
+
+             IF         COND(&HIST = 'J') THEN(DO)
+             CHGCURLIB  CURLIB(V9SYSO)
+             ADDLIBLE   LIB(&FRALIB)
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (1 10)) VALUE(&FRALIB)
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (1 4)) VALUE('V9O.')
+             ENDDO
+             ELSE       CMD(DO)
+             CHGCURLIB  CURLIB(V9SYSF)
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (1 10)) VALUE(&FRALIB)
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (1 4)) VALUE('V9F.')
+             ENDDO
+             RTVDTAARA  DTAARA(V9SYSF/V9FKDTA (1 10)) RTNVAR(&TILLIB)
+             CHKOBJ     OBJ(QSYS/&TILLIB) OBJTYPE(*LIB)
+             MONMSG     MSGID(CPF9801 CPF9810) EXEC(DO)
+             CALL       PGM(V9FKRTOM)
+             CRTLIB     LIB(&TILLIB) TEXT('Datafiler fra V9')
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (11 1)) VALUE('N')
+             ENDDO
+
+             CALL       PGM(V9FKR) PARM(&HIST &SAD &FLAGG)
+             IF         COND(&FLAGG = '1') THEN(GOTO CMDLBL(SLUTT))
+
+             RTVDTAARA  DTAARA(V9SYSF/V9FKDTA (11 1)) RTNVAR(&FB)
+             IF         COND(&FB = 'N') THEN(DO)
+             /* BYGG NYE/ENDREDE LOGISKEFILER SOM FYSISKEFILER IKKE */
+             /* ER ENDRET.                                          */
+             IF         COND(&HIST *EQ 'J') THEN(CALL PGM(V9FKC91A) +
+                          PARM(&FRALIB))
+             ELSE       CMD(DO)
+             CHGCURLIB  CURLIB(*CRTDFT)
+             CALL       PGM(V9FKC91) PARM(&FRALIB)
+             CHGCURLIB  CURLIB(V9SYSF)
+             ENDDO
+             CHGDTAARA  DTAARA(V9SYSF/V9FKDTA (11 1)) VALUE('J')
+             ENDDO
+
+             IF         COND(&JOBQ = 'J') THEN(DO)
+             ADDLIBLE   LIB(V9SYSF)
+             MONMSG     MSGID(CPF0000)
+             SBMJOB     CMD(CALL PGM(V9FKR2) PARM(&HIST &SAD &FRALIB +
+                          &TILLIB &TOMME &JOBQ))
+             ENDDO
+             ELSE       CMD(DO)
+             CHGDSPF    FILE(V9FKD2) WAITRCD(*IMMED)
+             CALL       PGM(V9FKR2) PARM(&HIST &SAD &FRALIB &TILLIB +
+                          &TOMME &JOBQ)
+             ENDDO
+
+             IF         COND(&HIST = 'J') THEN(RMVLIBLE LIB(&FRALIB))
+
+ SLUTT:      RCLRSC
+             CHGMSGQ    MSGQ(SYSPED/PRINTERAUT) DLVRY(*DFT)
+             CHGCURLIB  CURLIB(*CRTDFT)
+             ENDPGM

@@ -1,0 +1,785 @@
+BHR   * OBS!! VISSE HARDKODEDE VERDIER
+      *****************************************************************
+      * MOTTAK AV IFCSUM FRA GEMSYS KUNDELØSNING                      *
+      * LEGGES NORMALT INN I FORSYSTEM FOR "HENTE-OPPDRAG"            *
+      * VED KODE FOR DIREKTEKJØRING GJØRES CALL PÅ "E113C_A6"         *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF11 clear av array A før kall på getnum
+      * 02 JOV PTF11 sett inn 401 om det mangler
+      * 03 JOV PTF11 adder vekt/vol/lm fra evt flere linjer
+      *****************************************************************
+     H DATEDIT(*YMD)
+     FSYPROD    IF   E           K DISK
+     FEDIS      IF   E           K DISK
+     FEDIM      IF   E           K DISK
+     FETDT93A   IF   E           K DISK
+     FERFF93A   IF   E           K DISK
+     FECNI93A   IF   E           K DISK
+     FENAD93A   IF   E           K DISK
+     FETOD93A   IF   E           K DISK
+     FEGID93A   IF   E           K DISK
+     FEFTX93A   IF   E           K DISK
+     FEMEA93A   IF   E           K DISK
+     FEPCI93A   IF   E           K DISK
+     FETSR93A   IF   E           K DISK
+     FEEQD93A   IF   E           K DISK
+     FEEQN93A   IF   E           K DISK
+     FHEAD39    IF   E           K DISK
+     FHENOS01   UF   E           K DISK
+     F                                     RENAME(HENOSR:HENOS01R)
+     FHENOF01   UF   E           K DISK
+     FHENOP     UF A E           K DISK
+     FHENOS     O  A E             DISK
+     FHENOK     O  A E             DISK
+     FKUNKO2    IF   E           K DISK
+     D A               S              1    DIM(79)
+     D B               S              1    DIM(18)
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  WMN2                   1      9  0
+     D                 DS
+     D  WPOS1                  1      3  0
+     D  WPOS1A                 1      3
+     D                 DS
+     D  HSds                   1     30
+     D  XXDATE                 1      8
+     D  XXTIME                 9     14
+BHR   * talkle både med / uten AI
+BHR  D                 DS
+BHR  D  CLID00                 1      2    inz('00')
+BHR  D  CLID                   3     22
+BHR  D  CLID20                21     22
+BHR  D  CLIDB                  1     20
+      * Tabell for konverter til store
+     DupNO             c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ'
+     DlowNO            c                   'abcdefghijklmnopqrstuvwxyzæøå'
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *__________________
+      * DELETE PREADVICES
+      *""""""""""""""""""
+     C                   EXSR      DELPRE
+      *___________________
+      * CONVERT
+      *"""""""""""""""""""
+     C                   EXSR      RTVD
+      *
+     C     SLUTT         TAG
+     C                   MOVE      '1'           *INLR
+      *
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     KEYMS0        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN0
+     C     KEYMS1        KLIST
+     C                   KFLD                    ZMN
+     C                   KFLD                    ZGN1
+     C                   KFLD                    ZREPB0
+     C     KUNKOK        KLIST
+     C                   KFLD                    KUKUN1
+     C                   KFLD                    KUINTN
+     C                   Z-ADD     HOKNS         KUKUN1
+      *
+     C     *LIKE         DEFINE    NMN           ZMN
+     C     *LIKE         DEFINE    NGN           ZGN0
+     C     *LIKE         DEFINE    NGN           ZGN1
+     C     *LIKE         DEFINE    NREP0         ZREPB0
+     C     *LIKE         DEFINE    HOVKT         HXVKT
+     C     *LIKE         DEFINE    HOFBV         HXFBV
+     C     *LIKE         DEFINE    HOM3          HXM3
+     C     *LIKE         DEFINE    HOLM          HXLM
+      * INIT WORKFIELDS
+      *
+     C     *ENTRY        PLIST
+     C                   PARM                    WMN1              9
+     C                   MOVEL     WMN1          WMN2
+     C                   Z-ADD     WMN2          ZMN
+      * Get msg and interchange values
+     C     ZMN           CHAIN     EDIM                               51
+     C     MSN           CHAIN     EDIS                               51
+      *
+     C                   MOVE      'N'           PALLJN            1
+     C                   MOVEL     'SYPALL  '    PRODNA           15
+     C     PRODNA        CHAIN     SYPROD                             33
+     C  N33PRINST        IFEQ      'J'
+     C                   MOVE      'J'           PALLJN            1
+     C                   END
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+     C     DELPRE        BEGSR
+      *////////////////////////////////////////////////////////////
+      *__________________
+      * DELETE PREADVICES
+      *""""""""""""""""""
+      * 1. FINN KUNDENR AVSENDER FRA FØRSTE NAD/CZ
+     C                   MOVE      *ZEROS        XXLNR             7 0
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     25            ZGN1
+     C                   Z-ADD     1             ZREPB0
+     C     KEYMS1        SETLL     ENAD93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ENAD93A                                52
+     C     *IN52         DOWEQ     '0'
+     C     N3035         IFEQ      'CZ'                                         GODSAVSENDER
+N01  C                   CLEAR                   A
+     C                   MOVEA     N3039         A
+     C                   EXSR      GETNUM
+     C                   Z-SUB     ZNUM          XXLNR                          NEGATIVT FOR
+     C                   GOTO      STRDEL
+     C                   END
+     C     KEYMS1        READE     ENAD93A                                52
+     C                   END
+     C                   END
+     C*    FANT IKKE AVSENDER - INGEN DELETE
+     C                   GOTO      UTDEL
+      *
+      *
+     C* 2. SLETT EVT PREADVIS PÅ SENINGER SOM KOMMER REELT NÅ..
+     C*  (KUNDENR MED NEGATIVT FORTEGN SOM LØPENR = PREADVIS-HEADER.)
+     C     STRDEL        TAG
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     15            ZGN0
+     C     KEYMS0        SETLL     ECNI93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ECNI93A                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   MOVEL     C1004         TSTSND           20
+n02  c                   If        %subst(C1004:17:1)<>' '
+n02  c                             and %subst(C1004:18:3)='   '
+n02  c                   eval      TSTSND = '401'+C1004
+n02  c                   endif
+      * Fjern Sending / tell ned(/fjern)i header -  fra Preadv.
+     C     TSTSND        SETLL     HENOS01
+     C     TSTSND        READE     HENOS01                                33
+     C     *IN33         DOWEQ     '0'
+     C     HSLNR         IFNE      XXLNR
+     C                   UPDATE    HENOS01R
+     C                   ELSE
+     C                   DELETE    HENOS01R
+     C     HSLNR         CHAIN     HENOP                              33
+     C     *IN33         IFEQ      '0'
+     C                   SUB       1             HOMINT                          *ANT SND
+     C                   SUB       HSANT         HOMINK                          *ANT KLL
+     C                   SUB       HSVKT         HOVKT
+     C                   SUB       HSM3          HOM3
+     C                   SUB       HSLM          HOLM
+     C     HOMINT        IFGT      0
+     C                   UPDATE    HENOPR
+     C                   ELSE
+     C                   DELETE    HENOPR
+     C                   END
+     C                   END
+     C                   END
+     C     TSTSND        READE     HENOS01                                33
+     C                   END
+      *
+      * Fjern Fritekster fra Preadv.
+     c     HenofKey      KLIST
+     c                   KFLD                    XXLNR
+     c                   KFLD                    TSTSND
+     C     HenofKey      SETLL     HENOF01
+     C     HenofKey      READE     HENOF01                                33
+     C     *IN33         DOWEQ     '0'
+     C                   DELETE    HENOFR
+     C     HenofKey      READE     HENOF01                                33
+     C                   END
+      *
+     C     KEYMS0        READE     ECNI93A                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      *
+     C     UTDEL         ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED400     RTVD /
+      *////////////////////////////////////////////////////////////
+     C     RTVD          BEGSR
+      *_______________________
+      * READ ALL MAIN SEGMENTS
+      *"""""""""""""""""""""""
+      * TDT05 - TRANSPORT DETAILS - HENTER DETTE FØRST AV ALT FORDI
+      *         DETTE AVGJØR OM DET ER HENTEOPPDRAG ELLER DIREKTE...
+      *         T8051=10 - FF-TUR -> HENOP/HENOS,
+      *         20 - HOVEDTUR->ZEADF....   (SENERE...)
+      * SKRHEN = INDIKATOR FOR AT HENTEOPPDR-HEADER IKKE ER SKREVET.
+     C                   MOVE      'J'           SKRHEN            1
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     5             ZGN0
+     C     KEYMS0        SETLL     ETDT93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ETDT93A                                51
+     C     *IN51         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     T8051         WHENEQ    '10'
+     C                   MOVEL     T8212         FFBIL            10
+     C     T8051         WHENEQ    '20'
+     C                   CALL      'E113C_A6'
+     C                   PARM                    WMN1              9
+     C                   GOTO      SLUTT
+     C                   ENDSL
+      *
+     C  N51KEYMS0        READE     ETDT93A                                51
+     C  N51              END
+     C                   END
+      *
+      *
+      * INTIER DIV. FELT I HENOP
+      *
+      * HENT NESTE LØPENR
+     C                   MOVE      *ZEROS        HOLNR
+     C     9999999       SETGT     HENOP
+     C                   READP(N)  HENOP                                  33
+     C     HOLNR         ADD       1             WSLNR             7 0
+      *
+     C                   MOVE      *ZEROS        HXVKT
+     C                   MOVE      *ZEROS        HXFBV
+     C                   MOVE      *ZEROS        HXM3
+     C                   MOVE      *ZEROS        HXLM
+      *
+     C                   CLEAR                   HENOPR
+     C                   MOVE      WSLNR         HOLNR
+     C                   MOVEL     M1004         HOSNDN
+     C                   MOVE      FFBIL         HOBILN
+RIKS C***                  MOVE 1000      HOPNRT
+BHR  C***                  MOVE 3000      HOPNRT
+BHRRIC                   MOVEL     M0010         TXT08             8
+BHRRIC     TXT08         IFEQ      'RIKSGODS'
+BHRRIC                   MOVE      1000          HOPNRT
+BHRRIC                   ELSE
+BHRRIC                   MOVE      3000          HOPNRT                         DRAMMEN
+BHRRIC                   END
+     C                   MOVE      MMN           HOEDSN
+      *
+      *
+      * RFF01 - BENYTTES IKKE (FORLØPIG), MEN MANDATORY SEGMENT
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     01            ZGN0
+     C*          KEYMS0    SETLLERFF93A                  20
+     C*          *IN20     IFEQ '1'
+     C*          KEYMS0    READEERFF93A                  51
+     C*          *IN51     DOWEQ'0'
+      *
+     C*          R1153     IFEQ 'CU '
+     C*                    MOVELR1154     WEREFF
+     C*                    MOVE '1'       *IN51
+     C*                    END
+      *
+     C* N51      KEYMS0    READEERFF93A                  51
+     C* N51                END
+     C*                    END
+      *
+      * DTM05 - TRANSP.DATO - HVIS INGENTING -> DAGENS DATO(MELDINGENS)
+     C                   MOVE      MDT           HODT
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     5             ZGN0
+      *
+      * NAD09 - HER BØR!!! EN HA INN ET NAD-SEGMENT PÅ HVEM SOM ER AVS.
+      * NÅ - HENTE-OPPDR.HEADER SKRIVES NÅR FØRSTE LINJE-NAD ER LEST
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     9             ZGN0
+      *
+N02  C     PALLJN        IFEQ      'J'
+N02  C                   EXSR      EQD13
+N02  C                   END
+      *
+      *___________________
+      * READ CONSIGNEMENTS  = LINJER
+      *"""""""""""""""""""
+     C                   MOVE      *ZEROS        WSLNR2            3 0
+     C                   MOVE      '0'           *IN51
+     C                   Z-ADD     15            ZGN0
+     C     KEYMS0        SETLL     ECNI93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     ECNI93A                                51
+     C     *IN51         DOWEQ     '0'
+      * FINNES SENDINGEN ALLEREDE...
+     C                   MOVEL     C1004         TSTSND           20
+n02  c                   If        %subst(C1004:17:1)<>' '
+n02  c                             and %subst(C1004:18:3)='   '
+n02  c                   eval      TSTSND = '401'+C1004
+n02  c                   endif
+     C     TSTSND        chain     Head39                             33
+     C  N33              GOTO      NXTCNI
+     C     TSTSND        CHAIN(N)  HENOS01                            33
+     C  N33              GOTO      NXTCNI
+      *
+     C                   EXSR      RTVDB
+      *
+     C     NXTCNI        TAG
+     C     KEYMS0        READE     ECNI93A                                51
+     C  N51              ENDDO
+     C                   ENDIF
+      *
+      * OPPDATER LINJETOTALER PÅ HEAD.
+     C     HOLNR         CHAIN     HENOP                              33
+     C     *IN33         IFEQ      *ZEROS
+     C                   Z-ADD     HXVKT         HOVKT
+     C                   Z-ADD     HXFBV         HOFBV
+     C                   Z-ADD     HXM3          HOM3
+     C                   Z-ADD     HXLM          HOLM
+     C                   UPDATE    HENOPR
+     C                   END
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED400    RTVDB /
+      *////////////////////////////////////////////////////////////
+     C     RTVDB         BEGSR
+      *__________________
+      * INIT. DATAFELTER
+      *""""""""""""""""""
+     C                   ADD       1             WSLNR2
+     C                   CLEAR                   HENOSR
+     C                   MOVE      HOLNR         HSLNR
+     C                   MOVE      WSLNR2        HSLNR2
+     C                   MOVEL     C1004         HSSNDN
+n02  c                   If        %subst(C1004:17:1)<>' '
+n02  c                             and %subst(C1004:18:3)='   '
+n02  c                   eval      HSSNDN = '401'+C1004
+n02  c                   endif
+     C                   MOVE      HODT          HSDT
+      *__________________
+      * READ ALL SEGMENTS
+      *""""""""""""""""""
+     C                   Z-ADD     CREP0         ZREPB0
+     C                   EXSR      TSR15
+     C                   EXSR      TOD17
+     C                   EXSR      RFF18
+     C                   EXSR      NAD25
+     C                   EXSR      GID31
+     C                   EXSR      FTX31
+     C                   EXSR      MEA34
+     C                   EXSR      PCI37
+      *___________________
+      * WRITE TO HENOS
+      *"""""""""""""""""""
+     C                   WRITE     HENOSR
+      *
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * EQD13                                               EQD13 /
+      *////////////////////////////////////////////////////////////
+     C     EQD13         BEGSR
+     C                   Z-ADD     0             ANTEQN            3 0
+     C                   Z-ADD     0             EQN1              5 0
+     C                   Z-ADD     0             EQN2              5 0
+     C                   Z-ADD     13            ZGN0
+     C                   Z-ADD     13            ZGN1
+     C     KEYMS0        SETLL     EEQD93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS0        READE     EEQD93A                                51
+     C     *IN51         DOWEQ     '0'
+      *
+      * ETT ELLER 2 SEGMENT...
+     C     E8053         IFEQ      'EFP'
+     C                   Z-ADD     EREP0         ZREPB0
+     C                   ADD       1             ANTEQN
+     C     KEYMS1        CHAIN     EEQN93A                            33
+     C     *IN33         IFEQ      '0'
+     C     E6350         ANDNE     *BLANKS
+     C                   CLEAR                   A
+     C                   MOVEA     E6350         A
+     C                   EXSR      GETNUM
+      * FØRSTE ER TIL -> TRANSP FRA KUNDE(VAREN STÅR PÅ PALL V/HENTING)
+     C     ANTEQN        IFEQ      1
+     C                   Z-ADD     ZNUM          EQN1
+     C                   END
+      * ANDRE  ER FRA TRANSP -> KUNDE (HENTEBIL HADDE MED UT...)
+     C     ANTEQN        IFEQ      2
+     C                   Z-ADD     ZNUM          EQN2
+     C                   END
+     C                   END
+     C                   END
+      *
+     C  N51KEYMS0        READE     EEQD93A                                51
+     C  N51              END
+     C                   END
+     C                   Z-ADD     EQN1          HOPLL2                            TIL TRANS
+     C                   Z-ADD     EQN2          HOPLL1                            FRA TRANS
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * TSR15                                               TSR15 /
+      *////////////////////////////////////////////////////////////
+     C     TSR15         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     15            ZGN1
+     C     KEYMS1        SETLL     ETSR93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ETSR93A                                52
+     C     *IN52         DOWEQ     '0'
+      * RMD=FARLIG (-> ADR-MERKING)  ZHO=VARME (-> IMD-MERKING)
+     C                   SELECT
+     C     T7085         WHENEQ    'RMD'
+     C     T4065         OREQ      'RMD'
+     C                   MOVEL     'X'           HSFARL                         *FARLIG
+     C     T7085         WHENEQ    'ZHO'
+     C     T4065         OREQ      'ZHO'
+     C                   MOVEL     'X'           HSVARM                         *VARME
+     C     T7085         WHENEQ    'ZPL'
+     C     T4065         OREQ      'ZPL'
+     C                   MOVEL     'P'           HSPROD                         *PALL PRISET
+     C     T7085         WHENEQ    'ZHP'
+     C     T4065         OREQ      'ZHP'
+     C                   MOVEL     'H'           HSPROD                         *Halv-PALL PRISET
+     C     T7085         WHENEQ    'ZKL'
+     C     T4065         OREQ      'ZKL'
+     C                   MOVEL     'K'           HSPROD                         *KOLLIPRISET
+     C     T7085         WHENEQ    'ZPG'
+     C     T4065         OREQ      'ZPG'
+     C                   MOVEL     'D'           HSPROD                         *Partigods/direkte
+     C                   ENDSL
+     C     KEYMS1        READE     ETSR93A                                52
+     C                   ENDDO
+      *
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * TOD17                                               TOD17 /
+      *////////////////////////////////////////////////////////////
+     C     TOD17         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     17            ZGN1
+     C     KEYMS1        SETLL     ETOD93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ETOD93A                                52
+     C     *IN52         IFEQ      '0'
+      *
+     C                   SELECT
+     C     T4215         WHENEQ    'CC'
+     C                   MOVEL     'M'           HSFR
+     C     T4215         WHENEQ    'TP'
+     C                   MOVEL     'A'           HSFR
+     C                   OTHER
+     C                   MOVEL     'S'           HSFR
+     C                   END
+      *
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * RFF18                                               RFF18 /
+      *////////////////////////////////////////////////////////////
+     C     RFF18         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     18            ZGN1
+     C     KEYMS1        SETLL     ERFF93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ERFF93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+      * CU     CONSIGNOR'S REFERENCE NUMBER         (SENDERS REF)
+     C     R1153         IFEQ      'CU '
+     C                   MOVEL     R1154         HSRFA
+     C                   ENDIF
+      * AAO    CONSIGNEE'S SHIPMENT REFERENCE NUMBER(MOTTAKERS REF)
+     C     R1153         IFEQ      'AAO'
+     C     HSFR          ANDEQ     'M  '
+     C                   MOVEL     R1154         HSRFA
+     C                   ENDIF
+      *
+     C  N52KEYMS1        READE     ERFF93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * NAD25                                               NAD25 /
+      *////////////////////////////////////////////////////////////
+     C     NAD25         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     25            ZGN1
+     C     KEYMS1        SETLL     ENAD93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     ENAD93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   SELECT
+     C     N3035         WHENEQ    'CZ'                                         GODSAVSENDER
+      * DERSOM HENTEOPPD.HEADER SKAL SKRIVES...
+     C     SKRHEN        IFEQ      'J'
+     C                   MOVE      'N'           SKRHEN
+      * NAD
+N01  C                   CLEAR                   A
+     C                   MOVEA     N3039         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          HOKNS
+     C                   MOVEL     N3036A        HONAS
+bhr  C     lowNO:upNO    xlate     HONAS         HONAS
+     C                   MOVEL     N3042A        HOADS1
+bhr  C     lowNO:upNO    xlate     HOADS1        HOADS1
+     C                   MOVE      *ZEROS        HOPNRS
+     C                   MOVEL     N3251         PNRA              4
+     C                   TESTN                   PNRA                 33
+     C   33              MOVE      PNRA          HOPNRS
+     C                   MOVEL     N3164         HOSTDS
+bhr  C     lowNO:upNO    xlate     HOSTDS        HOSTDS
+      * SKRIV HENOP (MEN KUN V/FØRSTE LINLE.)
+     C                   WRITE     HENOPR
+     C                   ELSE
+      * CZ - HVIS DET IKKE ER HENTEOPPDRAG/1.DETALJLINJE....
+     C                   ENDIF
+     C     N3035         WHENEQ    'CN'                                         GODSMOTTAKER
+     C     N3055         IFEQ      '87'
+N01  C                   CLEAR                   A
+     C                   MOVEA     N3039         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          HSKNK
+     C                   ELSE
+     C                   MOVEL     N3039         KUINTN
+     C     KUNKOK        CHAIN     KUNKO2                             33
+     C  N33              MOVE      KUKUN2        HSKNK
+     C                   END
+     C                   MOVEL     N3036A        HSNAK
+bhr  C     lowNO:upNO    xlate     HSNAK         HSNAK
+     C                   MOVEL     N3042A        HSADK1
+bhr  C     lowNO:upNO    xlate     HSADK1        HSADK1
+     C                   MOVE      *ZEROS        HSPNRK
+     C                   MOVEL     N3251         PNRA              4
+     C                   TESTN                   PNRA                 33
+     C   33              MOVE      PNRA          HSPNRK
+     C                   MOVEL     N3164         HSSTDK
+bhr  C     lowNO:upNO    xlate     HSSTDK        HSSTDK
+     C     N3035         WHENEQ    'IV'                                         F.MOT V. ANN
+     C     N3055         IFEQ      '87'
+N01  C                   CLEAR                   A
+     C                   MOVEA     N3039         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          HSKNA
+     C                   ELSE
+     C                   MOVEL     N3039         KUINTN
+     C     KUNKOK        CHAIN     KUNKO2                             33
+     C  N33              MOVE      KUKUN2        HSKNA
+     C                   END
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     ENAD93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * GID31                                               GID31 /
+      *////////////////////////////////////////////////////////////
+     C     GID31         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     31            ZGN1
+     C     KEYMS1        SETLL     EGID93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EGID93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C     G1496         IFEQ      '99999'
+N01  C                   CLEAR                   A
+     C                   MOVEA     G7224A        A
+     C                   EXSR      GETNUM
+     C                   ADD       ZNUM          HSANT
+     C                   MOVEL     G7065A        HSVB
+     C     HSVB          IFEQ      *BLANKS
+     C     HSVB          OREQ      'KLI'
+     C                   MOVEL     'KLL'         HSVB
+     C     HSPROD        IFEQ      'P'
+     C                   MOVEL     'PALLER'      HSVB
+     C                   END
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C     KEYMS1        READE     EGID93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+      *
+      *
+      *////////////////////////////////////////////////////////////
+      * MEA34                                               MEA34 /
+      *////////////////////////////////////////////////////////////
+     C     MEA34         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     34            ZGN1
+     C     KEYMS1        SETLL     EMEA93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EMEA93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+N01  C                   CLEAR                   A
+     C                   MOVEA     M6314         A
+     C                   EXSR      GETNUM
+     C                   SELECT
+     C     M6311         WHENEQ    'WT '
+S03  C*                  Z-ADD     ZNUM          HSVKT
+N03  C                   ADD       ZNUM          HSVKT
+     C                   ADD       HSVKT         HXVKT
+     C                   ADD       HSVKT         HXFBV
+     C     M6311         WHENEQ    'LMT'
+S03  C*                  Z-ADD     ZNUM          HSLM
+N03  C                   ADD       ZNUM          HSLM
+     C                   ADD       HSLM          HXLM
+     C     M6311         WHENEQ    'VOL'
+     C     M6411         IFEQ      'DMQ'
+S03  C*    ZNUM          DIV(H)    1000          HSM3
+N03  c     *LIKE         DEFINE    HSM3          HSM3Z
+N03  C     ZNUM          DIV(H)    1000          HSM3Z
+N03  C                   ADD       HSM3Z         HSM3
+     C                   ELSE
+S03  C*                  Z-ADD     ZNUM          HSM3
+N03  C                   ADD       ZNUM          HSM3
+     C                   END
+     C                   ADD       HSM3          HXM3
+     C                   ENDSL
+      *
+     C     KEYMS1        READE     EMEA93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * PCI37                                               PCI37 /
+      *////////////////////////////////////////////////////////////
+     C     PCI37         BEGSR
+     C                   MOVE      *ZEROS        HKLNR3
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     37            ZGN1
+     C     KEYMS1        SETLL     EPCI93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EPCI93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C                   MOVE      HSLNR         HKLNR
+     C                   MOVE      HSLNR2        HKLNR2
+     C     P7102A        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102A        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102B        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102B        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102C        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102C        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102D        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102D        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102E        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102E        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102F        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102F        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102G        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102G        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102H        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102H        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102I        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102I        HKID
+     C                   WRITE     HENOKR
+     C                   END
+     C     P7102J        IFNE      *BLANKS
+     C                   ADD       1             HKLNR3
+     C                   MOVEL     P7102J        HKID
+     C                   WRITE     HENOKR
+     C                   END
+      *
+     C     KEYMS1        READE     EPCI93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *
+      *////////////////////////////////////////////////////////////
+      * FTX31                                               FTX31 /
+      *////////////////////////////////////////////////////////////
+     C     FTX31         BEGSR
+     C                   MOVE      '0'           *IN52
+     C                   Z-ADD     31            ZGN1
+     C     KEYMS1        SETLL     EFTX93A                                20
+     C     *IN20         IFEQ      '1'
+     C     KEYMS1        READE     EFTX93A                                52
+     C     *IN52         DOWEQ     '0'
+      *
+     C     F4451         IFEQ      'AAA'
+     C     HEVS1         CAT       F4440A:1      HEVS1
+     C                   ENDIF
+      *
+     C  N52KEYMS1        READE     EFTX93A                                52
+     C  N52              ENDDO
+     C                   ENDIF
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Get numerical value                               GETNUM /
+      *////////////////////////////////////////////////////////////
+     C     GETNUM        BEGSR
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR

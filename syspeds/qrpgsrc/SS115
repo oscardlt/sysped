@@ -1,0 +1,217 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/SS115 MODULE(*LIBL/SS115 *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10188 * 01 JOV PTF10 LABEL PÅ LASER/A4 DERSOM L LABTY(annet enn Z/E )
+11XXX * 02 JOV PTF11 LEGG PÅ ?T=TIMESTAMP BAK
+      *********************************************************************
+      *  Virkemåte:
+      *  1) allerde i INIT kalles CL SS115C som genererer printer-fil
+      *     Dersom det er ZEBRA/LASER pakkes den inn i HTML tagger samt javscript for printdialog
+      *     Dersom det er ELTRON blir det en plain txt-fil
+      *  2) Når CL er ferdig går genererer SS115 en dummy HTML som sørger for den videre behandl.
+      *     Dersom det er Zebra så replacer den seg selv med den tidligere genererte IFS-fila
+      *         typisk /syspeddev/temp/ZBARC010000600.htm (som så automatisk går i prt-dialog)
+      *     Dersom der er ELTRON kalles TK-printerdriver (/syspeddev/TKspooler/TKspooler.aplication
+      *     som må motta hele pathen som parameter "?Path=".....
+      *         typisk http://84.49.8.66/syspeddev/temp/ELTRON010000600.txt
+      *   OBS! - KAN kalles med CURTUR = AvdOppd (og Lay = HE på ferdig oppdrag)
+      *********************************************************************
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     IF   E           K DISK    USROPN
+     FGSSOLF    UF   E           K DISK    USROPN
+     FFIRFB     UF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D S_address       S            256
+     D Path            S            256
+     D WSUSER          S             10
+     D UsrSpcName      s             10
+     D CURTUR          S             11
+     D CURTURN         S             11  0
+     D UNIK            S              7
+     D UNIK6           S              6  0
+N02  D*IFSFIL          S             50
+N02  D IFSFIL          S            150
+     D LabelTyp        S              1
+     D CopyPrt         S              1
+     D Lay             S              2
+N02  D timeData        S               Z                                        Z=Timestamfield
+      * Number of records matching search criteria
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D                 DS
+     D  OLMN                   1     35
+     D  DSAPID                 1      2
+     D  KOID                   3     20
+     D  DSIDPK                 3      3
+     D  DSIDLA                 4      5
+     D  DSIDLE                 6     10
+     D  DSIDNR                11     20
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * hent IP fra env-variable
+     C                   eval      S_Address  =getenv('SERVER_ADDR':
+     C                             qusec)
+     C                   eval      S_Port     =getenv('SERVER_PORT':
+     C                             qusec)
+      *-dummy html for å få kjørt prog                                      ******
+      * "bytter ut seg selv" med (Html)fil i IFS umiddelbart                ******
+     c     LabelTyp      ifeq      'Z'
+     C                   eval      IFSFil = 'ZBARC'+TUR+'.html'
+s01  c*                  else
+N01  c                   endif
+N01  c     LabelTyp      ifeq      'E'
+     C                   eval      IFSFil = 'ELTRON'+TUR+'.txt'
+     C                   eval      Path   = 'http://'+%trim(S_Address)+
+     C                                      ':'+%trim(S_Port)+'/syspeddev'+
+     C                                      '/TEMP/ELTRON'+TUR+'.txt'
+     c                   end
+N01  c     LabelTyp      ifeq      'L'
+N01  C                   eval      IFSFil = 'LASLAB'+TUR+'.pdf'
+N02   * legg på dummy TS-parameter for lure brosercache..
+N02  C                   time                    Timedata
+N02  C                   movel     timedata      TS               26            må være 26 lang
+N02  C                   eval      IFSFil = %trim(IFSFil)+'?TS='+TS
+N01  c                   endif
+     C                   callp     updhtmlvar('IFSFIL':IFSFIL)
+     C                   callp     updhtmlvar('LABTYP':LabelTyp)
+     C                   callp     updhtmlvar('PATH':PATH)
+     C                   callp     wrtsection('top')
+      *------------------                                                   ******
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+     C*
+     C                   close     BRIDF
+     C                   eval      *inlr = *on
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   EVAL      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   EVAL      CURTUR  = zhbgetvar('CURTUR')
+     C                   eval      CURTURN = c2n2(CURTUR)
+     C                   eval      LabelTyp = zhbgetvar('LabelTyp')
+     C                   eval      CopyPrt  = zhbgetvar('CopyPrt')
+     C                   eval      Lay      = zhbgetvar('Lay')
+     C     Lay           Ifeq      *blanks
+     C                   eval      Lay      = 'WW'
+     C                   end
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC'
+     C                   eval      Mbr = 'SS115'
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      * HVIS DET ER LØSE MERKELAPPER, SØRG FOR AT CL-ID ER TILDELT
+     C     LAY           IFEQ      'W2'
+     C                   MOVE      CURTURN       ORN               7 0
+     C                   EXSR      FIXCLI
+     C                   END
+     c                   eval      Unik = UsrSpcName
+     c     Unik          ifeq      *blanks
+     c                   eval      Unik6    = random(1:999999)
+     c                   move      Unik6         Unik
+     c                   movel     'W'           Unik
+     c                   end
+      *  Kall prog for å generere html
+     C                   MOVE      CURTURN       TUR              11
+     C                   call      'SS115C'
+     c                   parm                    BIFIRM
+     c                   parm                    TUR
+     c                   parm                    Labeltyp
+     c                   parm                    CopyPrt
+     c                   parm                    Lay
+     c                   parm                    UNIK
+      *
+     C                   endsr
+     C***********************************************
+     C     FIXCLI        BEGSR
+     C***********************************************
+     C                   open      GSSOLF
+     C                   open      FIRFB
+      * For hver odre kopier kolli-ider inn i dokufm
+     c     ORN           SETLL     GSSOLF
+     c     ORN           READE     GSSOLF                                 33
+     c     *in33         DOWEQ     *OFF
+      * Om EAN kolli-id ikke fins - tildel nå. (VIA DS også oppd av OLMN)
+     c     OLMN          IFEQ      *blanks
+     C     BIFIRM        CHAIN     FIRFB                              33
+     C                   ADD       1             FIIDNR
+     C                   UPDATE    FIRFBR
+     C                   MOVE      '00'          DSAPID
+     C                   MOVE      '3'           DSIDPK
+     C                   MOVE      FIIDLA        DSIDLA
+     C                   MOVE      FIIDLE        DSIDLE
+     C                   MOVEL     FIIDNR        DSIDNR
+     C                   MOVE      *ZEROS        UAN22            22
+     C                   MOVE      KOID          UAN22
+     C                   CALL      'SYGE08'
+     C                   PARM                    UAN22
+     C                   MOVE      UAN22         KOID
+     c                   end
+      * Oppdater evt endret OLMN (via DS) i kolli-fila på ordren
+     c                   update    GSSOLFR
+     c     ORN           READE     GSSOLF                                 33
+     C                   END
+     C                   close     GSSOLF
+     C                   close     FIRFB
+     c                   endsr
+      *

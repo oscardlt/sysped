@@ -1,0 +1,743 @@
+      * MYE omskrevet sept 2011
+      * filter på avsender mottakerID etter at Komp Distr AS og AB også er aktuelle aktører
+      * Fakturanummer mottas på linje-nivå...
+      * Fange Svensk tariffnr selv om OKLIN = N (den KAN bli til J derosm netVal var 0/KZWI6<>0)
+      *2013.08.22 - T- varer regner fra i dag som T2 om de ikke aktivt er merket T1..
+     FXMLRCVF   IF   E           K DISK
+     FXMLRCVL01 IF   E           K DISK    RENAME(XMLRCVFR:XMLRCVFR01)
+     FLLHEAD04  IF   E           K DISK
+     FLLLINE    IF   E           K DISK
+     FLLAGJD02  IF   E           K DISK
+     FLLAGJL01  IF   E           K DISK
+     FLLMRF     IF   E           K DISK
+     FLLLISF    IF   E           K DISK
+     FQ         O  A F 1024        DISK
+      * Div arrays for flere invoice nummer / Total Ex Vat / Valuta
+     D INV             S             30    DIM(500)
+     D TEV             S             13  2 DIM(500)
+     D VAL             S              3    DIM(500)
+     D GVK             S              9  3 DIM(500)
+     D NVK             S              9  3 DIM(500)
+     D TRA             S              9  0 DIM(500)
+     D ILA             S              5  0 DIM(500)
+     D                 DS
+     D  XULTID                 1     14  0
+     D  XULTM                  1      6  0
+     D  XULDD                  7      8  0
+     D  XULMM                  9     10  0
+     D  XULÅÅ                 11     14  0
+     D                 DS
+     D  ULÅÅ                   1      4  0
+     D  ULMM                   5      6  0
+     D  ULDD                   7      8  0
+     D  ULDT                   1      8  0
+     D  ULTM                   9     14  0
+     D  ULDaTi                 1     14  0
+N02  D                 DS
+N02  D  XSELGKJOP              1      8
+N02  D   XSELG                 1      4
+N02  D   XKJOP                 5      8
+      * Definere  hex appostrof
+     D App             c                   x'7D'
+     D Pil             c                   x'3F'
+      *
+     c                   exsr      SrInit
+     c                   exsr      GetTot
+     c                   exsr      Transport
+     c                   exsr      Invoice
+     c                   exsr      SrEnd
+     c     xILLno        ifgt      *zeros
+     c                   move      'J'           Usend
+     c                   endif
+      *
+     C                   EVAL      *INLR = *ON
+     C                   RETURN
+      **********************************************************
+     c     Transport     BEGSR
+      **********************************************************
+     C                   eval      XmlFelt = XtrNavn
+     C                   exsr      Xlatxml
+     C                   eval      XtrNavn = XmlFelt
+      * akkumuler sum vekt på tvers av alle fakturaer
+     c     1             do        500           Ni                3 0
+     c     Inv(Ni)       ifeq      *blanks
+     c                   leave
+     c                   endif
+     c                   eval      xTrGvkt= xTrGvkt+ GVK(Ni)
+     c                   eval      xTrNvkt= xTrNvkt+ NVK(Ni)
+     c                   eval      xTrAnt = xTrAnt + TRA(Ni)
+     c                   enddo
+      /free
+       DATA = '<Transport>'
+        +'<MainTransporter>'
+          +'<PartyType>MTR</PartyType>'
+          +'<Name>'+%trim(xTrNavn)+'</Name>'
+          +'<PartyId>3</PartyId>'
+          +'</MainTransporter>'
+        +'<TranspCountry>'+%trim(xTrLK)+'</TranspCountry>'
+        +'<TranspRegNo>'+%trim(xTrReg)+'</TranspRegNo>'
+        +'<TranspMode>'+%trim(xTrMode)+'</TranspMode>'
+        +'<TotGrossMass>'+%trim(%editc(xTrGvkt:'P'))+'</TotGrossMass>'
+        +'<TotNetMass>'+%trim(%editc(xTrNvkt:'P'))+'</TotNetMass>'
+        +'<WeightUnit>KG</WeightUnit>'
+        +'<TotPackages>'+%trim(%editc(xTrAnt:'Z'))+'</TotPackages>'
+       +'</Transport>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+      *
+     C                   ENDSR
+      *
+      **********************************************************
+     c     Invoice       BEGSR
+      **********************************************************
+      * behandle alle invoices i array (normalt kun en :=)
+     c     1             do        500           Ni                3 0
+     c     Inv(Ni)       ifeq      *blanks
+     c                   leave
+     c                   endif
+     c                   eval      xInvNo = Inv(Ni)
+     c                   eval      xInvCu = VAL(Ni)
+     c                   eval      xInvTot= TEV(Ni)
+     c                   eval      xTrGvkt= GVK(Ni)
+     c                   eval      xTrNvkt= NVK(Ni)
+     c                   eval      xTrAnt = TRA(Ni)
+     c                   eval      xILAnt = ILA(Ni)
+      * invoice head
+     C                   EVAL      DATA = '<Invoice>'
+     C                   EXCEPT    QData
+     c                   exsr      InvHead
+      * invoice lines
+     c                   exsr      InvLines
+      * invoice Bottom
+     C                   EVAL      DATA = '</Invoice>'
+     C                   EXCEPT    QData
+     c
+     c                   enddo
+     c
+     C                   ENDSR
+      **********************************************************
+     c     InvHead       BEGSR
+      **********************************************************
+
+      * invoice Header
+      /free
+       DATA = '<InvoiceNo>'+%trim(xInvNo)+'</InvoiceNo>'
+        +'<InvoiceType>CI</InvoiceType>'
+        +'<InvoiceDate>'
+        +%trim(%editw(xInvDt:'    -  -  T  :  :  '))+'</InvoiceDate>';
+        //+'<InvoiceText1>SHIPM.ID: '+%trim(xInvTx) +'</InvoiceText1>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+      /free
+       DATA = '<Seller>'
+        +'<PartyType>SEL</PartyType>'
+        +'<KghId>'+SEL+'</KghId>'
+        +'<PartyId>1</PartyId>'
+        +'</Seller>';
+       // S02 ..gammel.. '<KghId>131309</KghId>'
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+      /free
+       DATA = '<Buyer>'
+        +'<PartyType>BUY</PartyType>'
+        +'<KghId>'+BUY+'</KghId>'
+        +'<PartyId>2</PartyId>'
+        +'</Buyer>';
+       //S02 ..gammel.. '<KghId>167762</KghId>'
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+      * FreightAmount 1500 på første / deretter 1 pr fakt
+     c                   z-add     1500          FrtAmt           13 2
+     c     Ni            ifgt      1
+     c                   z-add     1             FrtAmt
+     c                   endif
+      /free
+       DATA = '<DeliveryTermCode>EXW</DeliveryTermCode>'
+         +'<FreightAmount>'+%trim(%editc(FrtAmt:'P'))+'</FreightAmount>'
+         +'<DeliveryTermPlace>'
+           +'<Adr1 />'
+           +'<Adr2 />'
+           +'<PostalNo>3241</PostalNo>'
+           +'<PostalAdr>Sandefjord</PostalAdr>'
+           +'<CountryCode>NO</CountryCode>'
+         +'</DeliveryTermPlace>';
+
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+      /free
+       DATA = '<Currency>'+%trim(xInvCu)+'</Currency>'
+           +'<TotalExVat>'+%trim(%editc(xInvTot:'P'))+'</TotalExVat>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+      /free
+       DATA = ''
+        +'<TotGrossMass>'+%trim(%editc(xTrGvkt:'P'))+'</TotGrossMass>'
+        +'<TotNetMass>'+%trim(%editc(xTrNvkt:'P'))+'</TotNetMass>'
+        +'<WeightUnit>KG</WeightUnit>'
+        +'<TotPackages>'+%trim(%editc(xTrAnt:'Z'))+'</TotPackages>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+      /free
+       DATA = '<TotNoOfIL>'+%trim(%editc(xILAnt:'Z'))+'</TotNoOfIL>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+     C                   ENDSR
+      **********************************************************
+     c     InvLines      BEGSR
+      **********************************************************
+     c                   move      *zeros        xILLNo
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   SELECT
+     C                   WHEN      XRNV = 'VBELN'
+     c                   eval      xOrdr    = XRVERD                            pakkseddelnr
+      *
+N02  C                   WHEN      XRNV = 'VKORG'
+N02  c                   eval      xKJOP    = XRVERD                            Kjøper
+      *
+TEMP  * OBS! tagnavn for ordrelinje (i utg.ordre) - ikke i bruk (finner via ordre/art/batch)
+TEMP c**                 WHEN      XRNV = 'POSNR'
+TEMP c**                 eval      xOrdLnr  = XRVERD                            linjenr
+      *
+      * starten på en linje
+      * OKLINJE er i utganspunktet satt til J, settes til N om den ikke skal medtas.
+     C                   WHEN      XRNV = 'MATNR'
+     c                   exsr      ClearLin
+     c                   eval      xILArt   = XRVERD
+      *
+     C                   WHEN      XRNV = 'ARKTX'
+     c                   eval      xILArtB  = XRVERD
+     c
+     C                   WHEN      XRNV = 'WERKS'
+     c                   eval      xSELG    = XRVERD                            Selger
+     c     UAvsMot       ifne      xSelgKjop
+     c                   move      'N'           OKlinje
+     c                   endif
+      *
+      * pr 15.10.2010: det viser seg at noen få linjer mangler LGORT, (manglende tolkes som NEI)
+      *           men alle har altid LGMNG lenger ned i XMLen.
+      *           Test tollager/oklinje er derfor flyttet til LGMNG-tagen
+     C                   WHEN      XRNV = 'LGORT'
+     c                   eval      xILLGORT = XRVERD
+      *
+     C                   WHEN      XRNV = 'CHARG'
+     c                   eval      xBatch   = XRVERD
+      *
+      *  LGMNG = Antall = 0 så skipp linja..
+     C                   WHEN      XRNV = 'LGMNG'
+     c                   eval(H)   xILQty   = %float(XRVERD)
+     c     xILQty        ifeq      0
+     c                   move      'N'           OKlinje
+     c                   end
+      * ekskludering basert på tillagerkode JA/NE flyttet til LGMNG-tagen
+     c     xILLGORT      IFeq      'JA'
+     c                   move      'J'           TollLager
+     c                   else
+     c     UTYP          ifne      'NO'
+     c                   move      'N'           OKlinje                        KUN TOLLAGER I DENNE
+     c                   end
+     c                   end
+      *
+     C                   WHEN      XRNV = 'BRGEW'
+     c                   eval(H)   xIlGvkt   = %float(XRVERD)
+     c                   eval(H)   xIlNvkt   = xIlGvkt
+      *
+     C                   WHEN      XRNV = 'NET_VALUE'
+     c                   eval(H)   xIlValue   = %float(XRVERD)
+     c     xIlValue      iflt      1
+     c     OKlinje       andne     'N'
+     c                   move      'N'           OKvalue
+     c                   move      'N'           OKlinje
+     c                   end
+      *
+      *  KZWI6 = tollverdi - overstyr nett value (men kun dersom større enn 0)
+      *          DERSOM linjen er meldt ugyldig PGA Net_value så settes linjen nå til OK..
+     C                   WHEN      XRNV = 'KZWI6'
+     c                   eval(H)   xIlValKZ   = %float(XRVERD)
+     c     xIlValKZ      ifgt      0.01
+     c                   eval(H)   xIlValue   = %float(XRVERD)
+     c     OKvalue       ifeq      'N'
+     c                   move      'J'           OKlinje
+     c                   end
+     c                   end
+      *
+     C                   WHEN      XRNV = 'HERKL'
+     c                   eval      xILOrig  = XRVERD
+      *
+      * Kun de invoice-lines som matcher den som nå behandles(fra array INV)
+     C                   WHEN      XRNV = 'INVNO'
+     c     XRVERD        ifne      xInvNo
+     c                   move      'N'           Oklinje
+     c                   endif
+      *
+      *  <STAWN> =tariffnr. Svensk eller NORSK,      Norsk = siste tag - skriv linje !!!!
+sxx  C**                 WHEN      XRNV = 'STAWN' and OKlinje = 'J'
+nxx  C                   WHEN      XRNV = 'STAWN'
+     c                   eval      TstPath='/ZSHPMNT02/IDOC/E1EDT20/E1EDL20/'
+     c                                    +'E1EDL24/ZE1EDL24'
+     c     XRPATH        ifeq      TstPath
+     c                   eval      xTarSE   = XRVERD                            utenlandsk
+     c                   else
+     c                   eval      xTarNO   = XRVERD                            NORSK
+nxx  c                   if        OKlinje = 'J'
+     c                   exsr      WriteLin
+nxx  c                   endif
+     c                   endif
+
+     c                   ENDSL
+
+     C     XRSN          reade     XMLRCVF                                94
+     c                   enddo
+
+     C                   ENDSR
+      *
+      **********************************************************
+     c     ClearLin      BEGSR
+      **********************************************************
+      *
+     c                   move      ' '           TollLager         1
+     c                   move      'J'           OKlinje           1
+     c                   move      'J'           OKvalue           1
+     c                   clear                   xBatch           25
+     c                   clear                   xILArt           15
+     c                   clear                   xILArtB          50
+     c                   clear                   xILQty            5 0
+     c                   clear                   xTarNO           10
+     c                   clear                   xTarSE           15
+     c                   clear                   xIlGvkt          13 3
+     c                   clear                   xIlNvkt          13 3
+     c                   clear                   xILCURR           3
+     c                   clear                   xIlValue         13 2
+     c                   clear                   xIlValKZ         13 2
+     c                   clear                   xILOrig           2
+     c                   clear                   xILLGORT          3
+     C                   ENDSR
+
+      **********************************************************
+     c     WriteLin      BEGSR
+      **********************************************************
+     C
+     c     TollLager     ifeq      'J'
+     c                   exsr      GetMrn
+     c     TTYP          cabne     UTYP          UtLin
+     c                   end
+      * OK!! - Linje skrives
+     c                   add       1             xILLno            5 0
+      *
+     C                   EVAL      DATA = '<InvoiceLine>'
+     C                   EXCEPT    QData
+      *
+     C                   eval      XmlFelt = xILArt
+     C                   exsr      Xlatxml
+     C                   eval      xILArt  = XmlFelt
+     C                   eval      XmlFelt = xILArtB
+     C                   exsr      Xlatxml
+     C                   eval      xILArtB = XmlFelt
+      /free
+       DATA = ''
+        +'<LineNo>'+%trim(%editc(xILLNo:'Z'))+'</LineNo>'
+        +'<Quantity>'+%trim(%editc(xILQty:'Z'))+'</Quantity>'
+        +'<Unit>STK</Unit>'
+        +'<ItemID>'+%trim(xILArt)+'</ItemID>'
+        +'<ItemName>'+%trim(xILArtB)+'</ItemName>'
+        //+'<ItemDescr>'+%trim(GNRMRN)+'</ItemDescr>'
+        +'<CustTaric>'
+          +'<StatNo1>'+%trim(xTarNO)+'</StatNo1>'
+          +'<IssuingCountry>NO</IssuingCountry>'
+        +'</CustTaric>'
+        +'<CustTaric>'
+          +'<StatNo1>'+%trim(xTarSE)+'</StatNo1>'
+          +'<IssuingCountry>SE</IssuingCountry>'
+        +'</CustTaric>'
+        +'<CountryOfOrig>'+%trim(xILOrig)+'</CountryOfOrig>'
+        +'<GrossMass>'+%trim(%editc(xIlGvkt:'P'))+'</GrossMass>'
+        +'<NetMass>'+%trim(%editc(xIlNvkt:'P'))+'</NetMass>'
+        +'<WeightUnit>KG</WeightUnit>'
+        +'<AmountExVat>'+%trim(%editc(xIlValue:'P'))+'</AmountExVat>';
+       if UTYP  = 'T2';
+         DATA = %trim(DATA)+'<MRN>'+%trim(xMRN)+'</MRN>';
+       endif;
+       if (UTYP = 'T2') or (UTYP = 'T1');
+         DATA = %trim(DATA)+'<WarehouseCode>'
+          +'<Code>'+%trim(xMRGN)+'</Code>'
+          +'<IssuingCountry>NO</IssuingCountry>'
+        +'</WarehouseCode>';
+       endif;
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+
+     C                   EVAL      DATA = '</InvoiceLine>'
+     C                   EXCEPT    QData
+      *
+     C     UtLin         ENDSR
+
+      **********************************************************
+     c     GetMrn        BEGSR
+      **********************************************************
+      * Tollagergods er enten T2=EU-gods eller annet=T1
+      * Default= T2 dersom ikke T1 eksplisitt er angit på Mrap-head eller linjenivå (ved T-)
+      * fra 08.06.2011- vare der SAP "tror" det er tollager, men saldo mangler regnes som 'NO'-vare
+      * (tidligere:gikk som T1 siden systemet ikke fant T2, men når saldo mangler er NO rett type)
+     c                   move      'NO'          Ttyp              2
+      *
+     c                   clear                   MRTRNR
+     c                   clear                   MRGN
+     c                   clear                   GnrMRN           50
+     c                   clear                   XMRN             20
+     c                   clear                   XMRGN            15
+     c     LLH04Key      chain     LLHEAD04                           33
+     c     *in33         cabeq     '1'           UtMRN
+      *
+     c     LHMN          setll     LLLINE
+     c     LHMN          reade     LLLINE                                 33
+     c     *in33         doweq     '0'
+     c     LLANR         ifeq      xILArt
+     c     LLSER         andeq     xBatch
+     c**   LLEON         ifeq      xOrdr      ... bedre..??
+     c**   LLELN         andeq     xOrdLnr    ... bedre..??
+     C     LAGD2K        chain     LLAGJD02                           33
+     C  N33LAGL1K        CHAIN     LLAGJL01                           33
+     c**N33              eval      xILArtB = VAVARE
+     C  N33LLMRFkey      CHAIN     LLMRF                              33
+     c     *in33         ifeq      '0'
+     c                   eval      xMRN=  MRTRNR
+     c                   eval      xMRGN= MRGN
+      * Saldo/Mrapp fantes - DFT type er nå T2(fra 2013.08.22) , men T1 hvis eksplisitt angitt
+     c*                  move      'T1'          Ttyp              2
+     c                   move      'T2'          Ttyp              2
+     c                   exsr      GetTtyp
+     c                   goto      UTMrn
+     C                   endif
+     C                   endif
+     c     LHMN          reade     LLLINE                                 33
+     C                   enddo
+
+     C     UtMrn         ENDSR
+
+      **********************************************************
+     c     GetTtyp       BEGSR
+      **********************************************************
+      * Er det T1=IKKE EU-gods?    enten på headernivå
+     c*    MRMOTT        ifeq      'T2'
+     c*                  move      'T2'          Ttyp              2
+     c     MRMOTT        ifeq      'T1'
+     c                   move      'T1'          Ttyp              2
+     c                   endif
+      * eller ved T-  DEFAULT er T2 (etter 2013.08.22)
+      *               dersom ikke kode T1  i lisensfila på enkeltvarepost
+     c     MRMOTT        ifeq      'T-'
+     c     VAMN          setll     LLLISF
+     c     VAMN          reade     LLLISF                                 33
+     c     *in33         doweq     '0'
+     c*    LIKD          ifeq      'T2'
+     c*                  move      'T2'          Ttyp              2
+     c     LIKD          ifeq      'T1'
+     c                   move      'T1'          Ttyp              2
+     c                   goto      UtGetTT
+     c                   end
+     c     VAMN          reade     LLLISF                                 33
+     c                   enddo
+     c                   endif
+     c     UtgetTT       endsr
+
+      **********************************************************
+     c     SrEnd         BEGSR
+      **********************************************************
+      *
+     c                   move      *blanks       DATA           1024
+      *
+      /free
+       DATA = '<JobDateTime>'
+         +%trim(%editw(ULDaTi:'    -  -  T  :  :  '))+'</JobDateTime>'
+         +'<TestIndicator>false</TestIndicator>'
+       +'</Job>';
+      /end-free
+     C                   EXCEPT    QData
+     C                   ENDSR
+      **********************************************************
+     c     SrINIT        BEGSR
+      **********************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    USN               9
+     C                   PARM                    UAVSMOT           8
+     C                   PARM                    UTYP              2
+     C                   PARM                    USend             1
+      *
+     C                   MOVE      *ZEROS        XKJED             8 0
+     C                   MOVEL     UAVSMOT       AVS               4
+     C                   MOVE      UAVSMOT       MOT               4
+     C     AVS           ifeq      '3100'                                       Komp Services AS
+     c                   move      '131309'      SEL               6
+     C                   Z-ADD     10            XPNR              8 0          Knr 10=Tollager SERV
+     c                   endif
+     C     AVS           ifeq      '3300'                                       Komp Distri. AS
+     c                   move      '477866'      SEL
+     C                   Z-ADD     20            XPNR                           Knr 20=Tollager SERV
+     c                   endif
+     C     MOT           ifeq      '2000'                                       Komp Services AB
+     c                   move      '167762'      BUY               6
+     c                   endif
+     C     MOT           ifeq      '2300'
+     c                   move      '161643'      BUY                            Komp Distri. AS
+     c                   endif
+      * UTYP = T2=tollager/T2/EU-varer         - 24
+      *        T1=tollager/T1/Annet            - 25
+      *        NO=Norske varer (IKKE tollager) - 26
+     c                   select
+     c     UTYP          wheneq    'T2'
+     c                   move      '24'          xAgrID            2
+     c     UTYP          wheneq    'T1'
+     c                   move      '25'          xAgrID
+     c     UTYP          wheneq    'NO'
+     c                   move      '26'          xAgrID
+     c                   endsl
+      * Usend = J = minst en varelinje av aktuell type funnet
+     c                   move      'N'           USend
+     C                   MOVE      USN           XRSN
+      *
+     C                   TIME                    XULTID
+     C                   MOVE      XULDD         ULDD
+     C                   MOVE      XULMM         ULMM
+     C                   MOVE      XULÅÅ         ULÅÅ
+     C                   MOVE      XULTM         ULTM
+      * ULDT er nå dagens dato i form HHÅÅMMDD (ULDaTi = HHÅÅMMDDTTMMSS )
+      *
+      *
+      * KEYS
+      * Key for XMLRCVL01 for å lese tags uavhengig av nivå..
+     C     L01Key        KLIST
+     C                   KFLD                    XRSN
+     C                   KFLD                    TagNv
+     c     *like         define    XRNV          TagNv
+     c     *like         define    XRPATH        TstPath
+      *
+     C     LLH04Key      KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    xOrdr
+     C     LAGD2K        KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    LLMN
+     C                   KFLD                    LLVN
+     C     LAGL1K        KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    VDMN
+     C     LLMRFKey      KLIST
+     C                   KFLD                    XKJED
+     C                   KFLD                    XPNR
+     C                   KFLD                    VAMRNR
+      * Legg ut innledende del av XML
+     c                   move      *blanks       DATA           1024
+      *
+      /free
+       DATA =
+        //'<?xml version="1.0" encoding="UTF-8" ?>'
+        '<?xml version="1.0" encoding="ISO-8859-1" ?>'
+       +'<Job xmlns="http://kghcustoms.com/sfc/2" '
+       +'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+       +'xsi:schemaLocation="http://kghcustoms.com/sfc/2 '
+       +'file:///C:/Users/mattiasha.KGHSPEDITION/Documents/SFC2.1(rc1)'
+       +'/xmlsfc_v2.1(rc6).xsd">'
+         +'<JobID>'+%trim(%editc(XRSN:'C'))+'</JobID>'
+         +'<AgreementID>'+%trim(xAgrID)+'</AgreementID>'
+         +'<Version>2.0.0</Version>'
+         +'<SFCParty>'
+           +'<PartyType>KCU</PartyType>'
+           +'<KghId>131309</KghId>'
+           +'<PartyId>1</PartyId>'
+           +'</SFCParty>';
+      /end-free
+     C                   exsr      xlat
+     C                   EXCEPT    QData
+     C                   ENDSR
+      **********************************************************
+     c     GetTot        BEGSR
+      **********************************************************
+     c                   clear                   xILAnt            5 0
+     c                   clear                   xOrdr            17
+TEMP c                   clear                   xOrdLnr           7            lengde ???
+     c                   movel     *blanks       xTrNavn          30
+     c                   eval      xTrNavn = 'OBS - Ukjent!!!     '
+     c*                  eval      xTrNavn = 'Test særtegn ÆØÅ æøå'
+     c                   movel     'SE'          xTrLK             2
+     c                   clear                   xTrReg           10
+     c                   movel     'ROAD'        xTrMode          10
+     c                   clear                   xTrGvkt           9 3
+     c                   clear                   xTrNvkt           9 3
+     c                   clear                   xTrAnt            9 0
+      *
+     c                   clear                   xInvNo           30
+     c                   move      UlDaTi        xInvDt           14 0
+     c                   move      000000        xInvDt
+     c                   clear                   xInvTx           15
+     c                   clear                   xInvCu            3
+     c                   clear                   xInvTot          13 2
+      * les alle linjer - mellomlagre div linjevariabler for evt akkumulering
+      * ved slutt på hver linje (STAWN=tariffnr/NORSK) sjekes gyldigghet og det akkumuleres
+      * hvis rett type 24/25/26 (T2/T1/NO)
+     C     XRSN          setll     XMLRCVF
+     C     XRSN          reade     XMLRCVF                                94
+     C     *in94         doweq     '0'
+     C                   SELECT
+     C                   WHEN      XRNV = 'TKNUM'                               ShipmentID
+     c                   eval      xInvTx = XRVERD
+     C                   WHEN      XRNV = 'VSTZW'                               Inv valuta, lin-nivå
+     c                   eval      xInvCu = XRVERD                              (samme på alle)
+      * xOrdr xilArt xBatch er nødvendig i kjeden for å finne MRNnr..(sr GETMRN)
+      * noe av dette er på header/annet på linjenivå, men GETMRN er ved slutten av linje
+      * da kan en uansett stole på at verdine er korrekte (de sist xOrdr xilArt Xbatch )
+     C                   WHEN      XRNV = 'VBELN'
+     c                   eval      xOrdr    = XRVERD                            pakkseddelnr
+      *
+     C                   WHEN      XRNV = 'VKORG'
+     c                   eval      xKJOP    = XRVERD                            Kjøper
+     C                   WHEN      XRNV = 'CHARG'
+     c                   eval      xBatch   = XRVERD
+      * Begynnelsen på EN linje..
+     C                   WHEN      XRNV = 'MATNR'
+     c                   eval      xILArt   = XRVERD
+     c                   move      ' '           TollLager         1
+     c                   move      'J'           OKlinje           1
+     c                   move      'J'           OKvalue           1
+     c                   move      *blanks       xILLGORT          3
+     c
+     C                   WHEN      XRNV = 'WERKS'
+     c                   eval      xSELG    = XRVERD                            Selger
+      *
+      * pr 15.10. det viser seg at noen få linjer mangler LGORT, (manglende tolkes som NEI)
+      *           men alle har altig LGMNG lenger ned i XMLen.
+      *           Test tollager/oklinje er derfor flyttet til LGMNG-tagen
+     C                   WHEN      XRNV = 'LGORT'
+     c                   eval      xILLGORT = XRVERD
+      *  hvis  LGMNG = 0 så skipp linja..
+     C                   WHEN      XRNV = 'LGMNG'
+     c                   eval(H)   xILQty   = %float(XRVERD)
+     c     xILQty        ifeq      0
+     c                   move      'N'           OKlinje
+     c                   end
+      * LGMNG er en tag som ALLTID finnes og den kommer ETTER at evt SELG/KJØP er plukket opp
+      * DERSOM FILTER KUN AVSMOT OPPGITT SÅ MÅ DET MATCHE PÅ LINJENIVÅ...
+     c     UAvsMot       ifne      xSelgKjop
+     c                   move      'N'           OKlinje
+     c                   endif
+      *
+      * ekskludering basert på tillagerkode JA/NE flyttet til LGMNG-tagen
+     c     xILLGORT      IFeq      'JA'
+     c                   move      'J'           TollLager
+     c                   else
+     c     UTYP          ifne      'NO'
+     c                   move      'N'           OKlinje                        KUN TOLLAGER I DENNE
+     c                   end
+     c                   end
+      *
+     C                   WHEN      (XRNV = 'BRGEW') and (OKlinje = 'J')
+     c                   eval(H)   xIlGvkt   = %float(XRVERD)
+     C                   WHEN      (XRNV = 'NET_VALUE') and (OKlinje = 'J')
+     c                   eval(H)   xIlValue   = %float(XRVERD)
+     c     xIlValue      iflt      1
+     c     OKlinje       andne     'N'
+      * VAR OKlinje=J men value < 1 : Hjelpeflagg OKvalue for å teste om OK-igjen etter KZWI6
+     c                   move      'N'           OKvalue
+     c                   move      'N'           OKlinje
+     c                   end
+      *
+      *  KZWI6 = tollverdi - overstyr nett value (men kun dersom større enn 0)
+      *          DERSOM linjen er meldt ugyldig PGA Net_value så settes linjen nå til OK..
+     C                   WHEN      XRNV = 'KZWI6'
+     c                   eval(H)   xIlValKZ   = %float(XRVERD)
+     c     xIlValKZ      ifgt      0.01
+     c                   eval(H)   xIlValue   = %float(XRVERD)
+     c     OKvalue       ifeq      'N'
+     c                   move      'J'           OKlinje
+     c                   end
+     c                   end
+      *
+      * Inv.nr på linjenivå
+     C                   WHEN      XRNV = 'INVNO' and OKlinje = 'J'
+     c                   eval      xInvNo   = XRVERD
+      *
+      *  <STAWN> =tariffnr. Svensk eller NORSK,      Norsk = siste tag - skriv linje !!!!
+     C                   WHEN      XRNV = 'STAWN' and OKlinje = 'J'
+     c                   eval      TstPath='/ZSHPMNT02/IDOC/E1EDT20/E1EDL20/'   =Svensk
+     c                                    +'E1EDL24/ZE1EDL24'
+     c     XRPATH        ifNE      TstPath                                      =Norsk!!
+     c     TollLager     ifeq      'J'
+     c                   exsr      GetMrn
+     c     TTYP          cabne     UTYP          NxtTot
+     c                   end
+     c                   exsr      AccInv
+     c                   endif
+
+     c                   ENDSL
+      **
+     c     NxtTot        tag
+     C     XRSN          reade     XMLRCVF                                94
+     c                   enddo
+      *
+     C                   ENDSR
+
+      **********************************************************
+     c     AccInv        BEGSR
+      **********************************************************
+      * legg til invoice i array om det ikek finnes/finn arraynr
+     c     1             do        500           Ni                3 0
+     c     Inv(Ni)       ifeq      xInvNo
+     c     Inv(Ni)       oreq      *blanks
+     c                   move      xInvNo        Inv(Ni)
+     c                   leave
+     c                   endif
+     c                   enddo
+      * add beløp mm på tilsvarende indexnr
+     c                   move      xInvCu        VAL(Ni)                        xInvCu =inv curr
+     c                   add       xIlValue      TEV(Ni)                        xInvTot=Invoice Tot
+     c                   add       xIlGvkt       GVK(Ni)                        xTrGvkt=Gross weight
+     c                   add       xIlGvkt       NVK(Ni)                        xTrNvkt=LIKT Gvkt
+     c                   add       xILQty        TRA(Ni)                        xTrAnt =AntKolli
+     c                   add       1             ILA(Ni)                        xILAnt =ant InvLin
+     C                   ENDSR
+      **********************************************************
+     c     Xlat          BEGSR
+      **********************************************************
+     c*    'Æ':'A'       XLATE     DATA          DATA
+     c*    'Ø':'O'       XLATE     DATA          DATA
+     c*    'Å':'A'       XLATE     DATA          DATA
+     c*    'æ':'a'       XLATE     DATA          DATA
+     c*    'ø':'o'       XLATE     DATA          DATA
+     c*    'å':'a'       XLATE     DATA          DATA
+     c*    'Ä':'A'       XLATE     DATA          DATA
+     c*    'Ö':'O'       XLATE     DATA          DATA
+     c*    'ä':'a'       XLATE     DATA          DATA
+     c*    'ö':'o'       XLATE     DATA          DATA
+     c     Pil:'-'       XLATE     DATA          DATA                           "pil"
+     C                   ENDSR
+
+      **********************************************************
+     c     Xlatxml       BEGSR
+      **********************************************************
+      * fjern reserverte xml-tegn fra felt
+     c     '<':' '       XLATE     XmlFelt       XmlFelt        1024
+     c     '>':' '       XLATE     XmlFelt       XmlFelt
+     c     '&':'+'       XLATE     XmlFelt       XmlFelt
+     c     '"':' '       XLATE     XmlFelt       XmlFelt
+     c     App:' '       XLATE     XmlFelt       XmlFelt
+     C                   ENDSR
+     OQ         EADD         Qdata
+     O                       DATA              1024

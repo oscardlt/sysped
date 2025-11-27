@@ -1,0 +1,900 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/EPOMS14 MODULE(*LIBL/EPOMS14
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+      * 01 JOV PTF10 Title sette i RPG
+      * 02 YBC PTF10 TEST LINJETYPE VED SLETTING
+      * 03 YBC PTF10 SLETT RIKTIG LINJE VED Å TESTE ELSTA3. FJERN ENDRING 2
+      * 04 YBC PTF10 OPPDATER T&T VED SLETTING AV RESTORDRE LIKE ETTER
+10261 * 05 YBC PTF10 VEKT/KUBIKK I TURER ER ENDRET TIL 9.0 OG 7.3
+10XXX * 06 YBC PTF10 TEST FRA/TIL STEDSKODE PÅ LINJE-NIVÅ
+xxxxxx*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+11XXX * 07 YBC PTF11 ARBEID MED KOLLI
+********************************************************************
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FHEADF     UF   E           K DISK    USROPN
+     FTURER14   UF   E           K DISK    USROPN
+     FEPOL      UF   E           K DISK    USROPN
+     FEPOH      UF   E           K DISK    USROPN
+     FEPOTT     O  A E             DISK    USROPN
+     FEPOPOS    IF A E           K DISK    USROPN
+     FCundL01   IF   E           K DISK    USROPN
+N07  FBRPARF    IF   E           K DISK    USROPN
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      * Indicators for GetHtmlIfsMult subprocedure
+     D IfsMultIndicators...
+     d                 ds
+     D  NoErrors                       n
+     D  NameTooLong                    n
+     D  NotAccessible                  n
+     D  NoFilesUsable                  n
+     D  DupSections                    n
+     D  FileIsEmpty                    n
+
+      *
+     D OddEven         s             10
+     0* Client input variables
+     D user            s             10
+     D UsrSpcName      s             10
+     D WSKN            S              8
+     D BSKN            S              8  0
+     D XXKN            S              8  0
+     D WSTUR           s              8
+     D WBTUR           s              8  0
+     D WSAVD           s              4
+     D WBAVD           s              4  0
+     D WSOPD           s              7
+     D WBOPD           s              7  0
+     D WSBES           s             10
+     D WSLIN           s              7
+     D WBLIN           s              7  0
+     D WSULIN          s              5
+     D WBULIN          s              5  0
+     D WSSTA3          s              1
+S03  D*WSLTYP          s              1
+     D WSPICKUP        s              1
+     D XFEILPLK        s              1
+     D XFEILPLKT       s            100
+     D WSDELETE        s              1
+     D VisAChecked     s             10
+     D VisAlle         s              1
+     D DATO            s              8  0
+     D From            s              8
+     D To              s              8
+     D STATUS          S            100
+     D REASON          S            100
+     D Title           S            100
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      *
+     D EHBES           s             10
+xx   D BigNum          s             19  9
+     D ANTSND          s              5  0
+     D MaxSN           s              5
+     D MaxSND          s              5  0
+     D ANTRCD          s              5  0
+     D MaxRC           s              5
+     D MaxRCD          s              5  0
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D UPC             C                   CONST('ABCDEFGHIJKLMNOPQRST-
+     D                                     UVWXYZÆØÅ')
+     D LO              C                   CONST('abcdefghijklmnopqrst-
+     D                                     uvwxyzæøå')
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+      *
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+      * dato/tid siste vellykkede operasjon.
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Pickup
+     C                   IF        WSPICKUP = 'Y'
+     C                   EXSR      SRPICKUP
+     C                   END
+      * Delete
+     C                   IF        WSDELETE = 'Y'
+     C                   EXSR      SRDELETE
+     C                   END
+      * ER DET BEDT OM statusendring på en/fler poster.(submit med checked i xx poster)
+     C                   eval      ItemCount = ZhbGetVarCnt('OKSTAT')
+     C     ItemCount     IFGT      *ZEROS
+     C                   EXSR      SetStat
+     C                   END
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+     C                   callp     wrtsection('Stdtop')
+     C                   callp     wrtsection('top')                            Programmets html
+N07  C                   IF        XJOBBKL = 'J' AND XJOBBKLL = *BLANKS
+N07  C                             AND EHBES <> *BLANKS
+N07  C                   callp     wrtsection('topcl12')
+N07  C                   END
+N07  C                   callp     wrtsection('topcl13')
+N07  C                   IF        XJOBBKL = 'J'
+N07  C                   callp     wrtsection('topcl22')
+N07  C                   ELSE
+N07  C                   callp     wrtsection('topcl21')
+N07  C                   END
+N07  C                   callp     wrtsection('topcl23')
+N07  C                   IF        XJOBBKL = 'J'
+N07  C                   callp     wrtsection('topcl32')
+N07  C                   ELSE
+N07  C                   callp     wrtsection('topcl31')
+N07  C                   END
+N07  C                   callp     wrtsection('topcl33')
+      *
+      * HOVEDRUTINE
+      *
+      * Vis liste over registrete saker
+      *
+     C     MaxSnd        IFEQ      *ZEROS
+     C                   Z-add     500           MaxSnd
+     C                   END
+     C     MaxRcd        IFEQ      *ZEROS
+     C                   Z-add     2000          MaxRcd
+     C                   END
+      *
+     C                   Move      *zeros        AntSnd
+     C                   Move      *zeros        AntRcd
+      *
+     C                   IF        EHAVD = 0
+     c     Key           setll     EPOL
+     c     Key           Reade(N)  EPOL                                   35
+      *
+     c     *IN35         doweq     '0'
+     C                   IF        ELAVD = 0
+N07  C                   IF        XJOBBKL = 'J' AND
+N07  C                             (ELSTA <> 'A' AND ELSTA <> 'B' AND
+N07  C                              ELSTA <> 'C' AND ELSTA<>' ' AND
+N07  C                              ELSTA <> '0')
+N07  C                   GOTO      NextRec
+N07  C                   END
+     C                   Add       1             AntRcd
+     C     AntRcd        CabGe     MaxRcd        Utles
+      * div filter
+     c*    XINTERN       Ifne      'J'
+     C*    BIKUNR        CabNe     MSGKNR        NextRec
+     c*                  end
+      * Ok - skriv
+     C                   exsr      Setrow
+     C                   callp     wrtsection('row')
+     C                   SELECT
+     C                   WHEN      WBAVD = 0
+     C                   callp     wrtsection('row2')
+N07  C                   WHEN      XJOBBKL = 'J'
+N07  C                   callp     wrtsection('row2')
+N06  C                   WHEN      HESDF <> ELFSTE AND ELFSTE <> *BLANKS
+N06   * Ikke plukk når både hode og linje har ulik fra-sted
+N06  C                   callp     wrtsection('row2')
+N06  C                   WHEN      HESDT <> ELTSTE AND ELTSTE <> *BLANKS
+N06   * Ikke plukk når både hode og linje har ulik til-sted
+N06  C                   callp     wrtsection('row2')
+N06  C                   WHEN      HESDF = EHFSTE AND ELFSTE = *BLANKS AND
+N06  C                             HESDT = ELTSTE AND ELTSTE <> *BLANKS
+N06   * Plukk når hode har lik fra-sted og linje har lik til-sted
+N06  C                   callp     wrtsection('row1')
+N06  C                   WHEN      HESDT = EHTSTE AND ELTSTE = *BLANKS AND
+N06  C                             HESDF = ELFSTE AND ELFSTE <> *BLANKS
+N06   * Plukk når hode har lik til-sted og linje har lik fra-sted
+N06  C                   callp     wrtsection('row1')
+N06  C                   WHEN      (HESDF = ELFSTE AND ELFSTE <> *BLANKS) AND
+N06  C                             (HESDT = ELTSTE AND ELTSTE <> *BLANKS)
+N06   * Plukk når linje har lik både fra-sted og til-sted
+N06  C                   callp     wrtsection('row1')
+     C                   WHEN      HESDF <> EHFSTE OR HESDT <> EHTSTE
+N06   * Linje med avvikende fra/til sted er testet før. Nå testes KUN på hode-nivå.
+N06   * Ikke plukk når enten fra-sted eller til-sted er ulik.
+     C                   callp     wrtsection('row2')
+     C*                  WHEN      ELULIN = 99999
+     C                   WHEN      ELULIN = 99999 OR ELSTA3 = 'R'
+     C                   callp     wrtsection('row2')
+     C                   OTHER
+     C                   callp     wrtsection('row1')
+     C                   ENDSL
+N07  C                   IF        XJOBBKL = 'J'
+N07  C                   callp     wrtsection('row3KL')
+N07  C                   ELSE
+     C                   callp     wrtsection('row3')
+N07  C                   END
+      * siste staus ikke sendt, indiker i liste ??
+     c                   move      *blanks       STA2style       100
+     C                   if        ELSTA2='S'
+     c                   eval      STA2style = 'bgcolor="#E65F5F"'
+     c                   endif
+     C                   callp     updHTMLvar('STA2style':STA2style)
+      * UNDERLINJENR 99999 FINNES --> IKKE VIS EDITERING
+     C                   CALL      'EPOMS14A'                                   SJEKK UNDERLINJENR
+     C                   PARM                    ELKUND
+     C                   PARM                    ELBES
+     C                   PARM                    ELLIN
+     C                   PARM                    UOK               1
+      * VIS IKON UANSETT - SPERRE PÅ NESTE NIVÅ
+     C*                  IF        UOK = 'J'
+     C*                  callp     wrtsection('row4')
+     C*                  ELSE
+     C*                  callp     wrtsection('row5')
+     C*                  END
+     C                   callp     wrtsection('row4')
+     C                   callp     wrtsection('row6')
+N07  C                   IF        XJOBBKL = 'J'
+N07  C                   callp     wrtsection('rowcl2')
+N07  C                   ELSE
+N07  C                   callp     wrtsection('rowcl1')
+N07  C                   END
+N07  C                   callp     wrtsection('rowcl3')
+      *
+     C                   Add       1             AntSnd
+     C     AntSnd        CabGe     MaxSnd        Utles
+     C                   END
+      *
+     c     NextRec       Tag
+     c     Key           Reade(N)  EPOL                                   35
+     c                   enddo
+     C                   END
+      *
+      *
+     C     UTLES         TAG
+     C                   callp     updHTMLvar('ANTSND':
+     C                             %trim(%editc(ANTSND:'3')))
+     C                   callp     updHTMLvar('MaxSnd':
+     C                             %trim(%editc(MaxSnd:'3')))
+     C                   callp     updHTMLvar('ANTRCD':
+     C                             %trim(%editc(ANTRCD:'3')))
+     C                   callp     updHTMLvar('MaxRcd':
+     C                             %trim(%editc(MaxRcd:'3')))
+      * Quit
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')                            programmets Html
+      *
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      MAXSN    = zhbgetvar('MaxSn')
+     C                   eval      MaxSnd   = c2n2(MAXSN)
+     C                   eval      MAXRC    = zhbgetvar('MaxRc')
+     C                   eval      MaxRcd   = c2n2(MAXRC)
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSKN    = zhbgetvar('WSKN')
+     C                   eval      BSKN    = c2n2(WSKN)
+     C                   eval      WSTUR    = zhbgetvar('WSTUR')
+     C                   EVAL      WBTUR    = c2n2(WSTUR)
+     C                   eval      WSAVD    = zhbgetvar('WSAVD')
+     C                   EVAL      WBAVD    = c2n2(WSAVD)
+     C                   eval      WSOPD    = zhbgetvar('WSOPD')
+     C                   EVAL      WBOPD    = c2n2(WSOPD)
+     C                   eval      EHBES    = zhbgetvar('EHBES')
+     C                   eval      WSBES    = zhbgetvar('WSBES')
+     C                   eval      WSLIN    = zhbgetvar('WSLIN')
+     C                   EVAL      WBLIN    = c2n2(WSLIN)
+     C                   eval      WSULIN   = zhbgetvar('WSULIN')
+     C                   EVAL      WBULIN   = c2n2(WSULIN)
+     C                   eval      WSSTA3   = zhbgetvar('WSSTA3')
+S03  C*                  eval      WSLTYP   = zhbgetvar('WSLTYP')
+     C                   eval      WSPICKUP = zhbgetvar('WSPICKUP')
+     C                   eval      WSDELETE = zhbgetvar('WSDELETE')
+      * Checkboks for Vis alle
+      *    ved KLIKK på checkboks kommer verdi Y/blank,
+      *    ellers kommer verdi fra siste valg via "VisAlle" som checked / blank(N)
+     C     VisAchecked   Ifeq      'checked'
+     C                   eval      VisAlle  = 'Y'
+     C                   else
+     C                   eval      VisAlle  = zhbgetvar('VisAlle')
+     C                   end
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     HEADF
+     C                   CLOSE     TURER14
+     C                   CLOSE     EPOL
+     C                   CLOSE     EPOH
+     C                   CLOSE     EPOTT
+     C                   CLOSE     EPOPOS
+     C                   CLOSE     CUNDL01
+N07  C                   CLOSE     BRPARF
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+cccccC                   eval      IfsMultIndicators = gethtmlifsmult(
+cccccC                             '/syspeddev/html/Header/eSpedTop.html -
+cccccC                             /syspeddev/html/EPOMS14.html -
+cccccC                             /syspeddev/html/Footer/eSpedBot.html':
+cccccC                             '/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+N01  c                   eval      Title='POMS Purchase Order Management System'
+N01  C                   callp     updhtmlvar('TITLE':Title)
+     c
+     C                   callp     updHTMLvar('ROWHEAD':RowHead)
+     C                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHTMLvar('BIBESK':BIBESK)
+     C                   callp     updHtmlVar('WSKN':
+     C                             %trim(%editc(BSKN:'Z')))
+     C                   callp     updHTMLvar('KNAVN':KNAVN)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('WSTUR':WSTUR)
+     C                   callp     updHTMLvar('WSAVD':WSAVD)
+     C                   callp     updHTMLvar('WSOPD':WSOPD)
+     C                   callp     updHtmlVar('EHBES':EHBES)
+     C                   callp     updHTMLvar('WSPLUKKET':WSPICKUP)
+     C                   callp     updHTMLvar('XFEILPLK':XFEILPLK)
+     C                   callp     updHTMLvar('XFEILPLKT':XFEILPLKT)
+      * Søkeparam
+     C                   callp     updHTMLvar('VISAlle':VISAlle)
+     C     VisAlle       Ifeq      'Y'
+     C                   eval      VisAChecked = 'checked'
+     C                   end
+     C                   callp     updHTMLvar('VisAChecked':VisAChecked)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+      *
+     C                   callp     updHTMLvar('ELLIN':
+     C                             %trim(%editc(ELLIN:'Z')))
+     C                   callp     updHTMLvar('ELULIN':
+     C                             %trim(%editc(ELULIN:'Z')))
+S03  C*                  callp     updHTMLvar('ELLTYP':ELLTYP)
+     C                   callp     updHTMLvar('ELART':ELART)
+     C                   callp     updHTMLvar('ELARTL':ELARTL)
+     C                   callp     updHTMLvar('ELABES':ELABES)
+N03  C                   callp     updHTMLvar('WSSTA3':ELSTA3)
+     C                   callp     updHTMLvar('ELETD':
+     C                             %trim(%editc(ELETD:'Z')))
+     C                   callp     updHTMLvar('ELANTS':
+     C                             %trim(%editc(ELANTS:'Z')))
+     C                   callp     updHTMLvar('ELNTSL':
+     C                             %trim(%editc(ELNTSL:'Z')))
+     c                   z-add(H)  ELNTKL        XXNTKL            6 0
+     C                   callp     updHTMLvar('ELNTKL':
+     C                             %trim(%editc(xxNTKL:'Z')))
+     C                   callp     updHTMLvar('ELVKTL':
+     C                             %trim(%editc(ELVKTL:'4')))
+     C                   callp     updHTMLvar('ELM3L':
+     C                             %trim(%editc(ELM3L:'4')))
+     c                   select
+     c     ELSTA         wheneq    ' '
+     c     ELSTA         oreq      '0'
+     c                   eval      STATUS = 'Pending'
+     c     ELSTA         wheneq    '1'
+     c                   eval      STATUS = 'Contacted'
+     c     ELSTA         wheneq    '15'
+     c                   eval      STATUS = 'Ready for stuffing'
+     c     ELSTA         wheneq    '2'
+     c                   eval      STATUS = 'Booked'
+     c     ELSTA         wheneq    '3'
+     c                   eval      STATUS = 'Confirmed'
+     c     ELSTA         wheneq    '4'
+     c                   eval      STATUS = 'Shipped'
+     c     ELSTA         wheneq    '5'
+     c                   eval      STATUS = 'Arrived'
+     c     ELSTA         wheneq    '6'
+     c                   eval      STATUS = '6*Undefined*'
+N07  C     ELSTA         wheneq    'A'
+N07  c                   eval      STATUS = 'Confirmed'
+N07  C     ELSTA         wheneq    'B'
+N07  c                   eval      STATUS = 'Printed'
+N07  C     ELSTA         wheneq    'C'
+N07  c                   eval      STATUS = 'Collected'
+N07  C     ELSTA         wheneq    'D'
+N07  c                   eval      STATUS = 'Received'
+N07  C     ELSTA         wheneq    'E'
+N07  c                   eval      STATUS = 'Out terminal'
+N07  C     ELSTA         wheneq    'F'
+N07  c                   eval      STATUS = 'Deliveried'
+     c                   endsl
+     C                   callp     updHTMLvar('STATUS':STATUS)
+      *
+     c                   select
+     c     ELREAS        wheneq    ' '
+     c                   eval      REASON = *blanks
+     c     ELREAS        wheneq    'xxx'
+     c                   eval      REASON = ELREAS + ' xxxxxxxxxxxxx'
+     c     ELREAS        wheneq    'AAAA'
+     c                   eval      REASON = ELREAS + ' YYYYYYYYYYYYY'
+     c     ELREAS        wheneq    'XYX..'
+     c                   eval      REASON = ELREAS + ' ZZZZZZZZZZZZZ'
+     c                   other
+     c                   eval      REASON = ELREAS
+     c                   endsl
+     C                   callp     updHTMLvar('REASON':REASON)
+      *
+      *
+     C                   endsr
+      *
+      *
+      *=====================================================================******
+      *  SRPICKUP
+      *=====================================================================******
+     C     SRPICKUP      begsr
+      *
+     C                   CALL      'EPOMS15A'
+     C                   PARM                    WBAVD             4 0
+     C                   PARM                    WBOPD             7 0
+     C                   PARM                    BIBRID
+     C                   PARM                    XXKN
+     C                   PARM                    EHBES
+     C                   PARM                    WBLIN
+     C                   PARM                    WBULIN
+     C                   PARM                    WSSTA3
+     C                   PARM                    XFEILPLK
+     C                   PARM                    XFEILPLKT
+     C                   GOTO      SLPICKUP
+      * SJEKK OM ALLE LINJER ER PLUKKET. I SÅ FALL SETT 9999/9999999 PÅ EPOH
+     C                   MOVE      'J'           XALLPLK           1
+     C     KEY           SETLL     EPOL
+     C     KEY           READE(N)  EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELAVD = 0 AND
+     C                             (WBLIN <> ELLIN OR WBULIN <> ELULIN OR
+     C                             WSSTA3 <> ELSTA3)
+     C                   MOVE      'N'           XALLPLK
+     C                   LEAVE
+     C                   END
+     C     KEY           READE(N)  EPOL                                   33
+     C                   ENDDO
+      *
+     C     EPOLK         CHAIN     EPOL                               33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+N06   * Test nede kan være unødvendig.
+N06   * Men testen skal hindre en annen endrer steder mens en plukker samtidig.
+N06  C                   SELECT
+N06  C                   WHEN      ELFSTE = *BLANKS AND ELTSTE = *BLANKS
+N06   * Ok. Linje har ikke avvikende fra/til sted.
+N06  C                   WHEN      ELFSTE = *BLANKS AND
+N06  C                             ELTSTE <> *BLANKS AND ELTSTE = HESDT
+N06   * Ok. Linje har avvikende til-sted som er lik med turens til-sted.
+N06  C                   WHEN      ELTSTE = *BLANKS AND
+N06  C                             ELFSTE <> *BLANKS AND ELFSTE = HESDF
+N06   * Ok. Linje har avvikende fra-sted som er lik med turens fra-sted.
+N06  C                   WHEN      ELFSTE = HESDF AND ELTSTE = HESDT
+N06   * Ok. Linje har avvikende fra/til steder som er like med turens fra/til steder.
+N06  C                   OTHER
+N06   * Ikke plukk. Enten hode eller linje har ulik fra/til sted som turens fra/til sted.
+N06  C                   GOTO      LESNESTE
+N06  C                   ENDSL
+     C                   IF        WSSTA3 = ELSTA3                               2<-B
+     C                   LEAVE
+     C                   END                                                     2<-E
+N06  C     LESNESTE      TAG
+     C                   UPDATE    EPOLR
+     C     EPOLK         READE     EPOL                                   33
+     C                   ENDDO                                                  1<-B
+      *
+     C                   IF        *IN33 = *OFF                                 1<-B
+     C                   IF        ELAVD = 0 AND EHAVD = 0                       2<-B
+     C                   MOVE      WBAVD         ELAVD
+     C                   MOVE      WBOPD         ELOPD
+     C     WBTUR         CHAIN(N)  TURER14                            33
+     C                   EVAL      ELSTA = '2'                                  Booked
+     c                   IF        TUTST4= 'X'                                    3<-B
+     C                   EVAL      ELSTA = '3'                                  Confirmed
+     c                   endif                                                    3<-E
+     C                   EVAL      ELSTA2= 'S'                                  SEND
+     C                   UPDATE    EPOLR
+     C                   IF        XALLPLK = 'J'                                  3<-B
+     C     KEY           CHAIN     EPOH                               33
+     C                   IF        *IN33 = *OFF                                    4<-B
+     C                   EVAL      EHAVD = 9999
+     C                   EVAL      EHOPD = 9999999
+     C                   UPDATE    EPOHR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+      * T&T
+     C                   EVAL      ETKUND = ELKUND
+     C                   EVAL      ETBES  = ELBES
+     C                   EVAL      ETLIN  = ELLIN
+     C                   EVAL      ETULIN = ELULIN
+     C                   EVAL      ETACTI = 'PIC'
+     C                   EVAL      ETTEXT = 'PO line is picked up to order '
+     C                             + %TRIM(%EDITC(ELAVD:'Z')) + '/'
+     C                             + %TRIM(%EDITC(ELOPD:'Z'))
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           ETDATE
+     C                   MOVE      WTM           ETTIME
+     C                   MOVE      BIBRID        ETUSER
+     C                   WRITE     EPOTTR
+      * Skriv x-ref ubetinget - sats 100% på at det fjernes ved evt remove fra oppdrag
+      * finn høyeste eksisterende POSnr - add 10
+     c                   move      *zeros        EPPOS
+     c     PosMax        setgt     EPOPOS
+     c     HEADFK        readpe    EPOPOS
+     C                   eval      EPAVD = ELAVD
+     C                   eval      EPOPD = ELOPD
+     c                   eval      EPPOS = EPPOS + 10
+     C                   eval      EPKUND= ELKUND
+     C                   eval      EPBES = ELBES
+     C                   eval      EPLIN = ELLIN
+     C                   eval      EPULIN= ELULIN
+     c                   write     EPOPOSR
+      *
+     C     HEADFK        CHAIN     HEADF                              33
+     C                   IF        *IN33 = *OFF                                   3<-B
+     C                   ADD(H)    ELNTSL        HENT
+     C                   ADD(H)    ELVKTL        HEVKT
+     C*                  ADD(H)    ELM3L         HEM3
+     c     HEM3          ADD(H)    ELM3L         BigNum
+     c     BigNum        ifgt      9999.999                                        4<-B
+     c                   z-add     9999.999      HEM3
+     c                   else                                                      4
+     c                   z-add     BigNum        HEM3
+     c                   endif                                                     4<-E
+     C                   UPDATE    HEADFR
+     C     WBTUR         CHAIN     TURER14                            33
+     C                   IF        *IN33 = *OFF                                    4<-B
+     C                   ADD(H)    ELNTSL        TUTS
+     C                   ADD(H)    ELVKTL        TUTVKT
+     C*                  ADD(H)    ELM3L         TUTM3
+     c     TUTM3         ADD(H)    ELM3L         BigNum
+S05  c*    BigNum        ifgt      999.99                                           5<-B
+S05  c*                  z-add     999.99        TUTM3
+N05  c     BigNum        ifgt      9999.999                                         5<-B
+N05  c                   z-add     9999.999      TUTM3
+     c                   else                                                       5
+     c                   z-add     BigNum        TUTM3
+     c                   endif                                                      5<-E
+     C                   UPDATE    TURERR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   ELSE                                                    2
+     C                   EVAL      XFEILPLK = 'Y'
+     C                   IF        EHAVD <> 0                                     3<-B
+     C                   EVAL      XFEILPLKT = 'PO (' + %TRIM(WSBES)
+     C                   IF        EHAVD > 0                                       4<-B
+     C                   EVAL      XFEILPLKT = %TRIM(XFEILPLKT)
+     C                             + ') is already picked up by another user.'
+     C                   ELSE                                                      4
+     C                   EVAL      XFEILPLKT = %TRIM(XFEILPLKT)
+     C                             + ') is already deleted by another user.'
+     C                   END                                                       4<-E
+     C                   ELSE                                                     3
+     C                   EVAL      XFEILPLKT = 'PO-line (' + %TRIM(WSBES)
+     C                             + '/' + %TRIM(WSLIN) + '/' + %TRIM(WSULIN)
+     C                   IF        ELAVD > 0                                       4<-B
+     C                   EVAL      XFEILPLKT = %TRIM(XFEILPLKT)
+     C                             + ') is already picked up by another user.'
+     C                   ELSE                                                      4
+     C                   EVAL      XFEILPLKT = %TRIM(XFEILPLKT)
+     C                             + ') is already deleted by another user.'
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+     C                   END                                                     2<-E
+     C                   END                                                    1<-E
+      *
+     C     SLPICKUP      TAG
+     C                   endsr
+      *=====================================================================******
+      *  SRDELETE
+      *=====================================================================******
+     C     SRDELETE      begsr
+      *
+     C     EPOLK         CHAIN     EPOL                               33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        WSSTA3 = ELSTA3
+     C                   LEAVE
+     C                   END
+S03  C*                  IF        WSLTYP = ELLTYP
+S03  C*                  LEAVE
+S03  C*                  END
+     C                   UPDATE    EPOLR
+     C     EPOLK         READE     EPOL                                   33
+     C                   ENDDO
+      *
+     C                   IF        *IN33 = *OFF
+     c     *LIKE         DEFINE    ELSTA2        XELSTA2
+     c                   MOVE      ELSTA2        XELSTA2
+     c                   move      ' '           ELSTA2                         blank evt SENDstatus
+     C                   MOVE      ' '           ELSTA3                         blank REST MERKING
+     C                   Z-SUB     9999          ELAVD
+     C                   Z-SUB     9999999       ELOPD
+N04  C                   EVAL      XELULIN = ELULIN
+     C                   IF        ELULIN = 99999 OR WSSTA3 = 'R'
+     C                   EVAL      ELULIN = 99998
+     C                   END
+     C                   UPDATE    EPOLR
+      * T&T
+     C                   EVAL      ETKUND = ELKUND
+     C                   EVAL      ETBES  = ELBES
+     C                   EVAL      ETLIN  = ELLIN
+N04  C                   IF        WSSTA3 = 'R'
+N04  C                   EVAL      ETULIN = XELULIN
+N04  C                   ELSE
+     C                   EVAL      ETULIN = ELULIN
+N04  C                   END
+     C                   EVAL      ETACTI = 'DLT'
+N04  C                   IF        WSSTA3 = 'R'
+N04  C                   EVAL      ETTEXT = 'Rest PO line is deletet. '
+N04  C                   ELSE
+     C                   IF        ELREAS = *BLANKS
+     C                   EVAL      ETTEXT = 'PO line is deletet. '
+     C                   ELSE
+     C                   EVAL      ETTEXT = 'PO line is deletet. '
+     C                             + 'Reason code is ' + %TRIM(ELREAS)
+     C                   END
+N04  C                   END
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           ETDATE
+     C                   MOVE      WTM           ETTIME
+     C                   MOVE      BIBRID        ETUSER
+     C                   WRITE     EPOTTR
+      * ELSTA2=V vil kun forekomme nå ren STÅR INN PÅ DEL2(restlinja) og trykekr DELETE der ..
+     C*                  IF        ELULIN = 99999 AND XELSTA2 = 'V'
+     C                   IF        WSSTA3 = 'R' AND XELSTA2 = 'V'
+     C     EPOLK2        SETLL     EPOL
+     C     EPOLK2        READE     EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELSTA2 = 'V'
+     C                   EVAL      ELSTA2 = 'S'
+     C                   EVAL      ELSLUT = 'X'
+     C                   END
+     C                   UPDATE    EPOLR
+     C     EPOLK2        READE     EPOL                                   33
+     C                   ENDDO
+     C                   END
+      *
+      * SJEKK OM ALLE LINJER ER PLUKKET. I SÅ FALL SETT 9999/9999999 PÅ EPOH
+     C                   MOVE      'J'           XALLPLK           1
+     C     KEY           SETLL     EPOL
+     C     KEY           READE(N)  EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELAVD = 0
+     C                   MOVE      'N'           XALLPLK
+     C                   LEAVE
+     C                   END
+     C     KEY           READE(N)  EPOL                                   33
+     C                   ENDDO
+     C                   IF        XALLPLK = 'J'                                  3<-B
+     C     KEY           CHAIN     EPOH                               33
+     C                   IF        *IN33 = *OFF                                    4<-B
+     C                   EVAL      EHAVD = 9999
+     C                   EVAL      EHOPD = 9999999
+     C                   UPDATE    EPOHR
+     C                   END                                                       4<-E
+     C                   END                                                      3<-E
+      *
+     C                   END
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  SetStat
+      *=====================================================================******
+     C     SETSTAT       begsr
+      * Endre status fra blank/0 -> 1
+      * (låner inp-var WSBES/WBLIN, men i fall de er benyttet i SRPICKUP, så er den ferdig nå)
+     C                   EVAL      WSBES = EHBES
+     C                   eval      i = 1
+     C     i             DOUGT     ItemCount
+     C                   eval      WSLIN  = ZhbGetVar('OKSTAT':i)
+     C                   EVAL      WBLIN  = c2n2(WSLIN)
+     C                   EVAL      WBULIN = 0
+     C     EPOLK         CHAIN     EPOL                               33
+     C                   IF        *IN33 = *OFF
+     C                   IF        ELSTA <= '1'
+      * Oppdatere T&T
+     C                   IF        ELSTA <> '1'
+     C                   EVAL      ETKUND = ELKUND
+     C                   EVAL      ETBES  = ELBES
+     C                   EVAL      ETLIN  = ELLIN
+     C                   EVAL      ETULIN = ELULIN
+     C                   EVAL      ETACTI = 'CHG'
+     C                   IF        ELSTA = *BLANKS
+     C                   EVAL      ELSTA = '0'
+     C                   END
+     C                   EVAL      ETTEXT = 'Status is changed from '
+     C                             + %TRIM(ELSTA) + ' to 1'
+     C                   MOVE      WDT           ETDATE
+     C                   MOVE      WTM           ETTIME
+     C                   MOVE      BIBRID        ETUSER
+     C                   WRITE     EPOTTR
+     C                   END
+      *
+     C                   EVAL      ELSTA = '1'
+     C                   EVAL      ELSTA2= 'S'                                  SEND
+     c                   endif
+     C                   UPDATE    EPOLR
+      *
+      * TEST OM STATUS PÅ ALLE LINJER. EVT. OPPDATER EPOH
+     C     KEY           SETLL     EPOL
+     C     KEY           READE(N)  EPOL                                   33
+     C                   DOW       *IN33 = *OFF
+     C                   IF        ELSTA < '1'
+     C                   LEAVE
+     C                   END
+     C     KEY           READE(N)  EPOL                                   33
+     C                   ENDDO
+     C                   IF        *IN33
+     C     KEY           CHAIN     EPOH                               33
+     C                   IF        EHSTA < '1'
+     C                   EVAL      ETKUND = EHKUND
+     C                   EVAL      ETBES  = EHBES
+     C                   EVAL      ETLIN  = 0
+     C                   EVAL      ETULIN = 0
+     C                   EVAL      ETACTI = 'CHG'
+     C                   EVAL      ETTEXT = 'Status is changed from 0 to 1'
+     C                   MOVE      WDT           ETDATE
+     C                   MOVE      WTM           ETTIME
+     C                   MOVE      BIBRID        ETUSER
+     C                   WRITE     EPOTTR
+     C                   EVAL      EHSTA = '1'
+     C                   END
+     C                   UPDATE    EPOHR
+     C                   END
+      *
+     c                   endif
+      *
+     C                   eval      i = i +1
+     C                   ENDDO
+      *
+     C                   endsr
+      *
+      *
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+      * hent Parametre som går igjen i mange prog:
+      *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     c                   call      'ESGETPAR'
+     c                   parm                    BIBRID
+     c                   parm                    BIFIRM
+     c                   parm                    BIKUNR
+     c                   parm                    BIKNG
+     c                   parm                    RowHead          10
+     c                   parm                    Odd              10
+     c                   parm                    Even             10
+     c                   parm                    LogoImg          50
+     c                   parm                    XSPRÅK            2
+     c                   parm                    XINTERN           1
+     c                   parm                    ParmDS1        1024
+     c                   parm                    ParmDS2        1024
+     c                   parm                    ParmDS3        1024
+      *
+     C     HEADFK        klist
+     C                   kfld                    WBAVD
+     C                   kfld                    WBOPD
+     C     PosMax        klist
+     C                   kfld                    ELAVD
+     C                   kfld                    ELOPD
+     c                   kfld                    MAX5
+     c                   move      99999         MAX5              5 0
+     c     Key           klist
+     C*                  kfld                    BSKN
+     C                   kfld                    XXKN
+     c                   kfld                    EHBES
+     c     KunKey        klist
+     c                   kfld                    BIFIRM
+     C                   kfld                    BSKN
+     c     EPOLK         klist
+     C*                  kfld                    BSKN
+     C                   kfld                    XXKN
+     c                   kfld                    WSBES
+     c                   kfld                    WBLIN
+     c                   kfld                    WBULIN
+     C     EPOLK2        klist
+     C                   kfld                    XXKN
+     C                   kfld                    WSBES
+     C                   kfld                    WBLIN
+N04  C     *LIKE         DEFINE    ELULIN        XELULIN
+N07  C     BrParKey      klist
+N07  C                   kfld                    PABRID
+N07  C                   kfld                    PAKUNR
+N07  C                   kfld                    PAID
+      *
+     C                   OPEN      EPOL
+     C                   OPEN      EPOH
+     C                   OPEN      EPOTT
+     C                   OPEN      EPOPOS
+     C                   OPEN      HEADF
+     C                   OPEN      TURER14
+     C                   OPEN      CUNDL01
+N07  C                   OPEN      BRPARF
+N07   *
+N07  C                   MOVE      BIBRID        PABRID
+N07  C                   MOVE      *zeros        PAKUNR
+N07  C                   MOVE      'POMKL'       PAID
+N07  C                   MOVE      'N'           XJOBBKL           1
+N07  C                   MOVE      *BLANKS       XJOBBKLL         17
+N07  C     BrParKey      chain     BRPARF                             33
+N07  C  N33              IF        %SUBST(PAVRDA:1:1) = 'J' OR
+N07  C                             %SUBST(PAVRDA:1:1) = 'j'
+N07  C                   EVAL      XJOBBKL = 'J'
+N07  C                   EVAL      XJOBBKLL = %SUBST(PAVRDA:3:17)
+N07  C                   END
+      *
+     C     KunKey        chain     CUNDL01
+     C                   MOVE      WBAVD         ELAVD
+     C                   MOVE      WBOPD         ELOPD
+     C     HEADFK        CHAIN(N)  HEADF                              33
+     C                   IF        *IN33
+     C                   EVAL      XXKN   = BSKN
+     C                   ELSE
+     C                   EVAL      XXKN   = TRKNFA
+     C                   END
+     C     KEY           CHAIN(N)  EPOH                               33
+      *
+     C                   endsr
+      *

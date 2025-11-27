@@ -1,0 +1,1675 @@
+      *********************************************************************
+      * Spørring på oppdrag (vis oppdrag)
+      * PROGRAM BEHANDLER INPUT FRA SYSO01
+      *
+CRTPG+*  CRTPGM SYSPED/SYSO02 MODULE(*LIBL/SYSO02
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 ta hensyn til GAMLE gifer av type avd_oppd med 5 langt oppdr.nr
+10XXX * 02 YBC PTF10 INTERN BRUKER KAN SE ALLE KUNDER
+10XXX * 03 jov PTF10 endhtml  finnes ikke - fjernet fra rpg-EXIT
+10XXX * 04 jov PTF10 innlandsoppdrag - finn TRAN via TUREN
+      * 05 jov PTF10 - snudd logikk i 02 - livsfarlig
+      * 06 jov PTF10 - extremt lange URLer - ta med også 'engelsk tekst' fra TRACKSUFFIX.
+      * 07 jov PTF10 - tillater ogaå at oppdragsgiver spør via EXTREF (før kun agent..)
+10XXX * 08 YBC PTF10 UPCASE PÅ BRUKER-ID
+10XXX * 09 SH  PTF10 test også signatur som JPG
+10172 * 10 SH  PTF10 norsk text til Track and trace
+      * 11 JOV PTF10 hopp over fak I-linjer
+10316 * 12 JOV PTF10 Vis evt signatur også ved hendelsr COL/TEI/TEU/TE2
+10324 * 13 JOV PTF10 Button for vis kolli-ID(godsmerke dersom det finnes
+      * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      * 14 JOV PTF11 Interne users kan se fakturalink uavh. av kundenr..
+      * 15 JOV Ptf11 Ved sygnsatur knyttet til COL / TE2 (mm) let også etter bmp/jpg..
+11XXX * 16 YBC PTF11 DIV. ENDRINGER
+11XXX * 17 jov PTF11 Danske Fragtmænd
+11XXX * 18 jov PTF11 Vis BILDE fra COL/POD mm
+11XXX * 19 sh  PTF11 henter eksterne URL
+10XXX * 20 JOV PTF11 test også signatur som PNG
+10XXX * 21 JOV PTF11 Fange opp flere bilder pr evnt / endret navnestruktur
+10XXX * 22 JOV PTF11 Lengde på utstring i T&T endret (behov ved mange bilder)
+10XXX * 23 JOV PTF11 Feil i PODkey  (+ tips ved DEBUG/finn rett servicejob.- merket DBTMP
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+     FBRIDF     UF   E           K DISK    USROPN
+N19  FEDII      UF   E           K DISK    USROPN
+     FHEADF     IF   E           K DISK    USROPN
+     Farkivl02  IF   E           K DISK    usropn
+     FFIRMARC   IF   E           K DISK    usropn
+     FFIRM      IF   E           K DISK    usropn
+     FARKTXT    IF   E           K DISK    usropn
+     FARKEXT    IF   E           K DISK    usropn
+     FFRISOK    IF   E           K DISK    usropn
+     FFRISOL01  IF   E           K DISK    usropn
+     F                                     RENAME(FRISOKR:FRISOKR1)
+     FHEAD17    IF   E           K DISK    usropn
+     F                                     RENAME(headfr:headfr17)
+     FKOFAST    IF   E           K DISK    usropn
+     FKODFRI    IF   E           K DISK    usropn
+     FDOKUF7    IF   E           K DISK    usropn
+N04  FTURER14   IF   E           K DISK    usropn
+     FTRAN      IF   E           K DISK    usropn
+     FBRPARF    if   e           k disk    usropn
+     FTRACKL01  IF   E           K DISK    usropn
+     FTRACKL02  IF   E           K DISK    usropn
+     F                                     RENAME(TRACKFR:TRACKFR2)
+     FTRACKT    IF   E           K DISK    usropn
+     FFREETXT2  IF   E           K DISK    usropn
+     FFAK8      IF   E           K DISK    usropn
+     FGSSCGL02  IF   E           K DISK    USROPN
+N13  FDOKUFM    IF   E           K DISK    usropn
+N21  FWRKALF    IF   E             DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D UsrSpcName      s             10
+     D WSUSER          S             10
+     D WSNA            S             30
+     D KN              S              8  0 DIM(30)
+     D DIR             s              1
+     D WSAVD           S              4
+     D WSOPD           S              7
+     D EXTREF          S             35
+     D WSSOK           S             80
+     D WSSOKURL        S            200
+     D WSFRTTXT        S            710
+s21  D*UtText          s            150
+a22  D*UtText          s           1500
+N22  D UtText          s          15000
+N21  D BildeLnk        s            256
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+      *
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+
+     D                 DS
+     D  DSAVOP                 1     12
+     D  DSAVD                  1      4
+     D  Strek                  5      5
+     D  DSOPD                  6     12
+N01  D  DSOPD5                 6     10
+     D                 DS
+      * FOR KORT STRENG, 120->200  INGEN MERKING.
+     D  updf1                  1    200
+     D  updf2                201    400
+     D  updf3                401    600
+     D  updf4                601    800
+     D  updf5                801   1000
+     D  updf6               1001   1200
+     D  updf7               1201   1400
+     D  updf8               1401   1600
+     D  updf9               1601   1800
+     D  updf10              1801   2000
+     D  updf11              2001   2200
+     D  updf12              2201   2400
+     D  updf13              2401   2600
+     D  updf14              2601   2800
+     D  updf15              2801   3000
+     D  updf16              3001   3200
+     D  updf17              3201   3400
+     D  updf18              3401   3600
+     D  updf19              3601   3800
+     D  updf20              3801   4000
+     D  updf                   1   4000
+     D                                     DIM(20)
+      * Faktura-linker
+     D                 DS
+     D  FakL1                  1    120
+     D  FakL2                121    240
+     D  FakL3                241    360
+     D  FakL4                361    480
+     D  FakL5                481    600
+     D  FakL6                601    720
+     D  FakL7                721    840
+     D  FakL8                841    960
+     D  FakL9                961   1080
+     D  FakL10              1081   1200
+     D  FakL11              1201   1320
+     D  FakL12              1321   1440
+     D  FakL13              1441   1560
+     D  FakL14              1561   1680
+     D  FakL15              1681   1800
+     D  FakL16              1801   1920
+     D  FakL17              1921   2040
+     D  FakL18              2041   2160
+     D  FakL19              2161   2280
+     D  FakL20              2281   2400
+     D  FakL                   1   2400    DIM(20)
+      * Arkivtyper 16 elem. a 3 tegn (sb,si,..) Type er venstrestilt
+     D                 DS
+     D  ATString               1    192
+     D  ATString1              1     48
+     D  ATString2             49     96
+     D  ATString3             97    144
+     D  ATString4            145    192
+     D  AT                     1    192    DIM(64)
+     D                 DS
+     D  A2                     1    128    DIM(64)
+     D                 DS
+     D  DFS                    1     10    DIM(10)
+     D  KFSODK                 1     10
+     D                 DS
+     D  KFTXT                  1     50
+     D  KFTXTB                 5     49
+     D  VisWEB                50     50
+     D                 DS
+     D  WDsÅMD                 1      8  0
+     D  WDsÅMDÅ                1      4  0
+     D  WDsÅMDM                5      6  0
+     D  WDsÅMDD                7      8  0
+     D                 DS
+     D  WDsDMÅ                 1      8  0
+     D  WDsDMÅD                1      2  0
+     D  WDsDMÅM                3      4  0
+     D  WDsDMÅÅ                5      8  0
+     D                 DS
+     D  HXSNDN                 1     20
+     D  HXSNR17                4     20
+     D                 DS
+     D  HEGN                   1     15
+     D  HEGN04                 1      4
+     D  HEGN03                 5      7
+     D  HEGN08                 8     15
+     D  HEGN515                5     15
+     D                 DS
+     D* HERFA                  1     15
+     D  HERFA                  1     35
+     D  HERFA03                1      3
+     D  HERFA08                4     11
+     D                 DS
+     D  HEDTMO                 1      8
+     D  HEDTMOD                1      2
+     D  HEDTMOM                3      4
+     D  HEDTMOÅ                5      6
+     D  HEDTMO6                1      6
+     D  HEDTMO2                7      8
+     D                 DS
+     D  WSATA                  1      8  0
+     D  WSATAÅ                 1      4  0
+     D  WSATAM                 5      6  0
+     D  WSATAD                 7      8  0
+N08   * For xlate mellom Upper Case og Lower Case
+N08  D UC              C                   CONST('ABCDEFGHIJKLMNOPQRST-
+N08  D                                     UVWXYZÆØÅ')
+N08  D LC              C                   CONST('abcdefghijklmnopqrst-
+N08  D                                     uvwxyzæøå')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input
+     C                   exsr      Parse
+      *
+     C                   EXSR      INIT
+      * tvilsomt men...
+     C     UsrSpcName    ifne      'InT5WXz4BJ'
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     c                   end
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Set output skeleton html member name
+     C                   exsr      SetSkl
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      *
+      * 1-Section /$top
+     C                   exsr      SetTop
+      * 2-Prod.koder -pulldown (+bunn)
+     C                   exsr      DspPart
+      *
+     C                   exsr      SetEnd
+      *
+     C                   callp     wrtsection('top')
+     C                   IF        HEUR = 'C'
+     C                   callp     wrtsection('TRACK4')
+     C                   IF        XTXT = *BLANKS
+     C                   callp     wrtsection('TRACK6')
+     C                   ELSE
+     C                   callp     wrtsection('TRACK5')
+     C                   END
+     C                   ELSE
+     C                   callp     wrtsection('TRACK1')
+     C                   IF        (((HEGN04>='2001') AND (HEGN04<='2099')) OR
+     C                               (HEGN = *BLANKS))
+     C                   callp     wrtsection('TRACK21')
+     C                   ELSE
+     C                   IF        ((XTXT = *BLANKS) AND (FITDVI = 'J'))
+     C                   callp     wrtsection('TRACK3')
+     C                   ELSE
+     C                   callp     wrtsection('TRACK2')
+     C                   END
+     C                   END
+     C                   END
+     C                   callp     wrtsection('TRACK7')
+      *
+     C                   exsr      DspFAKT
+      *
+     C                   exsr      DspFT
+      *
+     C                   exsr      DspTT
+      *
+     C                   callp     wrtsection('BOTT')
+      *
+     C     SLUTT         TAG
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C     LC:UC         XLATE     WSUSER        WSUSER
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   eval      WSNA    = zhbgetvar('WSNA')
+     C                   eval      WSAVD   = zhbgetvar('HEAVD')
+     C                   MOVE      *ZEROS        HEAVD
+     C                   EVAL      HEAVD = c2n2(WSAVD)
+     C                   eval      WSOPD   = zhbgetvar('HEOPD')
+     C                   MOVE      *ZEROS        HEOPD
+     C                   EVAL      HEOPD = c2n2(WSOPD)
+      * DIREKTE KALL fra annet program - ikke vis button for nytt søk
+     C                   eval      DIR     = zhbgetvar('DIR')
+      * ekstern referanse
+     C                   eval      EXTREF  = zhbgetvar('EXTREF')
+     C     EXTREF        IFNE      *blanks
+     C                   eval      UsrSpcName =  'InT5WXz4BJ'
+     C                   end
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+      * Color for text, background, links, visited links, active links
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * KUNDE
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHtmlVar('WSNA':WSNA)
+     C                   callp     updHtmlVar('KUNDE':
+     C                             %trim(%editc(BIKUNR:'Z')))
+     C                   callp     updHTMLvar('sdato':
+     C                             %trim(%editw(BIDTV:'    .  .  ')))
+     C                   callp     updHTMLvar('stid':
+     C                             %trim(%editw(BITIDV:'  .  .  ')))
+     C                   callp     updHtmlVar('WSAVD':WSAVD)
+     C                   callp     updHtmlVar('WSOPD':WSOPD)
+     C                   callp     updHtmlVar('DIR':DIR)
+     C                   callp     updHtmlVar('EXTREF':EXTREF)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Display Product codes to select from
+      *=====================================================================******
+     C     DspPart       begsr
+      *
+     C     HEADFK        CHAIN     HEADF                              33
+     C   33              exsr      missing
+     C     *IN(33)       IFEQ      '0'
+      * Test kundenr
+     C                   IF        UsrSpcName <> 'InT5WXz4BJ'
+N02  C*                  IF        XINTERN <> 'N'
+N05  C                   IF        XINTERN <> 'J'
+     C     1             DO        30            XN2
+     C     KN(XN2)       CABEQ     0             SLDSPPART
+     C     HEKNA         IFNE      KN(XN2)
+     C     TRKNFA        ANDNE     KN(XN2)
+     C     HEKNS         ANDNE     KN(XN2)
+     C     HEKNSF        ANDNE     KN(XN2)
+     C     HEKNK         ANDNE     KN(XN2)
+     C     HEKNKF        ANDNE     KN(XN2)
+     C                   ELSE
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+N02  C                   END
+     C                   END
+     C     *in(41)       ifeq      '0'
+     c                   exsr      lesdok
+     c                   end
+     c                   end
+     C                   callp     updHtmlVar('HEAVD':
+     C                             %trim(%editc(HEAVD:'Z')))
+     C                   callp     updHtmlVar('HEOPD':
+     C                             %trim(%editc(HEOPD:'Z')))
+     C                   callp     updHtmlVar('HESG':HESG)
+     C                   callp     updHtmlVar('HEDTOP':
+     C                             %trim(%editw(HEDTOP:'    .  .  ')))
+     C                   callp     updHtmlVar('HEPRO':
+     C                             %trim(%editc(HEPRO:'Z')))
+      *
+     C                   IF        HEUR = 'H'
+N16  C                   IF        TRSDFD = 0
+N16  C                   callp     updHtmlVar('WSETD':'__________')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('WSETD':
+     C                             %trim(%editw(TRSDFD:'    .  .  ')))
+N16  C                   END
+N16  C                   IF        TRSDTD = 0
+N16  C                   callp     updHtmlVar('WSETA':'__________')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('WSETA':
+     C                             %trim(%editw(TRSDTD:'    .  .  ')))
+N16  C                   END
+     C                   ELSE
+N16  C                   IF        HEDTOP = 0
+N16  C                   callp     updHtmlVar('WSETD':'__________')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('WSETD':
+     C                             %trim(%editw(HEDTOP:'    .  .  ')))
+N16  C                   END
+N16  C                   IF        HEDTOP = 0
+N16  C                   callp     updHtmlVar('WSETA':'__________')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('WSETA':
+     C                             %trim(%editw(HEDTOP:'    .  .  ')))
+N16  C                   END
+     C                   END
+     c     HeadfK        chain     TRACKT                             33
+     c  N33              move      TXATAD        WSATA
+     c     WSATA         ifeq      *zeros
+     C                   IF        ((HEDTMO <> *ZEROS) AND (HEDTMO <> *BLANKS))
+     C                   IF        HEDTMO2 = *BLANKS
+     C                   MOVE      HEDTMOD       WSATAD
+     C                   MOVE      HEDTMOM       WSATAM
+     C                   MOVE      2000          WSATAÅ
+     C                   MOVE      HEDTMOÅ       WSATAÅ
+     C                   ELSE
+     C                   MOVE      HEDTMO        WSATA
+     C                   END
+     c                   END
+     c                   end
+     c     WSATA         ifne      *zeros
+     C                   callp     updHtmlVar('WSATA':
+     C                             %trim(%editw(WSATA:'    .  .  ')))
+     C                   ELSE
+S16  C*                  callp     updhtmlvar('WSATA':' ')
+N16  C                   callp     updhtmlvar('WSATA':'________')
+     C                   END
+      *
+     C                   IF        HEUR = 'C'
+     C                   MOVE      *BLANKS       KFKOD3
+     C                   MOVEL     HERFA03       KFKOD3
+     C     KOFASTK3      CHAIN     KOFAST                             33
+     C   33KOFASTK5      CHAIN     KOFAST                             33
+s06  C*                  MOVE      *BLANKS       XTXT            200
+N06  C                   MOVE      *BLANKS       XTXT            300
+     C                   MOVE      KFTXTE        XTXTA             1
+     C                   MOVE      ' '           KFTXTE
+     C                   MOVEL     KFTXT         XTXT
+     C                   CAT       KFTXTE:0      XTXT
+     C     KOFASTK4      CHAIN     KOFAST                             33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      KFTXTE        XTXTA             1
+     C                   MOVE      ' '           KFTXTE
+     C                   CAT       KFTXT:0       XTXT
+     C                   CAT       KFTXTE:0      XTXT
+     C                   ENDIF
+     C                   IF        XTXTA = 'A'
+     C                   CAT       HERFA08:0     XTXT
+     C                   ENDIF
+     C                   callp     updHtmlVar('TRACKING2':XTXT)
+      *
+     C                   ELSE
+      *
+     C                   MOVE      *BLANKS       XTXT
+     C                   IF        (HEGN515 = '00000000000')
+     C                             OR(HEGN515 = '           ')
+     C                   MOVE      *BLANKS       HEGN
+     C                   END
+     C                   IF        HEGN04 = *BLANKS
+      *
+      * 4 første av godnr ER IKKE fylt ut   - AWB
+     C                   MOVE      *BLANKS       KFKOD3
+     C                   MOVEL     HEGN03        KFKOD3
+      * sjekk flyselskap / other ( med kofasttype 'WEBETRACK' )
+     C     KOFASTK3      CHAIN     KOFAST                             33
+     C   33KOFASTK5      CHAIN     KOFAST                             33
+s06  C*                  MOVE      *BLANKS       XTXT            200
+N06  C                   MOVE      *BLANKS       XTXT            300
+     C                   MOVE      KFTXTE        XTXTA             1
+     C                   MOVE      ' '           KFTXTE
+     C                   MOVEL     KFTXT         XTXT
+     C                   CAT       KFTXTE:0      XTXT
+     C     KOFASTK4      CHAIN     KOFAST                             33
+     C                   IF        *IN33 = *OFF
+     C                   MOVE      KFTXTE        XTXTA             1
+     C                   MOVE      ' '           KFTXTE
+     C                   CAT       KFTXT:0       XTXT
+     C                   CAT       KFTXTE:0      XTXT
+     C                   ENDIF
+     C                   IF        XTXTA = 'A'
+     C                   CAT       HEGN08:0      XTXT
+     C                   ENDIF
+     C                   ENDIF
+      *
+     C                   callp     updHtmlVar('TRACKING':XTXT)
+     C                   ENDIF
+      *
+N16  C                   IF        HEGN = *BLANKS
+N16  C                   callp     updHtmlVar('HEGN':'__')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('HEGN':HEGN)
+N16  C                   END
+N16  C                   IF        HERFA = *BLANKS
+N16  C                   callp     updHtmlVar('HERFA':'__')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('HERFA':HERFA)
+N16  C                   END
+N16  C                   IF        HEHAWB = *BLANKS OR HEHAWB = *ZEROS
+N16  C                   callp     updHtmlVar('HEHAWB':'__')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('HEHAWB':HEHAWB)
+N16  C                   END
+N16  C                   IF        HETRCN = *BLANKS
+N16  C                   callp     updHtmlVar('HETRCN':'__')
+N16  C                   ELSE
+     C                   callp     updHtmlVar('HETRCN':HETRCN)
+N16  C                   END
+      *
+     C                   callp     updhtmlvar('HENAS':HENAS)
+     C                   callp     updhtmlvar('HEADS1':HEADS1)
+     C                   callp     updhtmlvar('HEADS2':HEADS2)
+     C                   callp     updhtmlvar('HEADS3':HEADS3)
+     C                   callp     updhtmlvar('HENAK':HENAK)
+     C                   callp     updhtmlvar('HEADK1':HEADK1)
+     C                   callp     updhtmlvar('HEADK2':HEADK2)
+     C                   callp     updhtmlvar('HEADK3':HEADK3)
+     C                   callp     updhtmlvar('HESDFF':HESDFf)
+     C                   callp     updhtmlvar('HESDF':HESDF)
+     C                   callp     updhtmlvar('HESDT':HESDT)
+     C                   callp     updhtmlvar('HESDVT':HESDVT)
+     C                   callp     updHtmlVar('HENT':
+     C                             %trim(%editc(HENT:'Z')))
+N13   *skal link til kolli-IF vises
+N13  c                   move      *blanks       ClidLink        256
+N13  c**   BIPO          ifne      *blanks
+N13  c     DokufmKey     chain     DOKUFM                             33
+N13  c     *in33         ifeq      *off
+N13  c                   eval      ClidLink='<a href="/sycgip/syOPCL.pgm?user='
+N13  c                             +%trim(BIBRID)
+N13  c                             +'&avd='+%trim(%editc(HEAVD:'Z'))
+N13  c                             +'&opd='+%trim(%editc(HEOPD:'Z'))+'" '
+N13  c                             +'Target="ClIdWin">Se Kolli-ID/Godsmerke</A>'
+N13  c                   endif
+N13  c**                 endif
+N13  C                   callp     updHTMLvar('CLID':ClidLink)
+     C                   callp     updHtmlVar('HEVKT':
+     C                             %trim(%editc(HEVKT:'Z')))
+     C                   callp     updHtmlVar('HEFBV':
+     C                             %trim(%editc(HEFBV:'Z')))
+     C                   callp     updHtmlVar('HEM3':
+     C                             %trim(%editc(HEM3:'4')))
+     C                   callp     updHtmlVar('HELM':
+     C                             %trim(%editc(HELM:'4')))
+     C                   callp     updhtmlvar('HEVS1':HEVS1)
+     C                   callp     updhtmlvar('HEVS2':HEVS2)
+     C                   callp     updhtmlvar('HEGM1':HEGM1)
+     C                   callp     updhtmlvar('HEGM2':HEGM2)
+     C                   callp     updhtmlvar('HESGM':HESGM)
+     C                   IF        ((HEDTMO <> *ZEROS) AND (HEDTMO <> *BLANKS))
+     C                   callp     updHtmlVar('HEDTMO':
+     C                             %trim(%editw(WSATA:'    .  .  ')))
+     C                   ELSE
+     C                   callp     updhtmlvar('HEDTMO':HEDTMO)
+     C                   END
+     C                   callp     updHTMLvar('UPDF1':UPDF1)
+     C                   callp     updHTMLvar('UPDF2':UPDF2)
+     C                   callp     updHTMLvar('UPDF3':UPDF3)
+     C                   callp     updHTMLvar('UPDF4':UPDF4)
+     C                   callp     updHTMLvar('UPDF5':UPDF5)
+     C                   callp     updHTMLvar('UPDF6':UPDF6)
+     C                   callp     updHTMLvar('UPDF7':UPDF7)
+     C                   callp     updHTMLvar('UPDF8':UPDF8)
+     C                   callp     updHTMLvar('UPDF9':UPDF9)
+     C                   callp     updHTMLvar('UPDF10':UPDF10)
+     C                   callp     updHTMLvar('UPDF11':UPDF11)
+     C                   callp     updHTMLvar('UPDF12':UPDF12)
+     C                   callp     updHTMLvar('UPDF13':UPDF13)
+     C                   callp     updHTMLvar('UPDF14':UPDF14)
+     C                   callp     updHTMLvar('UPDF15':UPDF15)
+     C                   callp     updHTMLvar('UPDF16':UPDF16)
+     C                   callp     updHTMLvar('UPDF17':UPDF17)
+     C                   callp     updHTMLvar('UPDF18':UPDF18)
+     C                   callp     updHTMLvar('UPDF19':UPDF19)
+     C                   callp     updHTMLvar('UPDF20':UPDF20)
+      *
+     C     SLDSPPART     TAG
+     C                   endsr
+      *=====================================================================******
+      *  Display Faktura-linker (uavh av arkiv)
+      *=====================================================================******
+     C     DspFAKT       begsr
+      *
+     c                   move      *zeros        FAFAKT
+     C                   clear                   FakL
+     C     OKFaktLink    ifeq      'J'
+     c                   z-add     1             na
+     C     FAKKey        SETLL     Fak8
+     C     HEADFK        READE     Fak8                                   33
+     C     *in33         DOWeq     *OFF
+     C                   IF        UsrSpcName <> 'InT5WXz4BJ'
+N14  C                             and XINTERN <> 'J'                           Intern:ikke KNR-test
+     C     1             DO        30            XN2
+     C     KN(XN2)       CABEQ     0             NEXTFAK
+     C                   IF        FAKUNR = KN(XN2)
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   END
+      *
+     C     FAKDA         cabeq     'K'           NextFak
+     C     FAKDA         cabeq     'D'           NextFak
+     C     FAOPKO        cabeq     'D'           NextFak
+     C     FAOPKO        cabeq     ' '           NextFak
+N11  C     FASK          cabeq     'I'           NextFak
+     C* lest faktura for gitt kunde
+     C                   Move      HEAVD         AAAVD             4
+     C                   Move      HEOPD         AAOPD             7
+     C                   Move      FAFAKT        AAFAKT            7
+     C                   Eval      FakL(na)='<a href="/sycgip/esarkF3.pgm'
+     C                                 + '?USER=' + %trim(BIBRID)
+     C                                 + '&FAKNR=' + AAFAKT
+     C                                 + '&AVD=' +AAAVD
+     C                                 + '&OPD=' +AAOPD
+     C                                 + '" target="_top">'
+     C                                 + AAFAKT + '</A>&nbsp'
+     C                   add       1             na
+     C     NextFak       tag
+     c                   add       1             FAFAKT
+     C     FAKKey        SETLL     Fak8
+     C     HEADFK        READE     Fak8                                   33
+     C  N33              ENDDO
+     C                   END
+     C                   callp     updHTMLvar('FakL1':FakL1)
+     C                   callp     updHTMLvar('FakL2':FakL2)
+     C                   callp     updHTMLvar('FakL3':FakL3)
+     C                   callp     updHTMLvar('FakL4':FakL4)
+     C                   callp     updHTMLvar('FakL5':FakL5)
+     C                   callp     updHTMLvar('FakL6':FakL6)
+     C                   callp     updHTMLvar('FakL7':FakL7)
+     C                   callp     updHTMLvar('FakL8':FakL8)
+     C                   callp     updHTMLvar('FakL9':FakL9)
+     C                   callp     updHTMLvar('FakL10':FakL10)
+     C                   callp     updHTMLvar('FakL11':FakL11)
+     C                   callp     updHTMLvar('FakL12':FakL12)
+     C                   callp     updHTMLvar('FakL13':FakL13)
+     C                   callp     updHTMLvar('FakL14':FakL14)
+     C                   callp     updHTMLvar('FakL15':FakL15)
+     C                   callp     updHTMLvar('FakL16':FakL16)
+     C                   callp     updHTMLvar('FakL17':FakL17)
+     C                   callp     updHTMLvar('FakL18':FakL18)
+     C                   callp     updHTMLvar('FakL19':FakL19)
+     C                   callp     updHTMLvar('FakL20':FakL20)
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Display INFORMATIONS
+      *=====================================================================******
+     C     DspFT         begsr
+      *
+     C                   IF        XWRKNOTES = 'N'
+     C     FREETXT2K     SETLL     FREETXT2
+     C     FREETXT2K     READE     FREETXT2                               33
+     C                   MOVE      'N'           XVISFT            1
+     C                   DOW       *IN33 = *OFF
+     C                   IF        FRTKOD = 'A'
+     C                   MOVE      'J'           XVISFT
+     C                   callp     updHTMLvar('FRTTXT':FRTTXT)
+     C                   callp     wrtsection('INFOROW')
+     C                   END
+     C     FREETXT2K     READE     FREETXT2                               33
+     C  N33              ENDDO
+      *
+     C                   IF        XVISFT = 'N'
+     C                   MOVE      *BLANKS       FRTTXT
+     C                   callp     updHTMLvar('FRTTXT':FRTTXT)
+     C                   callp     wrtsection('INFOROW')
+     C                   END
+      *
+     C                   ELSE
+      *
+     C     FREETXT2K     SETLL     FREETXT2
+     C     FREETXT2K     READE     FREETXT2                               33
+     C                   EVAL      WSFRTTXT = *BLANKS
+     C                   DOW       *IN33 = *OFF
+     C                   EVAL      WSFRTTXT = %TRIM(WSFRTTXT)
+     C                             + %TRIM(FRTTXT) + ','
+     C     FREETXT2K     READE     FREETXT2                               33
+     C                   ENDDO
+      *
+     C     FREETXT2K1    SETLL     FREETXT2
+     C     FREETXT2K1    READE     FREETXT2                               33
+     C                   DOW       *IN33 = *OFF
+     C                   EVAL      WSFRTTXT = %TRIM(WSFRTTXT)
+     C                             + %TRIM(FRTTXT) + ','
+     C     FREETXT2K1    READE     FREETXT2                               33
+     C                   ENDDO
+     C                   callp     updHTMLvar('WSFRTTXT':WSFRTTXT)
+     C                   callp     wrtsection('INFOROWchg')
+      *
+     C                   END
+     C                   callp     wrtsection('INFOSLUTT')
+      *
+     C                   endsr
+      *
+      *=====================================================================******
+      *  Display TRACK & TRACE
+      *=====================================================================******
+     C     DspTT         begsr
+      *
+      * VIS TRACKBAR SØKEVEI
+     c                   move      'Y'           Firstfri          1
+     c                   Eval      Snr = *blanks
+     C     HEADFK        SETLL     FRISOK
+     C     HEADFK        READE     FRISOK                                 33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     c     FSKODE        Chain     KODFRI                             33
+     C     *IN33         CABEQ     '1'           NextFri1
+     C                   IF        FSKODE = 'IFB'                                2<-B
+     C                   exsr      TstFbr
+     C                   IF        Snr = *Blanks                                 2<-B
+     c                   movel     FSSOK         Snr              17
+     C                   else                                                    2<-E
+     c                   Eval      Snr    = 'FLERE'
+     C                   END                                                     2<-E
+     C                   END                                                     2<-E
+      * Har denne frisok-kode peker til Track&Trace-URL-definisjon?
+     C                   EVAL      KFKOD = KFSTTU
+     C     KOFASTK1      CHAIN     KOFAST                             33
+     C                   IF        *IN33 = *OFF                                  2<-B
+      * Verdi som vises i link..
+     C                   EVAL      WSSOK = FSSOK
+      * URL som skal utføres
+     C                   EVAL      WSSOKURL = KFTXT
+      * append linje 2 (engelsk tekst når siet tegn er A)
+     C                   MOVE      KFTXTE        TstAppend         1
+     C     TstAppend     IFEQ      'A'                                            3<-B
+     c                   move      ' '           KFTXTE
+     C                   CAT       KFTXTE:0      WSSOKURL
+     C                   end                                                      3<-E
+N17   * Visse transportører har søk på kunderef - Avd/Oppdrag i stedet for sendingsnr
+N17  c                   if        KFKOD = 'DKFRA'                              Danske Fraktmænd
+N17  c                   move      HEAVD         WSAVD
+N17  c                   move      HEOPD         WSOPD
+N17  C                   eval      FSSOK = WSAVD+'/'+WSOPD
+N17  c                   endif
+     C                   CAT       FSSOK:0       WSSOKURL
+      * Suffix i søkestrengen..
+     C     KOFASTK2      CHAIN     KOFAST                             33
+     C                   IF        *IN33 = *OFF                                   3<-B
+     C                   CAT       KFTXT:0       WSSOKURL
+N06  C                   MOVE      KFTXTE        XTXTA
+N06  C                   MOVE      ' '           KFTXTE
+N06  c     XTXTA         ifeq      'A'
+N06  C                   CAT       KFTXTE:0      WSSOKURL
+N06  C                   END                                                      3<-E
+     C                   END                                                      3<-E
+      *
+     c     FirstFri      Ifeq      'Y'                                            3<-B
+      * Skrive ledertekst.
+     C                   callp     wrtsection('TTSTART')
+     c     xsprÅk        ifeq      'EN'
+     C                   callp     updHTMLvar('WSSOKTXT':'External T&T-links.')
+     c                   else
+     C                   callp     updHTMLvar('WSSOKTXT':'Eksterne T&T-linker.')
+     c                   end
+     C                   callp     updHTMLvar('WSSOK':'')
+     C                   callp     updHTMLvar('WSSOKURL':'')
+     C                   callp     wrtsection('TTROWH')
+     c                   move      'N'           Firstfri
+     c                   end                                                      3<-E
+     C                   callp     updHTMLvar('WSSOKTXT':KFSOTX)
+     C                   callp     updHTMLvar('WSSOK':WSSOK)
+     C                   callp     updHTMLvar('WSSOKURL':WSSOKURL)
+     C                   callp     wrtsection('TTROW')
+     C     NextFri1      TAG
+     C                   END                                                     2<-E
+     C     HEADFK        READE     FRISOK                                 33
+     C  N33              ENDDO                                                  1<-E
+     c     FirstFri      Ifeq      'N'
+     C                   callp     wrtsection('TTSLUTT')
+     C                   End
+      *
+      * VIS IKKE-TRACKBAR SØKEVEI
+     C                   move      'Y'           Firstfri          1
+     C     HEADFK        SETLL     FRISOK
+     C     HEADFK        READE     FRISOK                                 33
+     C                   DOW       *IN33 = *OFF                                 1<-B
+     c     FSKODE        Chain     KODFRI                             33
+     C     *IN33         CABEQ     '1'           NextFri2
+     C     'A'           LOOKUP    DFS                                    33
+     C     *IN33         CABEQ     '0'           NextFri2
+     C                   IF        FSKODE = 'IFB'                                2<-B
+     C                   exsr      TstFbr
+     C                   END                                                     2<-E
+      * Har denne frisok-kode peker til Track&Trace-URL-definisjon?
+     C                   EVAL      KFKOD = KFSTTU
+     C     KOFASTK1      CHAIN     KOFAST                             33
+     C                   IF        *IN33                                         2<-B
+     C     FirstFri      Ifeq      'Y'
+     C                   callp     wrtsection('TTSTART')
+     c     xsprÅk        ifeq      'EN'
+     C                   callp     updHTMLvar('KFSOTX':'Other references')
+     c                   else
+     C                   callp     updHTMLvar('KFSOTX':'Andre referanser')
+     c                   end
+     C                   callp     updHTMLvar('FSSOK':' ')
+     C                   callp     wrtsection('TT2ROWH')
+     C                   move      'N'           Firstfri
+     C                   END
+     C                   callp     updHTMLvar('KFSOTX':KFSOTX)
+     C                   callp     updHTMLvar('FSSOK':FSSOK)
+     C                   callp     wrtsection('TT2ROW')
+     C     NextFri2      TAG
+     C                   END                                                     2<-E
+     C     HEADFK        READE     FRISOK                                 33
+     C  N33              ENDDO                                                  1<-E
+     C     FirstFri      Ifeq      'N'
+     C                   callp     wrtsection('TTSLUTT')
+     C                   End
+      *
+     C                   exsr      TRACKINFO
+      *
+     C                   endsr
+      *=====================================================================******
+      *  TRACKINFO
+      *=====================================================================******
+     C     TRACKINFO     begsr
+
+      *  finn antall PODs på oppdraget (vis kun siste)
+     c                   move      *zeros        PodNr             3 0
+     c                   move      *zeros        antpod            3 0
+N23  C                   movel     'POD'         TTACTI
+     C                   move      *zeros        TTFBNR
+DBTMP * Bevisst sende en ugyldig kommando - kommer i jobloggen - kan lett finne rett job å DEBUGGE
+DBTMPC                   IF        HEOPD = 73778
+DBTMPC                   EVAL      rc=docmd('DEBUGDENNE')
+DBTMPC                   ENDIF
+     c     podkey        setll     trackl02
+     c     podkey        reade     trackl02                               50
+     c     *in50         doweq     *OFF
+     c                   add       1             antpod
+     c     podkey        reade     trackl02                               50
+     c                   end
+      *
+     C                   callp     wrtsection('rowhead')
+     c     TrackKey      setll     trackl01
+     c     TrackKey      reade     trackl01                               50
+     c     *in50         doweq     *OFF
+     c                   move      ' '           VisWEB
+     C                   EVAL      KFKOD = TTACTI
+     c     ACTKey        chain     KOFAST
+      * vis kun hendelser på oppdr.nivå - ved POD vis kun siste..
+     C     TTFBNR        Ifne      0
+     c                   move      ' '           VisWEB
+     C                   else
+     C     TTACTI        IFEQ      'POD'
+     c                   add       1             PodNr
+     C     PodNr         Ifne      AntPOD
+     c                   move      ' '           VisWEB
+     C                   end
+     C                   end
+     C                   end
+
+     c     VisWEB        ifeq      'J'
+      * snu dato Å.M.dag
+     c                   move      TTDATE        WDsÅMD
+     c                   move      WDsÅMDÅ       WDsDMÅÅ
+     c                   move      WDsÅMDM       WDsDMÅM
+     c                   move      WDsÅMDD       WDsDMÅD
+     C                   callp     updHTMLvar('DATE':
+     C                             %trim(%editw(WDsDMÅ:'  .  .    ')))
+     C                   callp     updHTMLvar('TIME':
+     C                             %trim(%editw(TTTIME:'  :  :  ')))
+     c     TTacti        ifeq      'POD'
+n10  c     xsprÅk        ifeq      'EN'
+     c                   eval      UTTEXT = KFTXTB + TTTEXT
+n10  c                   else
+n10  c                   eval      UTTEXT = KFTXTB + TTTEXL
+n10  c                   end
+     c                   else
+n10  c     xsprÅk        ifeq      'EN'
+     c                   eval      UTTEXT = TTTEXT
+n10  c                   else
+n10  c                   eval      UTTEXT = TTTEXL
+n10  c                   end
+     C                   end
+s22  C*                  callp     updHTMLvar('TEXT':UTTEXT)
+n22  C                   CALLP     updHTMLvar2('TEXT'
+n22  C                                         :%ADDr(UTTEXT)
+n22  C                                         :%len(UTTEXT))
+     C                   callp     wrtsection('row')
+      * dersom det er kun ett fraktbrevsnr kan evt.  gif vises
+     C     HXSNR17       IFNE      *BLANKS
+     C                   EVAL      SNR  = HXSNR17
+     C                   END
+     c     TTacti        ifeq      'POD'
+     c     snr           andne     'FLERE'
+     c     snr           andne     *blanks
+     C                   exsr      getgif
+     C                   end
+      * VEDL TRMODUL/UTLAND KAN SENDNR VÆRE  AVD_OPPDNR
+     c     TTacti        ifeq      'POD'
+     c     GIFOK         andne     'J'
+N12  c                   movel     Snr           SnrGm            17
+     c                   move      HEAVD         DSAVD
+     C                   move      '_'           Strek
+     c                   move      HEOPD         DSOPD
+     c                   eval      snr    = DSAVOP
+     C                   exsr      getgif
+N12  c                   movel     SnrGm         Snr
+     C                   end
+      *
+s12   * gamle gifer fra før V10 med 5 langt oppdrnr
+s12  c*    TTacti        ifeq      'POD'
+s12  c*    GIFOK         andne     'J'
+s12  c*                  move      HEAVD         DSAVD
+s12  C*                  move      '_'           Strek
+s12  c*                  move      *blanks       DSOPD
+s12  c*                  move      HEOPD         DSOPD5
+s12  c*                  eval      snr    = DSAVOP
+s12  C*                  exsr      getgif
+s12  C*                  end
+N12
+N12   * vis evt gif ved COL/TEI/TEU/TE2
+N12  c     TTacti        ifeq      'COL'
+N12  c     TTacti        oreq      'TEI'
+N12  c     TTacti        oreq      'TEU'
+N12  c     TTacti        oreq      'TE2'
+N12  C                   exsr      getgif2
+N12  c     GIFOK         Ifne      'J'
+N12  c                   movel     Snr           SnrGm
+N12  c                   move      HEAVD         DSAVD
+N12  C                   move      '_'           Strek
+N12  c                   move      HEOPD         DSOPD
+N12  c                   eval      snr    = DSAVOP
+N12  C                   exsr      getgif2
+N12  c                   movel     SnrGm         Snr
+N12  C                   endif
+N12  C                   endif
+N18   * Vis Bilde - VELDIG foreløpig
+N18   * eks   /syspeddev/signatur/Bilde_COL_0080_0201491.jpg
+N18  c     TTacti        ifeq      'COL'
+N18  c     TTacti        oreq      'TEI'
+N18  c     TTacti        oreq      'TEU'
+N18  c     TTacti        oreq      'TE2'
+N18  c     TTacti        oreq      'POD'
+      * Levering til terminal er i T&T logget som TE2 men inkonsekvent benevnt TEI i BildeNavn
+N18  c     TTacti        ifeq      'TE2'
+N18  c                   eval      TTacti = 'TEI'
+N18  c                   endif
+N18  c                   move      HEAVD         DSAVD
+N18  C                   move      '_'           Strek
+N18  c                   move      HEOPD         DSOPD
+s21  c*                  eval      ubane  = '/syspeddev/signatur/Bilde_'
+s21  C*                            +TTACTI+'_'+DSAvOp+'.jpg'
+s21  c*                  CALL      'BHRURLCL'
+s21  c*                  Parm                    ubane
+s21  c*                  Parm                    GIFOKB            1
+s21  c*    GIFOKB        ifeq      'J'
+s21  c*                  eval      uttext = '<p><a href="'+%trim(ubane)
+s21  C*                            +'" target="_new"> '
+s21  c*                            +'<img src="'+%trim(ubane)+'" '
+s21  c*                            +'style="width:128px;height:128px" '
+s21  c*                            +'alt="Stort Bilde"></a> '
+s21  c*                            +'(klikk på bilde for fullkvalitet)</p>'
+s21  c*
+s21  C*                  callp     updHTMLvar('TEXT':UtText)
+s21  C*                  callp     wrtsection('row')
+s21  c*                  move      *blanks       uttext
+s21  c*                  end
+N21  c                   move      *blanks       uttext
+N21  c                   eval      BildeLnk = '/syspeddev/signatur/Bilde_'
+N21  C                             +TTACTI+'_'+DSAvOp+'*'
+N21  C                   call      'SYGE19C'
+N21  C                   parm                    BildeLnk
+N21  C                   open      WRKALF
+N21  C     1             setll     WRKALF                                       Unkeyed / rel rec no
+N21  C                   read      WRKALF                                 33
+N21  C     *in33         doweq     '0'
+N21  c                   if        uttext = *blanks
+N21  c                   eval      uttext = '<p>'
+N21  C                   endif
+N21  c                   eval      uttext =%trim(uttext)+Spaces
+N21  C                             +'<a href="' + %trim(NAVNALFA)
+N21  C                             +'" target="_new"> '
+N21  c                             +'<img src="' + %trim(NAVNALFA) + '" '
+N21  c                             +'style="width:128px;height:128px" '
+N21  c                             +'alt="Stort Bilde"></a>'
+N21  C                   read      WRKALF                                 33
+N21  c                   enddo
+N21  c                   if        uttext <> *blanks
+N21  c                   eval      uttext =%trim(uttext)+Spaces
+N21  c                             +'(klikk på bilde for fullkvalitet)</p>'
+S22  C*                  callp     updHTMLvar('TEXT':UtText)
+n22  C                   CALLP     updHTMLvar2('TEXT'
+n22  C                                         :%ADDr(UTTEXT)
+n22  C                                         :%len(UTTEXT))
+N21  C                   callp     wrtsection('row')
+N21  c                   move      *blanks       uttext
+N21  C                   endif
+N21  C                   close     WRKALF
+     c
+N18  C                   endif
+      *
+     c                   end
+     c     TrackKey      reade     trackl01                               50
+     c                   end
+      *
+      *
+     C                   callp     wrtsection('Rowbot')
+     C     DIR           IFNE      'Y'
+     C                   callp     wrtsection('Buttons')
+     C                   else
+     C                   callp     wrtsection('ButtonsDir')
+     C                   END
+     C                   callp     wrtsection('Rowbot2')
+     C                   endsr
+      *=====================================================================******
+      *  Hent evt grafisk signatur
+      *=====================================================================******
+     C     GETGIF        begsr
+      *
+     c                   MOVE      'N'           GIFOK             1
+S19  c*                  move      *blanks       ubane            70
+N19  c                   move      *blanks       ubane           256
+     C                   movel     '/syspeddev/' ubane
+     C     ubane         CAT       'signatur/':0 ubane
+     C     ubane         CAT       SNR:0         ubane
+     C     ubane         CAT       '.gif':0      ubane
+     c                   CALL      'BHRURLCL'
+     c                   Parm                    ubane
+     c                   Parm                    GIFOK
+      * gif fantes ikke, prøv med bmp.
+     c     GIFOK         ifne      'J'
+S09  c*                  move      *blanks       ubane            70
+N09  c                   move      *blanks       ubane
+     C                   movel     '/syspeddev/' ubane
+     C     ubane         CAT       'signatur/':0 ubane
+     C     ubane         CAT       SNR:0         ubane
+     C     ubane         CAT       '.bmp':0      ubane
+     c                   CALL      'BHRURLCL'
+     c                   Parm                    ubane
+     c                   Parm                    GIFOK
+     c                   end
+n09   * bmp fantes ikke, prøv med jpg.
+n09  c     GIFOK         ifne      'J'
+s19  c*                  move      *blanks       ubane            70
+N19  c                   move      *blanks       ubane
+n09  C                   movel     '/syspeddev/' ubane
+n09  C     ubane         CAT       'signatur/':0 ubane
+n09  C     ubane         CAT       SNR:0         ubane
+n09  C     ubane         CAT       '.jpg':0      ubane
+n09  c                   CALL      'BHRURLCL'
+n09  c                   Parm                    ubane
+n09  c                   Parm                    GIFOK
+n09  c                   end
+n20   * jpg fantes ikke, prøv med png.
+n20  c     GIFOK         ifne      'J'
+N20  c                   move      *blanks       ubane
+n20  C                   movel     '/syspeddev/' ubane
+n20  C     ubane         CAT       'signatur/':0 ubane
+N20  C     ubane         CAT       SNR:0         ubane
+n20  C     ubane         CAT       '.png':0      ubane
+n20  c                   CALL      'BHRURLCL'
+n20  c                   Parm                    ubane
+n20  c                   Parm                    GIFOK
+N20  c                   end
+      * gif fantes ikke, prøv transportør
+N19  c     GIFOK         ifne      'J'
+N19  c                   eval      inid=TTDEPO
+N19  c     inid          CHAIN     EDII                               33
+N19  C     *in33         ifeq      '0'
+N19  C     INPOD01       ANDNE     *BLANKS
+N19  c                   CALL      'SYGE91'
+N19  c                   parm                    ttdepo
+N19  c                   parm                    snr
+N19  c                   parm                    ttavd
+N19  c                   parm                    ttopd
+N19  c                   parm                    ubane
+N19  c                   parm                    gifok
+N19  c*                  dump
+N19  c                   end
+N19  c                   end
+N19   *
+     c     GIFOK         ifeq      'J'
+     c                   move      *blanks       uttext
+     c                   movel     '<p><img bord'uttext
+     C     uttext        CAT       'er="0" sr':0 uttext
+     C     uttext        CAT       'c="':0       uttext
+     C     uttext        CAT       ubane:0       uttext
+     C     uttext        CAT       '"></p>':0    uttext
+S22  C*                  callp     updHTMLvar('TEXT':UtText)
+n22  C                   CALLP     updHTMLvar2('TEXT'
+n22  C                                         :%ADDr(UTTEXT)
+n22  C                                         :%len(UTTEXT))
+     C                   callp     wrtsection('row')
+     c                   move      *blanks       uttext
+     c                   end
+     C                   endsr
+N12   *=================================================================
+N12  C     GETGIF2       begsr
+N12   *
+N12  c                   MOVE      'N'           GIFOK             1
+s19  c*                  move      *blanks       ubane            70
+s19  c                   move      *blanks       ubane
+N12  C                   movel     '/syspeddev/' ubane
+N12  C     ubane         CAT       'signatur/':0 ubane
+N12  C     ubane         CAT       TTACTI:0      ubane
+N12  C     ubane         CAT       '_':0         ubane
+N12  C     ubane         CAT       SNR:0         ubane
+N12  C     ubane         CAT       '.gif':0      ubane
+N12  c                   CALL      'BHRURLCL'
+N12  c                   Parm                    ubane
+N12  c                   Parm                    GIFOK
+N15   * gif fantes ikke, prøv med bmp.
+N15  c     GIFOK         ifne      'J'
+S19  c*                  move      *blanks       ubane            70
+N19  c                   move      *blanks       ubane
+N15  C                   movel     '/syspeddev/' ubane
+N15  C     ubane         CAT       'signatur/':0 ubane
+N15  C     ubane         CAT       TTACTI:0      ubane
+N15  C     ubane         CAT       '_':0         ubane
+N15  C     ubane         CAT       SNR:0         ubane
+N14  C     ubane         CAT       '.bmp':0      ubane
+N15  c                   CALL      'BHRURLCL'
+N15  c                   Parm                    ubane
+N15  c                   Parm                    GIFOK
+N15  c                   end
+N15   * bmp fantes ikke, prøv med jpg.
+N15  c     GIFOK         ifne      'J'
+s19  c*                  move      *blanks       ubane            70
+N19  c                   move      *blanks       ubane
+N15  C                   movel     '/syspeddev/' ubane
+N15  C     ubane         CAT       'signatur/':0 ubane
+N15  C     ubane         CAT       TTACTI:0      ubane
+N15  C     ubane         CAT       '_':0         ubane
+N15  C     ubane         CAT       SNR:0         ubane
+N15  C     ubane         CAT       '.jpg':0      ubane
+N15  c                   CALL      'BHRURLCL'
+N15  c                   Parm                    ubane
+N15  c                   Parm                    GIFOK
+N15  c                   end
+N20   * jpg fantes ikke, prøv med png.
+N20  c     GIFOK         ifne      'J'
+N20  c                   move      *blanks       ubane
+N20  C                   movel     '/syspeddev/' ubane
+N20  C     ubane         CAT       'signatur/':0 ubane
+N20  C     ubane         CAT       TTACTI:0      ubane
+N20  C     ubane         CAT       '_':0         ubane
+N20  C     ubane         CAT       SNR:0         ubane
+N20  C     ubane         CAT       '.png':0      ubane
+N20  c                   CALL      'BHRURLCL'
+N20  c                   Parm                    ubane
+N20  c                   Parm                    GIFOK
+N20  c                   end
+N20   *
+N12  c     GIFOK         ifeq      'J'
+N12  c                   move      *blanks       uttext
+N12  c                   movel     '<p><img bord'uttext
+N12  C     uttext        CAT       'er="0" sr':0 uttext
+N12  C     uttext        CAT       'c="':0       uttext
+N12  C     uttext        CAT       ubane:0       uttext
+N12  C     uttext        CAT       '"></p>':0    uttext
+S22  C*                  callp     updHTMLvar('TEXT':UtText)
+n22  C                   CALLP     updHTMLvar2('TEXT'
+n22  C                                         :%ADDr(UTTEXT)
+n22  C                                         :%len(UTTEXT))
+N12  C                   callp     wrtsection('row')
+N12  c                   move      *blanks       uttext
+N12  c                   end
+N12  C                   endsr
+     C***********************************************
+     C     TSTFBR        BEGSR
+     C***********************************************
+      * Test om transportør på fraktbrev overstyrer T&T-URL-kode
+N04
+N04   * hvis innlandsmodul  og dette er inl-fraktbrevet
+N04  c     HEUR          IFEQ      'H'
+N04  c     HEpro         andne     *zeros
+N04  c     HXSNR17       andeq     FSSOK
+N04  C     hepro         chain     Turer14                            33
+N04  c     *in33         ifeq      '0'
+N04  c                   move      TUKNT2        DFTRAN
+N04  c                   goto      TraTag
+N04  c                   endif
+N04  c                   endif
+     C*
+     C     FSSOK         chain     dokuf7                             33
+     c     *IN33         cabeq     '1'           UtTstFbr
+N04  c     TraTag        tag
+     c     DFTRAN        cabeq     0             UtTstFbr
+     C     TranKey       chain     Tran                               33
+     c     *IN33         cabeq     '1'           UtTstFbr
+     c     VMINTP        cabeq     *blanks       UtTstFbr
+     C                   EVAL      KFSTTU  = VMINTP
+     C                   EVAL      KFSOTX  = 'Fr.brevsnr ' + DFNAT
+     C     UtTstFbr      ENDSR
+     C*
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl        begsr
+      *------------------
+      * Set html output skeleton member
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYSO03'
+     C                   CAT       XSPRÅK:0      MBR
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$endhtml
+      *=====================================================================******
+     C     SetEnd        begsr
+      * Server protocol
+     C                   callp     updhtmlvar('PROTOCOL':S_Protocol)
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Retrieve environment variables
+      *=====================================================================******
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol and name
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C     arkivkey      KLIST
+     C                   KFLD                    unkode
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     c                   move      'A'           unkode            1
+     C     HEADFK        klist
+     C                   kfld                    HEAVD
+     C                   kfld                    HEOPD
+     C     FAKKEY        klist
+     C                   kfld                    HEAVD
+     C                   kfld                    HEOPD
+     C                   kfld                    FAFAKT
+     C     KOFASTK1      klist
+     C                   kfld                    KFTYP1           10
+     C                   kfld                    KFKOD
+     C                   EVAL      KFTYP1 = 'TRACKPREFI'
+     C     KOFASTK2      klist
+     C                   kfld                    KFTYP2           10
+     C                   kfld                    KFKOD
+     C                   EVAL      KFTYP2 = 'TRACKSUFFI'
+     C     KOFASTK3      klist
+     C                   kfld                    KFTYP3           10
+     C                   kfld                    KFKOD3            5
+     C                   MOVEL     'WEBETRACK'   KFTYP3
+     C     KOFASTK4      klist
+     C                   kfld                    KFTYP3
+     C                   kfld                    KFKOD4            5
+     C                   MOVEL     '   **'       KFKOD4
+     C     KOFASTK5      klist
+     C                   kfld                    KFTYP3
+     C                   kfld                    KFKOD5            5
+     C                   MOVEL     'OTHER'       KFKOD5
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     TrackKey      KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C     PODKEY        KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    TTFBNR
+     C                   KFLD                    TTACTI
+S23  c*                  movel     'POD'         TTACTI
+     C     ActKey        KLIST
+     C                   KFLD                    KFTYPT           10
+     C                   KFLD                    KFKOD
+     c                   MOVEL     'TRACKT'      KFTYPT
+     C     TranKey       klist
+     C                   kfld                    BIFIRM
+     C                   kfld                    DFTRAN
+     C     ARKEXTK       KLIST
+     C                   KFLD                    ARFIRM
+     C                   KFLD                    ARCEXT
+     C     FREETXT2K     KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    FRTKOD
+     C                   MOVE      'A'           FRTKOD
+     C     FREETXT2K1    KLIST
+     C                   KFLD                    HEAVD
+     C                   KFLD                    HEOPD
+     C                   KFLD                    XFRTKOD
+     C                   MOVE      '1'           XFRTKOD           1
+N13  C     DokufmKey     KLIST
+N13  C                   KFLD                    FMRI
+N13  C                   KFLD                    HEAVD
+N13  C                   KFLD                    HEOPD
+N13  C                   MOVE      'F'           FMRI
+      *
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+      * Ugyldig userID
+NUSR c     *in50         ifeq      '1'
+NUSR C                   callp     gethtml('HTMLSRC':'*LIBL':'ERRUSR':
+NUSR c                             '/CGITAG/')
+NUSR C                   callp     updhtmlvar('User':WSUSER)
+NUSR C                   callp     wrtsection('all')
+NUSR C                   callp     wrtsection('*fini')
+NUSR C                   close     BRIDF
+NUSR C                   eval      *inlr = *on
+NUSR C                   return
+NUSR c                   endif
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *zeros        PAKUNR
+     C                   OPEN      HEADF
+     C                   OPEN      arkivl02
+     C                   OPEN      firmarc
+     C                   OPEN      FIRM
+     C                   OPEN      arktxt
+N19  C                   OPEN      edii
+     C                   OPEN      ARKEXT
+     C                   OPEN      FRISOK
+     C                   OPEN      FRISOL01
+     C                   OPEN      HEAD17
+     C                   OPEN      KODFRI
+     C                   OPEN      DOKUF7
+N04  C                   OPEN      TURER14
+     C                   OPEN      TRAN
+     C                   OPEN      KOFAST
+     C                   OPEN      BRPARF
+     C                   OPEN      TRACKL01
+     C                   OPEN      TRACKL02
+     C                   OPEN      FREETXT2
+     C                   OPEN      FAK8
+     C                   OPEN      GSSCGL02
+     C                   OPEN      TRACKT
+N13  C                   OPEN      DOKUFM
+      *
+      * Initiere DS (obs - pass at ikke verdier tatt inn i parse  nulles)
+     c                   move      *zeros        WSATA
+     c                   move      *zeros        WDsÅMD
+     c                   move      *zeros        WDsDMÅ
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C                   EVAL      PABRID = WSUSER
+      *
+     C                   MOVEL     'NOTES'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR
+     C                             ((PAVRDA <> 'j') AND
+     C                              (PAVRDA <> 'J')))
+     C                   MOVE      'N'           XWRKNOTES         1
+     C                   ELSE
+     C                   MOVE      'J'           XWRKNOTES         1
+     C                   END
+      *
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   END
+      *
+     C                   MOVE      *ZEROS        KN
+     C                   MOVE      *ZEROS        XN2               3 0
+     C                   MOVEL     'KUNGR'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA = *BLANKS))
+     C                   MOVE      BIKUNR        KN(1)
+     C                   ELSE
+     C                   MOVEL     PAVRDA        CGCG
+     C     CGCG          SETLL     GSSCGL02
+     C     CGCG          READE     GSSCGL02                               33
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN2
+     C                   MOVE      CGCNO         KN(XN2)
+     C     CGCG          READE     GSSCGL02                               33
+     C                   ENDDO
+     C                   END
+      * LÅNER ARKTY-PARAMETEREN FOR Å AVGJØRE OM BRUKER KAN SE FAKTURALINK
+      * sjekk om arkivtypene fa,fs,fx finnes(på førstelinjer) Hvis ikke, N i se fakturalink
+      * (sjekk av arkivtyper for å se pdf-dok, sker generelt annet sted)
+     C                   move      'N'           OKFaktLink        1
+     C                   MOVE      'ARKTY'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+     C     'fa'          scan      Pavrda                                 33
+     C  N33'fs'          scan      Pavrda                                 33
+     C  N33'fx'          scan      Pavrda                                 33
+     C   33              move      'J'           OKFaktLink
+     C                   end
+      * logikk ved eksternref i parameterstreng
+     C     EXTREF        IFNE      *BLANKS
+     C     HEAVD         ANDEQ     0
+     C     HEOPD         ANDEQ     0
+     C                   MOVE      'EXTRE'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+     C                   MOVEL     PAVRDA        FSKODE
+     C                   exsr      finnopd
+     C                   ELSE
+     C                   exsr      finnopdh
+     C                   end
+     C                   end
+      *
+     C     BIFIRM        CHAIN     FIRM                               33
+      *
+     c*                  read      firmarc                                41
+     C                   endsr
+      ****************************************************************************
+     C     FINNOPD       BEGSR
+      ****************************************************************************
+     C     FRIHEAD       KLIST
+     C                   KFLD                    FSAVD
+     C                   KFLD                    FSOPD
+     C     FRIKEY0       KLIST
+     C                   KFLD                    FSKODE
+     C                   KFLD                    FSSOK
+     C                   KFLD                    FSDTOP
+     C     FRIKEY1       KLIST
+     C                   KFLD                    FSKODE
+     C                   KFLD                    FSSOK
+     C                   EVAL      FSSOK  = EXTREF
+     C                   EVAL      FSDTOP = 99999999
+     C     FRIKEY0       SETGT     FRISOL01
+     C                   setoff                                       33
+     C     *in33         doweq     '0'
+     C     FRIKEY1       readpe    FRISOL01                               33
+     C     *IN33         IFEQ      '0'
+     C     FRIHEAD       CHAIN     HEADF                              34
+     C     *in34         IFEQ      '0'
+S07  C*    HEKNA         ANDEQ     BIKUNR
+N07  C     HEKNA         IFEQ      BIKUNR
+N07  C     TRKNFA        OREQ      BIKUNR
+     C                   move      heavd         wsavd
+     C                   move      heopd         wsopd
+     C                   GOTO      UTFRI
+N07  C                   END
+     C                   END
+     C                   END
+     C                   END
+     C                   Z-add     0             heavd
+     C                   Z-add     0             heopd
+     C     UTFRI         ENDSR
+      ****************************************************************************
+     C     FINNOPDH      BEGSR
+      ****************************************************************************
+     C     H17KEY        KLIST
+     C                   KFLD                    HERFA
+     C                   EVAL      HERFA  = EXTREF
+     C     H17KEY        SETGT     HEAD17
+     C                   setoff                                       33
+     C     *in33         doweq     '0'
+     C     H17KEY        readpe    HEAD17                                 33
+     C     *IN33         IFEQ      '0'
+     C     HEKNA         ANDEQ     BIKUNR
+     C                   move      heavd         wsavd
+     C                   move      heopd         wsopd
+     C                   GOTO      UTH17
+     C                   END
+     C                   END
+     C                   Z-add     0             heavd
+     C                   Z-add     0             heopd
+     C     UTH17         ENDSR
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          begsr
+s03  C*                  callp     wrtsection('endhtml')
+     C                   callp     wrtsection('*fini')
+     C                   close     BRIDF
+     C                   close     HEADF
+     C                   CLOSE     arkivl02
+     C                   CLOSE     firmarc
+     C                   CLOSE     FIRM
+     C                   CLOSE     arktxt
+N19  C                   CLOSE     EDII
+     C                   CLOSE     ARKEXT
+     C                   CLOSE     FRISOK
+     C                   CLOSE     FRISOL01
+     C                   CLOSE     HEAD17
+     C                   CLOSE     KODFRI
+     C                   CLOSE     KOFAST
+     C                   CLOSE     DOKUF7
+N04  C                   CLOSE     TURER14
+     C                   CLOSE     TRAN
+     C                   close     BRPARF
+     C                   CLOSE     TRACKL01
+     C                   CLOSE     TRACKL02
+     C                   CLOSE     FREETXT2
+     C                   CLOSE     FAK8
+     C                   CLOSE     GSSCGL02
+     C                   CLOSE     TRACKT
+N13  C                   CLOSE     DOKUFM
+     C                   eval      *inlr = *on
+      *
+     C                   endsr
+      *
+     C***********************************************
+     C     genbane       BEGSR
+     C***********************************************
+     C                   MOVE      ARKLAG        ARCEXT
+     C     ARKEXTK       CHAIN     ARKEXT                             33
+     C   33ARFIRM        CHAIN     FIRMARC                            33
+     C* genererer bane for lagring
+     C                   MOVE      ARAVD         AAVD              4
+     C                   MOVE      AROPD         AOPD              7
+     c                   movel     '<a href="'   UPDF(na)
+     C     UPDF(na)      CAT       '/':0         UPDF(na)
+     C     UPDF(na)      CAT       arcane:0      UPDF(na)
+     C     UPDF(na)      CAT       '/':0         UPDF(na)
+     C     ARLINK        IFNE      *Blanks
+     C     UPDF(na)      CAT       ArLink:0      UPDF(na)
+     c                   else
+     C     UPDF(na)      CAT       aavd:0        UPDF(na)
+V10   * TEST LINK
+V10  C                   EVAL      UXLINK = '/' + %TRIM(ARCANE)
+V10  C                             + '/' + AAVD + AOPD
+V10  C                             + %TRIM(ARTYPE)
+V10  C                             + %TRIM(ARUNDE)
+V10  C                             + '.pdf'
+V10  C                   MOVE      'J'           UXOK
+V10  C                   CALL      'CHECKLNK'
+V10  C                   PARM                    UXLINK           50
+V10  C                   PARM                    UXOK              1
+V10   *
+V10  C                   IF        UXOK = 'N'
+V10   * GAMMEL DOKUMENT MED 5 SIFRE OPPDRAGSNR
+V10  C                   MOVE      aopd          AOPD5             5
+V10  C                   CAT       aopd5:0       UPDF(NA)
+V10  C                   ELSE
+     C     UPDF(na)      CAT       aopd:0        UPDF(na)
+V10  C                   END
+     C     UPDF(na)      CAT       artype:0      UPDF(na)
+     C     UPDF(na)      CAT       arunde:0      UPDF(na)
+     c                   end
+     C     '.pdf'        SCAN      updf(na)                               33
+     C  N33'.PDF'        SCAN      updf(na)                               33
+     C  N33'.'           SCAN      arlink                                 33
+     C  N33              IF        ARKLAG = *Blanks
+     C                   CAT       '.pdf':0      UPDF(na)
+     C                   END
+     C                   CAT       '" target="':0UPDF(na)
+     C                   CAT       'SyPDFWind': 0UPDF(na)
+     C                   CAT       '">':0        UPDF(na)
+     C                   IF        ARRFK = *BLANKS
+     C                   CAT       ARTXT:0       UPDF(na)
+     C                   ELSE
+     C                   CAT       ARRFK:0       UPDF(na)
+     C                   END
+     C     UPDF(na)      CAT       '<img src="':0UPDF(na)
+     C     UPDF(na)      CAT       '/syspeddev':0UPDF(na)
+     C     UPDF(na)      CAT       '/PDF.gif"':0 UPDF(na)
+     C     UPDF(na)      CAT       'ALT="':1     UPDF(na)
+     C     UPDF(na)      CAT       artxt:0       UPDF(na)
+     C     UPDF(na)      CAT       '"></a>':0    UPDF(na)
+      *
+     c                   endsr
+     c**************************************************************
+     c     lesdok        begsr
+     c**************************************************************
+     c                   z-add     1             na                3 0
+     c                   movea     *blanks       updf
+      * Vis kun dokumeter bruker er autorisert for å se...
+     C                   move      *blanks       ATString
+     C                   MOVE      'ARKTY'       PAID
+     C     BrParKey      chain     BRPARF                             33
+     C     *IN33         CABEQ     '1'           UtDok
+     C                   movel     Pavrda        ATstring1
+     C     BrParKey      READE     BRPARF                                 33
+     C  N33              movel     Pavrda        ATstring2
+     C  N33BrParKey      READE     BRPARF                                 33
+     C  N33              movel     Pavrda        ATstring3
+     C  N33BrParKey      READE     BRPARF                                 33
+     C  N33              movel     Pavrda        ATstring4
+     C     1             DO        64            ln                2 0
+     c                   movea     AT(ln)        A2(ln)
+     c                   end
+      *
+     c                   setoff                                       94
+     C     arkivkey      SETLL     ARKIVL02
+     C     *in(94)       doweq     '0'
+     C     arkivkey      READE     ARKIVL02                               94
+     c  N94na            comp      20                                 94
+     C     *in94         ifeq      '0'
+     c* visse typer dokument må "eies" av webkunden
+     c     artype        ifeq      'go'
+     c     artype        oreq      'am'
+     c     artype        oreq      'fa'
+     c     artype        oreq      'fs'
+     c     artype        oreq      'fx'
+     c     artype        oreq      'dg'
+     c     artype        oreq      'ta'
+     C                   IF        UsrSpcName <> 'InT5WXz4BJ'
+N14  C                             and XINTERN <> 'J'                           Intern:ikke KNR-test
+     C     1             DO        30            XN2
+     C     KN(XN2)       CABEQ     0             NEXTDOC
+     C                   IF        ARKUND = KN(XN2)
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   END
+     c                   end
+     c* Brukeren må være autorisert for å se aktuell type
+     C     artype        lookup    A2                                     33
+     c     *in33         cabeq     '0'           NextDoc
+      * OK
+     c     artype        ifeq      'go'
+     c     artype        oreq      'am'
+     c     artype        oreq      'fx'
+     c     artype        oreq      'fs'
+     c                   move      *zeros        aravd
+     c                   move      *zeros        aropd
+     C                   END
+     c     artype        chain     arktxt                             95
+     c  n95              exsr      genbane
+     c  n95              add       1             na
+      *
+     C     NextDoc       TAG
+     C                   END
+     C                   END
+     C*
+     c     UtDOK         endsr
+      ***********************************************************
+     C     missing       begsr
+      ***********************************************************
+     C                   callp     updHTMLvar('EXTREF':EXTREF)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     wrtsection('MISSING')
+     c                   exsr      exit
+     c                   return
+     C                   endsr

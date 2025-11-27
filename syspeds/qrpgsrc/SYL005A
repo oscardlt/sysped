@@ -1,0 +1,709 @@
+      *********************************************************************
+      * ARBEID MED PLUKKLISTE (HEADING)
+      * PROGRAM BEHANDLER INPUT FRA SYL005A OG VISER UTVALGT HEADLING
+      *
+CRTPG+*  CRTPGM SYSPED/SYL005A MODULE(*LIBL/SYL005A *LIBL/SYL003B
+CRTPGM*        *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 OPPDATER LEVERANDØRS ARTKKELNR
+********************************************************************
+      *
+      *********************************************************************
+      * MAIN PROGRAM FLOW
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      * Boats for sale data base file (LF on BOATSALE by boat serial number)
+     FLLHEAD    UF   E           K DISK    USROPN
+     FLLLINE    UF A E           K DISK    USROPN
+     FLLVARE01  IF   E           K DISK    USROPN
+     FLLAGJS03  IF   E           K DISK    USROPN
+     FKUFAST    IF   E           K DISK    USROPN
+     FBRIDF     UF   E           K DISK    USROPN
+     FBRPARF    if   e           k disk    usropn
+      *--------------------------------------------------------------------
+      * Prototype definitions and standard system API error structure
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      * Variables common to CGI programs
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * VARIABLES SPECIFIC TO THIS PROGRAM
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D lng             s              2
+     D UsrSpcName      s             10
+      * Variables used to load the external html source member
+     D Lib             s             10
+     D Fn              s             10
+     D Mbr             s             10
+      *
+     D TB              S              1    DIM(15)
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D FEILMELDING     S             80
+
+     D WSMN            S              7
+     D WSVN            S              3
+     D WSPNR           S              8
+     D WSPNA           S             30
+     D WSBNR           S             17
+     D WSBNA           S             30
+     D WSANR           S             15
+     D WSWNT0          S              7
+     D WSVB            S             35
+     D WSSALD          S              7
+     D WSUSER          S             10
+     D BWSMN           S              7  0
+     D BWSVN           S              3  0
+     D BWSPNR          S              8  0
+     D BWSWNT0         S              7  0
+     D WSAVSL          S              1
+      *
+     D FEIL01          C                   CONST('Antall stykk må oppgis.')
+     D FEILEN01        C                   CONST('Number of pieces not given.')
+     D FEIL02          C                   CONST('Sjekk laveste salgsenhet-
+     D                                     !!!')
+     D FEILEN02        C                   CONST('Check lowest sales unit!!!')
+     D FEIL03          C                   CONST('Du må vente. En annen br-
+     D                                     uker holder på med å allokere f-
+     D                                     ra dette varenummer.')
+     D FEILEN03        C                   CONST('You have wait. This article -
+     D                                     is allocated by an other user just -
+     D                                     now.')
+     D FEIL04          C                   CONST('Antall uttak er større e-
+     D                                     nn antall på lager.')
+     D FEILEN04        C                   CONST('The number is greater th-
+     D                                     an the total in stock.')
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     D PGM2            C                   CONST('SYSPED/SYL003B')
+      *
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================
+      * MAIN PROCESSING LINE
+      *=====================================================================
+      * Parse input string
+     C                   exsr      Parse
+      * Initier
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     WSUSER        CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * TEST INNGÅENDE DATA
+     C                   EXSR      TESTB
+      * Set output skeleton html member name
+     C     FEILMELDING   IFEQ      *BLANKS
+     C                   EXSR      OPDLINJE
+     C*    FMELDNR       IFEQ      'C'
+     C*                  EXSR      VISLINJE
+     C*                  eval      *inlr = *on
+     C*                  return
+     C*                  END
+     C                   EVAL      WSAVSL = 'J'
+     C                   exsr      SetSkl05
+     C                   ELSE
+     C                   exsr      SetSkl05A
+     C                   END
+      * Read skeleton output html into core
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * Retrieve environment variables
+     C                   exsr      RtvEnvVar
+      *
+      * Issue html section /$top
+     C                   exsr      SetTop
+     C                   callp     wrtsection('top')
+      *------------------
+      * Retrieve number of boats to be shown
+     C                   exsr      SetFound
+     C                   callp     wrtsection('found')
+      * Send output buffer and quit
+     C     SLUTT         TAG
+     C                   exsr      Exit
+      *=====================================================================
+      * Send output buffer and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Compute and display run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+     C                   callp     wrtsection('endhtml')
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      *
+     C                   close     BRPARF
+     C                   close     LLHEAD
+     C                   close     LLLINE
+     C                   close     LLVARE01
+     C                   close     LLAGJS03
+     C                   close     KUFAST
+     C                   eval      *inlr = *on
+      *
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Parse input string
+      *=====================================================================
+     C     Parse         begsr
+     C                   eval      lng     = zhbgetvar('lng')
+
+     C                   MOVE      *ZEROS        BWSMN
+     C                   eval      WSMN    = zhbgetvar('LHMN')
+     C                   MOVEA     WSMN          TB
+     C     1             DO        7             XN                3 0
+     C     TB(XN)        IFNE      ' '
+     C                   MULT      10            BWSMN
+     C                   MOVE      TB(XN)        BWSMN
+     C                   ENDIF
+     C                   ENDDO
+     C                   MOVE      *ZEROS        BWSVN
+     C                   eval      WSVN   = zhbgetvar('LLVN')
+     C                   MOVEA     WSVN          TB
+     C     1             DO        3             XN                3 0
+     C     TB(XN)        IFNE      ' '
+     C                   MULT      10            BWSVN
+     C                   MOVE      TB(XN)        BWSVN
+     C                   ENDIF
+     C                   ENDDO
+
+     C                   MOVE      *ZEROS        BWSPNR
+     C                   eval      WSPNR   = zhbgetvar('LHPNR')
+     C                   MOVEA     WSPNR         TB
+     C     1             DO        8             XN                3 0
+     C     TB(XN)        IFNE      ' '
+     C                   MULT      10            BWSPNR
+     C                   MOVE      TB(XN)        BWSPNR
+     C                   ENDIF
+     C                   ENDDO
+
+     C                   eval      WSPNA   = zhbgetvar('KNAVN')
+     C                   eval      WSBNR   = zhbgetvar('LHBNR')
+     C                   eval      WSBNA   = zhbgetvar('LHBNA')
+
+     C                   eval      WSANR   = zhbgetvar('WSANR')
+     C                   eval      WSANR   = uppify(WSANR)
+     C                   eval      WSWNT0  = zhbgetvar('WSWNT0')
+     C                   MOVEA     WSWNT0        TB
+     C                   MOVE      *ZEROS        BWSWNT0
+     C     1             DO        7             XN                3 0
+     C     TB(XN)        IFGE      '0'
+     C     TB(XN)        ANDLE     '9'
+     C                   MULT      10            BWSWNT0
+     C                   MOVE      TB(XN)        BWSWNT0
+     C                   ENDIF
+     C                   ENDDO
+     C                   eval      WSUSER  = zhbgetvar('USER')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+
+     C                   endsr
+      *=====================================================================
+      * Set html output skeleton VED FEIL
+      *=====================================================================
+     C     SetSkl05      begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYL005'
+     C                   CAT       XSPRÅK:0      MBR
+     C                   endsr
+      *=====================================================================
+      * Set html output skeleton VED FEIL
+      *=====================================================================
+     C     SetSkl05A     begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'SYL005A'
+     C                   CAT       XSPRÅK:0      MBR
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+     C                   callp     updhtmlvar('BGCOLOR':BIFARG)
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+      * Protocol
+     C                   callp     updHtmlVar('PROTOCOL':S_Protocol)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updhtmlvar('WSGRP':
+     C                             %trim(%editc(LHGRP:'Z')))
+     C                   callp     updhtmlvar('WSPNR':
+     C                             %trim(%editc(LHPNR:'Z')))
+     C                   callp     updHtmlVar('WSAVSL':WSAVSL)
+     C                   endsr
+      *=====================================================================
+      * Set html output variables for section /$found (display a boat)
+      *=====================================================================
+     C     SetFound      begsr
+      * Sett inn i HTMLvariabler
+     C                   callp     updHtmlVar('LHMN':WSMN)
+     C                   callp     updhtmlvar('LLVN':
+     C                             %trim(%editc(BWSVN:'Z')))
+     C                   callp     updhtmlvar('LHPNR':WSPNR)
+     C                   callp     updHtmlVar('KNAVN':WSPNA)
+     C                   callp     updhtmlvar('LHBNR':WSBNR)
+     C                   callp     updhtmlvar('LHBNA':WSBNA)
+
+     C                   IF        FEILMELDING = *BLANKS
+     C                   MOVE      *BLANKS       WSANR
+     C                   MOVE      *BLANKS       WSVB
+     C                   MOVE      *ZEROS        BWSWNT0
+     C                   END
+     C                   callp     updHtmlVar('WSANR':WSANR)
+     C                   callp     updhtmlvar('WSVB':WSVB)
+     C                   callp     updhtmlvar('WSWNT0':
+     C                             %trim(%editC(BWSWNT0:'Z')))
+     C                   callp     updhtmlvar('FEILMELDING':FEILMELDING)
+     C                   callp     updhtmlvar('FMELDNR':FMELDNR)
+     C                   callp     updHtmlVar('USER':WSUSER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updhtmlvar('WSGRP':
+     C                             %trim(%editc(LHGRP:'Z')))
+     C                   callp     updhtmlvar('WSPNR':
+     C                             %trim(%editc(LHPNR:'Z')))
+
+     C                   callp     updhtmlvar('LVSALD':
+     C                             %trim(%editC(LVSALD:'3')))
+     C                   callp     updhtmlvar('LVAN01':
+     C                             %trim(%editC(LVAN01:'3')))
+     C                   callp     updhtmlvar('LVAN12':
+     C                             %trim(%editC(LVAN12:'3')))
+     C                   callp     updhtmlvar('LVAN02':
+     C                             %trim(%editC(LVAN02:'3')))
+     C                   callp     updhtmlvar('LVAN23':
+     C                             %trim(%editC(LVAN23:'3')))
+     C                   callp     updhtmlvar('LVAN03':
+     C                             %trim(%editC(LVAN03:'3')))
+     C                   callp     updhtmlvar('LVMIN':
+     C                             %trim(%editC(LVMIN:'3')))
+     C                   callp     updhtmlvar('LVMEH':LVMEH)
+     C                   callp     updhtmlvar('LVMSTK':
+     C                             %trim(%editC(LVMSTK:'3')))
+     C                   EVAL      KFTYP = 'VE'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVEIER
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VE*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVEIER':LVEIER)
+     C                   callp     updhtmlvar('LVEIERNV':KFTXT)
+     C                   EVAL      KFTYP = 'VG'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVAG01
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VG*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVAG01':LVAG01)
+     C                   callp     updhtmlvar('LVAG01NV':KFTXT)
+     C                   EVAL      KFTYP = 'VG'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVAG02
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VG*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVAG02':LVAG02)
+     C                   callp     updhtmlvar('LVAG02NV':KFTXT)
+     C                   EVAL      KFTYP = 'VG'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVAG03
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VG*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVAG03':LVAG03)
+     C                   callp     updhtmlvar('LVAG03NV':KFTXT)
+     C                   EVAL      KFTYP = 'VG'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVAG04
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VG*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVAG04':LVAG04)
+     C                   callp     updhtmlvar('LVAG04NV':KFTXT)
+     C                   EVAL      KFTYP = 'VG'
+     C                   MOVE      BIKUNR        KFTYP
+     C                   EVAL      KFKOD = LVAG05
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   IF        *IN33
+     C                   EVAL      KFTYP = 'VG*'
+     C                   CAT       BIFIRM:0      KFTYP
+     C                   CAT       '*':0         KFTYP
+     C     KUFASTK       CHAIN     KUFAST                             33
+     C                   END
+     C   33              MOVE      *BLANKS       KFTXT
+     C                   callp     updhtmlvar('LVAG05':LVAG05)
+     C                   callp     updhtmlvar('LVAG05NV':KFTXT)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Retrieve environment variables
+      *=====================================================================
+     C     RtvEnvVar     begsr
+      * Use getenvp to get this server's protocol
+     C                   eval      S_Protocol =getenv('SERVER_PROTOCOL':
+     C                             qusec)
+     C                   eval      S_Name     =getenv('SERVER_NAME':
+     C                             qusec)
+      *
+     C                   endsr
+      *=====================================================================
+      *  Initier
+      *=====================================================================
+     C     INIT          begsr
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      *
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   CALLB     'INCGI'
+     C                   PARM                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C                   open      BRPARF                               50
+     C                   open      LLHEAD                               50
+     C                   open      LLLINE                               50
+     C                   open      LLVARE01                             50
+     C                   open      LLAGJS03                             50
+     C                   open      KUFAST                               50
+     c     LL00K         klist
+     c                   kfld                    BWSMN
+     c                   kfld                    BWSVN
+     c     LL00KSIST     klist
+     c                   kfld                    BWSMN
+     c                   kfld                    LLVNSIST
+     c     LV01K         klist
+     c                   kfld                    LHGRP
+     c                   kfld                    BWSPNR
+     c                   kfld                    WSANR
+     c     LV01KGRP      klist
+     c                   kfld                    LHGRP
+     c                   kfld                    LVPNRGRP
+     c                   kfld                    WSANR
+     c     LAS03K        klist
+     c                   kfld                    LHGRP
+     c                   kfld                    BWSPNR
+     c                   kfld                    WSANR
+     C     KUFASTK       klist
+     C                   kfld                    KFTYP
+     C                   kfld                    KFKOD
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+      *
+     C     *LIKE         DEFINE    LLVN          LLVNSIST
+     C     *LIKE         DEFINE    LVPNR         LVPNRGRP
+     C     *LIKE         DEFINE    LHGRP         UGRP
+     C     *LIKE         DEFINE    LLWNT0        UWNT0
+     C     *LIKE         DEFINE    LLWNT0        UWNTL
+     C     *LIKE         DEFINE    LLWNT1        UWNT1
+     C     *LIKE         DEFINE    LLWNT2        UWNT2
+     C     *LIKE         DEFINE    LLWNT3        UWNT3
+     C     *LIKE         DEFINE    LLWVEK        UWVEK
+     C     *LIKE         DEFINE    LLWKUB        UWKUB
+     C     *LIKE         DEFINE    LLWNT0        BWSWNTL
+     C     *LIKE         DEFINE    LLWNT1        BWSWNT1
+     C     *LIKE         DEFINE    LLWNT2        BWSWNT2
+     C     *LIKE         DEFINE    LLWNT3        BWSWNT3
+     C     *LIKE         DEFINE    LLWVEK        BWSWVEK
+     C     *LIKE         DEFINE    LLWKUB        BWSWKUB
+     C     *LIKE         DEFINE    LLLOK         ULOK
+     c                   Z-ADD     999           LLVNSIST
+     c                   MOVE      *ZEROS        LVPNRGRP
+     C                   MOVE      *BLANKS       FMELDNR           1
+     C     BWSMN         CHAIN(N)  LLHEAD                             33
+      *
+     C                   EVAL      PABRID = WSUSER
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       chain     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   END
+      *
+     C                   endsr
+      *
+      *////////////////////////////////////////////////////////////
+     C     TESTB         BEGSR
+      *////////////////////////////////////////////////////////////
+     C     LL00K         CHAIN     LLLINE                             33
+     C   33              CLEAR                   LLLINER
+      * TEST ARTIKKELNR
+     C     LV01K         CHAIN     LLVARE01                           33
+     C   33LHGRP         IFNE      0
+     C     LV01KGRP      CHAIN     LLVARE01                           33
+     C                   END
+     C                   MOVEL     LVVB          WSVB
+      * TEST ANTALL STYKK
+     C     BWSWNT0       IFEQ      0
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEILEN01      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   END
+     C                   GOTO      SLTBDT
+     C                   END
+      *
+      * TEST OM ANTALL UTTAK FINNES PÅ LAGER
+     C                   MOVE      *ZEROS        XXSALD            7 0
+     C                   MOVE      *ZEROS        XXNTLK            3 0
+     C     XXSALD        IFLT      BWSWNT0
+     C     LAS03K        SETLL     LLAGJS03
+     C     STTB1         TAG
+     C     LAS03K        READE     LLAGJS03                               30
+     C     *IN30         IFEQ      '0'
+     C     VADATO        IFNE      99999999
+      *
+      * FOR Å HINDRE FEIL (BRUKER ENDRER REGLER PÅ ARTIKKEL MED IKKE
+      * PÅ LAGERBEHOLDING) BEREGNER PROGRAMMET SALDO PÅ NYTT OG VELG
+      * DEN LAVSTE AV DE TO SALDOENE.
+     C                   Z-ADD     VASAE0        XNYS1             7 0
+     C     VASAE1        MULT      VAAN01        XNYS2             7 0
+     C                   ADD       XNYS2         XNYS1
+     C     VASAE2        MULT      VAAN02        XNYS2
+     C                   ADD       XNYS2         XNYS1
+     C     VASAE3        MULT      VAAN03        XNYS2
+     C                   ADD       XNYS2         XNYS1
+     C     XNYS1         IFLT      VASALD
+     C                   ADD       XNYS1         XXSALD
+     C                   ADD       1             XXNTLK
+     C                   ELSE
+     C                   ADD       VASALD        XXSALD
+     C                   ADD       1             XXNTLK
+     C                   END
+      *
+     C                   END
+     C     XXSALD        CABLT     BWSWNT0       STTB1
+     C                   END
+     C     *IN30         IFEQ      '1'
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEILEN04      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL04        FEILMELDING
+     C                   END
+     C                   GOTO      SLTBDT
+     C                   END
+     C                   END
+      *
+     C     SLTBDT        ENDSR
+      *
+      *=====================================================================
+      *  Oppdater linje
+      *=====================================================================
+     C     OPDLINJE      begsr
+     C     BWSVN         IFEQ      0
+     C     LL00KSIST     SETLL     LLLINE
+     C     BWSMN         READPE(N) LLLINE                                 33
+     C     *IN33         IFEQ      '0'
+     C                   ADD       1             LLVN
+     C                   ELSE
+     C                   Z-ADD     1             LLVN
+     C                   MOVE      BWSMN         LLMN
+     C                   ENDIF
+     C                   MOVE      *ZEROS        XLLWNT0           7 0
+     C                   MOVE      *ZEROS        XLLWNTL           7 0
+     C                   MOVE      *ZEROS        XLLWNT1           5 0
+     C                   MOVE      *ZEROS        XLLWNT2           5 0
+     C                   MOVE      *ZEROS        XLLWNT3           5 0
+     C                   MOVE      *ZEROS        XLLWVEK           7 2
+     C                   MOVE      *ZEROS        XLLWKUB           7 4
+     C                   MOVE      *ZEROS        LLWNT0
+     C                   MOVE      *BLANKS       LLANR
+N01  C                   MOVE      *BLANKS       LLAN2
+     C                   ELSE
+     C     LL00K         CHAIN     LLLINE                             33
+     C                   MOVE      LLWNT0        XLLWNT0           7 0
+     C                   MOVE      LLWNTL        XLLWNTL           7 0
+     C                   MOVE      LLWNT1        XLLWNT1           5 0
+     C                   MOVE      LLWNT2        XLLWNT2           5 0
+     C                   MOVE      LLWNT3        XLLWNT3           5 0
+     C                   MOVE      LLWVEK        XLLWVEK           7 2
+     C                   MOVE      LLWKUB        XLLWKUB           7 4
+     C                   ENDIF
+
+     C                   EXSR      MOVWSLL
+     C     BWSVN         IFEQ      0
+     C                   MOVE      LLVN          BWSVN
+     C                   WRITE     LLLINER
+     C                   MOVE      *zeros        BWSVN
+     C                   ELSE
+     C                   UPDATE    LLLINER
+     C                   MOVE      'C'           FMELDNR
+     C                   ENDIF
+      *
+     C                   endsr
+      *=====================================================================
+      *  OPPDATER FELTER I FIL
+      *=====================================================================
+     C     MOVWSLL       begsr
+     C                   MOVE      *ZEROS        UFLAGG            1 0
+      *
+      * OPPDATER ANTALL PÅ LAGER
+     C     LLWNT0        IFNE      BWSWNT0
+     C     LLANR         ORNE      WSANR
+      *
+     C     *LIKE         DEFINE    LLLOK         ULOK
+     C     *LIKE         DEFINE    LLSER         USER
+     C                   MOVE      *BLANKS       ULOK
+     C                   MOVE      *BLANKS       USER
+     C                   MOVE      BWSWNT0       UWNT0
+      *
+     C                   Z-ADD     9             UFLAGG
+     C                   CALL      'LL022R'
+     C                   PARM      LHGRP         UGRP
+     C                   PARM                    LVPNR
+     C                   PARM                    WSANR
+     C                   PARM                    USER
+     C                   PARM                    UPRDT             8
+     C                   PARM                    LLMN
+     C                   PARM                    LLVN
+     C                   PARM                    UWNT0
+     C                   PARM                    UWNTL
+     C                   PARM                    UWNT1
+     C                   PARM                    UWNT2
+     C                   PARM                    UWNT3
+     C                   PARM                    UWVEK
+     C                   PARM                    UWKUB
+     C                   PARM                    ULOK
+     C                   PARM                    UNTLK             3 0
+     C                   PARM                    UFLAGG
+      *
+     C     UFLAGG        CABEQ     1             SLMWL
+     C     UFLAGG        IFEQ      3
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEILEN02      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   END
+     C                   GOTO      SLMWL
+     C                   END
+     C     UFLAGG        IFEQ      9
+     C                   IF        XSPRÅK = 'EN'
+     C                   MOVEL     FEILEN03      FEILMELDING
+     C                   ELSE
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   END
+     C                   GOTO      SLMWL
+     C                   END
+      *
+     C                   MOVE      WSANR         LLANR
+N01  C                   MOVE      LVANRL        LLAN2
+     C                   MOVE      WSVB          LLVB
+     C                   MOVE      ULOK          LLLOK
+     C                   MOVE      UNTLK         LLNTLK
+     C                   MOVE      UWNT0         LLWNT0
+     C                   MOVE      UWNTL         LLWNTL
+     C                   MOVE      UWNT1         LLWNT1
+     C                   MOVE      UWNT2         LLWNT2
+     C                   MOVE      UWNT3         LLWNT3
+     C                   MOVE      UWVEK         LLWVEK
+     C                   MOVE      UWKUB         LLWKUB
+      *
+     C     BWSMN         CHAIN     LLHEAD                             33
+     C     BWSVN         IFEQ      0
+     C                   ADD       1             LHTLIN
+     C                   ELSE
+     C                   SUB       XLLWNT0       LHANT0
+     C                   SUB       XLLWNTL       LHANTL
+     C                   SUB       XLLWNT1       LHANT1
+     C                   SUB       XLLWNT2       LHANT2
+     C                   SUB       XLLWNT3       LHANT3
+     C                   SUB       XLLWVEK       LHWVEK
+     C                   SUB       XLLWKUB       LHWKUB
+     C                   END
+     C                   ADD       LLWNT0        LHANT0
+     C                   ADD       LLWNTL        LHANTL
+     C                   ADD       LLWNT1        LHANT1
+     C                   ADD       LLWNT2        LHANT2
+     C                   ADD       LLWNT3        LHANT3
+     C                   ADD       LLWVEK        LHWVEK
+     C                   ADD       LLWKUB        LHWKUB
+     C                   UPDATE    LLHEADR
+     C                   END
+      *
+     C     SLMWL         ENDSR
+      *=====================================================================
+      * VIS LINJER
+      *=====================================================================
+     C     VISLINJE      begsr
+      *
+     C                   MOVE      *BLANKS       WSANR
+     C                   MOVE      *BLANKS       WSVB
+     C                   MOVE      *BLANKS       WSWNT0
+     C                   MOVE      *BLANKS       FMELDNR
+     C                   MOVE      *BLANKS       FEILMELDING
+     C                   CALLB     PGM2
+     C                   PARM                    BWSMN
+     C                   PARM                    WSUSER
+     C                   PARM                    UsrSpcName
+     C                   PARM                    BIFIRM
+     C                   PARM                    BIFARG
+     C                   PARM                    WSANR
+     C                   PARM                    WSVB
+     C                   PARM                    WSSALD
+     C                   PARM                    WSWNT0
+     C                   PARM                    FMELDNR
+     C                   PARM                    FEILMELDING
+      *
+     C                   endsr

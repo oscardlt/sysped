@@ -1,0 +1,476 @@
+      *********************************************************************
+      *  After compiling this RPG MODULE,
+      *  create the related program with the following command:
+      *
+CRTPG+*  CRTPGM SYSPED/STS11 MODULE(*LIBL/STS11 *LIBL/INCGI)
+CRTPGM*         ACTGRP(*NEW) AUT(*USE)
+      *
+      *
+      *********************************************************************
+      *
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *--------------------------------------------------------------------
+      * Data base files
+      *--------------------------------------------------------------------
+     FBRIDF     IF   E           K DISK    usropn
+     FHENOTW    IF   E           K DISK    usropn
+     FHENOKW    UF A E           K DISK    usropn
+     FHENOKW2   IF   E           K DISK    usropn
+     F                                     RENAME(HENOKWR:HENOKWR2)
+     F                                     PREFIX(W2_)
+     FHENOK     IF   E           K DISK    usropn
+     FHENOK01   IF   E           K DISK    usropn
+     F                                     RENAME(HENOKR:HENOKR01)
+     FHENOS     IF   E           K DISK    usropn
+     FHENOP     IF   E           K DISK    usropn
+      *--------------------------------------------------------------------
+      * Prototype defintions and standard system API error structure
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      *--------------------------------------------------------------------
+      * Variables common to CGI programs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Array for konv. av alfa til numerisk
+     D FE              S              1    DIM(15)
+      * Variables received from the input string
+     D lng             s              2
+     D BckGnd          s             10
+     D WSUSER          s             10
+     D WSCLID          s             20
+     D WSPAAPALL       s              1
+     D USER            s             10
+     D CLID            s             20
+     D PAAPALL         s              1
+     D PALLV           s              1
+     D WSTOT           s              5  0
+     D WSLEST          s              5  0
+     D WSOVRT          s              5  0
+     D WSPALL          s              5  0
+     D WSATOT          s              5
+     D WSALEST         s              5
+     D WSAOVRT         s              5
+     D WSAPALL         s              5
+     D FEILMELDING     s             70
+     D FEILKODE        s              1
+     D lstbrd          s              1
+      * andre variabler
+     D Fn              s             10
+     D Lib             s             10
+     D Mbr             s             10
+     D Feil            s             40
+     D ItemCount       s             10i 0
+     D SernoC          s             49a
+     D i               s             10i 0
+      *
+     D                 DS
+     D  XXREF                  1     33
+     D  XTAB                   1     33    DIM(33)
+     D                 DS
+     D  XXREF2                 1     20
+     D  XTAB2                  1     20    DIM(20)
+     D                 DS
+     D  XDT                    1      8  0
+     D  XDTÅÅ                  1      4  0
+     D  XDTMM                  5      6  0
+     D  XDTDD                  7      8  0
+     D                 DS
+     D  XTIME                  1     14  0
+     D  XTID                   1      4  0
+     D  XDD                    7      8  0
+     D  XMM                    9     10  0
+     D  XÅÅ                   11     14  0
+     D                 DS
+     D  HSDS                   1     30
+     D  HSUSER                 1     10
+      *
+     D FEIL01          C                   CONST('Kolli-id er alt skutt.')
+     D FEIL02          C                   CONST('K-id UKJENT, OVERTALLIG')
+     D FEIL03          C                   CONST('K-id skal begynne: 00.')
+     D FEIL04          C                   CONST('jobber med denne sendingen.')
+     D FEIL05          C                   CONST('PALL PLUSS 1, er alt skutt.')
+     D FEIL06          C                   CONST('PALL MINUS 1, er alt skutt.')
+     D FEIL07          C                   CONST('Overtallig,  er alt skutt')
+     D FEIL08          C                   CONST('SENDING alt ferdig (park?)')
+     D FEIL09          C                   CONST('TIDLIGERE MANKO!!')
+      *--------------------------------------------------------------------
+      * Prolog common to CGI programs
+      * -Receive input from the remote browser
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prolog3
+      *=====================================================================******
+      * MAIN PROCESS LINE
+      *=====================================================================******
+      * Parse input string
+     C                   EXSR      PARSE
+      *
+     C                   EXSR      INIT
+      *
+     C                   SELECT
+     C                   WHEN      *IN60
+     C                   exsr      SetSkl01B
+     C                   WHEN      BIINN = ' '
+     C                   exsr      SetSkl01B
+     C                   OTHER
+     C                   exsr      UPDFIL
+     C                   exsr      SetSkl11
+     C                   ENDSL
+      * Read skeleton output html, etc.
+     C                   callp     gethtml(fn:lib:mbr:'/CGITAG/')
+      * 1-Section /$top
+     C                   exsr      SetTop
+     C                   SELECT
+     C                   WHEN      *IN60
+     C                   callp     wrtsection('all')
+     C                   WHEN      BIINN = ' '
+     C                   callp     wrtsection('all')
+     C                   OTHER
+     C                   callp     wrtsection('top')
+     C                   ENDSL
+      *
+     C                   callp     wrtsection('endhtml')
+     C                   callp     wrtsection('*fini')
+      *
+      *
+     C                   close     BRIDF
+     C                   close     HENOTW
+     C                   close     HENOKW
+     C                   close     HENOKW2
+     C                   close     HENOK
+     C                   close     HENOK01
+     C                   close     HENOS
+     C                   close     HENOP
+     C                   eval      *inlr = *on
+     C                   RETURN
+      *
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         begsr
+     C                   eval      wsCLID = zhbgetvar('CLID')
+     C                   eval      wsuser = zhbgetvar('USER')
+     C                   eval      wsPAAPALL  = zhbgetvar('PALLV')
+     C                   eval      wsALEST = zhbgetvar('WSLEST')
+     C                   eval      wsATOT  = zhbgetvar('WSTOT')
+      * Konv numerisk
+     c                   movel     WSALEST       Afelt            15
+     c                   exsr      KnvNum
+     c                   z-add     Nfelt         WSLEST
+      *
+     c                   movel     WSATOT        Afelt            15
+     c                   exsr      KnvNum
+     c                   z-add     Nfelt         WSTOT
+     C                   endsr
+      *=====================================================================******
+      * Convert numeric inputs
+      *=====================================================================******
+     C     KnvNum        begsr
+      *
+     c                   movea     *blanks       fe
+     c                   movea     AFelt         fe
+     c                   Move      *zeros        NFelt            15 0
+     C     1             do        15            NR                2 0
+     C     fe(nr)        Iflt      '0'
+     C     fe(nr)        Orgt      '9'
+     c                   goto      UTnum
+     c                   end
+     c                   mult      10            NFelt
+     c                   move      fe(nr)        Num1              1 0
+     c                   add       Num1          NFelt
+     c                   end
+      *
+     c     Utnum         Tag
+     C                   endsr
+      *
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl01B     begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS01B'
+      *
+     C                   endsr
+      *=====================================================================******
+      * Set html output skeleton member before its read into memory
+      *=====================================================================******
+     C     SetSkl11      begsr
+     C                   eval      lng = uppify(lng)
+     C                   eval      Lib = '*LIBL'
+     C                   eval      Fn  = 'HTMLSRC' + lng
+     C                   eval      Mbr = 'STS11'
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Set output variables for section /$top
+      *  (search criteria)
+      *=====================================================================******
+     C     SetTop        begsr
+      * Repeat national language for the next invocation
+     C                   callp     updhtmlvar('LNG':lng:
+     C                             InitHTMLVars)
+      * Repeat background color for the next invocation
+     C                   callp     updhtmlvar('BCKGND':bckgnd)
+      * Repeat ANT/TOTAL
+     C                   callp     updhtmlvar('WSTOT':
+     C                             %trim(%editc(WSTOT:'3')))
+     C                   callp     updhtmlvar('WSLEST':
+     C                             %trim(%editc(WSLEST:'3')))
+      * Color for text, background, links, visited links, active links
+     C                   exsr      setcolor
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updhtmlvar('USER':WSUSER)
+     C                   MOVE      *BLANKS       WSCLID
+     C                   callp     updhtmlvar('CLID':WSCLID)
+     C                   MOVE      *BLANKS       WSPAAPALL
+     C                   callp     updhtmlvar('PALLV':WSPAAPALL)
+     C                   callp     updHTMLvar('FEILTXT':FEILMELDING)
+     C                   callp     updHTMLvar('FEILKODE':FEILKODE)
+      *
+     C                   endsr
+      *=====================================================================******
+      * Color for font, background, links, visited links, active links
+      *=====================================================================******
+     C     SetColor      begsr
+     C                   eval      BckGnd = uppify(BckGnd)
+     C                   callp     updhtmlvar('TXTCOLOR':'black')
+     C                   callp     updhtmlvar('BOLD':' ')
+      * BGCOLOR white, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'WHITE'
+     C     bckgnd        oreq      *blank
+     C                   callp     updhtmlvar('BGCOLOR':'FFFFFF')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR gray, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'GRAY'
+     C                   callp     updhtmlvar('BGCOLOR':'CCCCCC')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR light blue, LINK blue, VLINK red, ALINK green
+     C     bckgnd        ifeq      'LBLUE'
+     C                   callp     updhtmlvar('BGCOLOR':'5BE6F3')
+     C                   callp     updhtmlvar('LINK':'0000FF')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'00FF00')
+     C                   endif
+      * BGCOLOR black, LINK green, VLINK red, ALINK white
+     C     bckgnd        ifeq      'BLACK'
+     C                   callp     updhtmlvar('TXTCOLOR':'white')
+     C                   callp     updhtmlvar('BGCOLOR':'000000')
+     C                   callp     updhtmlvar('LINK':'00FF00')
+     C                   callp     updhtmlvar('VLINK':'FF0000')
+     C                   callp     updhtmlvar('ALINK':'FFFFFF')
+     C                   callp     updhtmlvar('BOLD':'<b>')
+     C                   endif
+     C                   endsr
+     C***********************************************
+     C     UPDFIL        BEGSR
+     C***********************************************
+     C                   MOVEL     WSCLID        XWSCLID           2
+     C     XWSCLID       IFNE      '00'
+     C                   MOVEL     FEIL03        FEILMELDING
+     C                   MOVEL     '3'           FEILKODE
+     c                   goto      utles
+     c                   end
+      *
+     C     NOKWKEY       CHAIN     HENOKW                             33
+     C     *IN33         IFEQ      *OFF
+     C     HKSTIN        IFEQ      'X'
+     c                   SELECT
+     C     WSPAAPALL     WHENEQ    'X'
+     C     HKPALL        ANDNE     'X'
+      * korreksjonsskyting,  pluss 1 pall
+     C                   MOVEL     FEIL05        FEILMELDING
+     C                   MOVEL     '5'           FEILKODE
+     C     WSPAAPALL     WHENNE    'X'
+     C     HKPALL        ANDEQ     'X'
+      * korreksjonsskyting,  minus 1 pall
+     C                   MOVEL     FEIL06        FEILMELDING
+     C                   MOVEL     '6'           FEILKODE
+     C                   OTHER
+      * skutt før, ingen pallendrieng
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   MOVEL     '1'           FEILKODE
+     C                   ENDSL
+     C                   ELSE
+     C                   MOVE      'X'           HKSTIN
+     C                   END
+     C                   MOVE      WSPAAPALL     HKPALL
+     C                   UPDATE    HENOKWR
+     C                   ELSE
+     C     NOKKEY        CHAIN     HENOK01                            33
+     C     *IN33         IFEQ      *OFF
+      * Er den aktuelle sendingen ferdig-skutt/oppdatert i HENOS??
+     C     NOSKEY        CHAIN     HENOS                              33
+     C     *IN33         IFEQ      '0'
+     C     HSSTIN        ANDNE     ' '
+     C                   MOVEL     FEIL08        FEILMELDING
+     C                   MOVEL     '8'           FEILKODE
+     C                   GOTO      UTLES
+     C                   END
+      * VARSEL OM TIDLIGERE MANKO (MEN IKKE HOPP UT)
+     C     *IN33         IFEQ      '0'
+     C     HSUSER        ANDNE     *BLANKS
+     C                   MOVEL     FEIL09        FEILMELDING
+     C                   MOVEL     '9'           FEILKODE
+     C                   END
+      * Sjekk om det er en annen som også jobber med sammen sending.
+     C     WSCLID        CHAIN     HENOKW2                            33
+     C     *IN33         IFEQ      '0'
+     C     W2_HKUSER     ANDNE     WSUSER
+     C                   MOVEL     W2_HKUSER     FEILMELDING
+     C                   CAT       FEIL04:1      FEILMELDING
+     C                   MOVEL     '4'           FEILKODE
+     C                   ELSE
+      * Når EN kolli-id er lest som IKKE var i WORKFILE, hent inn til
+      * W-fil også ALLE ANDRE kolli-id på samme "Hente-oppdrag"
+      * Men ikke SENDINGER som er ferdig skutt(tidligere parker?)
+     C     HKLNR         SETLL     HENOK
+     C     HKLNR         READE     HENOK                                  33
+     C                   DOW       *IN33 = *OFF
+     C     NOSKEY        CHAIN     HENOS                              33
+     C     *IN33         IFEQ      '0'
+     C     HSSTIN        CABNE     ' '           LESNXT
+     C                   END
+     C     NOPKEY        CHAIN     HENOP                              33
+     C                   MOVE      WSUSER        HKUSER
+     C                   IF        HKSTIN = 'P'
+     C                   MOVE      'X'           HKSTIN
+     C                   MOVE      'X'           HKPALL
+     C                   ELSE
+     C                   MOVE      ' '           HKPALL
+     C                   END
+     C                   WRITE     HENOKWR
+     C     LESNXT        TAG
+     C     hklnr         READE     HENOK                                  33
+     C  N33              ENDDO
+      *
+     C     NOKWKEY       CHAIN     HENOKW                             33
+     C     HKSTIN        IFEQ      'X'
+     c                   SELECT
+     C     WSPAAPALL     WHENEQ    'X'
+     C     HKPALL        ANDNE     'X'
+      * korreksjonsskyting,  pluss 1 pall
+     C                   MOVEL     FEIL05        FEILMELDING
+     C                   MOVEL     '5'           FEILKODE
+     C     WSPAAPALL     WHENNE    'X'
+     C     HKPALL        ANDEQ     'X'
+      * korreksjonsskyting,  minus 1 pall
+     C                   MOVEL     FEIL06        FEILMELDING
+     C                   MOVEL     '6'           FEILKODE
+     C                   OTHER
+      * skutt før, ingen pallendrieng
+     C                   MOVEL     FEIL01        FEILMELDING
+     C                   MOVEL     '1'           FEILKODE
+     C                   ENDSL
+     C                   ELSE
+     C                   MOVE      'X'           HKSTIN
+     C                   END
+     C                   MOVE      WSPAAPALL     HKPALL
+     C                   UPDATE    HENOKWR
+     C                   END
+     C                   ELSE
+      * Test om det finnes på overtallige register
+     C     WSCLID        CHAIN     HENOTW                             33
+     C                   IF        *IN33
+     C                   CLEAR                   HENOKWR
+     C                   MOVE      WSUSER        HKUSER
+     C                   MOVE      WSCLID        HKID
+     C                   MOVE      'X'           HKSTIN
+     C                   WRITE     HENOKWR
+     C                   MOVEL     FEIL02        FEILMELDING
+     C                   MOVEL     '2'           FEILKODE
+     C                   ELSE
+      * I overtallig-register, skutt før.
+     C                   MOVEL     FEIL07        FEILMELDING
+     C                   MOVEL     '7'           FEILKODE
+     C                   END
+     C                   END
+     C                   END
+      *
+      * Akkumuler lest/total på ny
+      * Sjekk manko, overtallige og antall pall med gods
+     C     UTLES         TAG
+      *
+     C                   MOVE      *ZEROS        WSTOT
+     C                   MOVE      *ZEROS        WSLEST
+     C                   MOVE      *ZEROS        WSOVRT
+     C                   MOVE      *ZEROS        WSPALL
+     C     WSUSER        SETLL     HENOKW
+     C     WSUSER        READE(N)  HENOKW                                 50
+     C     *in50         doweq     '0'
+     C                   ADD       1             WSTOT
+     C     HKSTIN        IFNE      ' '
+     C                   ADD       1             WSLEST
+     C                   ENDIF
+     C     HKLNR         IFEQ      0
+     C                   ADD       1             WSOVRT
+     C                   ELSE
+     C                   ENDIF
+     C     HKPALL        IFNE      ' '
+     C                   ADD       1             WSPALL
+     C                   ENDIF
+     C     WSUSER        READE(N)  HENOKW                                 50
+     C  N50              ENDDO                                                  *hival
+     C                   callp     updhtmlvar('WSLEST':
+     C                             %trim(%editc(WSLEST:'3')))
+     C                   callp     updhtmlvar('WSTOT':
+     C                             %trim(%editc(WSTOT:'3')))
+     C                   callp     updhtmlvar('WSOVRT':
+     C                             %trim(%editc(WSOVRT:'3')))
+     C                   callp     updhtmlvar('WSPALL':
+     C                             %trim(%editc(WSPALL:'3')))
+     C
+      *
+     C                   ENDSR
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C     NOKWKEY       KLIST
+     C                   KFLD                    WSUSER
+     C                   KFLD                    WSCLID
+     C     NOKKEY        KLIST
+     C                   KFLD                    WSCLID
+     C     NOKKEY1       KLIST
+     C                   KFLD                    HKLNR
+     C                   KFLD                    HKLNR2
+     C     NOSKEY        KLIST
+     C                   KFLD                    HKLNR
+     C                   KFLD                    HKLNR2
+     C     NOPKEY        KLIST
+     C                   KFLD                    HKLNR
+      *
+     C                   open      BRIDF
+     C     WSUSER        CHAIN     BRIDF                              60
+     C                   IF        *IN60 = *OFF
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C* (bedre ressursmessig). MODUL må da være med comp. av dette pgm!!
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+      *
+     C                   open      HENOTW
+     C                   open      HENOKW
+     C                   open      HENOKW2
+     C                   open      HENOK
+     C                   open      HENOK01
+     C                   open      HENOS
+     C                   open      HENOP
+     C                   END
+     C                   MOVE      *BLANKS       FEILMELDING
+     C                   MOVE      *BLANKS       FEILKODE
+      *
+     C                   ENDSR

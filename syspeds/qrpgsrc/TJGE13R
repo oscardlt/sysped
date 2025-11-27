@@ -1,0 +1,278 @@
+      *********************************************************************
+      *
+CRTPG+*  CRTPGM SYSPED/TJGE13R MODULE(*LIBL/TJGE13R *LIBL/INCGI)
+CRTPGM*        ACTGRP(*NEW) AUT(*USE)
+      *
+      *********************************************************************
+      /copy SYSPEDS/qrpgsrcpy,hspecs
+      /copy SYSPEDS/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     iF   E           K DISK    USROPN
+     FFIRM      IF   E           K DISK    USROPN
+     FBRPARF    IF   e           k disk    USROPN
+     FGSSCGL02  IF   E           K DISK    USROPN
+     FFAK8      IF   E           K DISK    USROPN
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy SYSPEDS/qrpgsrcpy,prototypeb
+      /copy SYSPEDS/qrpgsrcpy,usec
+      /copy SYSPEDS/qrpgsrcpy,variables3
+      *--------------------------------------------------------------------
+      * Variables received from the input string
+     D WSUSER          S             10
+     D KN              S              8  0 DIM(30)
+     D AVD             S              4
+     D AVDN            S              4S 0
+     D OPD             S              7
+     D OPDN            S              7S 0
+     D FAKLNK          S            200
+     D Error           S            150
+     D JSONstring      s          64000
+     D ANTLEST         s              9  0
+      *get input-string
+      /copy syspeds/qrpgsrcpy,prolog3
+      * Parse input
+     C                   EXSR      Parse
+      * Open files etc
+     C                   EXSR      INIT
+
+      *
+     C                   CALLP     gethtmlifs(
+     C                             '/syspeddev/html/JSON.html':
+     C                             '/CGITAG/')
+     C                   CALLP     wrtsection('top')
+      * skriv JSON-Object start..(alltid '{' + x ant param. m/komma mellom (IKKE komma etter siste))
+      /free
+        JSONstring='{'
+        +'¬user¬ : ¬'+%trim(WSUSER)+'¬, '
+        +'¬avd¬ : ¬'+%trim(%editc(AVDN:'Z'))+'¬, '
+        +'¬opd¬ : ¬'+%trim(%editc(OPDN:'Z'))+'¬, '
+        +'¬errMsg¬ : ¬'+%trim(Error)+'¬, ';
+      /end-free
+      * JSONfix escaper " i tekst,  for deretter å bytte ¬->"
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+      * Hent fakturar
+     c     Error         IFEQ      *blanks
+     C                   EXSR      DSPFAKT
+     C                   ENDIF
+      * Skriv JSON-string Avsluttning
+     C                   EVAL      JSONstring ='}'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C     SLUTT         TAG
+     C                   EXSR      EXIT
+     C                   return
+      *=====================================================================******
+      * Parse input
+      *=====================================================================******
+     C     Parse         BEGSR
+      * Get input
+     C                   EVAL      WSUSER = zhbgetvar('USER')
+     C                   EVAL      AVD    = zhbgetvar('AVD')
+     C                   EVAL      AVDN   = c2n2(AVD)
+     C                   EVAL      OPD    = zhbgetvar('OPD')
+     C                   EVAL      OPDN = c2n2(OPD)
+     C                   ENDSR
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          BEGSR
+     C     BrParKey      klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+     C     FAKKEY        klist
+     C                   kfld                    AVDN
+     C                   kfld                    OPDN
+     C                   kfld                    FAFAKT
+     C     HEADFK        klist
+     C                   kfld                    AVDN
+     C                   kfld                    OPDN
+
+     C                   OPEN      BRIDF
+     C     WSUSER        CHAIN(N)  BRIDF                              50
+      * En "standardvariant" libl: CALL bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        IFEQ      *BLANKS
+     C                   CALLb     'INCGI'
+     C                   PARM                    BISTDL
+     C                   ELSE
+      * Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   CALL      BILIBL
+     C                   END
+      * Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+     C                   CALL      'ESGETPAR'
+     C                   PARM                    BIBRID
+     C                   PARM                    BIFIRM
+     C                   PARM                    BIKUNR
+     C                   PARM                    BIKNG
+     C                   PARM                    RowHead          10
+     C                   PARM                    Odd              10
+     C                   PARM                    Even             10
+     C                   PARM                    LogoImg          50
+     C                   PARM                    XSPRÅK            2
+     C                   PARM                    XINTERN           1
+     C                   PARM                    PARMDS1        1024
+     C                   PARM                    PARMDS2        1024
+     C                   PARM                    PARMDS3        1024
+     C                   MOVE      BIBRID        PABRID
+     C                   MOVE      *ZEROS        PAKUNR
+     C   50              eval      Error = 'Invalid userID'
+     C                   OPEN      FAK8
+     C                   OPEN      FIRM
+     C                   OPEN      BRPARF
+     C                   OPEN      GSSCGL02
+
+
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+
+     C                   EVAL      PABRID = WSUSER
+
+     C                   MOVEL     'NOTES'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C                   IF        (*IN33 OR
+     C                             ((PAVRDA <> 'j') AND
+     C                              (PAVRDA <> 'J')))
+     C                   MOVE      'N'           XWRKNOTES         1
+     C                   ELSE
+     C                   MOVE      'J'           XWRKNOTES         1
+     C                   END
+
+     C                   MOVEL     'SPRÅK'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA <> 'EN'))
+     C                   MOVE      *BLANKS       XSPRÅK            2
+     C                   ELSE
+     C                   MOVE      'EN'          XSPRÅK            2
+     C                   END
+
+     C                   MOVE      *ZEROS        KN
+     C                   MOVE      *ZEROS        XN2               3 0
+     C                   MOVEL     'KUNGR'       PAID
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C                   IF        (*IN33 OR (PAVRDA = *BLANKS))
+     C                   MOVE      BIKUNR        KN(1)
+     C                   ELSE
+     C                   MOVEL     PAVRDA        CGCG
+     C     CGCG          SETLL     GSSCGL02
+     C     CGCG          READE     GSSCGL02                               33
+     C                   DOW       *IN33 = *OFF
+     C                   ADD       1             XN2
+     C                   MOVE      CGCNO         KN(XN2)
+     C     CGCG          READE     GSSCGL02                               33
+     C                   ENDDO
+     C                   END
+      * LÅNER ARKTY-PARAMETEREN FOR Å AVGJØRE OM BRUKER KAN SE FAKTURALINK
+      * sjekk om arkivtypene fa,fs,fx finnes(på førstelinjer) Hvis ikke, N i se fakturalink
+      * (sjekk av arkivtyper for å se pdf-dok, sker generelt annet sted)
+     C                   MOVE      'N'           OKFaktLink        1
+     C                   MOVE      'ARKTY'       PAID
+     C     BrParKey      CHAIN     BRPARF                             33
+     C     *IN33         IFEQ      '0'
+     C     'fa'          scan      Pavrda                                 33
+     C  N33'fs'          scan      Pavrda                                 33
+     C  N33'fx'          scan      Pavrda                                 33
+     C   33              MOVE      'J'           OKFaktLink
+     C                   END
+
+     C     ENDINI        ENDSR
+      *=====================================================================******
+      *  AVSLUTT
+      *=====================================================================******
+     C     EXIT          BEGSR
+     C                   CLOSE     BRIDF
+     C                   CLOSE     FAK8
+     C                   CLOSE     FIRM
+     C                   close     BRPARF
+     C                   CLOSE     GSSCGL02
+     C                   CALLP     wrtsection('*fini')
+     C                   EVAL      *INlr = *on
+
+     C                   ENDSR
+      **************************************************************
+     C     DSPFAKT       BEGSR
+      **************************************************************
+      * Skriv JSON-LISTE Start
+     C                   EVAL      JSONstring ='"getfak" : ['
+     C                   CALLP     UPdHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+      *----------------------------------------------------------------
+     C                   MOVE      *BLANKS       FAKLNK
+     C     OKFaktLink    IFEQ      'J'
+     C     FAKKey        SETLL     Fak8
+     C     HEADFK        READE     Fak8                                   33
+     C     *IN33         DOWeq     *OFF
+     C                   IF            XINTERN <> 'J'                           Intern:ikke KNR-test
+     C     1             DO        30            XN2
+     C     KN(XN2)       CABEQ     0             NEXTFAK
+     C                   IF        FAKUNR = KN(XN2)
+     C                   LEAVE
+     C                   END
+     C                   ENDDO
+     C                   END
+
+     C     FAKDA         CABEQ     'K'           NextFak
+     C     FAKDA         CABEQ     'D'           NextFak
+     C     FAOPKO        CABEQ     'D'           NextFak
+     C     FAOPKO        CABEQ     ' '           NextFak
+     C     FASK          CABEQ     'I'           NextFak
+      * Lest faktura for gitt kunde
+     C                   MOVE      AVDN          AAAVD             4
+     C                   MOVE      OPDN          AAOPD             7
+     C                   MOVE      FAFAKT        AAFAKT            7
+     C                   EVAL      FAKLNK='/sycgip/esarkF3.pgm'
+     C                                 + '?USER=' + %trim(BIBRID)
+     C                                 + '&FAKNR=' + AAFAKT
+     C                                 + '&AVD=' +AAAVD
+     C                                 + '&OPD=' +AAOPD
+     C*                                + AAFAKT
+     C*                                + '" target="_top">'
+     C*                                + AAFAKT + '</A>&nbsp'
+
+     C                   ADD       1             ANTLEST
+      /free
+       if AntLest=1;
+          JSONstring=*blanks;
+          else;
+          JSONstring=', ';
+          endif;
+       JSONstring=%trim(JSONstring)+'{'
+        +'¬fafakt¬ : ¬'+%trim(%editc(FAFAKT:'Z'))+'¬, '
+        +'¬faklnk¬ : ¬'+%trim(FAKLNK)+'¬}';
+      /end-free
+     C                   CALL      'JSONFIX'
+     C                   PARM                    JSONstring
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C     NextFak       tag
+     C                   ADD       1             FAFAKT
+     C     FAKKey        SETLL     Fak8
+     C     HEADFK        READE     Fak8                                   33
+     C  N33              ENDDO
+     C                   END
+      *----------------------------------------------------------------
+      * Skriv JSON-Liste/Array  Avslutning
+     C                   EVAL      JSONstring =']'
+     C                   CALLP     updHTMLvar2('JSONstring'
+     C                                         :%ADDr(JSONstring)
+     C                                         :%len(JSONstring))
+     C                   CALLP     wrtsection('JSONlin')
+
+     C                   ENDSR

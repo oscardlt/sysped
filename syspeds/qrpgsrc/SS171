@@ -1,0 +1,563 @@
+      *********************************************************************
+      *
+      *
+CRTPG+*  CRTPGM SYSPED/SS171 MODULE(*LIBL/SS171
+CRTPGM*         *LIBL/CHECKUSR *LIBL/INCGI) ACTGRP(CGI) AUT(*USE)
+      *
+      *********************************************************************
+      *ENDRINGER:
+ODDEV *ODDEV   PTF9 ODDEVEN-logikk
+      *********************************************************************
+      /copy syspeds/qrpgsrcpy,hspecs
+      /copy syspeds/qrpgsrcpy,hspecsbnd
+      *********************************************************************
+     FBRIDF     UF   E           K DISK    USROPN
+     FDOKUF7    IF   E           K DISK    usropn
+     FHEAD39    IF   E           K DISK    usropn
+     FKUFAST    IF   E           K DISK    usropn
+     FWRKCGI    UF A E           K DISK    usropn
+      *********************************************************************
+      *--------------------------------------------------------------------
+      * Variables common to all CGIs
+      *--------------------------------------------------------------------
+      /copy syspeds/qrpgsrcpy,prototypeb
+      /copy syspeds/qrpgsrcpy,usec
+      /copy syspeds/qrpgsrcpy,variables3
+      *
+OddEvD OddEven         s             10
+      * Client input variables
+     D UsrSpcName      s             10
+     D user            s             10
+     D WINT            s              6
+     D ANTREG          s              5
+     D ANTREGN         s              5  0
+     D SJNAVN          s             15
+     D SJINPUT         s             15
+     D ANTKLL          s              4
+     D ANTKLLN         s              4  0
+     D SIGN            s             30
+     D AVVIKTXT        s             20
+     D MERKNAD         s             45
+     D DATO            s              6
+     D DATON           s              6  0
+     D KLOKKE          s              4
+     D KLOKKEN         s              4  0
+      *
+     D Spaces          s             12a   inz('&nbsp;&nbsp;')
+     D FEILTXT         s             80
+     D FEILFELT        s              6
+     D ItemCount       s             10i 0
+     D i               s             10i 0
+     D PGM             C                   CONST('SYSPED/CHECKUSR')
+     D                 DS
+     D  DataDS                 1    220
+     D  WDsANT                 1      4
+     D  WDsSign                5     34
+     D  WDsSnav               35     49
+     D  WDsAvvt               50     69
+     D  WDsMerk               70    114
+     D  WDsDato              115    120
+     D  WDsKlokke            121    124
+     D  DFNAVM               125    154
+     D                 DS
+     D  SNDNR                  1     20
+     D  WSSNEA                 1      3
+     D  WSSN17                 4     20
+     D  WSSN10                 1     10
+     D  WSSN9A                 1      9
+     D  WSSN9B                10     10
+     D  WSSN9C                11     20
+     D  WSSN20                20     20
+     D                 DS
+     D  DATON2                 1      6  0
+     D  DatoDD                 1      2  0
+     D  DatoMM                 3      4  0
+     D  DatoYY                 5      6  0
+     D                 DS
+     D  DatoÅMD                1      6  0
+     D  DatoÅMDY               1      2  0
+     D  DatoÅMDM               3      4  0
+     D  DatoÅMDD               5      6  0
+     D                 DS
+     D  Idag                   1      6  0
+     D  IdagY                  1      2  0
+     D  IdagM                  3      4  0
+     D  IdagD                  5      6  0
+      *
+      /copy syspeds/qrpgsrcpy,prolog3
+      *
+      * Get program start time for calculating execution time
+     C                   time                    timedata1
+      * Parse input / cvt to numeric
+     C                   exsr      Parse
+      * File open / keys
+     C                   EXSR      INIT
+     C                   CALLB     PGM
+     C                   PARM                    BIBRID
+     C                   PARM                    UsrSpcName
+     C                   PARM                    UINN              1
+     C                   IF        UINN = 'N'
+     C                   GOTO      SLUTT
+     C                   END
+     C     USER          CHAIN     BRIDF                              50
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   MOVE      WDT           BIDTF
+     C                   MOVE      WTM           BITIDF
+     C                   UPDATE    BRIDFR
+      * Read output skeleton html member into memory
+     C                   exsr      LoadHtml
+      * Set section variables
+     C                   exsr      Settop
+     C                   callp     wrtsection('top')
+     C     SJNAVN        IFEQ      *BLANKS
+     C                   callp     wrtsection('top2')
+     C                   end
+     C                   callp     wrtsection('top3')
+     C                   exsr      DspAvvKod
+      * Vis liste over registrete leveringer / motsatt rekkefølge
+     c     WINTEG        setLL     WRKCGI
+     c     WINTEG        ReadE     WRKCGI                                 35
+     c     *IN35         doweq     '0'
+     C                   exsr      Setrow
+     C                   callp     wrtsection('row')
+     c     WINTEG        ReadE     WRKCGI                                 35
+     c                   end
+      * Quit
+      * Compute run time
+     C                   time                    timedata2
+     C     timedata2     subdur    timedata1     ms:*ms
+     C                   eval      sec = ms / 1000000
+     C                   callp     updhtmlvar('runtime':
+     C                             %trim(%editw(sec:'     0 .   ')))
+      *
+     C                   callp     wrtsection('bot')
+      *
+     c     SLUTT         TAG
+     C                   exsr      Exit
+      *
+     C                   eval      *inlr = *on
+     C                   return
+      *
+      *
+      *=====================================================================
+      * Parse input / cvt to numeric
+      *=====================================================================
+     C     Parse         begsr
+      * Parse variables from QUERY_STRING environment variable
+     C                   eval      WINT     = zhbgetvar('WINT')
+     C                   eval      WINTEG   = c2n2(WINT)
+     C                   eval      ANTREG   = zhbgetvar('ANTREG')
+     C                   eval      ANTREGN  = c2n2(ANTREG)
+     C                   eval      SJNAVN   = zhbgetvar('SJNAVN')
+     C                   eval      SJINPUT  = zhbgetvar('SJINPUT')
+     C                   eval      SNDNR    = zhbgetvar('SNDNR')
+     C                   eval      ANTKLL   = zhbgetvar('ANTKLL')
+     C                   eval      ANTKLLN  = c2n2(ANTKLL)
+     C                   eval      SIGN     = zhbgetvar('SIGN')
+     C                   eval      AVVIKTXT = zhbgetvar('AVVIKTXT')
+     C                   eval      MERKNAD  = zhbgetvar('MERKNAD')
+     C                   eval      DATO     = zhbgetvar('DATO')
+     C                   eval      DATON    = c2n2(DATO)
+     C                   eval      KLOKKE   = zhbgetvar('KLOKKE')
+     C                   eval      KLOKKEN  = c2n2(KLOKKE)
+      * Userid.....
+     C                   eval      user = zhbgetvar('user')
+     C                   EVAL      UsrSpcName  = zhbgetvar('UsrSpcName')
+     C                   endsr
+      *=====================================================================
+      * Close output html and quit
+      *=====================================================================
+     C     Exit          begsr
+      * Do not delete the call to wrtsection with section name *fini.  It is needed
+      * to ensure that all output html that has been buffered gets output.
+     C                   callp     wrtsection('*fini')
+      * Quit
+     C                   CLOSE     BRIDF
+     C                   CLOSE     KUFAST
+     C                   CLOSE     WRKCGI
+     C                   CLOSE     DOKUF7
+     C                   CLOSE     HEAD39
+     C                   return
+     C                   endsr
+      *=====================================================================
+      * Read output skeleton html member into memory
+      *=====================================================================
+     C     LoadHtml      begsr
+     C                   callp     gethtml('HTMLSRC':
+     C                             '*LIBL':
+     C                             'SS171':'/CGITAG/')
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$top
+      *=====================================================================
+     C     SetTop        begsr
+      *
+OddEvC                   callp     updHTMLvar('ROWHEAD':RowHead)
+OddEvC                   callp     updHTMLvar('LogoImg':LogoImg)
+     C                   callp     updHTMLvar('WINT':WINT)
+BODY C                   callp     updhtmlvar('BODYCLASS':'class='+BIFARG)
+     C                   callp     updHTMLvar('USER':USER)
+     C                   callp     updHtmlVar('UsrSpcName':UsrSpcName)
+     C                   callp     updHTMLvar('BESK':BIBESK)
+     C                   callp     updHTMLvar('SJNAVN':SJNAVN)
+     C                   callp     updHTMLvar('SJINPUT':SJINPUT)
+      * Tester/feilmelding ( men bare dersom "noe" er utfylt).
+     c                   move      ' '           Nypost            1
+     c                   move      *OFF          *IN30
+     c                   move      *BLANKS       FEILTXT
+     c                   move      *BLANKS       FEILFELT
+     c     SNDNR         IFNE      *blanks
+     c     ANTKLL        Orne      *BLANKS
+     c     AVVIKTXT      Orne      *BLANKS
+     c     MERKNAD       Orne      *BLANKS
+     c                   move      'J'           Nypost            1
+      *
+     C     SJNAVN        IFEQ      *BLANKS
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Name of driver has to be given.'
+     c   30              goto      UtFeil
+     c                   end
+      * sendingsnr må alltid oppgis
+     C     SNDNR         IFEQ      *BLANKS
+     C     *in30         andeq     *off
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Sendingsnummer må alltid oppgis'
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * sendingsnr kan ikke fines i lista
+     c     *in30         IFEQ      *OFF
+     c                   movel     sndnr         wkey2
+     C     WrkKey        CHAIN     WRKCGI                             33
+     C  N33              move      *on           *IN30
+     c  N33              eval      FEILTXT = 'Sendings No. is allready in r' +
+     c                                    'eciept list.'
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * sendingsnr må ha rett syntax/kontrollsiffer
+     c     *in30         IFEQ      *OFF
+     c                   exsr      tstsnd
+     c   30              eval      FEILTXT = 'Sendings No. is wrong (must b' +
+     c                                    'e 20 digits/change contr.digits.)'
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * sendingsnr må finnes i databasen
+     c     *in30         IFEQ      *OFF
+      *  Langt EANnr/kort.
+     c     WsSnea        IFEQ      '401'
+     C                   eval      DF1004  = WSSN17
+     c                   else
+     C                   eval      DF1004  = SNDNR
+     c                   end
+     c                   move      *blanks       TSTKVITT          8
+     c     DF1004        Chain     DOKUF7                             30
+     c     *in30         IFEQ      '0'
+     c                   movel     DFMÅL         TSTKVITT
+     c                   else
+     c     SNDNR         chain     HEAD39                             30
+     c  N30              movel     HEDTMO        TSTKVITT
+     c                   end
+     c   30              eval      FEILTXT = 'Unknow sending   '
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * sendingsnr må ikke avt være kvittert ut.
+     c     *in30         IFEQ      *OFF
+     c     TSTKVITT      ANDNE     *BLANKS
+     c                   move      *ON           *IN30
+     c   30              eval      FEILTXT = 'This sending is registred bef' +
+     c                                      'ore.'
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * ANT KLL  må oppgis når der er
+     C     ANTKLLN       IFEQ      *ZEROS
+     C     *in30         andeq     *off
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Number of colli has to be given.'
+     c   30              eval      FEILFELT = 'ANTKLL'
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * Signatur må oppgis når der er
+     C     SIGN          IFEQ      *BLANKS
+     C     *in30         andeq     *off
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Sign/name on whom recieved gods'+
+     c                                    'has to be given.'
+     c   30              eval      FEILFELT = 'SIGN  '
+     c   30              goto      UtFeil
+     c                   end
+      *
+      * DATO     må oppgis når der er
+     C     *IN30         IFEQ      *off
+     C     DATON         ANDEQ     *ZEROS
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Date of delivery must be given.'
+     c   30              eval      FEILFELT = 'DATO  '
+     c   30              goto      UtFeil
+     c                   end
+      * DATO     må ha gyldig format
+     C     *IN30         IFEQ      *off
+     c                   move      DatoN         DatoN2
+     C                   move      DatoDD        DatoD             2 0
+     C                   move      DatoMM        DatoM             2 0
+     C                   move      DatoYY        DatoY             2 0
+     C                   move      *zero         DatoFlagg         1 0
+     c                   call      'TESTDATO'
+     C                   parm                    DatoD
+     C                   parm                    DatoM
+     C                   parm                    DatoY
+     C                   parm                    DatoFlagg
+     C     DatoFlagg     Ifeq      1
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Given date is wrong.'
+     c   30              eval      FEILFELT = 'DATO  '
+     c   30              goto      UtFeil
+     c                   end
+     c                   end
+     c
+      * DATO     kan ikke være høyere enn dagens
+     C     *IN30         IFEQ      *off
+     C                   move      DatoDD        DatoÅMDD
+     C                   move      DatoMM        DatoÅMDM
+     C                   move      DatoYY        DatoÅMDY
+     C     DatoÅMD       ifgt      Idag
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Date can"t be later then today.'
+     c   30              eval      FEILFELT = 'DATO  '
+     c   30              goto      UtFeil
+     c                   end
+     c                   end
+      *
+      * KLOKKE   må oppgis når der er
+     C     KLOKKE        IFNE      '*'
+     C     *in30         andeq     *off
+     C     KLOKKEN       IFLE      *ZEROS
+     C     KLOKKEN       ORGT      2400
+     c                   move      *ON           *IN30
+     c                   eval      FEILTXT = 'Time of delivery is not valid' +
+     c                                       ' (* = 00:00)'
+     c   30              eval      FEILFELT = 'KLOKKE'
+     c   30              goto      UtFeil
+     c                   end
+     c                   end
+      *
+     c                   end
+      *
+     C     UtFeil        tag
+      *
+      * Uten feil? - skriv post til fila.
+     c     *in30         ifeq      *off
+     c     NyPost        ifeq      'J'
+     c                   eval      wkey2   = sndnr
+     c                   move      AntKllN       WDsAnt
+     c                   eval      WDsSign = SIGN
+     c                   eval      WDsSNav = SJNAVN
+     c                   eval      WDsAvvt = AvvikTxt
+     c                   eval      WDsMerk = Merknad
+     c                   move      DatoN         WDsDato
+     c                   move      KlokkeN       WDsKlokke
+     c                   movel     DataDS        WData
+     c                   add       1             AntRegN
+     c                   write     WRKCGIR
+     c                   end
+      * Hvis vellykket skal INPUT blankes
+     c                   move      *blanks       SNDNR
+     c                   move      *zeros        ANTKLLN
+     c                   move      *BLANKS       SIGN
+     c                   move      *BLANKS       AVVIKTXT
+     c                   move      *BLANKS       MERKNAD
+     c                   move      *BLANKS       KLOKKE
+     C                   end
+      * uavhengif av feil - oppdater htmlvar.
+     C                   callp     updHTMLvar('SNDNR':SNDNR)
+     C                   callp     updHTMLvar('ANTKLL':
+     C                             %trim(%editc(ANTKLLN:'Z')))
+     C                   callp     updHTMLvar('SIGN':SIGN)
+     C                   callp     updHTMLvar('AVVIKTXT':AVVIKTXT)
+     C                   callp     updHTMLvar('MERKNAD':MERKNAD)
+     C                   callp     updHTMLvar('DATO':DATO)
+     C                   callp     updHTMLvar('KLOKKE':KLOKKE)
+     C                   callp     updHTMLvar('FEILTXT':FEILTXT)
+     C                   callp     updHTMLvar('FEILFELT':FEILFELT)
+      *
+      *
+      * Slett evt merkede poster...
+     C                   eval      ItemCount = ZhbGetVarCnt('SNDNRL')
+     C                   eval      i = 1
+     C     i             DOUGT     ItemCount
+     C                   eval      WKEY2   = ZhbGetVar('SNDNRL':i)
+     C     WrkKey        CHAIN     WRKCGI                             33
+     C  N33              Delete    WRKCGI
+     c  N33              sub       1             AntRegN
+     C                   eval      i = i +1
+     C                   ENDDO
+     C
+     C                   callp     updHTMLvar('ANTREG':
+     C                             %trim(%editc(ANTREGN:'Z')))
+      *
+     C                   endsr
+      *=====================================================================******
+      *  Vis koder (faste tekster) ved avvikende levering
+      *=====================================================================******
+     C     DspAvvKod     begsr
+      *
+     C     KufasKey      setll     KUFAST
+     C     kufasKey      reade     KUFAST                                 40
+     C     *in40         doweq     '0'
+     C     KFKOD         IFNE      ' DEFN'
+     C                   callp     updhtmlvar('AVVIKTXT':KFTXTE)
+     C                   callp     wrtsection('typsltrow')
+     C                   end
+     C     KufasKey      reade     KUFAST                                 40
+     C                   enddo
+      *
+     C                   callp     wrtsection('typsltend')
+      *
+     C                   endsr
+      *=====================================================================
+      *  Set variable data for section /$row
+      *=====================================================================
+     C     Setrow        begsr
+OddEvc     OddEven       IFEQ      ODD
+OddEvc                   eval      OddEven = EVEN
+OddEvc                   else
+OddEvc                   eval      OddEven = ODD
+OddEvc                   end
+OddEvC                   callp     updHTMLvar('ODDEVEN':OddEven)
+OddEv *
+     c                   movel     WData         DataDS
+     C                   callp     updHTMLvar('SNDNRL':WKEY2)
+     C                   callp     updHTMLvar('DFNAVM':DFNAVM)
+     C                   move      WDsANT        ANTKLLN
+     C                   callp     updHTMLvar('ANTKLLL':
+     C                             %trim(%editc(ANTKLLN:'Z')))
+     C                   callp     updHTMLvar('SIGNL':WDsSign)
+     C                   move      WDsDato       DatoN
+     C                   callp     updHTMLvar('DATOL':
+     C                             %trim(%editw(DatoN:'  .  .  ')))
+     C                   move      WDsKlokke     KlokkEN
+     C                   callp     updHTMLvar('KLOKKL':
+     C                             %trim(%editw(KLOKKEN:'  :  ')))
+     C                   callp     updHTMLvar('AVVIKTXTL':WDsAvvt)
+     C                   callp     updHTMLvar('MERKNADL':WDsMerk)
+      *
+     C                   endsr
+      *=====================================================================******
+      *  INITIER
+      *=====================================================================******
+     C     INIT          begsr
+     C                   OPEN      BRIDF
+     C     USER          CHAIN(N)  BRIDF                              50
+     C* En "standardvariant" libl: call bound (INCGI=*MODULE) med parameter.
+     C     BILIBL        ifeq      *blanks
+     C                   callb     'INCGI'
+     C                   parm                    BISTDL
+     C                   else
+     C* Helt egen bibl.liste satt på user - normal CALL (BILIBL er "*pgm")
+     C                   call      BILIBL
+     C                   end
+      *
+OddEv * hent Parametre som går igjen i mange prog:
+OddEv *      Odd/Even/Rowhead-farger,Logobilde,Språk,Intern/Ekstern bruker,  mm
+OddEvc                   call      'ESGETPAR'
+OddEvc                   parm                    BIBRID
+OddEvc                   parm                    BIFIRM
+OddEvc                   parm                    BIKUNR
+OddEvc                   parm                    BIKNG
+OddEvc                   parm                    RowHead          10
+OddEvc                   parm                    Odd              10
+OddEvc                   parm                    Even             10
+OddEvc                   parm                    LogoImg          50
+OddEvc                   parm                    XSPRÅK            2
+OddEvc                   parm                    XINTERN           1
+OddEvc                   parm                    ParmDS1        1024
+OddEvc                   parm                    ParmDS2        1024
+OddEvc                   parm                    ParmDS3        1024
+      *
+     C                   OPEN      KUFAST
+     C                   OPEN      WRKCGI
+     C                   OPEN      DOKUF7
+     C                   OPEN      HEAD39
+     c     KufasKey      klist
+     c                   kfld                    KFTYP
+     c                   movel     'PODAVVIK'    KFTYP
+     C     WrkKey        KLIST
+     C                   KFLD                    WINTEG
+     C                   KFLD                    WKey2
+      * Hent random integer som del 1 av unik key i workfile
+     C     winteg        ifeq      *zeros
+     c                   eval      WINTEG   = random(1:999999)
+     c                   move      WINTEG        WINT
+     c                   end
+     C     SJNAVN        ifeq      *BLANKS
+     c                   eval      SJNAVN   = SJINPUT
+     c                   eval      SJINPUT  = ''
+     c                   end
+      * Initier Ds for dagens dato
+     c                   move      UYEAR         IdagY
+     c                   move      UMONTH        IdagM
+     c                   move      UDAY          IdagD
+     C                   endsr
+      *
+      *=====================================================================******
+      *  TSTSND
+      *=====================================================================******
+     C     TSTSND        begsr
+      * 9 SIFFER ER GITT - BEREGN KONTR.SIFFER
+     C     WSSN9A        IFNE      *BLANKS
+     C     WSSN9B        ANDEQ     *BLANKS
+     C     WSSN9C        ANDEQ     *BLANKS
+     C                   TESTN                   WSSN9A               33
+     C     *IN33         IFEQ      '1'
+     C                   MOVE      *ZEROS        XBAK              1 0
+     C                   MOVE      *ZEROS        UPAR21           21
+     C                   MOVE      WSSN9A        UPAR21
+     C                   CALL      'SYGE09'
+     C                   PARM                    UPAR21
+     C                   PARM                    XBAK
+     C                   MOVE      XBAK          WSSN9B
+     C                   END
+     C                   END
+     C                   MOVE      '0'           SNFLAG            1
+      * KORT NR - TEST MODULUS 10.
+     C     WSSN9C        IFEQ      *BLANKS
+     C                   TESTN                   WSSN9A               33
+     C     *IN33         IFEQ      '0'
+     C                   SETON                                            30
+     C                   ELSE
+     C                   MOVE      *ZEROS        XBAK              1 0
+     C                   MOVE      *ZEROS        UPAR21           21
+     C                   MOVE      WSSN9A        UPAR21
+     C                   CALL      'SYGE09'
+     C                   PARM                    UPAR21
+     C                   PARM                    XBAK
+     C                   MOVE      XBAK          XBAKA             1
+     C     WSSN9B        COMP      XBAKA                              3030
+     C                   END
+     C                   ELSE
+      * LANGT NR - TEST EAN KTRL-SIFFER (3 FØRSTE KAN VÆRE 401/402)
+     C                   TESTN                   SNDNR                33
+     C     *IN33         IFEQ      '0'
+     C                   SETON                                            30
+     C                   ELSE
+     C                   MOVE      *ZEROS        UAN22            22
+     C                   MOVE      WSSN17        UAN22            22
+     C                   MOVE      '0'           UAN22
+     C                   CALL      'SYGE08'
+     C                   PARM                    UAN22
+     C                   MOVE      UAN22         UFN17            17
+     C                   MOVE      UFN17         XBAKA
+     C     WSSN20        COMP      XBAKA                              3030
+     C     *IN30         IFEQ      '0'
+     C     WSSNEA        COMP      '401'                              3030
+     C                   END
+     C                   END
+     C                   END
+     C                   endsr
+      *

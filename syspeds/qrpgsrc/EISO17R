@@ -1,0 +1,367 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 YBC PTF10 POSTTYPE FØR ENME-TEKST
+10XXX * 02 YBC PTF10 HENT EPOSTADR. VIA EPOS04E
+10035 * 03 YBC PTF10 MELDING TIL ANMELDER
+10190 * 04 YBC PTF10 OVERSTYRT MAIL-ADRESSE
+10222 * 05 YBC PTF10 ARKIVERE E-POST
+********************************************************************
+      ****************************************************************************************
+      * Generere e-post til mottaker av ISO-sak                                              *
+      ****************************************************************************************
+N05  H Option( *SrcStmt ) DftActGrp( *No ) BndDir( 'QC2LE' )
+     FBRIDF     IF   E           K DISK
+     FBRPARF    IF   E           K DISK
+N05  FARKIVP    O  A E           K DISK
+N05  FISOKDT    IF   E           K DISK
+N03  FISOVARSL  O  A E           K DISK    USROPN
+N03  F                                     RENAME(ISOVARSL:ISOVR)
+N03  FISOFL8    IF   E           K DISK
+N03  FISOLOGF   O  A E             DISK
+S02  F*QATMSMTPA IF   E           K DISK
+     D USAKN           S              7
+     D EMNE            S             44
+     D SENDER          S             17
+N03  D XSNDADR         S             70
+     D XMOTADR         S             70
+     D CMD             S           5000
+     D MELD            S           5000
+     D TXT01           C                   CONST('Saken behandles snarest og -
+     D                                     i.h.t. våre retningslinjer.')
+     D TXT02           C                   CONST('Link til websiden: ')
+N05   *
+N05  D FILE_o          s               *
+N05  D String          s            512a
+N05  D rc              s             10i 0
+N05  D Idx             s              5u 0
+N05  D FILNAM          s             50A
+N05  D LF              c                   x'25'
+N05  Dopen             Pr              *   ExtProc( '_C_IFS_fopen' )
+N05  D                                 *   Value Options( *String )
+N05  D                                 *   Value Options( *String )
+N05  Dfgets            Pr              *   ExtProc( '_C_IFS_fgets' )
+N05  D                                 *   Value
+N05  D                               10i 0 Value
+N05  D                                 *   Value
+N05  Dfputs            Pr            10i 0 ExtProc( '_C_IFS_fputs' )
+N05  D                                 *   Value Options( *String )
+N05  D                                 *   Value
+N05  Dclose            Pr            10i 0 ExtProc( '_C_IFS_fclose' )
+N05  D                                 *   Value
+      *
+     C                   EXSR      INIT
+      *
+S02  C*    XUSRAVS       CHAIN     QATMSMTPA                          33
+S02  C* N33              EVAL      SENDER = %TRIM(UUSRAVS) + ' '
+N02  C                   CALL      'EPOS04E'
+N02  C                   PARM                    UUSRAVS
+N02  C                   PARM                    USERID            8
+N02  C                   PARM                    ADDRESS           8
+N02  C                   PARM                    UEPADR           50
+N02  C  N33              EVAL      SENDER = %TRIM(USERID) + ' '
+     C                             + %TRIM(ADDRESS)
+     C   33              EVAL      SENDER = '*CURRENT'
+S04  C*                  IF        UEPADR = *BLANKS
+S04  C*                  EVAL      XSNDADR = 'BING@SYSTEMA.NO'
+S04  C*                  ELSE
+S04  C*                  EVAL      XSNDADR = UEPADR
+S04  C*                  END
+N04  C                   SELECT
+N04  C                   WHEN      XEMAVS <> *BLANKS
+N04  C                   EVAL      XSNDADR = XEMAVS
+N04  C                   WHEN      UEPADR = *BLANKS
+N04  C                   EVAL      XSNDADR = 'BING@SYSTEMA.NO'
+N04  C                   OTHER
+N04  C                   EVAL      XSNDADR = UEPADR
+N04  C                   ENDSL
+N03   *
+S02  C*    XUSRMOT       CHAIN     QATMSMTPA                          33
+S02  C* N33              EVAL      XMOTADR = %TRIM(SMTPUID)
+S02  C*                            + '@' + %TRIM(DOMROUTE)
+N03   *
+N03  C                   IF        UEPOST = *BLANKS
+N02  C                   CALL      'EPOS04E'
+N02  C                   PARM                    UUSRMOT
+N02  C                   PARM                    USERID            8
+N02  C                   PARM                    ADDRESS           8
+N02  C                   PARM                    UEPADR           50
+S04  C*                  IF        UEPADR = *BLANKS
+S04  C*  33              EVAL      XMOTADR = 'BING@SYSTEMA.NO'
+S04  C*                  ELSE
+S04  C*                  EVAL      XMOTADR = UEPADR
+S04  C*                  END
+N04  C                   SELECT
+N04  C                   WHEN      XEMMOT <> *BLANKS
+N04  C                   EVAL      XMOTADR = XEMMOT
+N04  C                   WHEN      UEPADR = *BLANKS
+N04  C                   EVAL      XMOTADR = 'BING@SYSTEMA.NO'
+N04  C                   OTHER
+N04  C                   EVAL      XMOTADR = UEPADR
+N04  C                   ENDSL
+      *
+     C                   EXSR      SNDEP
+N03  C                   ELSE
+N03  C                   EXSR      SNDEP2
+N03  C                   END
+N05   *
+N05  C                   EXSR      ARKEP
+      *
+     C     SLUTT         TAG
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+      ******************************************************************************
+     C     SNDEP         BEGSR
+      ******************************************************************************
+     C                   Z-ADD     1024          CMDL             15 5
+      * Emne
+S01  C*                  Eval      EMNE = 'VARSLING OM ISO-SAK'
+S05  C*                  Eval      EMNE = %TRIM(UPTYP)+'-VARSLING OM ISO-SAK'
+N05  C                   Eval      EMNE = %TRIM(UPTYP)+'-VARSLING OM '
+N05  C                             + %TRIM(TTEXT)
+      *
+     C     UUSRAVS       CHAIN     BRIDF                              33
+     C                   EVAL      MELD = %TRIM(BIBESK)
+     C                             + ' HAR SENDT SAKSNR. ('
+     C                             + %TRIM(%EDITC(XSAKN:'Z'))
+N04  C                             + '/' + %TRIM(BIFIRM)
+     C                             + ') TIL BEHANDLING/UTTALELSE. '
+     C                             + %TRIM(TXT01) + ' '
+     C                             + %TRIM(TXT02) + ' '
+     C                             + %TRIM(XLINK)
+N03  C                             + '   ' + %TRIM(UMELDTXT)
+      *
+      * param for tointnet og longmsg må være i apostrofer ( hex 7D )
+      * (strenger i single-parametere som inneholder blank el. spesialtegn)
+     C                   eval      cmd = 'SNDDST TYPE(*LMSG) TOINTNET('
+     C                             +'('+ X'7D' + %trim(XMOTADR) + X'7D' +')) +
+     C                             DSTD('+ X'7D' + %trim(EMNE) + X'7D' + ') +
+     C                             LONGMSG('+ X'7D' + %trim(MELD) + X'7D' +') +
+     C                             USRID('+  %trim(SENDER) + ') SNDFMT(*NOCHG)'
+     C                   CALL      'QCMDEXC'                            33
+     C                   PARM                    CMD
+     C                   PARM                    CMDL
+N03   *
+N03   * OPPDATER LOG
+N03  C*                  MOVE      USAKN         ILSAKN
+N03  C*                  CALL      'SYGE15C'
+N03  C*                  PARM                    WDT               8
+N03  C*                  PARM                    WTM               6
+N03  C*                  MOVE      WDT           ILDTL
+N03  C*                  MOVE      WTM           ILTML
+N03  C*                  MOVE      ISUSRS        ILUSR
+N03  C*                  MOVE      'W'           ILMOD
+N03  C*                  MOVE      ISFPFO        ILFPFO2
+N03  C*                  MOVE      ISFAVA        ILFAVA2
+N03  C*                  MOVE      ISFANS        ILFANS2
+N03  C*                  MOVE      ISRTYP        ILRTYP2
+N03  C*                  MOVE      ISST          ILST2
+N03  C*                  MOVE      ISSDT         ILSDT2
+N03  C*                  MOVE      UUSRMOT       ILUSR2
+N03  C*                  EVAL      ILTXT = 'E-POST ER SENDT TIL '
+N03  C*                            + %TRIM(XMOTADR) + '.'
+N03  C*                  WRITE     ISOLOGFR
+N03   *
+      *
+     C                   ENDSR
+      *
+N03   ******************************************************************************
+N03  C     SNDEP2        BEGSR
+N03   ******************************************************************************
+N03   * KLARGJØR KILDEFIL FOR EPOST BODY
+N03  C                   CALL      'EISO17C2'
+N03  C                   PARM                    USAKN
+N03  C                   OPEN      ISOVARSL
+N03  C                   CALL      'SYGE15C'
+N03  C                   PARM                    WDT               8
+N03  C                   PARM                    WTM               6
+N03  C                   EVAL      SRCSEQ = 1
+N03  C                   MOVE      WDT           SRCDAT
+N03  C                   EVAL      SRCDTA = 'Hei ' + %TRIM(UKP)
+N03  C                   WRITE     ISOVR
+N03  C                   EVAL      SRCSEQ = SRCSEQ + 1
+N03  C                   EVAL      SRCDTA = 'Din sak er registrert hos oss nå'
+N03  C                             + ' med saksnr (' + %TRIM(USAKN) + ').'
+N03  C                   WRITE     ISOVR
+N03  C                   EVAL      SRCSEQ = SRCSEQ + 1
+N03  C                   EVAL      SRCDTA = ' '
+N03  C                   WRITE     ISOVR
+N03  C                   EVAL      SRCSEQ = SRCSEQ + 1
+N03  C                   EVAL      SRCDTA = 'Med vennlig hilsen'
+N03  C                   WRITE     ISOVR
+N03  C                   EVAL      SRCSEQ = SRCSEQ + 1
+N03  C                   EVAL      SRCDTA = %TRIM(UUSRAVS)
+N03  C                   WRITE     ISOVR
+N05  C                   CLOSE     ISOVARSL
+N03   *
+N03  C                   Z-ADD     1024          CMDL             15 5
+N03   * Emne
+S05  C*                  Eval      EMNE = 'VARSLING OM NY ISO-SAK, SAKSNR('
+N05  C                   Eval      EMNE = 'VARSLING OM ' + %TRIM(TTEXT)
+N05  C                             + ', SAKSNR('
+N03  C                             + %TRIM(%EDITC(XSAKN:'Z')) + ')'
+N03   *
+N03  C     UUSRAVS       CHAIN     BRIDF                              33
+N03   *
+N03   * param for tointnet og longmsg må være i apostrofer ( hex 7D )
+N03   * (strenger i single-parametere som inneholder blank el. spesialtegn)
+N03  C*EMLSTMF SUBJECT('TEST') FROMNAME('Chang, Yang Bing') FROMADDR('BING@SYSTEMA.NO')
+N03  C*TO('BING@SYSTEMA.NO'/'XXX'/*TO) STMF('/pdf/arc/am2006HAM027ktt8PKzwA7.pdf')
+N03  C                   eval      cmd = 'EMLSTMF SUBJECT(' + X'7D'
+N03  C                             + %TRIM(EMNE) + X'7D' + ') FROMNAME(' + X'7D'
+N03  C                             + %TRIM(BIBESK) + X'7D'
+N03  C                             + ') FROMADDR(' + X'7D'
+N03  C                             + %trim(XSNDADR) + X'7D' + ') TO(' + X'7D'
+N03  C                             + %trim(UEPOST) + X'7D' + '/' + X'7D'
+N03  C                             + %trim(UUSRMOT) + X'7D' + '/*TO) STMF('
+N03  C                             + X'7D'
+N03  C                             + '/syspeddev/esped.jpg'
+N03  C                             + X'7D' + ') '
+N03  C                             + 'MSGM(ISOVARSL/ISO' + %TRIM(USAKN)
+N03  C                             + ')'
+N03  C                   CALL      'QCMDEXC'                            33
+N03  C                   PARM                    CMD
+N03  C                   PARM                    CMDL
+N03   * FJERN KILDEFIL FOR EPOST BODY
+S05  C*                  CLOSE     ISOVARSL
+N03  C                   CALL      'EISO17C3'
+N03  C                   PARM                    USAKN
+N03   *
+N03   * OPPDATER LOG
+N03  C                   MOVE      USAKN         ILSAKN
+N03  C                   CALL      'SYGE15C'
+N03  C                   PARM                    WDT               8
+N03  C                   PARM                    WTM               6
+N03  C                   MOVE      WDT           ILDTL
+N03  C                   MOVE      WTM           ILTML
+N03  C                   MOVE      ISUSRS        ILUSR
+N03  C                   MOVE      'W'           ILMOD
+N03  C                   MOVE      ISFPFO        ILFPFO2
+N03  C                   MOVE      ISFAVA        ILFAVA2
+N03  C                   MOVE      ISFANS        ILFANS2
+N03  C                   MOVE      ISRTYP        ILRTYP2
+N03  C                   MOVE      ISST          ILST2
+N03  C                   MOVE      ISSDT         ILSDT2
+N03  C                   MOVE      ISUSRS        ILUSR2
+N03  C                   EVAL      ILTXT = 'E-POST ER SENDT TIL ANMELDER ('
+N03  C                             + %TRIM(ISKP) + ').'
+N03  C                   WRITE     ISOLOGFR
+N03   *
+N03  C                   ENDSR
+N03   *
+N05   ******************************************************************************
+N05  C     ARKEP         BEGSR
+N05   ******************************************************************************
+N05  C                   EVAL      PABRID = UUSRAVS
+N05  C                   MOVE      'OLBAN'       PAID
+N05  C     BRPARFK       Chain     BRPARF                             33
+N05  C   33              EVAL      PABRID = '*KUNDFT*' + %TRIM(UFIRM)
+N05  C   33BRPARFK       Chain     BRPARF                             33
+N05  C   33              GOTO      SLARKEP
+N05   *
+N05  C                   CALL      'ARCRAN'
+N05  C                   PARM                    NEWRAN           10
+N05  C                   EVAL      FILNAM = %TRIM(PAVRDA) + 'ZO' + %TRIM(USAKN)
+N05  C                             + %TRIM(NEWRAN) + '.txt'
+N05  C                   EVAL      FILE_o = open( %TrimR( FilNam )
+N05  C                             : 'w, codepage=819' )
+N05  C                   EVAL      rc = close( FILE_o )
+N05  C                   EVAL      FILE_o = open( %TrimR( FilNam )
+N05  C                             : 'w' )
+N05   *
+N05  C                   MOVE      *BLANKS       XTXT            120
+N05  C                   EVAL      XTXT = 'Emne:                '
+N05  C                             + %TRIM(EMNE)
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N05  C                   EVAL      XTXT = 'Avsender:            '
+N05  C                             + %TRIM(XSNDADR)
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N05  C                   EVAL      XTXT = 'Mottaker:            '
+N05  C                             + %TRIM(UEPOST)
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N05  C                   EVAL      XTXT = *BLANKS
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N03  C                   EVAL      XTXT = 'Hei ' + %TRIM(UKP)
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N03  C                   EVAL      XTXT = 'Din sak er registrert hos oss nå'
+N03  C                             + ' med saksnr (' + %TRIM(USAKN) + ').'
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N03  C                   EVAL      XTXT = 'Med vennlig hilsen'
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N03  C                   EVAL      XTXT = %TRIM(UUSRAVS)
+N05  C                   EVAL      rc = fputs(%TRIM(XTXT): FILE_o)
+N05  C                   EVAL      rc = fputs(LF : FILE_o )
+N05   *
+N05  C                   EVAL      rc = close( FILE_o )
+N05   * LAG ARKIV-POST
+N05  C                   EVAL      ARSTAT = 'A'
+N05  C                   EVAL      ARTYPE = 'ZO'
+N05  C                   EVAL      ARFIRM = UFIRM
+N05  C                   EVAL      ARUNDE = 'ISO' + %TRIM(USAKN)
+N05  C                   EVAL      ARUSER = UUSRAVS
+N05  C                   CALL      'SYGE15C'
+N05  C                   PARM                    WDT               8
+N05  C                   PARM                    WTM               6
+N05  C                   MOVE      WDT           ARDATE
+N05  C                   MOVE      WTM           ARTIME
+N05  C                   EVAL      ARLINK = 'ZO' + %TRIM(USAKN)
+N05  C                             + %TRIM(NEWRAN) + '.txt'
+N05  C                   EVAL      ARRFK  = 'Saken varseling e-post'
+N05  C                   WRITE     ARKIVR
+N05   *
+N05  C     SLARKEP       ENDSR
+N05   *
+      ******************************************************************************
+     C     INIT          BEGSR
+      ******************************************************************************
+     C     *ENTRY        PLIST
+     C                   PARM                    UFIRM             2
+     C                   PARM                    USAKN             7
+N01  C                   PARM                    UPTYP             5
+     C                   PARM                    UUSRAVS          10
+     C                   PARM                    UUSRMOT          10
+N03  C                   PARM                    UKP              30
+N03  C                   PARM                    UEPOST           50
+N03  C                   PARM                    UMELDTXT         70
+      *
+     C     BRPARFK       klist
+     C                   kfld                    PABRID
+     C                   kfld                    PAKUNR
+     C                   kfld                    PAID
+N04  C     BRPARFKA      klist
+N04  C                   kfld                    UUSRAVS
+N04  C                   kfld                    PAKUNR
+N04  C                   kfld                    PAID
+N04  C     BRPARFKM      klist
+N04  C                   kfld                    UUSRMOT
+N04  C                   kfld                    PAKUNR
+N04  C                   kfld                    PAID
+      *
+     C                   MOVE      '*KUNDFT*  '  PABRID
+     C                   MOVE      UFIRM         PABRID
+     C                   EVAL      PAID = 'ISOM1'
+     C     BRPARFK       CHAIN     BRPARF                             33
+     C                   MOVEL     PAVRDA        XLINK            50
+N04  C                   EVAL      PAID = 'ISOEA'
+N04  C     BRPARFKA      CHAIN     BRPARF                             33
+N04  C  N33              MOVEL     PAVRDA        XEMAVS           50
+N04  C                   EVAL      PAID = 'ISOEM'
+N04  C     BRPARFKM      CHAIN     BRPARF                             33
+N04  C  N33              MOVEL     PAVRDA        XEMMOT           50
+     C                   MOVE      USAKN         XSAKN             7 0
+S02  C*                  MOVEL     UUSRAVS       XUSRAVS           8
+S02  C*                  MOVEL     UUSRMOT       XUSRMOT           8
+N03  C     XSAKN         CHAIN     ISOFL8                             33
+N05  C     ISFPFO        CHAIN     ISOKDT                             33
+      *
+     C                   ENDSR
+      *

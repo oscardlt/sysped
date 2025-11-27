@@ -1,0 +1,166 @@
+**********************************************************************************************
+      *  Arkiver dokument knyttet KUN TIL KUNDE (ikke oppdrag / tur/bilag mm)
+      *  Typisk signerte kundeavtaler mm i PDF.
+**********************************************************************************************
+      * OBS - FØR KJØRING må typen være definert i fil ARKTXT
+      *       og denne bør gjerne peke på "eksternt" arkivlager med
+      *       avvikende bane (f.eks /pdf/scan ) (fil ARKEXT)
+**********************************************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 ignorer evt timestamp bakerst ...xlsx_2009-11-27
+********************************************************************
+      *""""""""""""""""
+     H DFTACTGRP(*NO)
+      *""""""""""""""""
+     FFIRMARC   IF   E           K DISK
+     FARKIVP    O    E             DISK
+     FFIRM      IF   E             DISK
+     FCUNDL01   IF   E           K DISK
+     FARKTXT    IF   E           K DISK    PREFIX(X_)
+     FARKEXT    IF   E           K DISK    PREFIX(Y_)
+      *""""""""""""""""
+     D DirName         S            100A
+     D EntryName       S            120A
+     D EntryPath       S            256A
+      *________________
+      * Andre variabler
+      *""""""""""""""""
+     D UND             S             10
+     D UND8            S              8
+     D TYPE            S              2
+     D NULL            S              1A   INZ(X'00')
+     D CMDLINE         S            512
+     D CMDLEN          S             15  5
+     D NEWDIR          S            100
+     D NEWFILE         S            100
+     D NEWOBJ          S            200
+s01  D*NEWEND          S              4
+n01  D NEWEND          S             10
+     D NEWRAN          S             10
+
+     C                   EXSR      INIT
+     C                   EXSR      MOV
+     C     OkMov         IFEQ      'J'
+     C                   EXSR      ARK
+     C                   end
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+
+      *////////////////////////////////////////////////////////////
+      *  Init                                                INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     *entry        PLIST
+     C                   PARM                    DirName
+     C                   PARM                    EntryName
+     C                   PARM                    EntryPath
+      * Type er 2 første av filnavn
+     C                   EVAL      TYPE = %subst(EntryName:1:2)
+      * Kundenr  er 8 neste av filnavn (3-10)
+     C                   EVAL      UND = %subst(EntryName:3:10)
+     C                   Movel     UND           UND8
+     C                   TESTN                   UND8                 30
+     C                   IF        *IN30=*OFF
+     C                   EVAL      *INLR=*ON
+     C                   RETURN
+     C                   ENDIF
+     C                   Movel     UND           KUNDNR
+      * Les firmafil for å få tak i firmakode.
+     C                   READ      FIRM
+     c     KunKey        Chain     Cundl01                            33
+     C     *IN33         IFEQ      *ON
+     C                   EVAL      *inlr = *on
+     C                   RETURN
+     C                   end
+      * Definiere parameterliste
+     C     QCMDEXC       PLIST
+     C                   PARM                    CMDLINE
+     C                   PARM                    CMDLEN
+     C                   READ      FIRMARC                                41
+
+     C     EXKEY         KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    X_ARKLAG
+     C     KunKey        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    KUNDNR
+      *
+      *
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Flytt og endre navn på fil                           MOV /
+      *////////////////////////////////////////////////////////////
+     C     MOV           BEGSR
+      * Hent dato og klokkeslett
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDATO             8
+     C                   PARM                    WTID              6
+      * Hent slutt på filnavn (ex. .pdf) fra frafil
+     C     '.'           SCAN      EntryName     X                 3 0
+s01  C*                  EVAL      NEWEND = %SUBST(EntryName:X:4)
+n01  C     '_'           SCAN      EntryName:X   Y                 3 0
+N01  c     Y             ifeq      *zeros
+n01  C     ' '           SCAN      EntryName:X   Y                 3 0
+N01  c                   end
+n01  C                   EVAL      NEWEND = %SUBST(EntryName:X:y-x)
+      * Generer random number
+     C                   CALL      'ARCRAN'
+     C                   PARM                    NEWRAN
+      * Definier ny katalog Hent fra standard
+     C                   EVAL      NEWDIR = '/' + %trimr(ARCANE)
+      * Er det på dokumenttypenivå angitt avvikende katalog?(via EXT lager)
+     C                   EVAL      *IN51 = *OFF
+     C     TYPE          CHAIN     ARKTXT                             51
+     C                   IF        *IN51 = *OFF
+     C     X_ARKLAG      IFNE      *BLANKS
+     C     EXKEY         CHAIN     ARKEXT                             51
+     C                   IF        *IN51 = *OFF
+     C                   EVAL      NEWDIR = '/' + %trimr(Y_ARCANE)
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+      * Definier nytt filnavn
+     C                   EVAL      NEWFILE= %trim(TYPE)
+     C                             + %SUBST(WDATO:1:4)
+     C                             + %trimr(UND)
+     C                             + NEWRAN
+     C                             + NEWEND
+      * Lag nytt objektnavn
+     C                   EVAL      NEWOBJ = %trim(NEWDIR) + '/'
+     C                             + %trimr(NEWFILE)
+      * Flytte objekt
+     C                   EVAL      CmdLine = 'MOV OBJ(' + X'7D'
+     C                             + %trimr(EntryPath) + X'7D'
+     C                             + ') TOOBJ(' +X'7D'
+     C                             + %trimr(NEWOBJ) + X'7D' + ')'
+     C                   EVAL      CmdLen = %len(%trim(CmdLine))
+     C                   MOVE      'J'           OkMov             1
+     C                   MOVEl     EntryPath     FRA             120
+     C                   MOVEl     NewObj        Til             120
+     C                   CALL      'ARCAMOVC'
+     C                   PARM                    FRA
+     C                   PARM                    TIL
+     C                   PARM                    OkMov
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Skriv til ARKIVP                                     ARK /
+      *////////////////////////////////////////////////////////////
+     C     ARK           BEGSR
+      * Skriv til ARKIVP
+     C                   CLEAR                   ARKIVR
+
+     C                   EVAL      ARSTAT = 'A'
+     C                   EVAL      ARTYPE = TYPE
+     C                   EVAL      ARFIRM = FIFIRM
+     C
+     C                   EVAL      ARUNDE = 'K:' + UND
+     C                   EVAL      ARUSER = 'SY400USR'
+     C                   move      WDATO         ARDATE
+     C                   movel     WTID          ARTIME
+     C                   EVAL      ARKUND = KUNDNR
+     C                   EVAL      ARLINK = NEWFILE
+     C                   WRITE     ARKIVR
+      *
+     C                   ENDSR

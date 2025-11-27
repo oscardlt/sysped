@@ -1,0 +1,402 @@
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+P10XX * 01 CB  PTF10 Søk på type
+11085 * 02 CB  PTF11 Søk externe fakturer
+P1XXX * 03 CB  PTF11 Fel summering olika valutor
+     FSVI002D   CF   E             WORKSTN
+     F                                     SFILE(SVI002DA:ZRECNO)
+N01  F                                     INFDS(FBAREA)
+     FSVIF      UF A E           K DISK
+     FSVIF1     IF   E           K DISK
+     F                                     RENAME(SVIFR:SVIFR1)
+     FSVTVK     IF   E           K DISK
+N01  D FBAREA          DS
+N01  D  WSCLOC               370    371B 0
+N01  D  WSSUBN               378    379B 0
+      *//////////////
+      *  Hodelogikk /
+      *//////////////
+     C                   EXSR      SRA
+     C                   EXSR      SRB
+     C                   EXSR      SRC
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Initiering                                           SRA /
+      *////////////////////////////////////////////////////////////
+     C     SRA           BEGSR
+     C     *LIKE         DEFINE    ZRECNO        WRECNO
+     C     *LIKE         DEFINE    *IN03         WIN03
+     C     *LIKE         DEFINE    SVIF_SYAV     ZVIF_SYAV
+     C     *LIKE         DEFINE    SVIF_SYOP     ZVIF_SYOP
+     C     *LIKE         DEFINE    SVIF_VAKD     XVIF_VAKD
+     C     *LIKE         DEFINE    SVIF_VAKU     XVIF_VAKU
+     C     *LIKE         DEFINE    SVIF_FABL     XVIF_FABL
+     C     *LIKE         DEFINE    SVVK_DTS      ZVVK_DTS
+     C                   EVAL      ZVVK_DTS=99999999
+      *_________________
+      * Input parametere
+      *"""""""""""""""""
+     C     *ENTRY        PLIST
+     C                   PARM                    ZVIF_SYAV
+     C                   PARM                    ZVIF_SYOP
+     C                   PARM                    XVIF_VAKD
+     C                   PARM                    XVIF_VAKU
+     C                   PARM                    XVIF_FABL
+      *__________________
+      * Definiere Nøkkler
+      *""""""""""""""""""
+     C     KEYA1         KLIST
+     C                   KFLD                    ZVIF_SYAV
+     C                   KFLD                    ZVIF_SYOP
+     C     KEYA          KLIST
+     C                   KFLD                    ZVIF_SYAV
+     C                   KFLD                    ZVIF_SYOP
+     C                   KFLD                    SVIF_FATX
+     C     KEYB          KLIST
+     C                   KFLD                    ZVIF_SYAV
+     C                   KFLD                    ZVIF_SYOP
+     C                   KFLD                    ZVIF_FATX
+     C     SVTVKKEY      KLIST
+     C                   KFLD                    ZVIF_VAKD
+     C                   KFLD                    ZVVK_DTS
+      *_________________________________
+      * Hæmta dagens datum och klockslag
+      *"""""""""""""""""""""""""""""""""
+     C                   CALL      'SYGE15C'
+     C                   PARM                    WDT               8
+     C                   PARM                    WTM               6
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Bearbeide Formater                                   SRB /
+      *////////////////////////////////////////////////////////////
+     C     SRB           BEGSR
+
+     C     SRB1          TAG
+      *______________
+      * Tømme Subfile
+      *""""""""""""""
+     C                   EVAL      *IN93=*ON
+     C                   WRITE     SVI002DB
+     C                   MOVEA     '000'         *IN(93)
+     C                   Z-ADD     *ZERO         ZRECNO
+     C                   Z-ADD     *ZERO         WRECNO
+      *_____________
+      * Fyll Subfile
+      *"""""""""""""
+     C     KEYA1         SETLL     SVIF1
+     C     KEYA1         READE     SVIF1                                  94
+
+     C     *IN94         DOWEQ     '0'
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SVI002DA
+     C     KEYA1         READE     SVIF1                                  94
+     C  N94              ENDDO
+
+     C     ZRECNO        IFEQ      0
+     C                   ADD       1             ZRECNO
+     C                   WRITE     SVI002DA
+     C                   ENDIF
+     C                   EVAL      WRECNO=ZRECNO
+     C                   EVAL      ZRECNO=1
+      *_______________
+      * Behandle bilde
+      *"""""""""""""""
+     C     SRB3          TAG
+
+     C                   MOVEA     '11'          *IN(91)
+     C  N30              EVAL      ZMSGNO='SY00000'
+     C                   WRITE     SVI002DØ
+     C                   WRITE     SVI002DC
+     C                   EXFMT     SVI002DB
+
+     C     *IN03         IFEQ      '0'
+     C     *IN12         ANDEQ     '0'
+
+     C                   MOVEA     '00'          *IN(91)
+N02   *______________________
+N02   * F4=Søk Externreferans
+N02   *""""""""""""""""""""""
+N02  C     *IN04         IFEQ      '1'
+N02  C                   EXSR      SRBE
+N02  C     *IN03         CABEQ     '1'           SRB9
+N02  C                   GOTO      SRB1
+N02  C                   ENDIF
+      *_____________
+      * F5=Frisk opp
+      *"""""""""""""
+     C     *IN05         CABEQ     '1'           SRB1
+      *___________
+      * F6=Lage ny
+      *"""""""""""
+     C     *IN06         IFEQ      '1'
+     C                   EXSR      SRBA
+     C     *IN03         CABEQ     '1'           SRB9
+     C                   GOTO      SRB3
+     C                   ENDIF
+      *_______
+      * Valg ?
+      *"""""""
+     C                   EVAL      *IN52=*OFF
+     C                   EVAL      *IN95=*OFF
+     C     *IN52         DOWEQ     '0'
+
+     C                   READC     SVI002DA                               52
+     C     *IN52         IFEQ      '0'
+     C     ZOP           CASEQ     '2'           SRBB                           Endre
+     C     ZOP           CASEQ     '4'           SRBD                           Slette
+     C                   ENDCS
+     C                   ENDIF
+      *
+     C  N52              ENDDO
+
+     C     *IN03         CABEQ     '1'           SRB9
+     C     *IN12         CABEQ     '1'           SRB3
+     C                   GOTO      SRB1
+
+     C                   ENDIF
+
+     C     SRB9          ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Lage ny                                             SRBA /
+      *////////////////////////////////////////////////////////////
+     C     SRBA          BEGSR
+      *
+     C     SRBA1         TAG
+      *
+      *____________
+      * Blanke felt
+      *""""""""""""
+     C                   MOVEA     '0000'        *IN(30)
+     C                   MOVE      *BLANKS       SVIF_FATY
+     C                   MOVE      *BLANKS       SVIF_FATX
+     C                   MOVE      *BLANKS       SVIF_VAKD
+     C                   MOVE      *ZEROS        SVIF_VAKU
+     C                   MOVE      *ZEROS        SVIF_FABL
+     C  N30              EVAL      ZMSGNO='SY00000'
+     C                   WRITE     SVI002DØ
+N01  C     SRBA2         TAG
+     C                   EXFMT     SVI002DD
+     C                   MOVEA     '0000'        *IN(30)
+N01   *_______
+N01   * F4=Søk
+N01   *"""""""
+N01  C     WSCLOC        DIV       256           LINNBR
+N01  C                   MVR                     POSNBR
+N01   * Bilagda handlingar, kod
+N01  C     *IN04         IFEQ      '1'
+N01  C     LINNBR        ANDEQ     22
+N01  C     POSNBR        ANDEQ     4
+N01  C                   CALL      'SVT003R'
+N01  C                   PARM      'MCF'         UTYP              3
+N01  C                   PARM      'A'           UIE               1
+N01  C                   PARM      WDT           UDATO             8
+N01  C                   PARM                    UKD              10
+N01  C     UKD           IFNE      *BLANKS
+N01  C                   EVAL      ZVIF_FATY=UKD
+N01  C                   ENDIF
+N01  C                   GOTO      SRBA2
+N01  C                   ENDIF
+     C     *IN03         IFEQ      '0'
+     C     *IN05         ANDEQ     '0'
+     C     *IN12         ANDEQ     '0'
+      *____________
+      * Teste input-1
+      *""""""""""""
+      * Post må ikke finnes fra før.
+     C     KEYB          CHAIN(N)  SVIF                               53
+     C                   IF        *IN53=*OFF
+     C                   EVAL      ZMSGNO='SY00100'
+     C                   MOVEA     '1110'        *IN(30)
+     C                   GOTO      SRBA1
+     C                   ENDIF
+      *____________________________
+      * Hent kurs hvis ikke oppgitt
+      *""""""""""""""""""""""""""""
+     C     ZVIF_VAKD     IFNE      *BLANKS
+     C     ZVIF_VAKU     ANDEQ     *ZEROS
+     C     SVTVKKEY      SETGT     SVTVK
+     C                   READP     SVTVK                                  54
+     C     *IN54         IFEQ      *OFF
+     C                   EVAL      ZVIF_VAKU=SVVK_KRS
+     C                   ENDIF
+     C                   ENDIF
+      *___________________
+      * Adda post til  FIL
+      *"""""""""""""""""""
+     C                   EVAL      SVIF_SYAV=ZVIF_SYAV
+     C                   EVAL      SVIF_SYOP=ZVIF_SYOP
+     C                   EVAL      SVIF_FATY=ZVIF_FATY
+     C                   EVAL      SVIF_FATX=ZVIF_FATX
+     C                   EVAL      SVIF_VAKD=ZVIF_VAKD
+     C                   EVAL      SVIF_VAKU=ZVIF_VAKU
+     C                   EVAL      SVIF_FABL=ZVIF_FABL
+     C                   WRITE     SVIFR
+      *______________________
+      * Adda post til  SUBFIL
+      *""""""""""""""""""""""
+     C                   ADD       1             WRECNO
+     C                   EVAL      ZRECNO=WRECNO
+     C                   WRITE     SVI002DA
+
+     C                   GOTO      SRBA1
+
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Endre                                               SRBB /
+      *////////////////////////////////////////////////////////////
+     C     SRBB          BEGSR
+      *_________________
+      * Oppdatere SUBFIL
+      *"""""""""""""""""
+     C                   MOVE      *BLANKS       ZOP
+     C                   UPDATE    SVI002DA
+      *____________
+      * Flytte felt
+      *""""""""""""
+     C     KEYA          CHAIN(N)  SVIF                               53
+     C   53              GOTO      SRBB9
+     C                   MOVEA     '0000'        *IN(30)
+     C                   EVAL      ZVIF_FATY=SVIF_FATY
+     C                   EVAL      ZVIF_FATX=SVIF_FATX
+     C                   EVAL      ZVIF_VAKD=SVIF_VAKD
+     C                   EVAL      ZVIF_VAKU=SVIF_VAKU
+     C                   EVAL      ZVIF_FABL=SVIF_FABL
+
+     C     SRBB1         TAG
+
+     C  N30              EVAL      ZMSGNO='SY00000'
+     C                   WRITE     SVI002DØ
+     C                   EXFMT     SVI002DD
+     C                   MOVEA     '000'         *IN(30)
+     C     *IN12         IFEQ      '0'
+      *____________
+      * Teste input
+      *""""""""""""
+     C   30              GOTO      SRBB1
+      *______________
+      * Oppdatere FIL
+      *""""""""""""""
+     C     KEYA          CHAIN     SVIF                               53
+     C   53              GOTO      SRBB9
+     C                   EVAL      SVIF_FATY=ZVIF_FATY
+     C                   EVAL      SVIF_FATX=ZVIF_FATX
+     C                   EVAL      SVIF_VAKD=ZVIF_VAKD
+     C                   EVAL      SVIF_VAKU=ZVIF_VAKU
+     C                   EVAL      SVIF_FABL=ZVIF_FABL
+     C                   UPDATE    SVIFR
+
+     C                   ENDIF
+
+     C     SRBB9         TAG
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Slette                                              SRBD /
+      *////////////////////////////////////////////////////////////
+     C     SRBD          BEGSR
+      *______________
+      * Oppdatere FIL
+      *""""""""""""""
+     C     KEYA          CHAIN     SVIF                               53
+     C                   DELETE    SVIFR
+      *_________________
+      * Oppdatere SUBFIL
+      *"""""""""""""""""
+     C                   MOVE      *BLANKS       ZOP
+     C                   MOVE      *BLANKS       SVIF_FATY
+     C                   MOVE      *BLANKS       SVIF_FATX
+     C                   MOVE      *BLANKS       SVIF_VAKD
+     C                   MOVE      *BLANKS       SVIF_VAKU
+     C                   MOVE      *BLANKS       SVIF_FABL
+     C                   UPDATE    SVI002DA
+     C                   EVAL      *IN95=*ON
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Summera alla fakturor                                SRC /
+      *////////////////////////////////////////////////////////////
+     C     SRC           BEGSR
+      * - Om alla poster ær av samma valuta skall dom summeras med aktuell valuta.
+      * - Om det førekommer olika valutor skall omrækning til SEK ske.
+      * - 95=Olika valutor          N95=Samma valuta
+     C                   EXSR      SRCA
+
+     C                   IF        *IN95
+     C                   EXSR      SRCB                                         Olika valutor
+     C                   ELSE
+     C                   EXSR      SRCC                                         Samma valuta
+     C                   ENDIF
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Summera alla fakturor, olika valutor ?              SRCA /
+      *////////////////////////////////////////////////////////////
+     C     SRCA          BEGSR
+
+     C                   EVAL      *IN94=*OFF
+     C                   EVAL      *IN95=*OFF
+     C     KEYA1         SETLL     SVIF1
+     C     KEYA1         READE     SVIF1                                  94
+     C                   EVAL      XVIF_VAKD=SVIF_VAKD
+
+     C     *IN94         DOWEQ     '0'
+     C                   IF        XVIF_VAKD <> SVIF_VAKD
+     C                   EVAL      *IN95=*ON
+     C                   ENDIF
+     C     KEYA1         READE     SVIF1                                  94
+     C  N94              ENDDO
+
+      * 95=Olika valutor          N95=Samma valuta
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Summera alla fakturor, Olika valutor                SRCB /
+      *////////////////////////////////////////////////////////////
+     C     SRCB          BEGSR
+
+     C                   EVAL      *IN94=*OFF
+     C                   EVAL      XVIF_VAKD='SEK'
+     C                   EVAL      XVIF_VAKU=1
+     C                   EVAL      XVIF_FABL=0
+     C     KEYA1         SETLL     SVIF1
+     C     KEYA1         READE     SVIF1                                  94
+N03  C     *IN94         DOWEQ     '0'
+     C                   EVAL      ZVIF_FABL=SVIF_FABL*SVIF_VAKU
+     C                   ADD       ZVIF_FABL     XVIF_FABL
+     C     KEYA1         READE     SVIF1                                  94
+     C  N94              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *  Summera alla fakturor, Samma valuta                 SRCC /
+      *////////////////////////////////////////////////////////////
+     C     SRCC          BEGSR
+
+     C                   EVAL      *IN94=*OFF
+     C                   EVAL      XVIF_FABL=0
+     C     KEYA1         SETLL     SVIF1
+     C     KEYA1         READE     SVIF1                                  94
+     C                   EVAL      XVIF_VAKD=SVIF_VAKD
+     C                   EVAL      XVIF_VAKU=SVIF_VAKU
+
+     C     *IN94         DOWEQ     '0'
+     C                   ADD       SVIF_FABL     XVIF_FABL
+     C     KEYA1         READE     SVIF1                                  94
+     C  N94              ENDDO
+
+     C                   ENDSR
+N02   *////////////////////////////////////////////////////////////
+N02   *  Søk extern referanse                                SRBE /
+N02   *////////////////////////////////////////////////////////////
+N02  C     SRBE          BEGSR
+N02   *________
+N02   * Externt
+N02   *""""""""
+N02  C                   CALL      'SVI038R'
+N02  C                   PARM                    ZVIF_SYAV
+N02  C                   PARM                    ZVIF_SYOP
+N02  C                   ENDSR

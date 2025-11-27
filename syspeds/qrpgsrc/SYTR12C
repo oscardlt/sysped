@@ -1,0 +1,380 @@
+      **************************************************************
+      *** PROGRAM SKAL ARBEIDE MED LEVERANDØRAVREGNING           ***
+      ***        AKKUMULERE DUMMY TUR (TURNR = 0000/TRANSP.NR)   ***
+      ***                             (RUNDTUR=99999998)         ***
+      ***                                                        ***
+      ***        GODSKRIVER EN  TRANSPORTØR DE REKVISISJONER     ***
+      ***        DER HAN ER DEN UTFØRENDE                        ***
+      ***        TREKKER FOR UTLEGG UTENOM TRAFIKKEN (0 I TURNR) ***
+      **************************************************************
+********************************************************************
+      * RETTINGER I DETTE PROGRAM:
+PTFnr:*Sek Sig Vers  Beskrivelse...........................
+""""""*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+10XXX * 01 JOV PTF10 dersom eksakt 1000 linjer gikk telleverk rundt (THBUDA = 0)
+      *              systemet trodde det avr ingenting til avregning - NÅ også test mot THTOT
+********************************************************************
+      *
+     FTRAVH     O  A E           K DISK
+     FTRAVH1    UF   E           K DISK
+     F                                     RENAME(TRAVHR:TRVH1R)
+     FTRAVV2    UF A E           K DISK
+     FKOSBU4    IF   E           K DISK
+     F                                     RENAME(KOSBUR:KOSB4R)
+     FKOSBU10   IF   E           K DISK
+     FVALUL01   IF   E           K DISK
+     FTRAN      IF   E           K DISK
+     FFIRM      IF   E           K DISK
+     FHEADF     IF   E           K DISK
+     FTURER     IF   E           K DISK
+     D                 DS
+     D  UUPERC                 1      2  0
+     D  UUPERÅ                 3      4  0
+     D  UUPERM                 5      6  0
+     D  DSUUÅM                 1      6  0
+     D                 DS
+     D  BUPCC                  1      2  0
+     D  BUPÅR                  3      4  0
+     D  BUPMN                  5      6  0
+     D  DSBUÅM                 1      6  0
+     D                 DS
+     D  HESDF                  1      5
+     D  HESDT                  7     11
+     D  OPFTDS                 1     11
+     D                 DS
+     D  TUSTEF                 1      5
+     D  TUSTET                 7     11
+     D  TUFTDS                 1     11
+     D                 DS
+     D  BUTXT                  1     35
+     D  BUTX_7                29     35
+     C                   EXSR      INIT
+     C* DUMMYTUR SETTES TILBAKE TIL STATUS ' ' VED OVERF. TIL REGNSKAP
+     C* KAN IKKE AKKUMULERE NY FØR GAMMEL ER OVERFØRT
+     C*  99 ON DERSOM STATUS / ELLER "I ARBEID" ER ULIK BLANK (IKKE REGENERER)
+     C  N99              EXSR      TREKK
+     C  N99              EXSR      GODSKR
+     C     UVIS          IFEQ      'J'
+     C                   MOVE      'J'           XSPØR             1
+     C                   MOVE      ' '           XF12              1
+     C                   CALL      'SYTR12B'
+     C                   PARM                    YAVD
+     C                   PARM                    YTUNR
+     C                   PARM                    XSPØR
+     C                   PARM                    XF12
+     C                   END
+     C*
+     C     SLUTT         TAG
+     C                   SETON                                        LR
+     C                   RETURN
+     C*
+     C***********************************************
+     C     GODSKR        BEGSR
+     C***********************************************
+     C* OPPDRAG HVOR TRANPSORTØREN VIA REKVISISJON ER INNLEID
+     C* FOR DELTRANSPORTER GODSKRIVES (ER IKKE SELV TURENS TRANSP.)
+     C* DISSE SAMLES UNDER DUMMY RUNDTUR 99999998  / TUR 0000/XXXXXXXX
+     C*
+     C*  DETTE  ER AKTUELT KUN FOR TRANSPORTØRER AV TYPE '0'
+     C*  ( GODSKRIVES KREDITNOTA ) FOR DE SOM SENDER FAKTURA SØKER EN DIREKTE
+     C*  I REKVISISJONSSYSTEM....                                      I
+     C*
+     C                   MOVE      ' '           TVST
+     C                   MOVE      *ZEROS        TVFAKT
+     C* BUDSJETTPOSTEN VIL ALLTID VÆRE ÅPEN - TRANSPORTØREN ER JO LEVERANDØR
+     C* AV TJENESTEN - IKKE BEHOV FOR Å SJEKKE ANDRE STATUSER PÅ BUDSJ.
+     C                   MOVE      ' '           YST
+     C     KOS4K         SETLL     KOSBU4
+     C     B4TAG         TAG
+     C                   READ      KOSBU4                                 34
+     C  N34BUST          COMP      ' '                                3434
+     C  N34BUTNR         COMP      UTNR                               3434
+     C  N34DSBUÅM        IFGT      DSUUÅM
+     C                   GOTO      B4TAG
+     C                   END
+     C  N34BUFER         IFEQ      'F'                                          * IKKE FERGE
+     C     BUTUNR        OREQ      *ZEROS                                       * IKKE TREKK
+     C                   GOTO      B4TAG
+     C                   END
+      * Ordinær direkte belastning pr oppdrag er allerede tatt inn under turbehandling
+     C  N34BUTX_7        IFEQ      '* OPD *'
+     C                   GOTO      B4TAG
+     C                   END
+      *
+      * OK - legg ut post
+     C  N34              DO
+     C* I KOSBU LIGGER LEVR.FAKT MED POS. FORTEGN (INGEN SNU->GODSKRIVING)
+     C* LEGG UT DETALJPOST
+     C                   MOVE      'F'           TVTYP
+     C                   ADD       1             THBUDA
+     C                   MOVE      THBUDA        TVLNR
+     C                   MOVE      BUBNR         TVBNRB
+     C                   MOVE      *ZEROS        TVBNRK
+     C                   MOVE      BUOAVD        TVOAVD
+     C                   MOVE      BUOPD         TVOPD
+     C                   MOVE      BUVK          TVVK
+     C                   MOVE      BUTXT         TVTXT
+     C* DERSOM IKKE TEKSTET - LEGG INN FRA TIL STED FRA OPPDR./TUR.
+     C     BUTXT         IFEQ      *BLANKS
+     C     BUOPD         IFNE      *ZEROS
+     C     HEADFK        CHAIN     HEADF                              33
+     C  N33              MOVEL     OPFTDS        TVTXT
+     C                   ELSE
+     C     TURERK        CHAIN     TURER                              33
+     C  N33              MOVEL     TUFTDS        TVTXT
+     C                   END
+     C                   END
+     C                   MOVE      *ZEROS        TVPRO
+     C                   MOVE      BUTYPE        TVAVES
+     C                   MOVE      *BLANKS       TVOPKO
+     C                   MOVE      BUVAL         TVVAL
+     C                   Z-ADD     BUBL          TVBL
+     C     TVVAL         IFNE      FICURR
+     C                   EXSR      VALUT
+     C                   ELSE
+     C                   Z-ADD     TVBL          TVBLL
+     C                   END
+     C                   Z-ADD     TVBLL         TVBLLB
+     C                   EXSR      DECI1
+     C                   WRITE     TRAVVR
+     C* AKKUMULER PÅ TURNIVÅ
+     C                   ADD       TVBLL         THBUD
+     C                   ADD       TVBLL         THTOT
+     C* FLERE ??
+     C                   GOTO      B4TAG
+     C                   END
+     C*
+     C* IKKE LEGG UT POST OM INGEN TREKK ELLER UTFØRTE INNH/UTKJ. M.M.
+     C     THBUDA        IFNE      *ZEROS
+N01  C     THTOT         orne      *ZEROS
+     C                   WRITE     TRAVHR
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     TREKK         BEGSR
+     C***********************************************
+     C* OPPDRAG HVOR TRANPSORTØREN VIA REKVISISJON HAR BENYTTET
+     C* OPPDRAGSSGIVERS KREDITT - UTEN TILKNYTNING TIL TUR/OPPDRAG
+     C* DISSE UTLEGGENE SPESIFISERES SAMMEN MED EVT GODSKRIVINGER
+     C*
+     C*  DETTE  ER AKTUELT KUN FOR TRANSPORTØRER AV TYPE '0' AVREGNES
+     C*
+     C     KOS10K        SETLL     KOSBU10
+     C*
+     C     KOS10K        READE     KOSBU10                                34
+     C     DSBUÅM        IFGT      DSUUÅM
+     C                   MOVE      '1'           *IN34
+     C                   END
+     C     *IN34         DOWEQ     '0'
+     C     BUFER         IFNE      'F'                                          * IKKE FERGE
+     C* I KOSBU LIGGER LEVR.FAKT MED POS. FORTEGN (SNU->TREKK)         NG)
+     C* LEGG UT DETALJPOST
+     C                   MOVE      'F'           TVTYP
+     C                   ADD       1             THBUDA
+     C                   MOVE      THBUDA        TVLNR
+     C                   MOVE      BUBNR         TVBNRB
+     C                   MOVE      *ZEROS        TVBNRK
+     C                   MOVE      BUOAVD        TVOAVD
+     C                   MOVE      BUOPD         TVOPD
+     C                   MOVE      BUVK          TVVK
+     C                   MOVE      BUTXT         TVTXT
+     C                   MOVE      *ZEROS        TVPRO
+     C                   MOVE      BUTYPE        TVAVES
+     C                   MOVE      *BLANKS       TVOPKO
+     C                   MOVE      BUVAL         TVVAL
+     C                   Z-SUB     BUBL          TVBL
+     C     TVVAL         IFNE      FICURR
+     C                   EXSR      VALUT
+     C                   ELSE
+     C*OBS FEIL EN PERIODE Z-SUBTVBL      TVBLL
+     C                   Z-ADD     TVBL          TVBLL
+     C                   END
+     C                   Z-ADD     TVBLL         TVBLLB
+     C                   EXSR      DECI1
+     C                   WRITE     TRAVVR
+     C* AKKUMULER PÅ TURNIVÅ
+     C                   ADD       TVBLL         THBUD
+     C                   ADD       TVBLL         THTOT
+     C                   END                                                     *BUFER
+     C* FLERE ??
+     C     KOS10K        READE     KOSBU10                                34
+     C     DSBUÅM        IFGT      DSUUÅM
+     C                   MOVE      '1'           *IN34
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     DECI1         BEGSR
+     C***********************************************
+     C* TEST FIRMS NUMBER OF DECIMALS
+     C*
+     C* NO DECIMALS
+     C     FIDECI        IFEQ      0
+     C                   Z-ADD(H)  TVBLL         FABEL0           11 0
+     C                   Z-ADD     FABEL0        TVBLL
+     C                   ELSE
+     C* 1 DECIMAL
+     C     FIDECI        IFEQ      1
+     C                   Z-ADD(H)  TVBLL         FABEL1           12 1
+     C                   Z-ADD     FABEL1        TVBLL
+     C                   END
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C***********************************************
+     C     DELDET        BEGSR
+     C***********************************************
+     C* FJERN EVT. GAMLE ÅPNE DETALJLINJER FRA TRAVV
+     C                   MOVE      ' '           YVST
+     C                   SETOFF                                       39
+     C     TRAVK         SETLL     TRAVV2
+     C*
+     C     TRAVK         READE     TRAVV2                                 39
+     C     *IN39         DOWEQ     '0'
+     C                   DELETE    TRAVVR
+     C     TRAVK         READE     TRAVV2                                 39
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C*
+     C*
+     C***********************************************
+     C     MOVBX         BEGSR
+     C***********************************************
+     C                   MOVE      ' '           THST
+     C                   Z-ADD     UTNR          THTNR
+     C                   Z-ADD     99999998      THRTNR
+     C                   Z-ADD     YAVD          THTAVD
+     C                   Z-ADD     YTUNR         THTUNR
+     C* MVAKODE - ANTAR AT DET ER J I MOMSKODE PÅ STRØOPPDARGENE
+     C                   MOVE      ' '           THKDM
+     C* BLANKER ALLE ARBEIDS VARIABLE TIL TURPOST
+     C                   MOVE      *ZEROS        THAVT
+     C                   MOVE      *ZEROS        THBRT
+     C                   MOVE      *ZEROS        THINH
+     C                   MOVE      *ZEROS        THUTK
+     C                   MOVE      *ZEROS        THRKV
+     C                   MOVE      *ZEROS        THBUD
+     C                   MOVE      *ZEROS        THJUS
+     C                   MOVE      *ZEROS        THTOT
+     C* BLANKER TELLER FOR ANTALL AV ULIKE SUBPOSTER (A-G)
+     C                   MOVE      *ZEROS        THAVTA
+     C                   MOVE      *ZEROS        THBRTA
+     C                   MOVE      *ZEROS        THINHA
+     C                   MOVE      *ZEROS        THUTKA
+     C                   MOVE      *ZEROS        THRKVA
+     C                   MOVE      *ZEROS        THBUDA
+     C                   MOVE      *ZEROS        THJUSA
+     C                   MOVE      ' '           THSTAR
+     C* SETT FASTE FELT FOR ALLE DETALJPOSTER PÅ DENNE TUREN.
+     C                   Z-ADD     YAVD          TVTAVD
+     C                   Z-ADD     YTUNR         TVTUNR
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     VALUT         BEGSR
+     C***********************************************
+     C*
+     C     VALU1K        CHAIN     VALUL01                            39
+     C  N39              DO
+     C     VALKU2        IFNE      0
+     C                   MOVE      VALKU2        VALKU1
+     C                   END
+     C     TVBL          MULT      VALKU1        XWORK            15 4
+     C     XWORK         DIV(H)    OMRFAK        TVBLLB
+     C                   Z-ADD     TVBLLB        TVBLL
+     C                   END
+     C*
+     C                   ENDSR
+     C*
+     C***********************************************
+     C     INIT          BEGSR
+     C***********************************************
+     C**
+     C     *ENTRY        PLIST
+     C                   PARM                    UTNR              8 0          * TRANSP.
+     C                   PARM                    UMND              2 0          * TIL OG MED
+     C                   PARM                    UÅR               2 0            PERIODE
+     C                   PARM                    UVIS              1            *TIL SYTR12B
+     C*
+     C                   MOVE      *ZEROS        DSBUÅM                         *INIT DS
+     C     UMND          IFEQ      0
+     C                   MOVE      *ZEROS        DSUUÅM
+     C                   ELSE
+     C                   Z-ADD     UMND          UUPERM
+     C                   Z-ADD     UÅR           UUPERÅ
+     C     UÅR           IFGT      50
+     C                   MOVE      19            UUPERC
+     C                   ELSE
+     C                   MOVE      20            UUPERC
+     C                   END
+     C                   END
+     C*
+     C                   MOVE      0000          YAVD              4 0
+     C                   Z-ADD     UTNR          YTUNR             8 0
+     C*
+     C     *LIKE         DEFINE    BUST          YST
+     C     *LIKE         DEFINE    TVST          YVST
+     C*
+     C                   MOVE      ' '           YST
+     C* VALUTAFIL
+     C     VALU1K        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    TVVAL
+     C* KEY FOR DETALJLINJER
+     C     TRAVK         KLIST
+     C                   KFLD                    YAVD
+     C                   KFLD                    YTUNR
+     C                   KFLD                    YVST
+     C* KEY FOR HOVEDLINJE (SLETTING)
+     C     TRAH1K        KLIST
+     C                   KFLD                    YAVD
+     C                   KFLD                    YTUNR
+     C* TRANSPORTØR
+     C     TRANKE        KLIST
+     C                   KFLD                    FIFIRM
+     C                   KFLD                    UTNR
+     C* ALLE REKV/BUD.POSTER SORT. PÅ REKVIRERT TRANSPORTØR
+     C     KOS4K         KLIST
+     C                   KFLD                    YST
+     C                   KFLD                    UTNR
+     C* TREKK PÅ TRANSPORTØR
+     C     KOS10K        KLIST
+     C                   KFLD                    UTNR
+     C     HEADFK        KLIST
+     C                   KFLD                    BUOAVD
+     C                   KFLD                    BUOPD
+     C     TURERK        KLIST
+     C                   KFLD                    BUTAVD
+     C                   KFLD                    BUTUNR
+     C*
+     C                   READ      FIRM                                   33
+     C* EKSTRA SIKKERHET MOT AT EN GAMMEL - ENNÅ IKKE OVERFØRT
+     C* "DUMMYTUR" FOR REKV. IKKE SKAL BLI ØDELAGT FØR OVERFØRING TIL
+     C* REGNSKAP (TEST SKAL OGSÅ LIGGE PÅ ET TIDLIGERE NIVÅ)
+     C     TRAH1K        CHAIN     TRAVH1                             33
+     C   33              MOVE      ' '           THST
+     C   33              MOVE      ' '           THSTAR
+     C   33              EXSR      DELDET
+     C  N33THST          IFEQ      ' '
+     C     THSTAR        ANDEQ     ' '
+     C                   DELETE    TRVH1R
+     C                   EXSR      DELDET
+     C                   ELSE
+     C                   SETON                                        99
+     C                   UPDATE    TRVH1R
+     C                   END
+     C     TRANKE        CHAIN     TRAN                               33
+     C*
+     C**                   MOVE '/'       STREK
+     C* INITIER ARBEIDSFELT FOR HEADINGPOST
+     C  N99              EXSR      MOVBX
+     C     UTI           ENDSR
+     C*

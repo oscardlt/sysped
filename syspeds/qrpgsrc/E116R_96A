@@ -1,0 +1,198 @@
+      * Dette programmet startes fra CLP: E116C_96A som i sin tur startes fra
+      * SYEDI Standard gjenom tabellen Kunders standardmeldinger.
+      *
+     FEUNB      IF   E           K DISK
+     FEUNH      IF   E           K DISK
+     FEDIM      IF   E           K DISK
+     FEDTM96A   IF   E           K DISK
+     FEIMD96A   IF   E           K DISK
+     FELIN96A   IF   E           K DISK
+     FENAD96A   IF   E           K DISK
+     FEPIA96A   IF   E           K DISK
+     FEQTY96A   IF   E           K DISK
+     FERFF96A   IF   E           K DISK
+      *________________________
+      * DS for decimal handling
+      *""""""""""""""""""""""""
+     D                 DS
+     D  ZDEC                   1      7  6
+     D  ZDEC6                  2      7
+     D  ZHEL                  11     22  0
+     D                 DS
+     D  WMN2                   1      7  0
+      */////////////
+      * MAIN LOGIC /
+      */////////////
+      *___________
+      * Initiering
+      *"""""""""""
+     C                   EXSR      INIT
+      *________
+      * CONVERT
+      *""""""""
+     C                   EXSR      RTVD
+
+     C                   MOVE      '1'           *INLR
+      *////////////////////////////////////////////////////////////
+      *  Get numerical value                               GETNUM /
+      *////////////////////////////////////////////////////////////
+     C     GETNUM        BEGSR
+     C                   MOVE      *ZEROS        ZHEL
+     C                   MOVE      *ZEROS        ZDEC
+     C                   MOVE      *ZEROS        B
+     C                   Z-ADD     1             AX                2 0
+     C                   Z-ADD     1             BX                2 0
+      * Get Integer
+     C     A(AX)         DOWGE     '0'
+     C     ZHEL          MULT      10            ZHEL
+     C                   MOVE      A(AX)         ZHEL
+     C                   ADD       1             AX
+     C                   ENDDO
+      * Decimal point ?
+     C     A(AX)         IFEQ      '.'
+     C     A(AX)         OREQ      ','
+     C                   ADD       1             AX
+     C     A(AX)         DOWGE     '0'
+     C                   MOVE      A(AX)         B(BX)
+     C                   ADD       1             AX
+     C                   ADD       1             BX
+     C                   ENDDO
+     C                   MOVEA     B             ZDEC6
+     C                   ENDIF
+      * Concatenate
+     C                   Z-ADD     ZHEL          ZNUM             18 6
+     C                   ADD       ZDEC          ZNUM
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      *                                                      INIT /
+      *////////////////////////////////////////////////////////////
+     C     INIT          BEGSR
+     C     KUNDL01K      KLIST
+     C                   KFLD                    XX_FIRMA
+     C                   KFLD                    O0_KUNDNR
+     C     KEYMS0        KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C     KEYMS1        KLIST
+     C                   KFLD                    MMN
+     C                   KFLD                    ZGN0
+     C                   KFLD                    LREP0
+
+     C     *LIKE         DEFINE    NMN           ZMN
+     C     *LIKE         DEFINE    NGN           ZGN0
+
+     C     *ENTRY        PLIST
+     C                   PARM                    WMN1              7
+     C                   MOVEL     WMN1          WMN2
+     C                   Z-ADD     WMN2          ZMN
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * RETREIVE INFO FROM EDIFACT DATABASE TO SYSPED        RTVD /
+      *////////////////////////////////////////////////////////////
+     C     RTVD          BEGSR
+      *__________________
+      * READ ALL SEGMENTS
+      *""""""""""""""""""
+
+     C     ZMN           CHAIN     EDIM                               50
+     C                   IF        *IN50 = *OFF                                 1<-B
+
+      * HENT KUNDES ORDRENR
+     C     ZMN           CHAIN     EUNH                               51
+     C                   MOVEL     U1004         O0_KUNREF
+      * Get interchange values
+     C     UIN           CHAIN     EUNB                               51
+
+      * Les Name&Address
+     C                   EXSR      NAD02
+
+      * Dokumentdato(2005=137)
+     C                   MOVE      *ZEROS        XX_LEVDATO
+     C                   Z-ADD     0             ZGN0
+     C     KEYMS0        SETLL     EDTM96A
+     C     KEYMS0        READE     EDTM96A                                51
+     C     *IN51         DOWEQ     '0'
+     C                   IF        D2005 = '137'
+     C                   ENDIF
+     C     KEYMS0        READE     EDTM96A                                51
+     C  N51              ENDDO
+
+
+      * HENT VARENR OG ANTALL KOLLI
+     C                   Z-ADD     25            ZGN0
+     C     KEYMS0        SETLL     ELIN96A
+     C     KEYMS0        READE     ELIN96A                                51
+     C     *IN51         DOWEQ     '0'
+      * HENT VARENR
+     C                   EXSR      PIA25
+      * HENT VARETEKST
+     C                   EXSR      IMD25
+      * HENT ANTALL KOLLI
+     C                   EXSR      QTY25
+     C     KEYMS0        READE     ELIN96A                                51
+     C  N51              ENDDO                                                   2<-E
+
+     C                   ENDIF                                                  1<-E
+
+     C     SLUTT         ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT VARENR                                         PIA25 /
+      *////////////////////////////////////////////////////////////
+     C     PIA25         BEGSR
+     C     KEYMS1        CHAIN     EPIA96A                            52
+     C                   IF        *IN52
+     C                   MOVEL     L7140         VNR14A
+     C                   ELSE
+     C                   MOVEL     P7140A        VNR14A
+     C                   END
+
+     C     SLVARENR      TAG
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * LES NAME&ADDRESS                                    NAD02 /
+      *////////////////////////////////////////////////////////////
+     C     NAD02         BEGSR
+     C                   Z-ADD     2             ZGN0
+     C     KEYMS0        SETLL     ENAD96A
+     C     KEYMS0        READE     ENAD96A                                51
+     C                   DOW       *IN51 = *OFF
+
+     C                   SELECT
+     C     N3035         WHENEQ    'BY'
+     C     N3035         WHENEQ    'SU'
+     C     N3035         WHENEQ    'DP'
+
+     C                   ENDSL
+
+     C     KEYMS0        READE     ENAD96A                                51
+     C  N51              ENDDO
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT VARETEKST                                      IMD25 /
+      *////////////////////////////////////////////////////////////
+     C     IMD25         BEGSR
+     C                   MOVE      *BLANKS       O0_VARTE1
+     C                   MOVE      *BLANKS       O0_VARTE2
+     C     KEYMS1        SETLL     EIMD96A
+     C     KEYMS1        READE     EIMD96A                                52
+     C                   DOW       *IN52 = *OFF
+     C                   MOVEL     I7008A        O0_VARTE1
+     C                   MOVEL     I7008B        O0_VARTE2
+     C     KEYMS1        READE     EIMD96A                                52
+     C  N52              ENDDO
+
+     C                   ENDSR
+      *////////////////////////////////////////////////////////////
+      * HENT ANTALL KOLLI                                   QTY25 /
+      *////////////////////////////////////////////////////////////
+     C     QTY25         BEGSR
+     C                   MOVE      *ZEROS        O0_BESTIL
+     C     KEYMS1        CHAIN     EQTY96A                            52
+     C                   IF        *IN52 = *OFF
+     C                   MOVEA     Q6060         A
+     C                   EXSR      GETNUM
+     C                   Z-ADD     ZNUM          O0_BESTIL
+     C                   END
+
+     C                   ENDSR

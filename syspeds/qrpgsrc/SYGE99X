@@ -1,0 +1,184 @@
+****‚***************************************************************
+     ‚* RETTINGER I DETTE PROGRAM:
+PTFn‚:*Sek Sig Vers  Beskrivelse...........................
+""""‚"*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+11XXX‚* 01 JOV PTF11 PTF11 fix +/blank i SMSnr
+****‚***************************************************************
+     h dftactgrp(*no) bnddir('HTTPAPI')
+
+     fqsysprt   o    f  132        printer oflind(*inof)
+
+      /copy qrpglesrc,httpapi_h
+      /copy qrpglesrc,ifsio_h
+
+     d incoming        pr
+     d   userdata                      *   value
+     d   depth                       10i 0 value
+     d   name                      1024a   varying const
+     d   path                     24576a   varying const
+     d   value                    32767a   varying const
+     d   attrs                         *   dim(32767)
+     d                                     const options(*varsize)
+     d add_logonhead   pr
+     d   header                    1024a   varying
+     d   userdata                      *   value
+
+     d smsus           s             64a
+
+     D postData        s            750A   varying
+     d msg             s             50a
+     d rc              s             10i 0
+     d url             s            750a   varying
+     d printline       s            132a
+     d filename        s             45a   varying
+     d enc             s                   like(http_url_encoder)
+     d result          s              5i 0
+     d wait            s              1a
+N01  d smsnr2          s             20a   varying
+     ‚*  Prototype for syge99X
+     d syge99x         pr
+     d usrid_                              like(usrid)
+     d pw_                                 like(pw)
+     d smsnr_                              like(smsnr)
+     d body_                               like(body)
+     ‚*  *ENTRY Interface for Main Procedure
+     d syge99x         pi
+     d usrid                        128
+     d pw                            32
+     d smsnr                         16
+     d body                        1280
+
+
+      /free
+
+       *inlr = *on;
+
+       //  sms:{"sms_originator_text": "Mary Jones"}:+46701234567
+       //   {
+       //     "to": "sms:+46704000000",
+       //     "text": "Hello!"
+       //   }
+       //
+       postData =
+           '{ '
+          +  '"to": "sms:+48052470", '
+          +   '"subject": "FIRMANAVN", '
+          +  '"text": "Hello!", '
+          +  '"html": "<b>This message</b> is nicely formatted." '
+          +'}';
+       //
+       //
+       //
+       //
+    ‚  // ****************************************************
+    ‚  //  Sett sammen URL/parametre
+    ‚  // ****************************************************
+N01    smsnr2 = %ScanRpl( ' ': '': smsnr );
+N01    smsnr2 = %ScanRpl( '+': '%2B': smsnr2 );
+N01    smsnr  = smsnr2;
+       url = 'http://tellus-talk.appspot.com/send/v1';
+    ‚  // ****************************************************
+    ‚  //  Definer temporær IFS fil, KJØR URLen som en GET
+    ‚  // ****************************************************
+       filename = http_tempfile() + '.xml';
+
+    ‚  // Pålogging sendes som Headerinfo først
+       smsus   = ' Basic AAAAAAAAAAAA';
+       http_xproc( http_point_addl_header
+                 : %paddr(add_logonhead) );
+
+       //rc = http_url_get( url : filename );
+       HTTP_setCCSIDs(1208: 0);    // 1208 = UTF-8
+       rc = http_url_post_xml(%trim(URL)
+                             : %addr(postData) + 2
+                             : %len(postData)
+                             : *NULL
+                             : %paddr(Incoming)
+                             : *NULL );
+       if (rc <> 1);
+         printline = http_error();
+         except;
+       endif;
+
+    ‚  // ****************************************************
+    ‚  //  Slett responsfila
+    ‚  // ****************************************************
+       //unlink(filename);
+       //return;
+
+
+      /end-free
+     oqsysprt   e
+     o                       printline          132
+
+
+     ‚*  The DEPTH parameter indicates the nesting depth of the
+     ‚*  element received.  In the above example, the "item" tag
+     ‚*  would be found at depth=3, since it's inside the "rss"
+     ‚*  and "channel" tags.
+
+     ‚*  The NAME parameter is the name of the XML element that
+     ‚*  has been received.  It might be something like "channel"
+     ‚*  or "title" or "link".
+
+     ‚*  Note that in the above example, there are two different
+     ‚*  depths that have "title" and "link".  They are featured
+     ‚*  inside the "channel" tag, and also inside the "item" tag.
+     ‚*  the "path" parameter will help us sort that out.
+
+     ‚*  The PATH indicates the elements that the current element
+     ‚*  is found inside. So, the channel title is found when the
+     ‚*  path is "/rss/channel" and the name of the element is "title".
+     ‚*  the article titles, however, have a path of "/rss/channel/item"
+     ‚*  and a name of "title".
+
+     ‚*  The VALUE parameter gives us the text that's inside that
+     ‚*  element.
+     ‚*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     p incoming        b
+     d incoming        pi
+     d   userdata                      *   value
+     d   depth                       10i 0 value
+     d   name                      1024a   varying const
+     d   path                     24576a   varying const
+     d   value                    32767a   varying const
+     d   attrs                         *   dim(32767)
+     d                                     const options(*varsize)
+
+     d count           s             10i 0
+     d attrname        s            100a   varying
+     d attrval         s            100a   varying
+      /free
+        // denne returnerer ikke XML så det har inghen hensikt å parse ( uansett kun:  "OK"  )
+
+      /end-free
+     p                 e
+
+     ‚*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     ‚* HTTPAPI will call this (because we set it with http_xproc)
+     ‚* just before sending the HTTP headers to the remote server.
+     ‚* This procedure lets us add any header we like to the
+     ‚* HTTP request.
+
+     ‚* In this example, I'll use it to supply the LogonHead
+     ‚* This way, I can supply a HEADER     that's up to
+     ‚* 1024 characters long.
+
+     ‚* NOTE: Make sure you leave off the SOAPAction header on the
+     ‚*       HTTP_url_post_xml, above, otherwise you'll send two
+     ‚*       of them¤
+     ‚*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     p add_logonhead   b
+     d add_logonhead   pi
+     d   header                    1024a   varying
+     d   userdata                      *   value
+      /free
+       header = 'Authorization:'
+              + %trim(smsus)
+              + x'0d25'
+              + 'Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2'
+              + x'0d25'
+              + 'Connection: keep-alive'
+              + x'0d25';
+      /end-free
+     p                 e

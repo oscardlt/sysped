@@ -1,1 +1,1 @@
-SYSPED RPG-code on iSeries
+SYSPED RPG-code on iSeries - IBM-i
